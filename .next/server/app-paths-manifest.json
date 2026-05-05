@@ -1,0 +1,9 @@
+{
+  "/_not-found/page": "app/_not-found/page.js",
+  "/sobreaviso/[token]/page": "app/sobreaviso/[token]/page.js",
+  "/(dashboard)/auditoria/page": "app/(dashboard)/auditoria/page.js",
+  "/(dashboard)/escalas/page": "app/(dashboard)/escalas/page.js",
+  "/(dashboard)/home/page": "app/(dashboard)/home/page.js",
+  "/(dashboard)/escalas/unidade/[unidadeId]/page": "app/(dashboard)/escalas/unidade/[unidadeId]/page.js",
+  "/(dashboard)/escalas/nova/page": "app/(dashboard)/escalas/nova/page.js"
+}
