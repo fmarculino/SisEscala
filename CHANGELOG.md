@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.1-RC3] - 2026-05-06
+
+### Added
+- Complete User Management Module (Módulo de Gestão de Usuários) restricted to `super_admin` and `admin`.
+- "Meu Perfil" page allowing users to self-manage their name, email, and password.
+- "Esqueceu a senha?" link on the login page and full password recovery flow.
+- "Redefinir Senha" page for safe credential resets.
+- Added `admin` and `comum` roles to the `user_role` database enum.
+- Required `SUPABASE_SERVICE_ROLE_KEY` in `.env.local` to securely create users via server actions without logging out the active admin.
+
+### Changed
+- Dashboard "Escalas Ativas" counter now accurately calculates the number of grouped active scales (by Unit, Sector, Month, and Year) instead of raw database rows, fixing UI discrepancies.
+- Hid all public sign-up options to ensure the system is strictly invitation/admin-created.
+
 ## [0.0.1-RC2] - 2026-05-06
 
 ### Added

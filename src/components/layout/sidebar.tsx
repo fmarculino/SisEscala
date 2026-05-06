@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { LayoutDashboard, Users, Building2, Clock, ShieldCheck, Calendar, Layers } from 'lucide-react'
+import { LayoutDashboard, Users, Building2, Clock, ShieldCheck, Calendar, Layers, Shield, User } from 'lucide-react'
 import { LogoutButton } from './LogoutButton'
 
 const navItems = [
@@ -10,6 +10,8 @@ const navItems = [
   { name: 'Servidores', href: '/servidores', icon: Users },
   { name: 'Dicionário de Turnos', href: '/turnos', icon: Clock },
   { name: 'Auditoria', href: '/auditoria', icon: ShieldCheck },
+  { name: 'Usuários', href: '/usuarios', icon: Shield },
+  { name: 'Meu Perfil', href: '/perfil', icon: User },
 ]
 
 import { ThemeToggle } from '../ThemeToggle'

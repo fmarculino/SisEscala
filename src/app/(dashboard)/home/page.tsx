@@ -8,12 +8,15 @@ export default async function DashboardHome() {
   // Fetch some quick stats
   const { count: unidadesCount } = await supabase.from('unidades').select('*', { count: 'exact', head: true })
   const { count: servidoresCount } = await supabase.from('servidores').select('*', { count: 'exact', head: true })
-  const { count: escalasCount } = await supabase.from('escala_mensal').select('*', { count: 'exact', head: true })
+  
+  // Calculate unique scales matching the list view grouping (unidade, setor, mes, ano)
+  const { data: escalasData } = await supabase.from('escala_mensal').select('unidade_id, setor_id, mes, ano')
+  const escalasCount = escalasData ? new Set(escalasData.map(e => `${e.unidade_id}|${e.setor_id}|${e.mes}|${e.ano}`)).size : 0
 
   const stats = [
     { name: 'Unidades', value: unidadesCount || 0, icon: Building2, color: 'text-blue-600', bg: 'bg-blue-50' },
     { name: 'Servidores', value: servidoresCount || 0, icon: Users, color: 'text-purple-600', bg: 'bg-purple-50' },
-    { name: 'Escalas Ativas', value: escalasCount || 0, icon: Calendar, color: 'text-green-600', bg: 'bg-green-50' },
+    { name: 'Escalas Ativas', value: escalasCount, icon: Calendar, color: 'text-green-600', bg: 'bg-green-50' },
   ]
 
   const quickActions = [

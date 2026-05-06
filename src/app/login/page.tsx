@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { login } from './actions'
 
 export default function LoginPage() {
@@ -45,9 +46,16 @@ export default function LoginPage() {
               />
             </div>
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                Senha
-              </label>
+              <div className="flex items-center justify-between">
+                <label htmlFor="password" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                  Senha
+                </label>
+                <div className="text-sm">
+                  <Link href="/esqueci-a-senha" className="font-medium text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300">
+                    Esqueceu a senha?
+                  </Link>
+                </div>
+              </div>
               <input
                 id="password"
                 name="password"
