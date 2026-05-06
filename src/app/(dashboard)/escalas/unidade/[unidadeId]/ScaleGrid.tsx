@@ -261,23 +261,23 @@ export function ScaleGrid({
 
       <div className="flex-1 overflow-auto no-print">
         <table className="w-full border-collapse text-[10px] table-fixed">
-          <thead className="sticky top-0 z-20 bg-zinc-100 dark:bg-zinc-800">
+          <thead className="sticky top-0 z-20 bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100">
             <tr>
               <th className="sticky left-0 z-30 bg-zinc-100 dark:bg-zinc-800 p-2 border border-zinc-200 dark:border-zinc-700 text-left w-[180px]">Servidor</th>
               <th className="p-2 border border-zinc-200 dark:border-zinc-700 w-[100px]">Tipo</th>
               {daysArray.map(day => (
                 <th key={day} className={`p-1 border border-zinc-200 dark:border-zinc-700 w-[32px] text-center ${getDayOfWeek(day) === 0 || getDayOfWeek(day) === 6 ? 'bg-zinc-200 dark:bg-zinc-700' : ''}`}>
                   {day}
-                  <div className="text-[8px] opacity-50">{['D', 'S', 'T', 'Q', 'Q', 'S', 'S'][getDayOfWeek(day)]}</div>
+                  <div className="text-[8px] opacity-75">{['D', 'S', 'T', 'Q', 'Q', 'S', 'S'][getDayOfWeek(day)]}</div>
                 </th>
               ))}
-              <th className="p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-blue-50 dark:bg-blue-900/20">CH</th>
-              <th className="p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-indigo-50 dark:bg-indigo-900/20">HE100</th>
-              <th className="p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-indigo-50 dark:bg-indigo-900/20">HE50</th>
-              <th className="p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-orange-50 dark:bg-orange-900/20">PL12</th>
-              <th className="p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-orange-50 dark:bg-orange-900/20">PL6</th>
-              <th className="p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-orange-50 dark:bg-orange-900/20">PL4</th>
-              <th className="p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-emerald-50 dark:bg-emerald-900/20">SO12</th>
+              <th className="p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-blue-50 dark:bg-blue-900/20 text-blue-900 dark:text-blue-100">CH</th>
+              <th className="p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-indigo-50 dark:bg-indigo-900/20 text-indigo-900 dark:text-indigo-100">HE100</th>
+              <th className="p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-indigo-50 dark:bg-indigo-900/20 text-indigo-900 dark:text-indigo-100">HE50</th>
+              <th className="p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-orange-50 dark:bg-orange-900/20 text-orange-900 dark:text-orange-100">PL12</th>
+              <th className="p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-orange-50 dark:bg-orange-900/20 text-orange-900 dark:text-orange-100">PL6</th>
+              <th className="p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-orange-50 dark:bg-orange-900/20 text-orange-900 dark:text-orange-100">PL4</th>
+              <th className="p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-emerald-50 dark:bg-emerald-900/20 text-emerald-900 dark:text-emerald-100">SO12</th>
               <th className="p-1 border border-zinc-200 dark:border-zinc-700 w-[50px] bg-amber-400 text-black font-black uppercase">Total</th>
             </tr>
           </thead>
@@ -291,12 +291,12 @@ export function ScaleGrid({
                   {categories.map((cat, catIdx) => (
                     <tr key={`${em.id}-${cat}`} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/30 group">
                       {catIdx === 0 && (
-                        <td rowSpan={4} className="sticky left-0 z-10 bg-white dark:bg-zinc-900 p-2 border border-zinc-200 dark:border-zinc-700 font-bold whitespace-nowrap align-top">
+                        <td rowSpan={4} className="sticky left-0 z-10 bg-white dark:bg-zinc-900 p-2 border border-zinc-200 dark:border-zinc-700 font-bold whitespace-nowrap align-top text-zinc-900 dark:text-zinc-100">
                           {em.servidores.nome}
-                          <div className="text-[8px] font-normal text-zinc-500 uppercase">{em.servidores.cargo}</div>
+                          <div className="text-[8px] font-normal text-zinc-600 dark:text-zinc-400 uppercase">{em.servidores.cargo}</div>
                         </td>
                       )}
-                      <td className={`p-1 border border-zinc-200 dark:border-zinc-700 font-bold uppercase ${cat === 'Extra' ? 'bg-zinc-50 dark:bg-zinc-800/50' : ''}`}>
+                      <td className={`p-1 border border-zinc-200 dark:border-zinc-700 font-bold uppercase text-zinc-800 dark:text-zinc-200 ${cat === 'Extra' ? 'bg-zinc-50 dark:bg-zinc-800/50' : ''}`}>
                         {cat === 'Regular' ? '07h às 19h' : cat === 'Extra' ? 'HORAS EXTRAS' : cat === 'Plantão' ? 'PLANTÕES' : 'SOBREAVISO'}
                       </td>
                       {daysArray.map(day => {
@@ -339,13 +339,13 @@ export function ScaleGrid({
                       })}
                       {catIdx === 0 && (
                         <>
-                          <td rowSpan={4} className="p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-blue-50/30 dark:bg-blue-900/10">{totals.chTotal}</td>
-                          <td rowSpan={4} className="p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-indigo-50/30 dark:bg-indigo-900/10">{totals.he100}</td>
-                          <td rowSpan={4} className="p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-indigo-50/30 dark:bg-indigo-900/10">{totals.he50}</td>
-                          <td rowSpan={4} className="p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-orange-50/30 dark:bg-orange-900/10">{totals.pl12}</td>
-                          <td rowSpan={4} className="p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-orange-50/30 dark:bg-orange-900/10">{totals.pl6}</td>
-                          <td rowSpan={4} className="p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-orange-50/30 dark:bg-orange-900/10">{totals.pl4}</td>
-                          <td rowSpan={4} className="p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-emerald-50/30 dark:bg-emerald-900/10">{totals.so12}</td>
+                          <td rowSpan={4} className="p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-blue-50/30 dark:bg-blue-900/10 text-blue-900 dark:text-blue-100">{totals.chTotal}</td>
+                          <td rowSpan={4} className="p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-indigo-50/30 dark:bg-indigo-900/10 text-indigo-900 dark:text-indigo-100">{totals.he100}</td>
+                          <td rowSpan={4} className="p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-indigo-50/30 dark:bg-indigo-900/10 text-indigo-900 dark:text-indigo-100">{totals.he50}</td>
+                          <td rowSpan={4} className="p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-orange-50/30 dark:bg-orange-900/10 text-orange-900 dark:text-orange-100">{totals.pl12}</td>
+                          <td rowSpan={4} className="p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-orange-50/30 dark:bg-orange-900/10 text-orange-900 dark:text-orange-100">{totals.pl6}</td>
+                          <td rowSpan={4} className="p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-orange-50/30 dark:bg-orange-900/10 text-orange-900 dark:text-orange-100">{totals.pl4}</td>
+                          <td rowSpan={4} className="p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-emerald-50/30 dark:bg-emerald-900/10 text-emerald-900 dark:text-emerald-100">{totals.so12}</td>
                           <td rowSpan={4} className="p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-amber-400 text-black text-xs">{totals.totalGeral}</td>
                         </>
                       )}
@@ -385,15 +385,15 @@ export function ScaleGrid({
               {!generatedLink ? (
                 <>
                   <div>
-                    <p className="text-sm text-zinc-500 mb-1">Informações do Acionamento:</p>
+                    <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-1">Informações do Acionamento:</p>
                     <div className="bg-zinc-100 dark:bg-zinc-800 p-3 rounded-lg space-y-1">
                       <p className="font-bold text-zinc-900 dark:text-white">{triggerModal.servidorNome}</p>
-                      <p className="text-xs text-zinc-500 uppercase">{unidadeId} - {setorId}</p>
+                      <p className="text-xs text-zinc-600 dark:text-zinc-400 uppercase">{unidadeId} - {setorId}</p>
                     </div>
                   </div>
 
                   <div>
-                    <label className="text-sm text-zinc-500 block mb-1">Motivo do Acionamento:</label>
+                    <label className="text-sm text-zinc-600 dark:text-zinc-400 block mb-1">Motivo do Acionamento:</label>
                     <textarea 
                       value={motivo}
                       onChange={(e) => setMotivo(e.target.value)}
@@ -446,7 +446,8 @@ export function ScaleGrid({
                     
                     <button 
                       onClick={() => {
-                        const text = encodeURIComponent(`Olá ${triggerModal.servidorNome}, você foi acionado para um chamado de Sobreaviso.\n\nMotivo: ${motivo}\n\nPor favor, confirme seu aceite através do link: ${generatedLink}`)
+                        // Formatação usando Markdown do WhatsApp (* para negrito)
+                        const text = encodeURIComponent(`Olá *${triggerModal.servidorNome}*, você foi acionado(a) para um chamado de Sobreaviso.\n\n*Motivo:*\n${motivo}\n\n*Para confirmar seu aceite, acesse o link abaixo:*\n${generatedLink}`)
                         window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank')
                       }}
                       className="w-full px-4 py-2 rounded-lg bg-green-600 text-white font-bold hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
@@ -456,7 +457,7 @@ export function ScaleGrid({
 
                     <button 
                       onClick={handleCloseModal}
-                      className="w-full px-4 py-2 rounded-lg text-zinc-500 text-xs hover:underline"
+                      className="w-full px-4 py-2 rounded-lg text-zinc-600 dark:text-zinc-400 text-xs hover:underline"
                     >
                       Fechar
                     </button>

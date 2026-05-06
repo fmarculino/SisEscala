@@ -7,7 +7,7 @@ import Link from 'next/link'
 export default async function EditServidorPage({
   params,
 }: {
-  params: { id: string }
+  params: Promise<{ id: string }>
 }) {
   const { id } = await params
   const supabase = await createClient()
@@ -32,15 +32,21 @@ export default async function EditServidorPage({
     return <div>Servidor não encontrado</div>
   }
 
-  const updateWithId = updateServidor.bind(null, id)
-  const deleteWithId = deleteServidor.bind(null, id)
+  const updateWithId = async (formData: FormData) => {
+    'use server'
+    await updateServidor(id, formData)
+  }
+  const deleteWithId = async () => {
+    'use server'
+    await deleteServidor(id)
+  }
 
   return (
     <div className="max-w-2xl mx-auto space-y-8">
       <div className="flex items-center justify-between">
         <Link
           href="/servidores"
-          className="flex items-center text-sm text-zinc-500 hover:text-zinc-900 transition-colors"
+          className="flex items-center text-sm text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 transition-colors"
         >
           <ArrowLeft className="mr-2 h-4 w-4" />
           Voltar
@@ -152,11 +158,11 @@ export default async function EditServidorPage({
                 <option value="">Sem Setor</option>
                 {setores?.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.nome} ({s.unidades?.nome})
+                    {s.nome} ({(s.unidades as any)?.nome || 'Sem unidade'})
                   </option>
                 ))}
               </select>
-              <p className="mt-1 text-xs text-zinc-500">
+              <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
                 A escala será gerada com base no setor selecionado aqui.
               </p>
             </div>

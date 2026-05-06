@@ -16,12 +16,17 @@ export default async function NovoSetorPage() {
     .select('id, nome')
     .order('nome')
 
+  async function handleSubmit(formData: FormData) {
+    'use server'
+    await createSetor(formData)
+  }
+
   return (
     <div className="max-w-2xl mx-auto space-y-8">
       <div className="flex items-center justify-between">
         <Link
           href="/setores"
-          className="flex items-center text-sm text-zinc-500 hover:text-zinc-900 transition-colors"
+          className="flex items-center text-sm text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 transition-colors"
         >
           <ArrowLeft className="mr-2 h-4 w-4" />
           Voltar
@@ -36,7 +41,7 @@ export default async function NovoSetorPage() {
           <h1 className="text-2xl font-bold">Novo Setor ou Serviço</h1>
         </div>
         
-        <form action={createSetor} className="space-y-6">
+        <form action={handleSubmit} className="space-y-6">
           <div className="space-y-4">
             <div>
               <label htmlFor="nome" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
@@ -83,7 +88,7 @@ export default async function NovoSetorPage() {
                   <option key={s.id} value={s.id}>{s.nome}</option>
                 ))}
               </select>
-              <p className="mt-2 text-xs text-zinc-500 italic">
+              <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-400 italic">
                 Use isso para criar subdivisões. Ex: "Pronto Socorro" vinculado a "Enfermagem".
               </p>
             </div>

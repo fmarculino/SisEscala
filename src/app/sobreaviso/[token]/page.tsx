@@ -194,7 +194,7 @@ export default function ProfessionalOvercallPage() {
             <h2 className="text-xl font-semibold text-zinc-900 dark:text-white">
               {log.servidores?.nome}
             </h2>
-            <p className="text-zinc-500">Você foi acionado para a unidade:</p>
+            <p className="text-zinc-600 dark:text-zinc-400">Você foi acionado para a unidade:</p>
             <div className="inline-flex items-center text-blue-600 font-bold bg-blue-50 dark:bg-blue-900/20 px-4 py-2 rounded-lg">
               <MapPin className="mr-2 h-4 w-4" />
               {log.unidades?.nome}
@@ -226,7 +226,7 @@ export default function ProfessionalOvercallPage() {
                     <button
                       onClick={() => setShowRecuseForm(true)}
                       disabled={loading}
-                      className="w-full text-sm text-zinc-500 hover:text-red-600 font-medium py-2 transition-colors"
+                      className="w-full text-sm text-zinc-600 dark:text-zinc-400 hover:text-red-600 font-medium py-2 transition-colors"
                     >
                       Não posso atender agora
                     </button>

@@ -50,7 +50,8 @@ export function NotificationListener() {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [supabase])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   if (!notification) return null
 
@@ -78,13 +79,13 @@ export function NotificationListener() {
         <div className="p-8 space-y-6">
           <div className="grid grid-cols-2 gap-6">
             <div className="space-y-1">
-              <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Servidor</p>
+              <p className="text-[10px] font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-widest">Servidor</p>
               <p className="text-lg font-bold text-zinc-900 dark:text-white leading-tight">
                 {notification.servidores?.nome}
               </p>
             </div>
             <div className="space-y-1">
-              <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Unidade</p>
+              <p className="text-[10px] font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-widest">Unidade</p>
               <p className="text-lg font-bold text-zinc-900 dark:text-white leading-tight">
                 {notification.unidades?.nome}
               </p>
@@ -102,7 +103,7 @@ export function NotificationListener() {
           </div>
 
           <div className="space-y-3">
-            <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Motivo do Chamado Original:</p>
+            <p className="text-[10px] font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-widest">Motivo do Chamado Original:</p>
             <p className="text-sm text-zinc-600 dark:text-zinc-400 italic">
               "{notification.motivo_acionamento}"
             </p>

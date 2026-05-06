@@ -1,5 +1,5 @@
 import { createClient } from '@/utils/supabase/server'
-import { FileSpreadsheet, Download, Printer } from 'lucide-react'
+import { FileSpreadsheet, Download } from 'lucide-react'
 
 export default async function RelatorioRHPage() {
   const supabase = await createClient()
@@ -9,7 +9,7 @@ export default async function RelatorioRHPage() {
     .from('escala_mensal')
     .select(`
       id, mes, ano, status,
-      servidores(nome, cpf, cargo),
+      servidores(nome, cargo),
       unidades(nome),
       escala_diaria(dia, dicionario_turnos(codigo, horas_computadas, tipo))
     `)
@@ -57,7 +57,7 @@ export default async function RelatorioRHPage() {
                 <tr key={item.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
                   <td className="px-6 py-4">
                     <div className="font-medium text-zinc-900 dark:text-white">{item.servidores?.nome}</div>
-                    <div className="text-xs text-zinc-500">{item.servidores?.cargo}</div>
+                    <div className="text-xs text-zinc-600 dark:text-zinc-400">{item.servidores?.cargo}</div>
                   </td>
                   <td className="px-6 py-4 text-zinc-600 dark:text-zinc-400">{item.unidades?.nome}</td>
                   <td className="px-6 py-4">{item.mes}/{item.ano}</td>
@@ -70,7 +70,7 @@ export default async function RelatorioRHPage() {
             })}
             {(!reportData || reportData.length === 0) && (
               <tr>
-                <td colSpan={7} className="px-6 py-12 text-center text-zinc-400">
+                <td colSpan={7} className="px-6 py-12 text-center text-zinc-500 dark:text-zinc-400">
                   Nenhuma escala fechada para gerar relatório.
                 </td>
               </tr>

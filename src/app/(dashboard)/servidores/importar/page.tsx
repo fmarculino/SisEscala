@@ -57,7 +57,7 @@ export default function ImportarServidoresPage() {
             onChange={(e) => setFile(e.target.files?.[0] || null)}
             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
           />
-          <Upload className="h-12 w-12 text-zinc-400 mb-4" />
+          <Upload className="h-12 w-12 text-zinc-500 dark:text-zinc-400 mb-4" />
           <p className="text-zinc-600 dark:text-zinc-400 font-medium">
             {file ? file.name : 'Clique ou arraste o arquivo CSV aqui'}
           </p>

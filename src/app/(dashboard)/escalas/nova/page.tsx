@@ -39,8 +39,12 @@ export default function NovaEscalaPage() {
     }
     setLoading(true)
 
-    // 1. Just redirect to the grid view. The grid view will handle adding servers.
-    router.push(`/escalas/unidade/${selectedUnidade}?setor=${selectedSetor}&mes=${mes}&ano=${ano}`)
+    try {
+      // Just redirect to the grid view. The grid view will handle adding servers.
+      router.push(`/escalas/unidade/${selectedUnidade}?setor=${selectedSetor}&mes=${mes}&ano=${ano}`)
+    } catch {
+      setLoading(false)
+    }
   }
 
   return (

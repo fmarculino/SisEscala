@@ -1,5 +1,6 @@
 import Link from 'next/link'
-import { LayoutDashboard, Users, Building2, Clock, ShieldCheck, LogOut, Calendar, Layers } from 'lucide-react'
+import { LayoutDashboard, Users, Building2, Clock, ShieldCheck, Calendar, Layers } from 'lucide-react'
+import { LogoutButton } from './LogoutButton'
 
 const navItems = [
   { name: 'Dashboard', href: '/home', icon: LayoutDashboard },
@@ -10,6 +11,8 @@ const navItems = [
   { name: 'Dicionário de Turnos', href: '/turnos', icon: Clock },
   { name: 'Auditoria', href: '/auditoria', icon: ShieldCheck },
 ]
+
+import { ThemeToggle } from '../ThemeToggle'
 
 export function Sidebar() {
   return (
@@ -29,11 +32,11 @@ export function Sidebar() {
           </Link>
         ))}
       </nav>
-      <div className="border-t border-zinc-800 p-4">
-        <button className="flex w-full items-center rounded-md px-2 py-2 text-sm font-medium hover:bg-zinc-800 hover:text-red-400 transition-colors">
-          <LogOut className="mr-3 h-5 w-5" />
-          Sair
-        </button>
+      <div className="border-t border-zinc-800 p-4 space-y-4">
+        <div className="flex justify-center">
+          <ThemeToggle />
+        </div>
+        <LogoutButton />
       </div>
     </div>
   )

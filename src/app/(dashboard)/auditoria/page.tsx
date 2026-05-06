@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { ShieldCheck, Zap, Clock, MapPin, UserCheck, AlertCircle } from 'lucide-react'
+import { ShieldCheck, Zap, Clock, MapPin, UserCheck, AlertCircle, Building2 } from 'lucide-react'
 
 export default function AuditoriaPage() {
   const [logs, setLogs] = useState<any[]>([])
@@ -13,7 +13,7 @@ export default function AuditoriaPage() {
     async function fetchInitialLogs() {
       const { data } = await supabase
         .from('logs_sobreaviso')
-        .select('*, servidores(nome), unidades(nome, localizacao)')
+        .select('*, servidores(nome), unidades(nome, latitude, longitude)')
         .order('data_hora_acionamento', { ascending: false })
         .limit(20)
       
@@ -46,7 +46,7 @@ export default function AuditoriaPage() {
     switch (status) {
       case 'Aceito': return 'text-green-600 bg-green-50 dark:bg-green-900/20'
       case 'Recusado': return 'text-red-600 bg-red-50 dark:bg-red-900/20'
-      case 'Expirado': return 'text-zinc-500 bg-zinc-50 dark:bg-zinc-800'
+      case 'Expirado': return 'text-zinc-600 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-800'
       default: return 'text-orange-600 bg-orange-50 dark:bg-orange-900/20'
     }
   }
@@ -71,7 +71,7 @@ export default function AuditoriaPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-6">
-        <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
           <div className="p-6 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50">
             <h2 className="text-lg font-semibold flex items-center">
               <Zap className="mr-2 h-5 w-5 text-orange-500" />
@@ -95,7 +95,7 @@ export default function AuditoriaPage() {
                       <h3 className="font-semibold text-zinc-900 dark:text-white">
                         {log.servidores?.nome}
                       </h3>
-                      <p className="text-sm text-zinc-500 flex items-center">
+                      <p className="text-sm text-zinc-600 dark:text-zinc-400 flex items-center">
                         <Building2 className="mr-1 h-3 w-3" />
                         {log.unidades?.nome}
                       </p>
@@ -104,23 +104,23 @@ export default function AuditoriaPage() {
 
                   <div className="flex flex-wrap items-center gap-6">
                     <div className="text-xs">
-                      <p className="text-zinc-500 uppercase tracking-wider font-bold">Acionado</p>
+                      <p className="text-zinc-600 dark:text-zinc-400 uppercase tracking-wider font-bold">Acionado</p>
                       <p className="font-medium">{new Date(log.data_hora_acionamento).toLocaleString('pt-BR')}</p>
                       {log.motivo_acionamento && (
-                        <p className="text-[10px] text-zinc-400 mt-1 line-clamp-1 italic">"{log.motivo_acionamento}"</p>
+                        <p className="text-[10px] text-zinc-500 dark:text-zinc-400 mt-1 line-clamp-1 italic">"{log.motivo_acionamento}"</p>
                       )}
                     </div>
 
                     {log.data_hora_aceite && (
                       <div className="text-xs">
-                        <p className="text-zinc-500 uppercase tracking-wider font-bold">Aceito</p>
+                        <p className="text-zinc-600 dark:text-zinc-400 uppercase tracking-wider font-bold">Aceito</p>
                         <p className="font-medium text-green-600">{new Date(log.data_hora_aceite).toLocaleString('pt-BR')}</p>
                       </div>
                     )}
 
                     {log.data_hora_chegada && (
                       <div className="text-xs">
-                        <p className="text-zinc-500 uppercase tracking-wider font-bold">Chegada</p>
+                        <p className="text-zinc-600 dark:text-zinc-400 uppercase tracking-wider font-bold">Chegada</p>
                         <p className="font-medium text-blue-600">{new Date(log.data_hora_chegada).toLocaleString('pt-BR')}</p>
                       </div>
                     )}
@@ -143,7 +143,7 @@ export default function AuditoriaPage() {
             ))}
 
             {(!logs || logs.length === 0) && !loading && (
-              <div className="p-12 text-center text-zinc-400">
+              <div className="p-12 text-center text-zinc-500 dark:text-zinc-400">
                 <Clock className="mx-auto h-12 w-12 opacity-20 mb-4" />
                 <p>Nenhum acionamento registrado ainda.</p>
               </div>
@@ -158,7 +158,7 @@ export default function AuditoriaPage() {
           <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-zinc-200 dark:border-zinc-800 animate-in fade-in zoom-in duration-200">
             <div className="p-6 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50 flex justify-between items-center">
               <h3 className="text-xl font-bold">Detalhes do Acionamento</h3>
-              <button onClick={() => setSelectedLog(null)} className="text-zinc-500 hover:text-zinc-800 dark:hover:text-white">
+              <button onClick={() => setSelectedLog(null)} className="text-zinc-600 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-white">
                 <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
@@ -169,24 +169,24 @@ export default function AuditoriaPage() {
                   <UserCheck className="h-6 w-6" />
                 </div>
                 <div>
-                  <p className="text-sm text-zinc-500">Servidor</p>
+                  <p className="text-sm text-zinc-600 dark:text-zinc-400">Servidor</p>
                   <p className="text-lg font-bold">{selectedLog.servidores?.nome}</p>
-                  <p className="text-sm text-zinc-500">{selectedLog.unidades?.nome}</p>
+                  <p className="text-sm text-zinc-600 dark:text-zinc-400">{selectedLog.unidades?.nome}</p>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 gap-4">
                 <div className="bg-zinc-50 dark:bg-zinc-800/50 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800">
-                  <p className="text-xs font-bold text-zinc-400 uppercase mb-2">Linha do Tempo</p>
+                  <p className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase mb-2">Linha do Tempo</p>
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
-                      <span className="text-sm text-zinc-500">Acionamento:</span>
+                      <span className="text-sm text-zinc-600 dark:text-zinc-400">Acionamento:</span>
                       <span className="text-sm font-medium">{new Date(selectedLog.data_hora_acionamento).toLocaleString('pt-BR')}</span>
                     </div>
                     {selectedLog.data_hora_aceite && (
                       <div className="flex justify-between items-start">
                         <div>
-                          <span className="text-sm text-zinc-500">
+                          <span className="text-sm text-zinc-600 dark:text-zinc-400">
                             {selectedLog.status === 'Recusado' ? 'Recusa:' : 'Aceite:'}
                           </span>
                           {(selectedLog.lat_aceite || selectedLog.lat_recusa) && (
@@ -209,7 +209,7 @@ export default function AuditoriaPage() {
                     {selectedLog.data_hora_chegada && (
                       <div className="flex justify-between items-start">
                         <div>
-                          <span className="text-sm text-zinc-500">Chegada:</span>
+                          <span className="text-sm text-zinc-600 dark:text-zinc-400">Chegada:</span>
                           <button 
                             onClick={() => openInGoogleMaps(selectedLog.lat_chegada, selectedLog.long_chegada)}
                             className="ml-2 text-[10px] text-blue-600 hover:underline flex items-center"
@@ -238,8 +238,8 @@ export default function AuditoriaPage() {
                 )}
 
                 <div className="bg-zinc-50 dark:bg-zinc-800/50 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800">
-                  <p className="text-xs font-bold text-zinc-400 uppercase mb-2">Dados Técnicos</p>
-                  <div className="space-y-2 text-[11px] font-mono text-zinc-500">
+                  <p className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase mb-2">Dados Técnicos</p>
+                  <div className="space-y-2 text-[11px] font-mono text-zinc-600 dark:text-zinc-400">
                     <p>Status: {selectedLog.status}</p>
                     <p>IP Aceite: {selectedLog.ip_aceite || 'N/A'}</p>
                     <p className="truncate">Browser: {selectedLog.user_agent || 'N/A'}</p>
@@ -259,13 +259,5 @@ export default function AuditoriaPage() {
         </div>
       )}
     </div>
-  )
-}
-
-function Building2({ className }: { className?: string }) {
-  return (
-    <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/>
-    </svg>
   )
 }

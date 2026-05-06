@@ -7,7 +7,7 @@ import Link from 'next/link'
 export default async function EditTurnoPage({
   params,
 }: {
-  params: { id: string }
+  params: Promise<{ id: string }>
 }) {
   const { id } = await params
   const supabase = await createClient()
@@ -22,15 +22,21 @@ export default async function EditTurnoPage({
     return <div>Turno não encontrado</div>
   }
 
-  const updateWithId = updateTurno.bind(null, id)
-  const deleteWithId = deleteTurno.bind(null, id)
+  const updateWithId = async (formData: FormData) => {
+    'use server'
+    await updateTurno(id, formData)
+  }
+  const deleteWithId = async () => {
+    'use server'
+    await deleteTurno(id)
+  }
 
   return (
     <div className="max-w-2xl mx-auto space-y-8">
       <div className="flex items-center justify-between">
         <Link
           href="/turnos"
-          className="flex items-center text-sm text-zinc-500 hover:text-zinc-900 transition-colors"
+          className="flex items-center text-sm text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 transition-colors"
         >
           <ArrowLeft className="mr-2 h-4 w-4" />
           Voltar

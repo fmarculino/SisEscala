@@ -61,24 +61,24 @@ export default function NovaUnidadePage() {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label htmlFor="lat" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              <label htmlFor="latitude" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
                 Latitude (GPS)
               </label>
               <input
-                id="lat"
-                name="lat"
+                id="latitude"
+                name="latitude"
                 type="text"
                 placeholder="-23.5505"
                 className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white sm:text-sm"
               />
             </div>
             <div>
-              <label htmlFor="long" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              <label htmlFor="longitude" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
                 Longitude (GPS)
               </label>
               <input
-                id="long"
-                name="long"
+                id="longitude"
+                name="longitude"
                 type="text"
                 placeholder="-46.6333"
                 className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white sm:text-sm"

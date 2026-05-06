@@ -31,7 +31,7 @@ export default async function UnidadesPage() {
         {unidades?.map((unidade) => (
           <div
             key={unidade.id}
-            className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 hover:shadow-md transition-shadow"
+            className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 hover:shadow-md transition-shadow"
           >
             <div className="flex items-center space-x-4">
               <div className="rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20 text-blue-600">
@@ -57,9 +57,9 @@ export default async function UnidadesPage() {
         ))}
 
         {(!unidades || unidades.length === 0) && (
-          <div className="col-span-full flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-zinc-200 p-12 dark:border-zinc-800">
-            <Building2 className="h-12 w-12 text-zinc-300" />
-            <p className="mt-4 text-zinc-500">Nenhuma unidade cadastrada ainda.</p>
+          <div className="col-span-full flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-zinc-200 dark:border-zinc-700 p-12 dark:border-zinc-800">
+            <Building2 className="h-12 w-12 text-zinc-500 dark:text-zinc-300" />
+            <p className="mt-4 text-zinc-600 dark:text-zinc-400">Nenhuma unidade cadastrada ainda.</p>
           </div>
         )}
       </div>

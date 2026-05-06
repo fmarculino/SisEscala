@@ -24,7 +24,7 @@ export default function LoginPage() {
           <h2 className="mt-6 text-3xl font-extrabold tracking-tight text-foreground">
             SisEscala
           </h2>
-          <p className="mt-2 text-sm text-zinc-500">
+          <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
             Entre para gerenciar suas escalas
           </p>
         </div>
@@ -45,7 +45,7 @@ export default function LoginPage() {
               />
             </div>
             <div>
-              <label htmlFor="password" name="password" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              <label htmlFor="password" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
                 Senha
               </label>
               <input

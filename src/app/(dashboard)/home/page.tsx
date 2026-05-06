@@ -58,13 +58,13 @@ export default async function DashboardHome() {
 
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
         {stats.map((item) => (
-          <div key={item.name} className="overflow-hidden rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+          <div key={item.name} className="overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
             <div className="flex items-center">
               <div className={`rounded-lg p-3 ${item.bg}`}>
                 <item.icon className={`h-6 w-6 ${item.color}`} />
               </div>
               <div className="ml-5">
-                <p className="text-sm font-medium text-zinc-500 truncate">{item.name}</p>
+                <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400 truncate">{item.name}</p>
                 <p className="text-2xl font-bold text-zinc-900 dark:text-white">{item.value}</p>
               </div>
             </div>
@@ -82,7 +82,7 @@ export default async function DashboardHome() {
             <Link 
               key={action.name} 
               href={action.href}
-              className="flex flex-col p-6 rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 hover:border-blue-500/50 hover:shadow-md transition-all group"
+              className="flex flex-col p-6 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:border-zinc-800 dark:bg-zinc-900 hover:border-blue-500/50 hover:shadow-md transition-all group"
             >
               <div className={`h-12 w-12 rounded-lg ${action.color} flex items-center justify-center text-white mb-4 shadow-sm`}>
                 <action.icon className="h-6 w-6" />

@@ -37,7 +37,7 @@ export default async function ServidoresPage() {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
         <table className="min-w-full divide-y divide-zinc-200 dark:divide-zinc-800">
           <thead className="bg-zinc-50 dark:bg-zinc-800/50">
             <tr>
@@ -54,7 +54,7 @@ export default async function ServidoresPage() {
               <tr key={servidor.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="flex items-center">
-                    <div className="h-10 w-10 flex-shrink-0 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-zinc-400">
+                    <div className="h-10 w-10 flex-shrink-0 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-zinc-500 dark:text-zinc-400">
                       <UserCircle className="h-8 w-8" />
                     </div>
                     <div className="ml-4">
@@ -90,7 +90,7 @@ export default async function ServidoresPage() {
         </table>
         
         {(!servidores || servidores.length === 0) && (
-          <div className="flex flex-col items-center justify-center p-12 text-zinc-400">
+          <div className="flex flex-col items-center justify-center p-12 text-zinc-500 dark:text-zinc-400">
             <Users className="h-12 w-12 opacity-20" />
             <p className="mt-4">Nenhum servidor cadastrado.</p>
           </div>

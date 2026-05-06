@@ -14,7 +14,7 @@ export default async function TurnosPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white">Dicionário de Turnos</h1>
-          <p className="mt-1 text-sm text-zinc-500">
+          <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
             Gerencie os códigos de escala e suas respectivas cargas horárias.
           </p>
         </div>
@@ -27,7 +27,7 @@ export default async function TurnosPage() {
         </Link>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
         <table className="min-w-full divide-y divide-zinc-200 dark:divide-zinc-800">
           <thead className="bg-zinc-50 dark:bg-zinc-800/50">
             <tr>
@@ -61,7 +61,7 @@ export default async function TurnosPage() {
                     {turno.tipo}
                   </span>
                 </td>
-                <td className="px-4 py-2 whitespace-nowrap text-right text-zinc-400">
+                <td className="px-4 py-2 whitespace-nowrap text-right text-zinc-500 dark:text-zinc-400">
                   <Link 
                     href={`/turnos/${turno.id}`}
                     className="hover:text-blue-600 transition-colors inline-flex items-center"
@@ -76,7 +76,7 @@ export default async function TurnosPage() {
         </table>
 
         {(!turnos || turnos.length === 0) && (
-          <div className="flex flex-col items-center justify-center p-12 text-zinc-400">
+          <div className="flex flex-col items-center justify-center p-12 text-zinc-500 dark:text-zinc-400">
             <Clock className="h-12 w-12 opacity-20" />
             <p className="mt-4">Nenhum turno cadastrado.</p>
           </div>

@@ -5,8 +5,8 @@ export default async function UnidadeEscalaPage({
   params,
   searchParams,
 }: {
-  params: { unidadeId: string }
-  searchParams: { mes: string; ano: string; setor: string }
+  params: Promise<{ unidadeId: string }>
+  searchParams: Promise<{ mes: string; ano: string; setor: string }>
 }) {
   const { unidadeId } = await params
   const { mes, ano, setor } = await searchParams
@@ -64,7 +64,7 @@ export default async function UnidadeEscalaPage({
           <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white">
             Grade de Escala: {unidade?.nome}
           </h1>
-          <p className="text-zinc-500">
+          <p className="text-zinc-600 dark:text-zinc-400">
             Setor: <span className="font-bold text-blue-600">{setorInfo?.nome}</span> • 
             Período: {new Date(parseInt(ano), parseInt(mes) - 1).toLocaleString('pt-BR', { month: 'long', year: 'numeric' })}
           </p>

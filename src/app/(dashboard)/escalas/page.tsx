@@ -65,14 +65,14 @@ export default async function EscalasPage() {
                     <span className="block text-2xl font-bold text-blue-600 uppercase">
                       {new Date(parseInt(ano), parseInt(mes) - 1).toLocaleString('pt-BR', { month: 'short' }).replace('.', '')}
                     </span>
-                    <span className="block text-xs font-medium text-zinc-500 uppercase tracking-tighter">
+                    <span className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 uppercase tracking-tighter">
                       {ano}
                     </span>
                   </div>
                   <div>
                     <h3 className="text-lg font-semibold text-zinc-900 dark:text-white flex items-center">
                       {item.unidades?.nome}
-                      <span className="mx-2 text-zinc-300">•</span>
+                      <span className="mx-2 text-zinc-500 dark:text-zinc-300">•</span>
                       <span className="text-blue-600 flex items-center">
                         <Layers className="mr-1 h-4 w-4" />
                         {item.setores?.nome}
@@ -86,19 +86,19 @@ export default async function EscalasPage() {
                 <div className="flex items-center space-x-4">
                   <span className={`px-2 py-1 text-xs font-medium rounded-full ${
                     item.status === 'Fechada' 
-                      ? 'bg-zinc-100 text-zinc-600' 
+                      ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600' 
                       : 'bg-green-100 text-green-700'
                   }`}>
                     {item.status}
                   </span>
-                  <ChevronRight className="h-5 w-5 text-zinc-300 group-hover:text-blue-500 transition-colors" />
+                  <ChevronRight className="h-5 w-5 text-zinc-500 dark:text-zinc-300 group-hover:text-blue-500 transition-colors" />
                 </div>
               </Link>
             )
           })}
 
           {groupedKeys.length === 0 && (
-            <div className="p-12 text-center text-zinc-400">
+            <div className="p-12 text-center text-zinc-500 dark:text-zinc-400">
               <Calendar className="mx-auto h-12 w-12 opacity-20 mb-4" />
               <p>Nenhuma escala gerada para os critérios selecionados.</p>
               <Link href="/escalas/nova" className="mt-4 text-sm text-blue-600 hover:underline inline-block">

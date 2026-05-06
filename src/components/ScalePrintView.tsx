@@ -112,18 +112,18 @@ export function ScalePrintView({
         <div className="logo-area">
           <div className="flex items-center gap-4">
              <div className="flex flex-col">
-               <span className="text-sm font-black text-green-800 tracking-tighter">Marabá</span>
-               <span className="text-[5pt] font-bold uppercase">Prefeitura</span>
+               <span className="text-sm font-black text-green-800 tracking-tighter">{unidade?.nome || 'Unidade'}</span>
+               <span className="text-[5pt] font-bold uppercase">Prefeitura Municipal</span>
              </div>
              <div className="border-l border-black pl-2 text-[5pt] font-medium leading-tight">
                Secretaria<br/>Municipal de<br/>Saúde
              </div>
           </div>
           <div className="text-center">
-            <span className="text-xs font-black tracking-widest block">HMM</span>
-            <span className="text-[5pt] font-medium uppercase">Hospital Municipal de Marabá</span>
+            <span className="text-xs font-black tracking-widest block">{setor?.nome || 'SETOR'}</span>
+            <span className="text-[5pt] font-medium uppercase">{unidade?.nome || 'Unidade de Saúde'}</span>
           </div>
-          <div className="text-[5pt] italic text-zinc-400">Escala de Serviço</div>
+          <div className="text-[5pt] italic text-zinc-500 dark:text-zinc-400">Escala de Serviço</div>
         </div>
 
         <div className="bg-green flex justify-between px-2 py-1 text-[7pt] mb-1">

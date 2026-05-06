@@ -29,7 +29,7 @@ export default async function SetoresPage() {
         </Link>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
         <table className="min-w-full divide-y divide-zinc-200 dark:divide-zinc-800">
           <thead className="bg-zinc-50 dark:bg-zinc-800/50">
             <tr>
@@ -50,13 +50,13 @@ export default async function SetoresPage() {
                     <span className="text-sm font-bold text-zinc-900 dark:text-white">{setor.nome}</span>
                   </div>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-zinc-500">
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-zinc-600 dark:text-zinc-400">
                   <div className="flex items-center">
                     <Building2 className="h-4 w-4 mr-2 opacity-50" />
                     {setor.unidades?.nome}
                   </div>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-zinc-400">
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-zinc-500 dark:text-zinc-400">
                   {setor.parent ? (
                     <div className="flex items-center">
                       <ChevronRight className="h-3 w-3 mr-1" />
@@ -75,7 +75,7 @@ export default async function SetoresPage() {
         </table>
 
         {(!setores || setores.length === 0) && (
-          <div className="flex flex-col items-center justify-center p-12 text-zinc-400">
+          <div className="flex flex-col items-center justify-center p-12 text-zinc-500 dark:text-zinc-400">
             <Layers className="h-12 w-12 opacity-20" />
             <p className="mt-4">Nenhum setor cadastrado.</p>
           </div>
