@@ -15,10 +15,9 @@ export default function NovaEscalaPage() {
   const [selectedSetor, setSelectedSetor] = useState('')
   const [mes, setMes] = useState(new Date().getMonth() + 1)
   const [ano, setAno] = useState(new Date().getFullYear())
-  const supabase = createClient()
-
   useEffect(() => {
     async function loadData() {
+      const supabase = createClient()
       const { data: units } = await supabase.from('unidades').select('id, nome').order('nome')
       if (units) setUnidades(units)
 

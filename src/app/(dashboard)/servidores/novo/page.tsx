@@ -12,10 +12,9 @@ export default function NovoServidorPage() {
   const [unidades, setUnidades] = useState<any[]>([])
   const [setores, setSetores] = useState<any[]>([])
   const [selectedUnidade, setSelectedUnidade] = useState('')
-  const supabase = createClient()
-
   useEffect(() => {
     async function loadData() {
+      const supabase = createClient()
       const { data: units } = await supabase.from('unidades').select('id, nome').order('nome')
       if (units) setUnidades(units)
 

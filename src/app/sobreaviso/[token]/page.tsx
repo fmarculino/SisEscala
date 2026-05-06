@@ -11,9 +11,8 @@ export default function ProfessionalOvercallPage() {
   const [loading, setLoading] = useState(true)
   const [status, setStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const supabase = createClient()
-
   useEffect(() => {
+    const supabase = createClient()
     async function fetchLog() {
       const { data, error } = await supabase
         .from('logs_sobreaviso')
@@ -62,6 +61,7 @@ export default function ProfessionalOvercallPage() {
     navigator.geolocation.getCurrentPosition(async (position) => {
       const { latitude, longitude } = position.coords
       
+      const supabase = createClient()
       const { error: updateError } = await supabase
         .from('logs_sobreaviso')
         .update({
@@ -113,6 +113,7 @@ export default function ProfessionalOvercallPage() {
       }
       
       const now = new Date().toISOString()
+      const supabase = createClient()
       const { error: updateError } = await supabase
         .from('logs_sobreaviso')
         .update({
@@ -148,6 +149,7 @@ export default function ProfessionalOvercallPage() {
     setLoading(true)
     
     const performUpdate = async (lat?: number, long?: number) => {
+      const supabase = createClient()
       const { error: updateError } = await supabase
         .from('logs_sobreaviso')
         .update({

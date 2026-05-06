@@ -6,9 +6,8 @@ import { AlertTriangle, X, MapPin, Zap } from 'lucide-react'
 
 export function NotificationListener() {
   const [notification, setNotification] = useState<any>(null)
-  const supabase = createClient()
-
   useEffect(() => {
+    const supabase = createClient()
     const channel = supabase
       .channel('global-notifications')
       .on(

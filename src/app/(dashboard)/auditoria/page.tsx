@@ -7,9 +7,8 @@ import { ShieldCheck, Zap, Clock, MapPin, UserCheck, AlertCircle, Building2 } fr
 export default function AuditoriaPage() {
   const [logs, setLogs] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const supabase = createClient()
-
   useEffect(() => {
+    const supabase = createClient()
     async function fetchInitialLogs() {
       const { data } = await supabase
         .from('logs_sobreaviso')
