@@ -15,16 +15,19 @@ export default function ProfessionalOvercallPage() {
     const supabase = createClient()
     async function fetchLog() {
       const { data, error } = await supabase
-        .from('logs_sobreaviso')
-        .select('*, servidores(nome), unidades(nome, latitude, longitude, raio_geofence)')
-        .eq('token_magic_link', token)
-        .single()
+        .rpc('get_sobreaviso_details', { magic_token: token })
       
       if (error || !data) {
-        setError('Link inválido ou expirado.')
+        console.error('Supabase error:', error)
+        setError(`Link inválido ou expirado. Detalhe: ${error?.message || 'Chamado não encontrado no banco de dados.'}`)
       } else {
-        setLog(data)
-        setStatus(data.status)
+        const flattenedData = {
+          ...data.log,
+          servidores: data.servidores,
+          unidades: data.unidades
+        }
+        setLog(flattenedData)
+        setStatus(flattenedData.status)
       }
       setLoading(false)
     }
