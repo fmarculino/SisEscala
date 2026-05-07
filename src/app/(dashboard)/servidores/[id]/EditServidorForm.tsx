@@ -1,56 +1,43 @@
 'use client'
 
-import { createServidor } from '../actions'
-import { useState, useEffect, useMemo } from 'react'
-import Link from 'next/link'
-import { ArrowLeft, Save, Layers, ChevronRight } from 'lucide-react'
-import { createClient } from '@/utils/supabase/client'
+import { useState, useMemo } from 'react'
+import { Save, User, Layers } from 'lucide-react'
+import { updateServidor } from '../actions'
 
-interface Cargo {
+interface EditServidorFormProps {
   id: string
-  nome: string
-  parent_id: string | null
-  nivel: number
+  servidor: any
+  unidades: any[]
+  setores: any[]
+  cargos: any[]
 }
 
-export default function NovoServidorPage() {
+export function EditServidorForm({ id, servidor, unidades, setores, cargos }: EditServidorFormProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [unidades, setUnidades] = useState<any[]>([])
-  const [setores, setSetores] = useState<any[]>([])
-  const [cargos, setCargos] = useState<Cargo[]>([])
-  const [selectedUnidade, setSelectedUnidade] = useState('')
+  const [selectedUnidade, setSelectedUnidade] = useState(servidor.unidade_id || '')
 
-  // Estados para hierarquia de cargos
-  const [nivel1, setNivel1] = useState('')
-  const [nivel2, setNivel2] = useState('')
-  const [nivel3, setNivel3] = useState('')
+  // Parsing existing cargo string (Level 1 / Level 2 / Level 3)
+  const existingCargoParts = servidor.cargo ? servidor.cargo.split(' / ') : []
+  
+  // Find initial IDs based on names from existing string
+  const initialNivel1 = cargos.find(c => c.nivel === 1 && c.nome === existingCargoParts[0])?.id || ''
+  const initialNivel2 = cargos.find(c => c.nivel === 2 && c.nome === existingCargoParts[1] && c.parent_id === initialNivel1)?.id || ''
+  const initialNivel3 = cargos.find(c => c.nivel === 3 && c.nome === existingCargoParts[2] && c.parent_id === initialNivel2)?.id || ''
 
-  useEffect(() => {
-    async function loadData() {
-      const supabase = createClient()
-      const { data: units } = await supabase.from('unidades').select('id, nome').eq('ativo', true).order('nome')
-      if (units) setUnidades(units)
-
-      const { data: sectors } = await supabase.from('setores').select('id, nome, unidade_id').eq('ativo', true).order('nome')
-      if (sectors) setSetores(sectors)
-
-      const { data: roles } = await supabase.from('cargos').select('*').eq('ativo', true).order('nome')
-      if (roles) setCargos(roles)
-    }
-    loadData()
-  }, [])
+  const [nivel1, setNivel1] = useState(initialNivel1)
+  const [nivel2, setNivel2] = useState(initialNivel2)
+  const [nivel3, setNivel3] = useState(initialNivel3)
 
   const filteredSetores = selectedUnidade 
     ? setores.filter(s => s.unidade_id === selectedUnidade)
     : setores
 
-  // Lógica de filtragem de cargos
-  const cargosNivel1 = useMemo(() => cargos.filter(c => c.nivel === 1), [cargos])
-  const cargosNivel2 = useMemo(() => cargos.filter(c => c.nivel === 2 && c.parent_id === nivel1), [cargos, nivel1])
-  const cargosNivel3 = useMemo(() => cargos.filter(c => c.nivel === 3 && c.parent_id === nivel2), [cargos, nivel2])
+  // Lógica de filtragem de cargos (Mostra ativos + o atual caso esteja inativo)
+  const cargosNivel1 = useMemo(() => cargos.filter(c => c.nivel === 1 && (c.ativo || c.id === nivel1)), [cargos, nivel1])
+  const cargosNivel2 = useMemo(() => cargos.filter(c => c.nivel === 2 && c.parent_id === nivel1 && (c.ativo || c.id === nivel2)), [cargos, nivel1, nivel2])
+  const cargosNivel3 = useMemo(() => cargos.filter(c => c.nivel === 3 && c.parent_id === nivel2 && (c.ativo || c.id === nivel3)), [cargos, nivel2, nivel3])
 
-  // Valor final do cargo para salvar (concatenado)
   const cargoFinal = useMemo(() => {
     const c1 = cargos.find(c => c.id === nivel1)?.nome || ''
     const c2 = cargos.find(c => c.id === nivel2)?.nome || ''
@@ -59,12 +46,10 @@ export default function NovoServidorPage() {
     return [c1, c2, c3].filter(Boolean).join(' / ')
   }, [cargos, nivel1, nivel2, nivel3])
 
-  async function handleSubmit(formData: FormData) {
+  const handleSubmit = async (formData: FormData) => {
     setLoading(true)
-    // Sobrescrever o campo cargo com o valor hierárquico
     formData.set('cargo', cargoFinal)
-    
-    const result = await createServidor(formData)
+    const result = await updateServidor(id, formData)
     if (result?.error) {
       setError(result.error)
       setLoading(false)
@@ -72,29 +57,27 @@ export default function NovoServidorPage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto space-y-8">
-      <div className="flex items-center space-x-4">
-        <Link
-          href="/servidores"
-          className="p-2 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
-        >
-          <ArrowLeft className="h-5 w-5" />
-        </Link>
-        <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-white">Novo Servidor</h1>
+    <div className="rounded-2xl bg-white p-8 shadow-xl dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
+      <div className="flex items-center space-x-4 mb-6">
+        <div className="rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20 text-blue-600">
+          <User className="h-6 w-6" />
+        </div>
+        <h1 className="text-2xl font-bold">Editar Servidor: {servidor.nome}</h1>
       </div>
-
-      <form action={handleSubmit} className="space-y-6 bg-white dark:bg-zinc-900 p-8 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
+      
+      <form action={handleSubmit} className="space-y-6">
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-6">
           <div className="sm:col-span-4">
             <label htmlFor="nome" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
               Nome Completo
             </label>
             <input
-              id="nome"
-              name="nome"
               type="text"
+              name="nome"
+              id="nome"
+              defaultValue={servidor.nome}
               required
-              className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white sm:text-sm"
+              className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
 
@@ -103,11 +86,12 @@ export default function NovoServidorPage() {
               Matrícula
             </label>
             <input
-              id="matricula"
-              name="matricula"
               type="text"
+              name="matricula"
+              id="matricula"
+              defaultValue={servidor.matricula}
               required
-              className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white sm:text-sm font-mono"
+              className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm font-mono focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
 
@@ -167,7 +151,7 @@ export default function NovoServidorPage() {
 
             {cargoFinal && (
               <div className="p-3 bg-blue-50 dark:bg-blue-900/10 rounded-lg border border-blue-100 dark:border-blue-900/30 flex items-center gap-2 text-sm text-blue-700 dark:text-blue-300">
-                <span className="font-bold">Cargo Selecionado:</span>
+                <span className="font-bold">Cargo Atualizado:</span>
                 <span>{cargoFinal}</span>
               </div>
             )}
@@ -181,28 +165,29 @@ export default function NovoServidorPage() {
             <select
               id="vinculo"
               name="vinculo"
-              className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white sm:text-sm"
+              defaultValue={servidor.vinculo}
+              className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="Efetiva">Efetiva</option>
-              <option value="Contratada">Contratada</option>
               <option value="Concursada">Concursada</option>
+              <option value="Contratada">Contratada</option>
               <option value="Comissionada">Comissionada</option>
             </select>
           </div>
 
           <div className="sm:col-span-3">
             <label htmlFor="unidade_id" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              Unidade
+              Unidade de Lotação
             </label>
             <select
               id="unidade_id"
               name="unidade_id"
               value={selectedUnidade}
               onChange={(e) => setSelectedUnidade(e.target.value)}
-              className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white sm:text-sm"
+              className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500 focus:border-blue-500"
             >
-              <option value="">Selecione uma unidade</option>
-              {unidades.map((u) => (
+              <option value="">Sem Unidade</option>
+              {unidades?.map((u) => (
                 <option key={u.id} value={u.id}>{u.nome}</option>
               ))}
             </select>
@@ -216,15 +201,19 @@ export default function NovoServidorPage() {
             <select
               id="setor_id"
               name="setor_id"
-              className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white sm:text-sm"
+              defaultValue={servidor.setor_id || ''}
+              className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500 focus:border-blue-500"
             >
-              <option value="">Selecione o setor...</option>
-              {filteredSetores.map((s) => (
+              <option value="">Sem Setor</option>
+              {filteredSetores?.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.nome} {!selectedUnidade && `(${unidades.find(u => u.id === s.unidade_id)?.nome})`}
                 </option>
               ))}
             </select>
+            <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+              A escala será gerada com base no setor selecionado aqui.
+            </p>
           </div>
         </div>
 
@@ -234,14 +223,14 @@ export default function NovoServidorPage() {
           </div>
         )}
 
-        <div className="flex justify-end pt-4">
+        <div className="pt-4">
           <button
             type="submit"
-            disabled={loading || !cargoFinal}
-            className="inline-flex items-center rounded-md bg-blue-600 px-8 py-3 text-sm font-bold text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 transition-all"
+            disabled={loading}
+            className="flex w-full justify-center items-center rounded-md bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-blue-700 transition-all disabled:opacity-50"
           >
             <Save className="mr-2 h-4 w-4" />
-            {loading ? 'Salvando...' : 'Salvar Servidor'}
+            {loading ? 'Salvando...' : 'Salvar Alterações'}
           </button>
         </div>
       </form>

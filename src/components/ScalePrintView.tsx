@@ -138,7 +138,7 @@ export function ScalePrintView({
               <th rowSpan={2} style={{ width: '15px' }}>Nº</th>
               <th rowSpan={2} style={{ width: '150px' }}>SERVIDOR / CARGO</th>
               <th rowSpan={2} style={{ width: '70px' }}>HORÁRIO</th>
-              {daysArray.map(day => <th key={day} style={{ width: '18px' }}>{day}</th>)}
+              {daysArray.map(day => <th key={day} style={{ width: '20px' }}>{day}</th>)}
               <th rowSpan={2} style={{ width: '22px' }}>CH</th>
               <th rowSpan={2} style={{ width: '22px' }}>H100</th>
               <th rowSpan={2} style={{ width: '22px' }}>H50</th>
@@ -146,7 +146,7 @@ export function ScalePrintView({
               <th rowSpan={2} style={{ width: '22px' }}>P6</th>
               <th rowSpan={2} style={{ width: '22px' }}>P4</th>
               <th rowSpan={2} style={{ width: '22px' }}>S12</th>
-              <th rowSpan={2} style={{ width: '35px' }} className="bg-yellow">TOTAL</th>
+              <th rowSpan={2} style={{ width: '40px' }} className="bg-yellow">TOTAL H/MÊS</th>
             </tr>
             <tr className="bg-gray-header">
               {daysArray.map(day => <th key={day} style={{ fontSize: '4pt' }}>{getDayLetter(day)}</th>)}
@@ -176,8 +176,28 @@ export function ScalePrintView({
                       {daysArray.map(day => {
                         const code = getTurnoCode(em.servidor_id, cat, day)
                         const isWE = getDayOfWeek(day) === 0 || getDayOfWeek(day) === 6
+                        
+                        let displayCode: React.ReactNode = code
+                        if (code.length >= 3 && code.startsWith('MT')) {
+                          displayCode = (
+                            <>
+                              <span style={{ display: 'block', lineHeight: '1' }}>MT</span>
+                              <span style={{ display: 'block', lineHeight: '1' }}>{code.substring(2)}</span>
+                            </>
+                          )
+                        } else if (code.length > 2) {
+                          const mid = Math.floor(code.length / 2)
+                          displayCode = (
+                            <>
+                              <span style={{ display: 'block', lineHeight: '1' }}>{code.substring(0, mid)}</span>
+                              <span style={{ display: 'block', lineHeight: '1' }}>{code.substring(mid)}</span>
+                            </>
+                          )
+                        }
+
+                        const fontSize = code.length > 2 ? '4pt' : '5pt'
                         return (
-                          <td key={day} className={isWE ? 'bg-gray-cell' : ''} style={{ fontSize: '5pt', fontWeight: 'bold' }}>{code}</td>
+                          <td key={day} className={isWE ? 'bg-gray-cell' : ''} style={{ fontSize, fontWeight: 'bold', verticalAlign: 'middle' }}>{displayCode}</td>
                         )
                       })}
                       {catIdx === 0 && (

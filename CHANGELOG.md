@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.2-RC1] - 2026-05-07
+
+### Added
+- **Data Governance Migration**: Implemented "Soft Delete" (Ativo/Inativo) across all core organizational modules (Unidades, Setores, Turnos).
+- **StatusToggleButton**: New reusable Client Component for safe status toggling with confirmation dialogs.
+- **Advanced Filtering**: Added search bars and "Show Inactive" toggles to Units, Sectors, and Shift Dictionary list pages.
+- **Holiday Management (Feriados)**:
+    - Blocked destructive deletion of holidays to preserve historical calculation integrity.
+    - Implemented inline description editing for rapid corrections.
+    - Locked date fields after creation to prevent data corruption.
+    - Added a persistent warning banner explaining the immutability rules.
+
+### Changed
+- **Scale Integrity**: Updated `ScaleGrid` and "Nova Escala" flows to automatically exclude inactive units, sectors, and shifts from selection pickers.
+- **UI/UX Overhaul**: Upgraded administrative lists to a high-density, premium aesthetic (SisTEA style) with improved contrast and modern spacing.
+- **Shift Dictionary**: Renamed internal table references and added state-based visibility logic.
+
+### Fixed
+- Resolved "Event Handlers in Server Components" error by extracting toggle logic to client components.
+- Fixed missing Lucide icon imports and Next.js Link definitions across edit pages.
+
 ## [0.0.1-RC3] - 2026-05-06
 
 ### Added

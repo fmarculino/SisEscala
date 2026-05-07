@@ -1,6 +1,6 @@
 import { createClient } from '@/utils/supabase/server'
-import { updateSetor, deleteSetor } from '../actions'
-import { DeleteButton } from '@/components/ui/DeleteButton'
+import { updateSetor, toggleStatusSetor } from '../actions'
+import { StatusToggleButton } from '@/components/ui/StatusToggleButton'
 import { ArrowLeft, Save, Layers } from 'lucide-react'
 import Link from 'next/link'
 
@@ -37,9 +37,12 @@ export default async function EditSetorPage({
     'use server'
     await updateSetor(id, formData)
   }
-  const deleteWithId = async () => {
+  
+  const isAtivo = setor.ativo !== false
+
+  const toggleAction = async () => {
     'use server'
-    await deleteSetor(id)
+    await toggleStatusSetor(id, isAtivo)
   }
 
   return (
@@ -52,10 +55,14 @@ export default async function EditSetorPage({
           <ArrowLeft className="mr-2 h-4 w-4" />
           Voltar
         </Link>
-        <DeleteButton 
-          action={deleteWithId} 
-          label="Excluir Setor" 
-          confirmMessage="Deseja realmente excluir este setor? Isso afetará escalas vinculadas."
+        
+        <StatusToggleButton 
+          action={toggleAction}
+          isActive={isAtivo}
+          label={isAtivo ? 'Desativar Setor' : 'Reativar Setor'}
+          confirmMessage={isAtivo 
+            ? 'Deseja realmente desativar este setor? Ele não aparecerá mais em novas escalas.' 
+            : 'Deseja reativar este setor?'}
         />
       </div>
 

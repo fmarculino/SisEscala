@@ -53,12 +53,12 @@ export async function updateTurno(id: string, formData: FormData) {
   redirect('/turnos')
 }
 
-export async function deleteTurno(id: string) {
+export async function toggleStatusTurno(id: string, currentStatus: boolean) {
   const supabase = await createClient()
 
   const { error } = await supabase
     .from('dicionario_turnos')
-    .delete()
+    .update({ ativo: !currentStatus })
     .eq('id', id)
 
   if (error) {

@@ -57,12 +57,12 @@ export async function updateUnidade(id: string, formData: FormData) {
   redirect('/unidades')
 }
 
-export async function deleteUnidade(id: string) {
+export async function toggleStatusUnidade(id: string, currentStatus: boolean) {
   const supabase = await createClient()
 
   const { error } = await supabase
     .from('unidades')
-    .delete()
+    .update({ ativo: !currentStatus })
     .eq('id', id)
 
   if (error) {

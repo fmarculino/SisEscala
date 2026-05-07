@@ -1,6 +1,6 @@
 import { createClient } from '@/utils/supabase/server'
-import { updateUnidade, deleteUnidade } from '../actions'
-import { DeleteButton } from '@/components/ui/DeleteButton'
+import { updateUnidade, toggleStatusUnidade } from '../actions'
+import { StatusToggleButton } from '@/components/ui/StatusToggleButton'
 import { ArrowLeft, Save, Building2 } from 'lucide-react'
 import Link from 'next/link'
 import { GeoLocationPicker } from '@/components/GeoLocationPicker'
@@ -27,9 +27,12 @@ export default async function EditUnidadePage({
     'use server'
     await updateUnidade(id, formData)
   }
-  const deleteWithId = async () => {
+  
+  const isAtiva = unidade.ativo !== false
+
+  const toggleAction = async () => {
     'use server'
-    await deleteUnidade(id)
+    await toggleStatusUnidade(id, isAtiva)
   }
 
   return (
@@ -42,10 +45,14 @@ export default async function EditUnidadePage({
           <ArrowLeft className="mr-2 h-4 w-4" />
           Voltar
         </Link>
-        <DeleteButton 
-          action={deleteWithId} 
-          label="Excluir Unidade" 
-          confirmMessage="Deseja realmente excluir esta unidade? Isso pode afetar servidores vinculados."
+        
+        <StatusToggleButton 
+          action={toggleAction}
+          isActive={isAtiva}
+          label={isAtiva ? 'Desativar Unidade' : 'Reativar Unidade'}
+          confirmMessage={isAtiva 
+            ? 'Deseja realmente desativar esta unidade? Ela não aparecerá mais em novas escalas.' 
+            : 'Deseja reativar esta unidade?'}
         />
       </div>
 

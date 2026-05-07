@@ -91,12 +91,15 @@ export async function updateServidor(id: string, formData: FormData) {
   redirect('/servidores')
 }
 
-export async function deleteServidor(id: string) {
+export async function toggleServidorStatus(id: string, status: 'Ativo' | 'Inativo', motivo?: string) {
   const supabase = await createClient()
 
   const { error } = await supabase
     .from('servidores')
-    .delete()
+    .update({ 
+      status,
+      motivo_inativacao: status === 'Inativo' ? motivo : null
+    })
     .eq('id', id)
 
   if (error) {
@@ -104,5 +107,5 @@ export async function deleteServidor(id: string) {
   }
 
   revalidatePath('/servidores')
-  redirect('/servidores')
+  return { success: true }
 }

@@ -1,6 +1,6 @@
 import { createClient } from '@/utils/supabase/server'
-import { updateTurno, deleteTurno } from '../actions'
-import { DeleteButton } from '@/components/ui/DeleteButton'
+import { updateTurno, toggleStatusTurno } from '../actions'
+import { StatusToggleButton } from '@/components/ui/StatusToggleButton'
 import { ArrowLeft, Save } from 'lucide-react'
 import Link from 'next/link'
 
@@ -26,9 +26,12 @@ export default async function EditTurnoPage({
     'use server'
     await updateTurno(id, formData)
   }
-  const deleteWithId = async () => {
+  
+  const isAtivo = turno.ativo !== false
+
+  const toggleAction = async () => {
     'use server'
-    await deleteTurno(id)
+    await toggleStatusTurno(id, isAtivo)
   }
 
   return (
@@ -41,10 +44,14 @@ export default async function EditTurnoPage({
           <ArrowLeft className="mr-2 h-4 w-4" />
           Voltar
         </Link>
-        <DeleteButton 
-          action={deleteWithId} 
-          label="Excluir Turno"
-          confirmMessage="Deseja realmente excluir este turno?"
+        
+        <StatusToggleButton 
+          action={toggleAction}
+          isActive={isAtivo}
+          label={isAtivo ? 'Desativar Turno' : 'Reativar Turno'}
+          confirmMessage={isAtivo 
+            ? 'Deseja realmente desativar este turno? Ele não aparecerá mais como opção na grade de escala.' 
+            : 'Deseja reativar este turno?'}
         />
       </div>
 

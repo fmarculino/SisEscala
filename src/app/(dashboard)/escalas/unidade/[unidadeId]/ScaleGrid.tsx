@@ -15,6 +15,8 @@ interface ScaleGridProps {
   turnos: any[]
   escalaMensalInicial: any[]
   escalaDiariaInicial: any[]
+  feriados: any[]
+  diasInativacao: number
 }
 
 type RowCategory = 'Regular' | 'Extra' | 'Plantão' | 'Sobreaviso'
@@ -27,7 +29,9 @@ export function ScaleGrid({
   todosServidoresSetor,
   turnos,
   escalaMensalInicial,
-  escalaDiariaInicial
+  escalaDiariaInicial,
+  feriados,
+  diasInativacao
 }: ScaleGridProps) {
   const supabase = createClient()
   const [loading, setLoading] = useState(false)
@@ -99,10 +103,15 @@ export function ScaleGrid({
     })
 
     // Sum Extras
-    Object.values(serverData['Extra']).forEach(turnoId => {
+    Object.entries(serverData['Extra']).forEach(([day, turnoId]) => {
       const t = turnos.find(x => x.id === turnoId)
       if (t) {
-        if (Number(t.horas_computadas) >= 12) he100 += Number(t.horas_computadas)
+        const d = new Date(ano, mes - 1, parseInt(day))
+        const isWE = d.getDay() === 0 || d.getDay() === 6
+        const dateStr = `${ano}-${mes.toString().padStart(2, '0')}-${day.padStart(2, '0')}`
+        const isHoliday = feriados.some(f => f.data === dateStr)
+
+        if (isWE || isHoliday) he100 += Number(t.horas_computadas)
         else he50 += Number(t.horas_computadas)
       }
     })
@@ -121,12 +130,8 @@ export function ScaleGrid({
     Object.values(serverData['Sobreaviso']).forEach(turnoId => {
       const t = turnos.find(x => x.id === turnoId)
       if (t) {
-        const horas = Number(t.horas_computadas)
-        // Se for 24h, conta como 2. Se for 12h ou 6h, conta como 1 (seguindo a lógica que 'S' de 6h já está 'funcionando' como 1)
-        // Ou melhor, vamos ser mais precisos:
-        if (horas >= 24) so12 += 2
-        else if (horas >= 12) so12 += 1
-        else so12 += 1 // S de 6h conta como 1 conforme feedback
+        if (t.codigo === 'MTN') so12 += 2
+        else if (t.codigo === 'MT' || t.codigo === 'N') so12++
       }
     })
 
@@ -205,6 +210,86 @@ export function ScaleGrid({
     }
   }
 
+  const handleAddServer = async (servidorId: string) => {
+    if (!servidorId) return
+    setLoading(true)
+    try {
+      const servidor = todosServidoresSetor.find(s => s.id === servidorId)
+      if (!servidor) return
+
+      const { data, error } = await supabase
+        .from('escala_mensal')
+        .insert({
+          servidor_id: servidorId,
+          unidade_id: unidadeId,
+          setor_id: setorId,
+          mes,
+          ano,
+          status: 'Rascunho'
+        })
+        .select('*, servidores(*)')
+        .single()
+
+      if (error) throw error
+
+      setEscalaMensal(prev => [...prev, data])
+      setGridData(prev => ({
+        ...prev,
+        [servidorId]: {
+          'Regular': {},
+          'Extra': {},
+          'Plantão': {},
+          'Sobreaviso': {}
+        }
+      }))
+    } catch (error: any) {
+      alert('Erro ao adicionar servidor: ' + error.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleAddAll = async () => {
+    const serversToAdd = todosServidoresSetor.filter(s => !escalaMensal.some(em => em.servidor_id === s.id))
+    if (serversToAdd.length === 0) return
+    
+    setLoading(true)
+    try {
+      const newRecords = serversToAdd.map(s => ({
+        servidor_id: s.id,
+        unidade_id: unidadeId,
+        setor_id: setorId,
+        mes,
+        ano,
+        status: 'Rascunho'
+      }))
+
+      const { data, error } = await supabase
+        .from('escala_mensal')
+        .insert(newRecords)
+        .select('*, servidores(*)')
+
+      if (error) throw error
+
+      setEscalaMensal(prev => [...prev, ...data])
+      
+      const newGridData = { ...gridData }
+      data.forEach(em => {
+        newGridData[em.servidor_id] = {
+          'Regular': {},
+          'Extra': {},
+          'Plantão': {},
+          'Sobreaviso': {}
+        }
+      })
+      setGridData(newGridData)
+    } catch (error: any) {
+      alert('Erro ao adicionar todos os servidores: ' + error.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleCloseScale = async () => {
     const confirmClose = confirm('Deseja FECHAR esta escala?')
     if (!confirmClose) return
@@ -221,25 +306,46 @@ export function ScaleGrid({
     }
   }
 
-  const isClosed = escalaMensal[0]?.status === 'Fechada'
+  const endOfMonth = new Date(ano, mes, 0)
+  const thresholdDate = new Date(endOfMonth)
+  thresholdDate.setDate(thresholdDate.getDate() + (diasInativacao || 5))
+  const isAutoInactivated = new Date() > thresholdDate
+
+  const isInactive = escalaMensal[0]?.ativo === false || isAutoInactivated
+  const isClosed = escalaMensal[0]?.status === 'Fechada' || isInactive
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-xl overflow-hidden">
+      {isInactive && (
+        <div className="bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800 px-4 py-2 flex items-center gap-2 text-amber-700 dark:text-amber-500 text-xs font-bold uppercase tracking-tight">
+          <Lock className="h-4 w-4" />
+          Escala Inativa {isAutoInactivated ? '(Inativação Automática por Prazo)' : '(Inativada Manualmente)'} - Modo de Visualização Ativado
+        </div>
+      )}
       {/* Toolbar */}
       <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 flex justify-between items-center bg-zinc-50 dark:bg-zinc-800/50">
         <div className="flex items-center space-x-4">
           <select 
-            onChange={(e) => { /* handleAddServer */ }}
+            onChange={(e) => handleAddServer(e.target.value)}
+            value=""
             disabled={loading || isClosed}
-            className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm font-medium"
+            className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none"
           >
             <option value="">+ Adicionar Servidor...</option>
-            {todosServidoresSetor.filter(s => !escalaMensal.some(em => em.servidor_id === s.id)).map(s => (
-              <option key={s.id} value={s.id}>{s.nome}</option>
-            ))}
+            {todosServidoresSetor
+              .filter(s => !escalaMensal.some(em => em.servidor_id === s.id))
+              .map(s => (
+                <option key={s.id} value={s.id}>{s.nome}</option>
+              ))
+            }
           </select>
-          <button className="inline-flex items-center rounded-md bg-blue-50 dark:bg-blue-900/20 text-blue-600 px-3 py-2 text-sm font-medium border border-blue-200 dark:border-blue-800">
-            <Users className="mr-2 h-4 w-4" /> Adicionar Todos
+          <button 
+            onClick={handleAddAll}
+            disabled={loading || isClosed || (todosServidoresSetor.length === escalaMensal.length)}
+            className="inline-flex items-center rounded-md bg-blue-50 dark:bg-blue-900/20 text-blue-600 px-3 py-2 text-sm font-medium border border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors disabled:opacity-50"
+          >
+            {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Users className="mr-2 h-4 w-4" />}
+            Adicionar Todos
           </button>
         </div>
         
@@ -264,21 +370,33 @@ export function ScaleGrid({
           <thead className="sticky top-0 z-20 bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100">
             <tr>
               <th className="sticky left-0 z-30 bg-zinc-100 dark:bg-zinc-800 p-2 border border-zinc-200 dark:border-zinc-700 text-left w-[180px]">Servidor</th>
-              <th className="p-2 border border-zinc-200 dark:border-zinc-700 w-[100px]">Tipo</th>
-              {daysArray.map(day => (
-                <th key={day} className={`p-1 border border-zinc-200 dark:border-zinc-700 w-[32px] text-center ${getDayOfWeek(day) === 0 || getDayOfWeek(day) === 6 ? 'bg-zinc-200 dark:bg-zinc-700' : ''}`}>
-                  {day}
-                  <div className="text-[8px] opacity-75">{['D', 'S', 'T', 'Q', 'Q', 'S', 'S'][getDayOfWeek(day)]}</div>
-                </th>
-              ))}
-              <th className="p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-blue-50 dark:bg-blue-900/20 text-blue-900 dark:text-blue-100">CH</th>
-              <th className="p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-indigo-50 dark:bg-indigo-900/20 text-indigo-900 dark:text-indigo-100">HE100</th>
-              <th className="p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-indigo-50 dark:bg-indigo-900/20 text-indigo-900 dark:text-indigo-100">HE50</th>
-              <th className="p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-orange-50 dark:bg-orange-900/20 text-orange-900 dark:text-orange-100">PL12</th>
-              <th className="p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-orange-50 dark:bg-orange-900/20 text-orange-900 dark:text-orange-100">PL6</th>
-              <th className="p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-orange-50 dark:bg-orange-900/20 text-orange-900 dark:text-orange-100">PL4</th>
-              <th className="p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-emerald-50 dark:bg-emerald-900/20 text-emerald-900 dark:text-emerald-100">SO12</th>
-              <th className="p-1 border border-zinc-200 dark:border-zinc-700 w-[50px] bg-amber-400 text-black font-black uppercase">Total</th>
+              <th className="sticky left-[180px] z-30 bg-zinc-100 dark:bg-zinc-800 p-2 border border-zinc-200 dark:border-zinc-700 w-[100px]">Tipo</th>
+              {daysArray.map(day => {
+                const d = new Date(ano, mes - 1, day)
+                const dateStr = `${ano}-${mes.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`
+                const isWE = d.getDay() === 0 || d.getDay() === 6
+                const feriado = feriados.find(f => f.data === dateStr)
+                const isHoliday = !!feriado
+
+                return (
+                  <th
+                    key={day}
+                    className={`p-1 border border-zinc-200 dark:border-zinc-700 min-w-[44px] w-[44px] text-center ${isHoliday ? 'bg-red-100 dark:bg-red-900/30 text-red-600' : isWE ? 'bg-zinc-200 dark:bg-zinc-700' : ''}`}
+                    title={feriado?.descricao}
+                  >
+                    {day}
+                    <div className="text-[8px] opacity-75">{['D', 'S', 'T', 'Q', 'Q', 'S', 'S'][d.getDay()]}</div>
+                  </th>
+                )
+              })}
+              <th className="sticky right-[296px] z-30 p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-blue-50 dark:bg-blue-900 text-blue-900 dark:text-blue-100">CH</th>
+              <th className="sticky right-[258px] z-30 p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-indigo-50 dark:bg-indigo-900 text-indigo-900 dark:text-indigo-100">HE100</th>
+              <th className="sticky right-[220px] z-30 p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-indigo-50 dark:bg-indigo-900 text-indigo-900 dark:text-indigo-100">HE50</th>
+              <th className="sticky right-[182px] z-30 p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-orange-50 dark:bg-orange-900 text-orange-900 dark:text-orange-100">PL12</th>
+              <th className="sticky right-[144px] z-30 p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-orange-50 dark:bg-orange-900 text-orange-900 dark:text-orange-100">PL6</th>
+              <th className="sticky right-[106px] z-30 p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-orange-50 dark:bg-orange-900 text-orange-900 dark:text-orange-100">PL4</th>
+              <th className="sticky right-[68px] z-30 p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-emerald-50 dark:bg-emerald-900 text-emerald-900 dark:text-blue-100">SO12</th>
+              <th className="sticky right-0 z-30 p-1 border border-zinc-200 dark:border-zinc-700 w-[68px] bg-amber-400 text-black font-black uppercase leading-tight text-[8px] whitespace-nowrap">TOTAL<br/>H/MÊS</th>
             </tr>
           </thead>
           <tbody>
@@ -296,29 +414,59 @@ export function ScaleGrid({
                           <div className="text-[8px] font-normal text-zinc-600 dark:text-zinc-400 uppercase">{em.servidores.cargo}</div>
                         </td>
                       )}
-                      <td className={`p-1 border border-zinc-200 dark:border-zinc-700 font-bold uppercase text-zinc-800 dark:text-zinc-200 ${cat === 'Extra' ? 'bg-zinc-50 dark:bg-zinc-800/50' : ''}`}>
-                        {cat === 'Regular' ? '07h às 19h' : cat === 'Extra' ? 'HORAS EXTRAS' : cat === 'Plantão' ? 'PLANTÕES' : 'SOBREAVISO'}
+                      <td className={`sticky left-[180px] z-10 p-1 border border-zinc-200 dark:border-zinc-700 font-bold uppercase text-zinc-800 dark:text-zinc-200 ${cat === 'Extra' ? 'bg-zinc-50 dark:bg-zinc-800/50' : 'bg-white dark:bg-zinc-900'}`}>
+                        {cat === 'Regular' ? '07h às 19h' : cat === 'Extra' ? 'EXTRAS' : cat === 'Plantão' ? 'PLANTÕES' : 'SOBREAVISO'}
                       </td>
                       {daysArray.map(day => {
                         const turnoId = gridData[em.servidor_id]?.[cat]?.[day] || ''
                         const turno = turnos.find(t => t.id === turnoId)
-                        const isWE = getDayOfWeek(day) === 0 || getDayOfWeek(day) === 6
+                        const d = new Date(ano, mes - 1, day)
+                        const isWE = d.getDay() === 0 || d.getDay() === 6
+                        const dateStr = `${ano}-${mes.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`
+                        const isHoliday = feriados.some(f => f.data === dateStr)
                         
+                        let isTriggerAllowed = false
+                        if (cat === 'Sobreaviso' && turno) {
+                          const now = new Date()
+                          let startHour = 7
+                          let endHour = 19
+                          let endDayOffset = 0
+                      
+                          if (turno.codigo === 'N') {
+                            startHour = 19
+                            endHour = 7
+                            endDayOffset = 1
+                          } else if (turno.codigo === 'MTN') {
+                            startHour = 7
+                            endHour = 7
+                            endDayOffset = 1
+                          }
+                      
+                          const start = new Date(ano, mes - 1, day, startHour, 0, 0)
+                          const end = new Date(ano, mes - 1, day + endDayOffset, endHour, 0, 0)
+                      
+                          isTriggerAllowed = now >= start && now < end
+                        }
+
                         return (
-                          <td key={day} className={`p-0 border border-zinc-200 dark:border-zinc-700 text-center relative ${isWE ? 'bg-zinc-50 dark:bg-zinc-800/50' : ''}`}>
+                          <td key={day} className={`p-0 border border-zinc-200 dark:border-zinc-700 text-center relative ${isHoliday ? 'bg-red-50 dark:bg-red-900/10' : isWE ? 'bg-zinc-50 dark:bg-zinc-800/50' : ''}`}>
                             <input
-                              list="turnos-list"
+                              list={cat === 'Sobreaviso' ? "turnos-sobreaviso-list" : "turnos-list"}
                               value={turno?.codigo || ''}
                               disabled={isClosed}
                               onChange={(e) => {
                                 const val = e.target.value.toUpperCase()
+                                // Se for Sobreaviso, só permite MT, N ou MTN
+                                if (cat === 'Sobreaviso' && val !== '' && val !== 'MT' && val !== 'N' && val !== 'MTN') {
+                                  return
+                                }
                                 const t = turnos.find(x => x.codigo === val)
                                 handleCellChange(em.servidor_id, cat, day, t?.id || '')
                               }}
-                              className="w-full h-full bg-transparent border-none text-center focus:outline-none focus:ring-1 focus:ring-blue-500 font-black p-1 text-zinc-900 dark:text-zinc-100 uppercase"
+                              className="w-full h-full bg-transparent border-none text-center focus:outline-none focus:ring-1 focus:ring-blue-500 font-black p-0 text-[11px] text-zinc-900 dark:text-zinc-100 uppercase"
                               placeholder="-"
                             />
-                            {cat === 'Sobreaviso' && turno && (
+                            {isTriggerAllowed && (
                               <button 
                                 onClick={() => setTriggerModal({
                                   isOpen: true,
@@ -339,14 +487,14 @@ export function ScaleGrid({
                       })}
                       {catIdx === 0 && (
                         <>
-                          <td rowSpan={4} className="p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-blue-50/30 dark:bg-blue-900/10 text-blue-900 dark:text-blue-100">{totals.chTotal}</td>
-                          <td rowSpan={4} className="p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-indigo-50/30 dark:bg-indigo-900/10 text-indigo-900 dark:text-indigo-100">{totals.he100}</td>
-                          <td rowSpan={4} className="p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-indigo-50/30 dark:bg-indigo-900/10 text-indigo-900 dark:text-indigo-100">{totals.he50}</td>
-                          <td rowSpan={4} className="p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-orange-50/30 dark:bg-orange-900/10 text-orange-900 dark:text-orange-100">{totals.pl12}</td>
-                          <td rowSpan={4} className="p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-orange-50/30 dark:bg-orange-900/10 text-orange-900 dark:text-orange-100">{totals.pl6}</td>
-                          <td rowSpan={4} className="p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-orange-50/30 dark:bg-orange-900/10 text-orange-900 dark:text-orange-100">{totals.pl4}</td>
-                          <td rowSpan={4} className="p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-emerald-50/30 dark:bg-emerald-900/10 text-emerald-900 dark:text-emerald-100">{totals.so12}</td>
-                          <td rowSpan={4} className="p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-amber-400 text-black text-xs">{totals.totalGeral}</td>
+                          <td rowSpan={4} className="sticky right-[296px] z-10 p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-blue-50 dark:bg-blue-900 text-blue-900 dark:text-blue-100">{totals.chTotal}</td>
+                          <td rowSpan={4} className="sticky right-[258px] z-10 p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-indigo-50 dark:bg-indigo-900 text-indigo-900 dark:text-indigo-100">{totals.he100}</td>
+                          <td rowSpan={4} className="sticky right-[220px] z-10 p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-indigo-50 dark:bg-indigo-900 text-indigo-900 dark:text-indigo-100">{totals.he50}</td>
+                          <td rowSpan={4} className="sticky right-[182px] z-10 p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-orange-50 dark:bg-orange-900 text-orange-900 dark:text-orange-100">{totals.pl12}</td>
+                          <td rowSpan={4} className="sticky right-[144px] z-10 p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-orange-50 dark:bg-orange-900 text-orange-900 dark:text-orange-100">{totals.pl6}</td>
+                          <td rowSpan={4} className="sticky right-[106px] z-10 p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-orange-50 dark:bg-orange-900 text-orange-900 dark:text-orange-100">{totals.pl4}</td>
+                          <td rowSpan={4} className="sticky right-[68px] z-10 p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-emerald-50 dark:bg-emerald-900 text-emerald-900 dark:text-emerald-100">{totals.so12}</td>
+                          <td rowSpan={4} className="sticky right-0 z-10 p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-amber-400 text-black text-xs">{totals.totalGeral}</td>
                         </>
                       )}
                     </tr>
@@ -358,7 +506,13 @@ export function ScaleGrid({
         </table>
 
         <datalist id="turnos-list">
-          {turnos.map(t => <option key={t.id} value={t.codigo}>{t.descricao}</option>)}
+          {turnos.filter(t => t.ativo !== false).map(t => <option key={t.id} value={t.codigo}>{t.descricao}</option>)}
+        </datalist>
+
+        <datalist id="turnos-sobreaviso-list">
+          {turnos.filter(t => t.ativo !== false && (t.codigo === 'MT' || t.codigo === 'N' || t.codigo === 'MTN')).map(t => (
+            <option key={t.id} value={t.codigo}>{t.descricao}</option>
+          ))}
         </datalist>
       </div>
 

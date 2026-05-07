@@ -18,10 +18,10 @@ export default function NovaEscalaPage() {
   useEffect(() => {
     async function loadData() {
       const supabase = createClient()
-      const { data: units } = await supabase.from('unidades').select('id, nome').order('nome')
+      const { data: units } = await supabase.from('unidades').select('id, nome').eq('ativo', true).order('nome')
       if (units) setUnidades(units)
 
-      const { data: sectors } = await supabase.from('setores').select('id, nome, unidade_id').order('nome')
+      const { data: sectors } = await supabase.from('setores').select('id, nome, unidade_id').eq('ativo', true).order('nome')
       if (sectors) setSetores(sectors)
     }
     loadData()

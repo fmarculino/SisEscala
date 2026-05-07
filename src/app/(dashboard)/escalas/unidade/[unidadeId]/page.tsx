@@ -57,6 +57,22 @@ export default async function UnidadeEscalaPage({
     .select('*')
     .in('escala_mensal_id', escalaMensalIds)
 
+  // 7. Fetch holidays for the period
+  const { data: feriados } = await supabase
+    .from('feriados')
+    .select('*')
+    .gte('data', `${ano}-${mes.toString().padStart(2, '0')}-01`)
+    .lte('data', `${ano}-${mes.toString().padStart(2, '0')}-31`)
+
+  // 8. Fetch global config for auto-inactivation
+  const { data: configInativacao } = await supabase
+    .from('configuracoes_globais')
+    .select('valor')
+    .eq('chave', 'dias_inativacao_automatica')
+    .single()
+
+  const diasInativacao = parseInt(configInativacao?.valor || '5')
+
   return (
     <div className="h-full flex flex-col space-y-6">
       <div className="flex items-center justify-between">
@@ -80,6 +96,8 @@ export default async function UnidadeEscalaPage({
         turnos={turnos || []}
         escalaMensalInicial={escalaMensal || []}
         escalaDiariaInicial={escalaDiaria || []}
+        feriados={feriados || []}
+        diasInativacao={diasInativacao}
       />
     </div>
   )

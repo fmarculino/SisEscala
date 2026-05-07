@@ -49,12 +49,12 @@ export async function updateSetor(id: string, formData: FormData) {
   redirect('/setores')
 }
 
-export async function deleteSetor(id: string) {
+export async function toggleStatusSetor(id: string, currentStatus: boolean) {
   const supabase = await createClient()
 
   const { error } = await supabase
     .from('setores')
-    .delete()
+    .update({ ativo: !currentStatus })
     .eq('id', id)
 
   if (error) {
