@@ -4,12 +4,6 @@ import { createClient } from '@/utils/supabase/server'
 import { createClient as createSupabaseAdmin } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 
-// Note: To use admin features, we need the service_role key
-const supabaseAdmin = createSupabaseAdmin(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-)
-
 export async function createUser(formData: FormData) {
   const email = formData.get('email') as string
   const fullName = formData.get('full_name') as string
@@ -21,6 +15,12 @@ export async function createUser(formData: FormData) {
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return { error: 'Chave SUPABASE_SERVICE_ROLE_KEY não configurada no servidor.' }
   }
+
+  // Note: To use admin features, we need the service_role key
+  const supabaseAdmin = createSupabaseAdmin(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+  )
 
   // 1. Create user in Auth
   const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
