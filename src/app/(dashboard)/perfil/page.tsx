@@ -38,7 +38,10 @@ export default async function PerfilPage() {
         </div>
 
         <div className="p-6">
-          <form action={updateProfile} className="space-y-6">
+          <form action={async (formData) => {
+            'use server'
+            await updateProfile(formData)
+          }} className="space-y-6">
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
               <div>
                 <label htmlFor="full_name" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">

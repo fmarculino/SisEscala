@@ -61,7 +61,10 @@ export default async function UsuariosPage() {
               </h2>
             </div>
             
-            <form action={createUser} className="p-6 space-y-4">
+            <form action={async (formData) => {
+              'use server'
+              await createUser(formData)
+            }} className="p-6 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Nome Completo</label>
                 <input required type="text" name="full_name" className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 py-2 px-3 text-sm focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800" />
