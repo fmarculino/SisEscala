@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { Save, Loader2, Settings, Clock, Shield, Bell, Database } from 'lucide-react'
+import { Save, Loader2, Settings, Clock, Shield, Bell, Database, Zap } from 'lucide-react'
 
 export default function ConfigPage() {
   const supabase = createClient()
@@ -98,6 +98,91 @@ export default function ConfigPage() {
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                   Salvar Regra
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Regras de Sobreaviso */}
+        <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden shadow-sm">
+          <div className="p-6 flex items-start gap-4">
+            <div className="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg text-orange-600">
+              <Zap className="h-5 w-5" />
+            </div>
+            <div className="flex-1 space-y-4">
+              <div>
+                <h3 className="font-bold text-zinc-900 dark:text-white">Regras de Sobreaviso</h3>
+                <p className="text-xs text-zinc-500">Defina os prazos, obrigações de GPS e penalidades para acionamento de sobreaviso.</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Exigir Localização (GPS)</label>
+                  <select 
+                    className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                    value={getConfig('sobreaviso_exigir_localizacao')?.valor || 'false'}
+                    onChange={(e) => handleSave('sobreaviso_exigir_localizacao', e.target.value)}
+                    disabled={saving}
+                  >
+                    <option value="true">Sim, obrigatório</option>
+                    <option value="false">Não exigir</option>
+                  </select>
+                  <p className="text-[10px] text-zinc-500">Bloqueia o aceite se o servidor não compartilhar a localização.</p>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Tempo Limite para Aceite (minutos)</label>
+                  <input 
+                    type="number" 
+                    className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                    value={getConfig('sobreaviso_tempo_aceite_minutos')?.valor || ''}
+                    onBlur={(e) => handleSave('sobreaviso_tempo_aceite_minutos', e.target.value)}
+                    onChange={(e) => setConfigs(prev => prev.map(c => c.chave === 'sobreaviso_tempo_aceite_minutos' ? { ...c, valor: e.target.value } : c))}
+                    disabled={saving}
+                  />
+                  <p className="text-[10px] text-zinc-500">Tempo máximo antes de invalidar a chamada.</p>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Tempo Limite de Deslocamento (minutos)</label>
+                  <input 
+                    type="number" 
+                    className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                    value={getConfig('sobreaviso_tempo_chegada_minutos')?.valor || ''}
+                    onBlur={(e) => handleSave('sobreaviso_tempo_chegada_minutos', e.target.value)}
+                    onChange={(e) => setConfigs(prev => prev.map(c => c.chave === 'sobreaviso_tempo_chegada_minutos' ? { ...c, valor: e.target.value } : c))}
+                    disabled={saving}
+                  />
+                  <p className="text-[10px] text-zinc-500">Tempo máximo para registrar a chegada após o aceite.</p>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Penalizar Falha na Escala</label>
+                  <select 
+                    className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                    value={getConfig('sobreaviso_desconsiderar_falha')?.valor || 'false'}
+                    onChange={(e) => handleSave('sobreaviso_desconsiderar_falha', e.target.value)}
+                    disabled={saving}
+                  >
+                    <option value="true">Desconsiderar turno da soma de totais</option>
+                    <option value="false">Manter contabilizado nos totais</option>
+                  </select>
+                  <p className="text-[10px] text-zinc-500">Se ativo, o plantão não entra nos cálculos mensais.</p>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Permitir Validação Manual</label>
+                  <select 
+                    className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                    value={getConfig('sobreaviso_permitir_validacao_manual')?.valor || 'false'}
+                    onChange={(e) => handleSave('sobreaviso_permitir_validacao_manual', e.target.value)}
+                    disabled={saving}
+                  >
+                    <option value="true">Sim, administradores podem sobrepor a falha</option>
+                    <option value="false">Não permitir sobreposição manual</option>
+                  </select>
+                  <p className="text-[10px] text-zinc-500">Permite que um admin valide manualmente um sobreaviso que falhou.</p>
+                </div>
               </div>
             </div>
           </div>

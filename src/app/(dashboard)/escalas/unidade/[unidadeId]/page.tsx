@@ -64,14 +64,18 @@ export default async function UnidadeEscalaPage({
     .gte('data', `${ano}-${mes.toString().padStart(2, '0')}-01`)
     .lte('data', `${ano}-${mes.toString().padStart(2, '0')}-31`)
 
-  // 8. Fetch global config for auto-inactivation
-  const { data: configInativacao } = await supabase
+  // 8. Fetch global config for auto-inactivation and sobreaviso rules
+  const { data: configsGlobais } = await supabase
     .from('configuracoes_globais')
-    .select('valor')
-    .eq('chave', 'dias_inativacao_automatica')
-    .single()
+    .select('chave, valor')
 
-  const diasInativacao = parseInt(configInativacao?.valor || '5')
+  const diasInativacao = parseInt(configsGlobais?.find(c => c.chave === 'dias_inativacao_automatica')?.valor || '5')
+  
+  // 9. Fetch logs_sobreaviso for these monthly scales
+  const { data: logsSobreaviso } = await supabase
+    .from('logs_sobreaviso')
+    .select('*')
+    .in('escala_mensal_id', escalaMensalIds)
 
   return (
     <div className="h-full flex flex-col space-y-6">
@@ -98,6 +102,8 @@ export default async function UnidadeEscalaPage({
         escalaDiariaInicial={escalaDiaria || []}
         feriados={feriados || []}
         diasInativacao={diasInativacao}
+        logsSobreavisoInicial={logsSobreaviso || []}
+        configsGlobais={configsGlobais || []}
       />
     </div>
   )

@@ -11,6 +11,8 @@ export default function ProfessionalOvercallPage() {
   const [loading, setLoading] = useState(true)
   const [status, setStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [configs, setConfigs] = useState<Record<string, string>>({})
+  
   useEffect(() => {
     const supabase = createClient()
     async function fetchLog() {
@@ -26,8 +28,40 @@ export default function ProfessionalOvercallPage() {
           servidores: data.servidores,
           unidades: data.unidades
         }
+        
+        // Fetch configs
+        const { data: configData } = await supabase.from('configuracoes_globais').select('chave, valor')
+        const cfg: Record<string, string> = {}
+        if (configData) {
+          configData.forEach(c => cfg[c.chave] = c.valor)
+        }
+        setConfigs(cfg)
+
+        // Check timeouts
+        let currentStatus = flattenedData.status
+        if (currentStatus === 'Aguardando' && cfg['sobreaviso_tempo_aceite_minutos']) {
+          const limit = parseInt(cfg['sobreaviso_tempo_aceite_minutos'])
+          const created = new Date(flattenedData.created_at)
+          const diffMinutes = (new Date().getTime() - created.getTime()) / 60000
+          if (diffMinutes > limit) {
+            currentStatus = 'Falhou'
+            await supabase.from('logs_sobreaviso').update({ status: 'Falhou', motivo_falha: 'Tempo limite para aceite excedido.' }).eq('id', flattenedData.id)
+            flattenedData.motivo_falha = 'Tempo limite para aceite excedido.'
+          }
+        } else if (currentStatus === 'Aceito' && cfg['sobreaviso_tempo_chegada_minutos']) {
+          const limit = parseInt(cfg['sobreaviso_tempo_chegada_minutos'])
+          const accepted = new Date(flattenedData.data_hora_aceite)
+          const diffMinutes = (new Date().getTime() - accepted.getTime()) / 60000
+          if (diffMinutes > limit) {
+            currentStatus = 'Falhou'
+            await supabase.from('logs_sobreaviso').update({ status: 'Falhou', motivo_falha: 'Tempo limite de deslocamento excedido.' }).eq('id', flattenedData.id)
+            flattenedData.motivo_falha = 'Tempo limite de deslocamento excedido.'
+          }
+        }
+        
+        flattenedData.status = currentStatus
         setLog(flattenedData)
-        setStatus(flattenedData.status)
+        setStatus(currentStatus)
       }
       setLoading(false)
     }
@@ -55,23 +89,23 @@ export default function ProfessionalOvercallPage() {
     setLoading(true)
     setError(null)
 
-    if (!navigator.geolocation) {
-      setError('GPS é obrigatório para aceitar o chamado.')
+    const requireLocation = configs['sobreaviso_exigir_localizacao'] === 'true'
+
+    if (requireLocation && !navigator.geolocation) {
+      setError('A configuração exige GPS para aceitar o chamado e seu navegador não suporta.')
       setLoading(false)
       return
     }
 
-    navigator.geolocation.getCurrentPosition(async (position) => {
-      const { latitude, longitude } = position.coords
-      
+    const performAccept = async (lat?: number, long?: number) => {
       const supabase = createClient()
       const { error: updateError } = await supabase
         .from('logs_sobreaviso')
         .update({
           status: 'Aceito',
           data_hora_aceite: new Date().toISOString(),
-          lat_aceite: latitude,
-          long_aceite: longitude,
+          lat_aceite: lat || null,
+          long_aceite: long || null,
           user_agent: navigator.userAgent
         })
         .eq('token_magic_link', token)
@@ -82,36 +116,46 @@ export default function ProfessionalOvercallPage() {
         setStatus('Aceito')
       }
       setLoading(false)
-    }, () => {
-      setError('Permissão de GPS negada. Por favor, habilite o GPS para continuar.')
-      setLoading(false)
-    })
+    }
+
+    if (requireLocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => performAccept(pos.coords.latitude, pos.coords.longitude),
+        () => {
+          setError('Permissão de GPS negada. Por favor, habilite o acesso à sua localização para confirmar o chamado.')
+          setLoading(false)
+        }
+      )
+    } else {
+      performAccept()
+    }
   }
 
   const handleRegisterArrival = async () => {
     setLoading(true)
     setError(null)
 
-    if (!navigator.geolocation) {
+    const requireLocation = configs['sobreaviso_exigir_localizacao'] === 'true'
+
+    if (requireLocation && !navigator.geolocation) {
       setError('GPS é obrigatório para validar a chegada.')
       setLoading(false)
       return
     }
 
-    navigator.geolocation.getCurrentPosition(async (position) => {
-      const { latitude, longitude } = position.coords
-      
-      // Check geofence
-      const unitLat = log.unidades?.latitude
-      const unitLong = log.unidades?.longitude
-      const radius = log.unidades?.raio_geofence || 500
+    const performArrival = async (lat?: number, long?: number) => {
+      if (lat && long) {
+        const unitLat = log.unidades?.latitude
+        const unitLong = log.unidades?.longitude
+        const radius = log.unidades?.raio_geofence || 500
 
-      if (unitLat && unitLong) {
-        const distance = getDistance(latitude, longitude, unitLat, unitLong)
-        if (distance > radius) {
-          alert(`Você está a ${Math.round(distance)}m da unidade. A chegada só pode ser registrada num raio de ${radius}m.`)
-          setLoading(false)
-          return
+        if (unitLat && unitLong) {
+          const distance = getDistance(lat, long, unitLat, unitLong)
+          if (distance > radius) {
+            alert(`Você está a ${Math.round(distance)}m da unidade. A chegada só pode ser registrada num raio de ${radius}m.`)
+            setLoading(false)
+            return
+          }
         }
       }
       
@@ -120,10 +164,11 @@ export default function ProfessionalOvercallPage() {
       const { error: updateError } = await supabase
         .from('logs_sobreaviso')
         .update({
+          status: 'Chegou',
           data_hora_chegada: now,
-          tipo_validacao_chegada: 'GPS',
-          lat_chegada: latitude,
-          long_chegada: longitude
+          tipo_validacao_chegada: lat ? 'GPS' : 'Manual',
+          lat_chegada: lat || null,
+          long_chegada: long || null
         })
         .eq('token_magic_link', token)
 
@@ -131,13 +176,23 @@ export default function ProfessionalOvercallPage() {
         setError('Erro ao registrar chegada: ' + updateError.message)
       } else {
         alert('Chegada registrada com sucesso!')
-        setLog((prev: any) => ({ ...prev, data_hora_chegada: now }))
+        setStatus('Chegou')
+        setLog((prev: any) => ({ ...prev, status: 'Chegou', data_hora_chegada: now }))
       }
       setLoading(false)
-    }, (err) => {
-      setError('Erro ao obter GPS: ' + err.message)
-      setLoading(false)
-    })
+    }
+
+    if (requireLocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => performArrival(pos.coords.latitude, pos.coords.longitude),
+        (err) => {
+          setError('Erro ao obter GPS: ' + err.message + '. Por favor, habilite a localização.')
+          setLoading(false)
+        }
+      )
+    } else {
+      performArrival()
+    }
   }
 
   const [showRecuseForm, setShowRecuseForm] = useState(false)
@@ -276,6 +331,26 @@ export default function ProfessionalOvercallPage() {
                 <h3 className="text-lg font-bold text-red-800 dark:text-red-400">Chamado Recusado</h3>
                 <p className="text-sm text-red-600 dark:text-red-300">
                   Sua justificativa foi enviada para a unidade.
+                </p>
+              </div>
+            )}
+
+            {status === 'Falhou' && (
+              <div className="bg-red-50 dark:bg-red-900/20 p-6 rounded-xl text-center space-y-2 border border-red-200 dark:border-red-800">
+                <AlertCircle className="h-12 w-12 text-red-600 mx-auto mb-2" />
+                <h3 className="text-lg font-bold text-red-800 dark:text-red-400">Chamado Falhou</h3>
+                <p className="text-sm text-red-600 dark:text-red-300">
+                  {log.motivo_falha || 'O tempo limite expirou e este chamado foi invalidado.'}
+                </p>
+              </div>
+            )}
+
+            {status === 'Chegou' && (
+              <div className="bg-blue-50 dark:bg-blue-900/20 p-6 rounded-xl text-center space-y-2 border border-blue-200 dark:border-blue-800">
+                <CheckCircle className="h-12 w-12 text-blue-600 mx-auto mb-2" />
+                <h3 className="text-lg font-bold text-blue-800 dark:text-blue-400">Chegada Confirmada</h3>
+                <p className="text-sm text-blue-600 dark:text-blue-300">
+                  Obrigado por confirmar sua presença.
                 </p>
               </div>
             )}

@@ -4,7 +4,7 @@
 export type VinculoType = 'Contratada' | 'Concursada' | 'Efetiva' | 'Comissionada'
 export type TurnoTipo = 'Normal' | 'Plantão' | 'Sobreaviso' | 'Extra'
 export type EscalaCategoria = 'Regular' | 'Extra' | 'Plantão' | 'Sobreaviso'
-export type SobreavisoStatus = 'Aguardando' | 'Aceito' | 'Recusado' | 'Expirado'
+export type SobreavisoStatus = 'Aguardando' | 'Aceito' | 'Chegou' | 'Falhou' | 'Recusado' | 'Expirado'
 export type UserRole = 'super_admin' | 'coordenador' | 'servidor'
 
 export interface Unidade {
@@ -76,6 +76,7 @@ export interface LogSobreaviso {
   servidor_id: string | null
   unidade_id: string | null
   escala_mensal_id: string | null
+  dia: number | null
   data_hora_acionamento: string | null
   status: SobreavisoStatus
   token_magic_link: string | null
@@ -93,6 +94,8 @@ export interface LogSobreaviso {
   justificativa_recusa: string | null
   lat_recusa: number | null
   long_recusa: number | null
+  motivo_falha: string | null
+  validacao_manual: boolean | null
   created_at: string | null
 }
 

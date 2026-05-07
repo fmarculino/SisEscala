@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { Save, Loader2, Info, Zap, Lock, FileText, Plus, UserPlus, Users } from 'lucide-react'
+import { Save, Loader2, Info, Zap, Lock, FileText, Plus, UserPlus, Users, CheckCircle } from 'lucide-react'
 import { ScalePrintView } from '@/components/ScalePrintView'
 import React from 'react'
 
@@ -17,6 +17,8 @@ interface ScaleGridProps {
   escalaDiariaInicial: any[]
   feriados: any[]
   diasInativacao: number
+  logsSobreavisoInicial: any[]
+  configsGlobais: any[]
 }
 
 type RowCategory = 'Regular' | 'Extra' | 'Plantão' | 'Sobreaviso'
@@ -31,17 +33,23 @@ export function ScaleGrid({
   escalaMensalInicial,
   escalaDiariaInicial,
   feriados,
-  diasInativacao
+  diasInativacao,
+  logsSobreavisoInicial,
+  configsGlobais
 }: ScaleGridProps) {
   const supabase = createClient()
   const [loading, setLoading] = useState(false)
   const [escalaMensal, setEscalaMensal] = useState(escalaMensalInicial)
+  const [logsSobreaviso, setLogsSobreaviso] = useState(logsSobreavisoInicial)
+  const desconsiderarFalha = configsGlobais.find(c => c.chave === 'sobreaviso_desconsiderar_falha')?.valor === 'true'
+  const permitirValidacaoManual = configsGlobais.find(c => c.chave === 'sobreaviso_permitir_validacao_manual')?.valor === 'true'
   const [triggerModal, setTriggerModal] = useState<{
     isOpen: boolean;
     servidorId: string;
     servidorNome: string;
     turnoId: string;
     escalaMensalId: string;
+    dia: number;
   } | null>(null)
   const [motivo, setMotivo] = useState('')
   const [generatedLink, setGeneratedLink] = useState<string | null>(null)
@@ -103,7 +111,10 @@ export function ScaleGrid({
 
         const turnoIdS = gridData[em.servidor_id]?.['Sobreaviso']?.[day]
         if (turnoIdS) {
-          hasS = true
+          const logFailed = logsSobreaviso.find(l => l.escala_mensal_id === em.id && l.dia === day && l.status === 'Falhou')
+          if (!(desconsiderarFalha && logFailed)) {
+            hasS = true
+          }
         }
 
         if (hasM) countM++
@@ -180,7 +191,10 @@ export function ScaleGrid({
     })
 
     // Sum Sobreavisos
-    Object.values(serverData['Sobreaviso']).forEach(turnoId => {
+    Object.entries(serverData['Sobreaviso']).forEach(([day, turnoId]) => {
+      const logFailed = logsSobreaviso.find(l => l.servidor_id === servidorId && l.dia === parseInt(day) && l.status === 'Falhou')
+      if (desconsiderarFalha && logFailed) return // Não soma horas se falhou
+      
       const t = turnos.find(x => x.id === turnoId)
       if (t) {
         if (t.codigo === 'MTN') so12 += 2
@@ -202,6 +216,7 @@ export function ScaleGrid({
         servidor_id: triggerModal.servidorId,
         unidade_id: unidadeId,
         escala_mensal_id: triggerModal.escalaMensalId,
+        dia: triggerModal.dia,
         motivo_acionamento: motivo,
         status: 'Aguardando'
       }).select('token_magic_link').single()
@@ -222,6 +237,33 @@ export function ScaleGrid({
     setTriggerModal(null)
     setGeneratedLink(null)
     setMotivo('')
+  }
+
+  const handleManualOverride = async (logId: string) => {
+    if (!confirm('Deseja validar manualmente este sobreaviso que falhou? Ele voltará a ser contabilizado na carga horária do servidor.')) return
+    
+    setLoading(true)
+    try {
+      const { error } = await supabase
+        .from('logs_sobreaviso')
+        .update({ 
+          status: 'Chegou', 
+          validacao_manual: true,
+          tipo_validacao_chegada: 'Manual/Admin',
+          motivo_falha: null
+        })
+        .eq('id', logId)
+
+      if (error) throw error
+      
+      // Update local state
+      setLogsSobreaviso(prev => prev.map(l => l.id === logId ? { ...l, status: 'Chegou', validacao_manual: true, motivo_falha: null } : l))
+      alert('Validação manual realizada com sucesso!')
+    } catch (err: any) {
+      alert('Erro ao validar manualmente: ' + err.message)
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleSave = async () => {
@@ -501,8 +543,15 @@ export function ScaleGrid({
                           isTriggerAllowed = now >= start && now < end
                         }
 
+                        const logForDay = cat === 'Sobreaviso' ? logsSobreaviso.find(l => l.escala_mensal_id === em.id && l.dia === day) : null
+                        const isFailed = desconsiderarFalha && logForDay?.status === 'Falhou'
+
                         return (
-                          <td key={day} className={`p-0 border border-zinc-200 dark:border-zinc-700 text-center relative ${isHoliday ? 'bg-red-50 dark:bg-red-900/10' : isWE ? 'bg-zinc-50 dark:bg-zinc-800/50' : ''}`}>
+                          <td 
+                            key={day} 
+                            className={`p-0 border border-zinc-200 dark:border-zinc-700 text-center relative ${isHoliday ? 'bg-red-50 dark:bg-red-900/10' : isWE ? 'bg-zinc-50 dark:bg-zinc-800/50' : ''} ${isFailed ? 'bg-red-200 dark:bg-red-900/40' : ''}`}
+                            title={isFailed ? `Desconsiderado: ${logForDay?.motivo_falha || 'Falha no sobreaviso'}` : ''}
+                          >
                             <input
                               list={cat === 'Sobreaviso' ? "turnos-sobreaviso-list" : "turnos-list"}
                               value={turno?.codigo || ''}
@@ -516,9 +565,22 @@ export function ScaleGrid({
                                 const t = turnos.find(x => x.codigo === val)
                                 handleCellChange(em.servidor_id, cat, day, t?.id || '')
                               }}
-                              className="w-full h-full bg-transparent border-none text-center focus:outline-none focus:ring-1 focus:ring-blue-500 font-black p-0 text-[11px] text-zinc-900 dark:text-zinc-100 uppercase"
+                              className={`w-full h-full bg-transparent border-none text-center focus:outline-none focus:ring-1 focus:ring-blue-500 font-black p-0 text-[11px] uppercase ${isFailed ? 'text-red-900 dark:text-red-300' : 'text-zinc-900 dark:text-zinc-100'}`}
                               placeholder="-"
                             />
+                            {isFailed && permitirValidacaoManual && !isClosed && (
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (logForDay) handleManualOverride(logForDay.id)
+                                }}
+                                disabled={loading}
+                                className="absolute bottom-[2px] right-[2px] hidden group-hover:flex h-3 w-3 items-center justify-center rounded bg-red-600 text-white z-30 hover:bg-green-600 transition-colors shadow-sm"
+                                title="Validar Manualmente (Remover Falha)"
+                              >
+                                <CheckCircle className="h-2 w-2" />
+                              </button>
+                            )}
                             {isTriggerAllowed && (
                               <button 
                                 onClick={() => setTriggerModal({
@@ -526,7 +588,8 @@ export function ScaleGrid({
                                   servidorId: em.servidor_id,
                                   servidorNome: em.servidores?.nome || 'Servidor',
                                   turnoId: turno.id,
-                                  escalaMensalId: em.id
+                                  escalaMensalId: em.id,
+                                  dia: day
                                 })}
                                 disabled={loading}
                                 className="absolute -top-1 -right-1 hidden group-hover:flex h-3 w-3 items-center justify-center rounded-full bg-orange-500 text-white z-30 hover:bg-orange-600 transition-colors shadow-sm"
