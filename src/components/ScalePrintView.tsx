@@ -12,6 +12,11 @@ interface ScalePrintViewProps {
   escalaMensal: any[]
   gridData: Record<string, Record<RowCategory, Record<number, string>>>
   turnos: any[]
+  shiftTotals: {
+    M: Record<number, number>
+    T: Record<number, number>
+    N: Record<number, number>
+  }
 }
 
 export function ScalePrintView({ 
@@ -21,7 +26,8 @@ export function ScalePrintView({
   ano, 
   escalaMensal, 
   gridData, 
-  turnos 
+  turnos,
+  shiftTotals
 }: ScalePrintViewProps) {
   const daysInMonth = new Date(ano, mes, 0).getDate()
   const daysArray = Array.from({ length: daysInMonth }, (_, i) => i + 1)
@@ -218,6 +224,52 @@ export function ScalePrintView({
               )
             })}
           </tbody>
+          <tfoot>
+            <tr className="bg-gray-header">
+              <td colSpan={2} rowSpan={4} className="text-center font-bold" style={{ fontSize: '7pt', verticalAlign: 'middle', textTransform: 'uppercase' }}>
+                SERVIDORES POR TURNO
+              </td>
+              <td className="text-center font-bold bg-white" style={{ fontSize: '5pt', textTransform: 'uppercase' }}>
+                MANHÃ
+              </td>
+              {daysArray.map(day => (
+                <td key={day} className="text-center font-bold bg-white" style={{ fontSize: '6pt' }}>
+                  {shiftTotals.M[day] || ''}
+                </td>
+              ))}
+              <td colSpan={8} rowSpan={4} className="bg-gray-cell"></td>
+            </tr>
+            <tr className="bg-gray-header">
+              <td className="text-center font-bold bg-white" style={{ fontSize: '5pt', textTransform: 'uppercase' }}>
+                TARDE
+              </td>
+              {daysArray.map(day => (
+                <td key={day} className="text-center font-bold bg-white" style={{ fontSize: '6pt' }}>
+                  {shiftTotals.T[day] || ''}
+                </td>
+              ))}
+            </tr>
+            <tr className="bg-gray-header">
+              <td className="text-center font-bold bg-white" style={{ fontSize: '5pt', textTransform: 'uppercase' }}>
+                NOITE
+              </td>
+              {daysArray.map(day => (
+                <td key={day} className="text-center font-bold bg-white" style={{ fontSize: '6pt' }}>
+                  {shiftTotals.N[day] || ''}
+                </td>
+              ))}
+            </tr>
+            <tr className="bg-gray-header">
+              <td className="text-center font-bold bg-white" style={{ fontSize: '5pt', textTransform: 'uppercase' }}>
+                SOBREAVISO
+              </td>
+              {daysArray.map(day => (
+                <td key={day} className="text-center font-bold bg-white" style={{ fontSize: '6pt' }}>
+                  {shiftTotals.S[day] || ''}
+                </td>
+              ))}
+            </tr>
+          </tfoot>
         </table>
       </div>
     </div>

@@ -68,6 +68,59 @@ export function ScaleGrid({
   const daysInMonth = useMemo(() => new Date(ano, mes, 0).getDate(), [mes, ano])
   const daysArray = useMemo(() => Array.from({ length: daysInMonth }, (_, i) => i + 1), [daysInMonth])
 
+  const shiftTotals = useMemo(() => {
+    const totals = {
+      M: {} as Record<number, number>,
+      T: {} as Record<number, number>,
+      N: {} as Record<number, number>,
+      S: {} as Record<number, number>
+    }
+    
+    daysArray.forEach(day => {
+      let countM = 0
+      let countT = 0
+      let countN = 0
+      let countS = 0
+      
+      escalaMensal.forEach(em => {
+        let hasM = false
+        let hasT = false
+        let hasN = false
+        let hasS = false
+
+        const categories: RowCategory[] = ['Regular', 'Extra', 'Plantão']
+        
+        categories.forEach(cat => {
+           const turnoId = gridData[em.servidor_id]?.[cat]?.[day]
+           const turno = turnos.find(t => t.id === turnoId)
+           if (turno && turno.codigo) {
+             const code = turno.codigo.toUpperCase()
+             if (code.includes('M')) hasM = true
+             if (code.includes('T')) hasT = true
+             if (code.includes('N')) hasN = true
+           }
+        })
+
+        const turnoIdS = gridData[em.servidor_id]?.['Sobreaviso']?.[day]
+        if (turnoIdS) {
+          hasS = true
+        }
+
+        if (hasM) countM++
+        if (hasT) countT++
+        if (hasN) countN++
+        if (hasS) countS++
+      })
+      
+      totals.M[day] = countM
+      totals.T[day] = countT
+      totals.N[day] = countN
+      totals.S[day] = countS
+    })
+    
+    return totals
+  }, [daysArray, escalaMensal, gridData, turnos])
+
   const getDayOfWeek = (day: number) => {
     return new Date(ano, mes - 1, day).getDay()
   }
@@ -503,6 +556,52 @@ export function ScaleGrid({
               )
             })}
           </tbody>
+          <tfoot className="bg-zinc-100 dark:bg-zinc-800">
+            <tr>
+              <td rowSpan={4} className="sticky left-0 z-10 bg-zinc-200 dark:bg-zinc-700 p-2 border border-zinc-300 dark:border-zinc-600 text-center align-middle uppercase text-sm font-black text-zinc-900 dark:text-zinc-100">
+                SERVIDORES POR TURNO
+              </td>
+              <td className="sticky left-[180px] z-10 bg-white dark:bg-zinc-900 p-1 border border-zinc-300 dark:border-zinc-600 uppercase text-[10px] text-center font-bold text-zinc-800 dark:text-zinc-200">
+                MANHÃ
+              </td>
+              {daysArray.map(day => (
+                <td key={day} className="p-1 border border-zinc-300 dark:border-zinc-600 text-center bg-white dark:bg-zinc-900 text-[11px] font-bold text-zinc-900 dark:text-zinc-100">
+                  {shiftTotals.M[day] || ''}
+                </td>
+              ))}
+              <td colSpan={8} rowSpan={4} className="bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600"></td>
+            </tr>
+            <tr>
+              <td className="sticky left-[180px] z-10 bg-white dark:bg-zinc-900 p-1 border border-zinc-300 dark:border-zinc-600 uppercase text-[10px] text-center font-bold text-zinc-800 dark:text-zinc-200">
+                TARDE
+              </td>
+              {daysArray.map(day => (
+                <td key={day} className="p-1 border border-zinc-300 dark:border-zinc-600 text-center bg-white dark:bg-zinc-900 text-[11px] font-bold text-zinc-900 dark:text-zinc-100">
+                  {shiftTotals.T[day] || ''}
+                </td>
+              ))}
+            </tr>
+            <tr>
+              <td className="sticky left-[180px] z-10 bg-white dark:bg-zinc-900 p-1 border border-zinc-300 dark:border-zinc-600 uppercase text-[10px] text-center font-bold text-zinc-800 dark:text-zinc-200">
+                NOITE
+              </td>
+              {daysArray.map(day => (
+                <td key={day} className="p-1 border border-zinc-300 dark:border-zinc-600 text-center bg-white dark:bg-zinc-900 text-[11px] font-bold text-zinc-900 dark:text-zinc-100">
+                  {shiftTotals.N[day] || ''}
+                </td>
+              ))}
+            </tr>
+            <tr>
+              <td className="sticky left-[180px] z-10 bg-white dark:bg-zinc-900 p-1 border border-zinc-300 dark:border-zinc-600 uppercase text-[10px] text-center font-bold text-zinc-800 dark:text-zinc-200">
+                SOBREAVISO
+              </td>
+              {daysArray.map(day => (
+                <td key={day} className="p-1 border border-zinc-300 dark:border-zinc-600 text-center bg-white dark:bg-zinc-900 text-[11px] font-bold text-zinc-900 dark:text-zinc-100">
+                  {shiftTotals.S[day] || ''}
+                </td>
+              ))}
+            </tr>
+          </tfoot>
         </table>
 
         <datalist id="turnos-list">
@@ -525,6 +624,7 @@ export function ScaleGrid({
         escalaMensal={escalaMensal}
         gridData={gridData} 
         turnos={turnos}
+        shiftTotals={shiftTotals}
       />
       {/* Modal de Acionamento de Sobreaviso */}
       {triggerModal && (
