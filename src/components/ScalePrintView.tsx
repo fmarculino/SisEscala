@@ -16,6 +16,7 @@ interface ScalePrintViewProps {
     M: Record<number, number>
     T: Record<number, number>
     N: Record<number, number>
+    S: Record<number, number>
   }
 }
 
