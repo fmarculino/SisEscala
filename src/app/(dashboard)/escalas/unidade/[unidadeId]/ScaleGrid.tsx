@@ -666,8 +666,9 @@ export function ScaleGrid({
                         }
 
                         const isFailed = effectiveStatus === 'Falhou'
-                        // Hide trigger button if it failed or if already successful
-                        if (isFailed || effectiveStatus === 'Aceito' || effectiveStatus === 'Chegou') {
+                        // Hide trigger button if it failed or if currently pending (Accepted/Waiting)
+                        // If it's 'Chegou', the professional is active and can be triggered again.
+                        if (isFailed || effectiveStatus === 'Aceito' || effectiveStatus === 'Aguardando') {
                           isTriggerAllowed = false
                         }
                         const isDisregarded = isFailed && desconsiderarFalha
