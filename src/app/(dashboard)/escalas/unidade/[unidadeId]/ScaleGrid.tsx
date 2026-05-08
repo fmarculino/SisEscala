@@ -45,7 +45,7 @@ export function ScaleGrid({
   const configs = useMemo(() => {
     const obj: Record<string, string> = {}
     configsGlobais.forEach(c => {
-      obj[c.chave] = c.valor
+      obj[c.chave] = String(c.valor)
     })
     return obj
   }, [configsGlobais])
@@ -650,6 +650,10 @@ export function ScaleGrid({
                         }
 
                         const isFailed = effectiveStatus === 'Falhou'
+                        // Hide trigger button if it failed or if already successful
+                        if (isFailed || effectiveStatus === 'Aceito' || effectiveStatus === 'Chegou') {
+                          isTriggerAllowed = false
+                        }
                         const isDisregarded = isFailed && desconsiderarFalha
 
                         return (
