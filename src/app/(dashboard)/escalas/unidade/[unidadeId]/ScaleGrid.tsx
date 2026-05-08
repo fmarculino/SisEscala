@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { Save, Loader2, Info, Zap, Lock, FileText, Plus, UserPlus, Users, CheckCircle } from 'lucide-react'
+import { Save, Loader2, Info, Zap, Lock, FileText, Plus, UserPlus, Users, CheckCircle, Trash2, Globe, X } from 'lucide-react'
 import { ScalePrintView } from '@/components/ScalePrintView'
 import React from 'react'
 
@@ -63,9 +63,20 @@ export function ScaleGrid({
   const [motivo, setMotivo] = useState('')
   const [generatedLink, setGeneratedLink] = useState<string | null>(null)
   const [userRole, setUserRole] = useState<string | null>(null)
+  const [allUnidades, setAllUnidades] = useState<any[]>([])
+  const [allSetores, setAllSetores] = useState<any[]>([])
+  const [isExternalModalOpen, setIsExternalModalOpen] = useState(false)
+  const [externalData, setExternalData] = useState({
+    unidadeId: '',
+    setorId: '',
+    servidorId: ''
+  })
+  const [externalSectors, setExternalSectors] = useState<any[]>([])
+  const [externalServers, setExternalServers] = useState<any[]>([])
 
   useEffect(() => {
-    const fetchUser = async () => {
+    const fetchData = async () => {
+      // Fetch user role
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
         const { data: profile } = await supabase
@@ -75,9 +86,41 @@ export function ScaleGrid({
           .single()
         if (profile) setUserRole(profile.role)
       }
+
+      // Fetch all units and sectors for external server logic
+      const { data: units } = await supabase.from('unidades').select('*').eq('ativo', true).order('nome')
+      const { data: sectors } = await supabase.from('setores').select('*').eq('ativo', true).order('nome')
+      if (units) setAllUnidades(units)
+      if (sectors) setAllSetores(sectors)
     }
-    fetchUser()
+    fetchData()
   }, [supabase])
+
+  // Fetch sectors when unit changes in modal
+  useEffect(() => {
+    if (externalData.unidadeId) {
+      const filtered = allSetores.filter(s => s.unidade_id === externalData.unidadeId)
+      setExternalSectors(filtered)
+      setExternalData(prev => ({ ...prev, setorId: '', servidorId: '' }))
+    }
+  }, [externalData.unidadeId, allSetores])
+
+  // Fetch servers when sector changes in modal
+  useEffect(() => {
+    const fetchExtServers = async () => {
+      if (externalData.setorId) {
+        const { data } = await supabase
+          .from('servidores')
+          .select('*')
+          .eq('setor_id', externalData.setorId)
+          .eq('status', 'Ativo')
+          .order('nome')
+        setExternalServers(data || [])
+        setExternalData(prev => ({ ...prev, servidorId: '' }))
+      }
+    }
+    fetchExtServers()
+  }, [externalData.setorId, supabase])
   
   // Realtime subscription for logs_sobreaviso
   useEffect(() => {
@@ -207,6 +250,48 @@ export function ScaleGrid({
     
     return totals
   }, [daysArray, escalaMensal, gridData, turnos, logsSobreaviso, configs, desconsiderarFalha])
+
+  const handleClearScale = () => {
+    if (confirm('Deseja limpar todos os lançamentos desta escala? Esta ação não pode ser desfeita até que você salve novamente.')) {
+      setGridData({})
+      toast.success('Escala limpa! Não esqueça de salvar.')
+    }
+  }
+
+  const handleAddExternalServer = async () => {
+    if (!externalData.servidorId) return
+
+    // Check if already in grid
+    if (escalaMensal.some(em => em.servidor_id === externalData.servidorId)) {
+      toast.error('Este servidor já está nesta escala.')
+      return
+    }
+
+    setLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('escala_mensal')
+        .insert({
+          unidade_id: unidadeId,
+          setor_id: setorId,
+          servidor_id: externalData.servidorId,
+          mes,
+          ano
+        })
+        .select('*, servidores(*)')
+        .single()
+
+      if (error) throw error
+
+      setEscalaMensal(prev => [...prev, data])
+      setIsExternalModalOpen(false)
+      toast.success('Servidor externo adicionado!')
+    } catch (error: any) {
+      toast.error('Erro ao adicionar servidor: ' + error.message)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const getDayOfWeek = (day: number) => {
     return new Date(ano, mes - 1, day).getDay()
@@ -539,6 +624,24 @@ export function ScaleGrid({
             {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Users className="mr-2 h-4 w-4" />}
             Adicionar Todos
           </button>
+          
+          <button
+            onClick={handleClearScale}
+            disabled={loading || isClosed}
+            className="inline-flex items-center rounded-md border border-red-200 text-red-600 px-3 py-2 text-sm font-medium hover:bg-red-50 dark:border-red-900/30 dark:hover:bg-red-950/30 transition-colors disabled:opacity-50"
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Limpar Escala
+          </button>
+
+          <button
+            onClick={() => setIsExternalModalOpen(true)}
+            disabled={loading || isClosed}
+            className="inline-flex items-center rounded-md border border-blue-200 text-blue-700 px-3 py-2 text-sm font-medium hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 transition-colors disabled:opacity-50"
+          >
+            <Globe className="h-4 w-4 mr-2" />
+            Servidor Externo
+          </button>
         </div>
         
         <div className="flex items-center space-x-3">
@@ -602,8 +705,20 @@ export function ScaleGrid({
                     <tr key={`${em.id}-${cat}`} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/30 group">
                       {catIdx === 0 && (
                         <td rowSpan={4} className="sticky left-0 z-10 bg-white dark:bg-zinc-900 p-2 border border-zinc-200 dark:border-zinc-700 font-bold whitespace-nowrap align-top text-zinc-900 dark:text-zinc-100">
-                          {em.servidores.nome}
-                          <div className="text-[8px] font-normal text-zinc-600 dark:text-zinc-400 uppercase">{em.servidores.cargo}</div>
+                          <div className="flex items-center gap-2">
+                            {em.servidores?.nome}
+                            {isExternal && (
+                              <Globe className="h-3 w-3 text-blue-500" title="Servidor Externo" />
+                            )}
+                          </div>
+                          <div className="text-[8px] font-normal text-zinc-600 dark:text-zinc-400 uppercase">{em.servidores?.cargo}</div>
+                          {isExternal && (
+                            <div className="text-[8px] text-blue-600 dark:text-blue-400 font-medium italic mt-1 leading-tight">
+                              Origem: {allUnidades.find(u => u.id === em.servidores?.unidade_id)?.nome || '...'}
+                              <br />
+                              {allSetores.find(s => s.id === em.servidores?.setor_id)?.nome || '...'}
+                            </div>
+                          )}
                         </td>
                       )}
                       <td className={`sticky left-[180px] z-10 p-1 border border-zinc-200 dark:border-zinc-700 font-bold uppercase text-zinc-800 dark:text-zinc-200 ${cat === 'Extra' ? 'bg-zinc-50 dark:bg-zinc-800/50' : 'bg-white dark:bg-zinc-900'}`}>
@@ -672,6 +787,7 @@ export function ScaleGrid({
                           isTriggerAllowed = false
                         }
                         const isDisregarded = isFailed && desconsiderarFalha
+                        const isExternal = em.servidores?.unidade_id !== unidadeId || em.servidores?.setor_id !== setorId
 
                         return (
                           <td 
@@ -901,7 +1017,6 @@ export function ScaleGrid({
                     >
                       Enviar via WhatsApp
                     </button>
-
                     <button 
                       onClick={handleCloseModal}
                       className="w-full px-4 py-2 rounded-lg text-zinc-600 dark:text-zinc-400 text-xs hover:underline"
@@ -911,6 +1026,84 @@ export function ScaleGrid({
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Modal Servidor Externo */}
+      {isExternalModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-2xl border border-zinc-200 dark:border-zinc-800 w-full max-w-md overflow-hidden" style={{ maxWidth: '450px' }}>
+            <div className="p-6 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between bg-zinc-50 dark:bg-zinc-900/50">
+              <h2 className="text-xl font-bold flex items-center gap-2 text-zinc-900 dark:text-white">
+                <Globe className="h-5 w-5 text-blue-600" />
+                Adicionar Servidor Externo
+              </h2>
+              <button onClick={() => setIsExternalModalOpen(false)} className="text-zinc-400 hover:text-zinc-600">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Unidade de Origem</label>
+                <select 
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all text-zinc-900 dark:text-white"
+                  value={externalData.unidadeId}
+                  onChange={(e) => setExternalData(prev => ({ ...prev, unidadeId: e.target.value }))}
+                >
+                  <option value="">Selecione a Unidade</option>
+                  {allUnidades.map(u => (
+                    <option key={u.id} value={u.id}>{u.nome}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Setor de Origem</label>
+                <select 
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all disabled:opacity-50 text-zinc-900 dark:text-white"
+                  value={externalData.setorId}
+                  disabled={!externalData.unidadeId}
+                  onChange={(e) => setExternalData(prev => ({ ...prev, setorId: e.target.value }))}
+                >
+                  <option value="">Selecione o Setor</option>
+                  {externalSectors.map(s => (
+                    <option key={s.id} value={s.id}>{s.nome}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Servidor</label>
+                <select 
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all disabled:opacity-50 text-zinc-900 dark:text-white"
+                  value={externalData.servidorId}
+                  disabled={!externalData.setorId}
+                  onChange={(e) => setExternalData(prev => ({ ...prev, servidorId: e.target.value }))}
+                >
+                  <option value="">Selecione o Servidor</option>
+                  {externalServers.map(s => (
+                    <option key={s.id} value={s.id}>{s.nome}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="p-6 bg-zinc-50 dark:bg-zinc-900/50 border-t border-zinc-100 dark:border-zinc-800 flex justify-end gap-3">
+              <button 
+                onClick={() => setIsExternalModalOpen(false)}
+                className="px-4 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={handleAddExternalServer}
+                disabled={!externalData.servidorId || loading}
+                className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg transition-all disabled:opacity-50 shadow-lg shadow-blue-500/20 min-w-[120px]"
+              >
+                {loading ? 'Adicionando...' : 'Adicionar na Grade'}
+              </button>
             </div>
           </div>
         </div>
