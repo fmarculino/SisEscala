@@ -508,7 +508,13 @@ export function ScaleGrid({
       // Update escala_mensal (jornadas)
       const updates = escalaMensal.map(em => ({
         id: em.id,
+        mes: em.mes || mes,
+        ano: em.ano || ano,
+        unidade_id: em.unidade_id || unidadeId,
+        setor_id: em.setor_id || setorId,
+        servidor_id: em.servidor_id,
         jornada_id: em.jornada_id,
+        status: em.status || 'Rascunho',
         updated_at: new Date().toISOString()
       }))
 
