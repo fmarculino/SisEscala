@@ -698,6 +698,7 @@ export function ScaleGrid({
             {escalaMensal.map(em => {
               const totals = calculateTotals(em.servidor_id)
               const categories: RowCategory[] = ['Regular', 'Extra', 'Plantão', 'Sobreaviso']
+              const isExternal = em.servidores?.unidade_id !== unidadeId || em.servidores?.setor_id !== setorId
               
               return (
                 <React.Fragment key={em.id}>
@@ -787,7 +788,6 @@ export function ScaleGrid({
                           isTriggerAllowed = false
                         }
                         const isDisregarded = isFailed && desconsiderarFalha
-                        const isExternal = em.servidores?.unidade_id !== unidadeId || em.servidores?.setor_id !== setorId
 
                         return (
                           <td 
