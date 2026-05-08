@@ -109,20 +109,7 @@ export function ScaleGrid({
       N: {} as Record<number, number>,
       S: {} as Record<number, number>
     }
-    
-    daysArray.forEach(day => {
-      let countM = 0
-      let countT = 0
-      let countN = 0
-      let countS = 0
-      
-      escalaMensal.forEach(em => {
-        let hasM = false
-        let hasT = false
-        let hasN = false
-        let hasS = false
 
-        const categories: RowCategory[] = ['Regular', 'Extra', 'Plantão']
     const getEffectiveStatus = (log: any) => {
       if (!log) return null
       if (log.status === 'Falhou') return 'Falhou'
@@ -146,18 +133,20 @@ export function ScaleGrid({
       }
       return log.status
     }
-
+    
     daysArray.forEach(day => {
       let countM = 0
       let countT = 0
       let countN = 0
       let countS = 0
-
+      
       escalaMensal.forEach(em => {
         let hasM = false
         let hasT = false
         let hasN = false
         let hasS = false
+
+        const categories: RowCategory[] = ['Regular', 'Extra', 'Plantão']
         
         categories.forEach(cat => {
            const turnoId = gridData[em.servidor_id]?.[cat]?.[day]
