@@ -210,7 +210,7 @@ export default function ProfessionalOvercallPage() {
         (err) => {
           console.warn('Erro ao obter GPS:', err)
           if (requireLocation) {
-            setError('Permissão de GPS negada ou erro ao obter localização. Para este chamado, o GPS é obrigatório.')
+            setError('Permissão de GPS negada. O navegador bloqueou o acesso à localização. Para resolver: No iPhone (Safari), clique no ícone "aA" na barra de endereços superior, selecione "Ajustes do Site" e permita a Localização. Em seguida, recarregue a página.')
             setLoading(false)
           } else {
             performAccept()
@@ -236,7 +236,7 @@ export default function ProfessionalOvercallPage() {
 
     const performArrival = async (lat?: number, long?: number) => {
       if (requireLocation && (!lat || !long)) {
-        setError('GPS é obrigatório para validar a chegada.')
+        setError('Permissão de GPS negada. O navegador bloqueou o acesso à localização. Para resolver: clique no ícone de opções/configurações na barra do navegador e permita a Localização.')
         setLoading(false)
         return
       }
@@ -296,7 +296,7 @@ export default function ProfessionalOvercallPage() {
         (err) => {
           console.warn('Erro ao obter GPS na chegada:', err)
           if (requireLocation) {
-            setError('GPS é obrigatório para validar a chegada e não foi possível obtê-lo.')
+            setError('Permissão de GPS negada. O navegador bloqueou o acesso à localização. Para resolver: No iPhone (Safari), clique no ícone "aA" na barra de endereços superior, selecione "Ajustes do Site" e permita a Localização. Em seguida, recarregue a página.')
             setLoading(false)
           } else {
             performArrival()
