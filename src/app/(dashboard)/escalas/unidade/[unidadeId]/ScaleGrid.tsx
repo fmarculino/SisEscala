@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { Save, Loader2, Info, Zap, Lock, FileText, Plus, UserPlus, Users, CheckCircle } from 'lucide-react'
 import { ScalePrintView } from '@/components/ScalePrintView'
@@ -53,6 +53,32 @@ export function ScaleGrid({
   } | null>(null)
   const [motivo, setMotivo] = useState('')
   const [generatedLink, setGeneratedLink] = useState<string | null>(null)
+  
+  // Realtime subscription for logs_sobreaviso
+  useEffect(() => {
+    const channel = supabase
+      .channel('logs_sobreaviso_changes')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'logs_sobreaviso'
+      }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          setLogsSobreaviso((prev: any[]) => [...prev, payload.new])
+        } else if (payload.eventType === 'UPDATE') {
+          setLogsSobreaviso((prev: any[]) => prev.map(log => 
+            log.id === payload.new.id ? payload.new : log
+          ))
+        } else if (payload.eventType === 'DELETE') {
+          setLogsSobreaviso((prev: any[]) => prev.filter(log => log.id !== payload.old.id))
+        }
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [supabase])
   
   // State structured by Servidor -> Categoria -> Dia -> TurnoId
   const [gridData, setGridData] = useState<Record<string, Record<RowCategory, Record<number, string>>>>(() => {
@@ -544,13 +570,14 @@ export function ScaleGrid({
                         }
 
                         const logForDay = cat === 'Sobreaviso' ? logsSobreaviso.find(l => l.escala_mensal_id === em.id && l.dia === day) : null
-                        const isFailed = desconsiderarFalha && logForDay?.status === 'Falhou'
+                        const isFailed = logForDay?.status === 'Falhou'
+                        const isDisregarded = isFailed && desconsiderarFalha
 
                         return (
                           <td 
                             key={day} 
-                            className={`p-0 border border-zinc-200 dark:border-zinc-700 text-center relative ${isHoliday ? 'bg-red-50 dark:bg-red-900/10' : isWE ? 'bg-zinc-50 dark:bg-zinc-800/50' : ''} ${isFailed ? 'bg-red-200 dark:bg-red-900/40' : ''}`}
-                            title={isFailed ? `Desconsiderado: ${logForDay?.motivo_falha || 'Falha no sobreaviso'}` : ''}
+                            className={`p-0 border border-zinc-200 dark:border-zinc-700 text-center relative ${isHoliday ? 'bg-red-50 dark:bg-red-900/10' : isWE ? 'bg-zinc-50 dark:bg-zinc-800/50' : ''} ${isFailed ? 'bg-red-100 dark:bg-red-900/30' : ''}`}
+                            title={isFailed ? `FALHOU: ${logForDay?.motivo_falha || 'Tempo expirado'}${isDisregarded ? ' (Desconsiderado da carga horária)' : ''}` : ''}
                           >
                             <input
                               list={cat === 'Sobreaviso' ? "turnos-sobreaviso-list" : "turnos-list"}
@@ -565,7 +592,7 @@ export function ScaleGrid({
                                 const t = turnos.find(x => x.codigo === val)
                                 handleCellChange(em.servidor_id, cat, day, t?.id || '')
                               }}
-                              className={`w-full h-full bg-transparent border-none text-center focus:outline-none focus:ring-1 focus:ring-blue-500 font-black p-0 text-[11px] uppercase ${isFailed ? 'text-red-900 dark:text-red-300' : 'text-zinc-900 dark:text-zinc-100'}`}
+                              className={`w-full h-full bg-transparent border-none text-center focus:outline-none focus:ring-1 focus:ring-blue-500 font-black p-0 text-[11px] uppercase ${isFailed ? 'text-red-600 dark:text-red-400 line-through' : 'text-zinc-900 dark:text-zinc-100'}`}
                               placeholder="-"
                             />
                             {isFailed && permitirValidacaoManual && !isClosed && (
