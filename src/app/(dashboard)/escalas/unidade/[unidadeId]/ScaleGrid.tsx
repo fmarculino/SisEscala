@@ -709,7 +709,9 @@ export function ScaleGrid({
                           <div className="flex items-center gap-2">
                             {em.servidores?.nome}
                             {isExternal && (
-                              <Globe className="h-3 w-3 text-blue-500" title="Servidor Externo" />
+                              <span title="Servidor Externo">
+                                <Globe className="h-3 w-3 text-blue-500" />
+                              </span>
                             )}
                           </div>
                           <div className="text-[8px] font-normal text-zinc-600 dark:text-zinc-400 uppercase">{em.servidores?.cargo}</div>
