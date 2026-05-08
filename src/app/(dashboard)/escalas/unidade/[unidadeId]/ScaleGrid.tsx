@@ -298,6 +298,35 @@ export function ScaleGrid({
     }
   }
 
+  const handleRemoveServer = async (escalaMensalId: string, servidorId: string) => {
+    if (isClosed) return
+    if (!confirm('Deseja remover este servidor e todos os seus lançamentos desta escala?')) return
+
+    setLoading(true)
+    try {
+      // Delete daily records first
+      await supabase.from('escala_diaria').delete().eq('escala_mensal_id', escalaMensalId)
+      
+      // Delete monthly record
+      const { error } = await supabase.from('escala_mensal').delete().eq('id', escalaMensalId)
+
+      if (error) throw error
+
+      // Update local state
+      setEscalaMensal(prev => prev.filter(em => em.id !== escalaMensalId))
+      setGridData(prev => {
+        const newData = { ...prev }
+        delete newData[servidorId]
+        return newData
+      })
+      alert('Servidor removido com sucesso!')
+    } catch (error: any) {
+      alert('Erro ao remover servidor: ' + error.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const getDayOfWeek = (day: number) => {
     return new Date(ano, mes - 1, day).getDay()
   }
@@ -740,6 +769,16 @@ export function ScaleGrid({
                               <br />
                               {allSetores.find(s => s.id === em.servidores?.setor_id)?.nome || '...'}
                             </div>
+                          )}
+
+                          {!isClosed && (
+                            <button
+                              onClick={() => handleRemoveServer(em.id, em.servidor_id)}
+                              className="mt-2 text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
+                              title="Remover Servidor da Escala"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
                           )}
                         </td>
                       )}
