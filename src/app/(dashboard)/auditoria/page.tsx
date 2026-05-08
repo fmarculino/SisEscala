@@ -7,20 +7,32 @@ import { ShieldCheck, Zap, Clock, MapPin, UserCheck, AlertCircle, Building2 } fr
 export default function AuditoriaPage() {
   const [logs, setLogs] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [configs, setConfigs] = useState<Record<string, string>>({})
+
   useEffect(() => {
     const supabase = createClient()
-    async function fetchInitialLogs() {
-      const { data } = await supabase
+    
+    async function fetchData() {
+      // Fetch configs
+      const { data: configData } = await supabase.from('configuracoes_globais').select('*')
+      if (configData) {
+        const obj: Record<string, string> = {}
+        configData.forEach(c => { obj[c.chave] = String(c.valor) })
+        setConfigs(obj)
+      }
+
+      // Fetch logs
+      const { data: logsData } = await supabase
         .from('logs_sobreaviso')
         .select('*, servidores(nome), unidades(nome, latitude, longitude)')
         .order('data_hora_acionamento', { ascending: false })
         .limit(20)
       
-      if (data) setLogs(data)
+      if (logsData) setLogs(logsData)
       setLoading(false)
     }
 
-    fetchInitialLogs()
+    fetchData()
 
     // Realtime subscription
     const channel = supabase
@@ -29,7 +41,7 @@ export default function AuditoriaPage() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'logs_sobreaviso' },
         () => {
-          fetchInitialLogs()
+          fetchData()
         }
       )
       .subscribe()
@@ -46,9 +58,39 @@ export default function AuditoriaPage() {
       case 'Aceito': return 'text-green-600 bg-green-50 dark:bg-green-900/20'
       case 'Recusado': return 'text-red-600 bg-red-50 dark:bg-red-900/20'
       case 'Expirado': return 'text-zinc-600 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-800'
-      case 'Falhou': return 'text-red-700 bg-red-100 dark:bg-red-900/40'
+      case 'Falhou': return 'text-red-700 bg-red-100 dark:bg-red-900/40 border border-red-200 dark:border-red-800'
+      case 'Chegou': return 'text-blue-600 bg-blue-50 dark:bg-blue-900/20'
       default: return 'text-orange-600 bg-orange-50 dark:bg-orange-900/20'
     }
+  }
+
+  const getEffectiveStatus = (log: any) => {
+    if (!log) return null
+    if (log.status === 'Falhou') return 'Falhou'
+    
+    // Check virtual failure for Accepted -> Arrival
+    if (log.status === 'Aceito' && configs['sobreaviso_tempo_chegada_minutos']) {
+      const limit = parseInt(configs['sobreaviso_tempo_chegada_minutos'])
+      const safeDateStr = log.data_hora_aceite ? log.data_hora_aceite.replace(' ', 'T') : new Date().toISOString()
+      const acceptedAt = new Date(safeDateStr).getTime()
+      const now = new Date().getTime()
+      if ((acceptedAt + limit * 60000) < now && !log.data_hora_chegada) {
+        return 'Falhou'
+      }
+    }
+
+    // Check virtual failure for Triggered -> Accepted
+    if (log.status === 'Aguardando' && configs['sobreaviso_tempo_aceite_minutos']) {
+      const limit = parseInt(configs['sobreaviso_tempo_aceite_minutos'])
+      const safeDateStr = log.created_at ? log.created_at.replace(' ', 'T') : new Date().toISOString()
+      const created = new Date(safeDateStr).getTime()
+      const now = new Date().getTime()
+      if ((created + limit * 60000) < now) {
+        return 'Falhou'
+      }
+    }
+    
+    return log.status
   }
 
   const openInGoogleMaps = (lat: number, long: number) => {
@@ -125,8 +167,8 @@ export default function AuditoriaPage() {
                       </div>
                     )}
 
-                    <div className={`rounded-full px-3 py-1 text-xs font-bold ${getStatusColor(log.status)}`}>
-                      {log.status}
+                    <div className={`rounded-full px-3 py-1 text-xs font-bold ${getStatusColor(getEffectiveStatus(log))}`}>
+                      {getEffectiveStatus(log)}
                     </div>
 
                     {log.motivo_falha && (
