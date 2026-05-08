@@ -1,38 +1,85 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { ShieldCheck, Zap, Clock, MapPin, UserCheck, AlertCircle, Building2 } from 'lucide-react'
+import { ShieldCheck, Zap, Clock, MapPin, UserCheck, AlertCircle, Building2, Filter, FileDown, RotateCcw, ChevronLeft, ChevronRight, Search, LayoutList } from 'lucide-react'
 
 export default function AuditoriaPage() {
   const [logs, setLogs] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [configs, setConfigs] = useState<Record<string, string>>({})
+  
+  // Filter states
+  const [unidades, setUnidades] = useState<any[]>([])
+  const [setores, setSetores] = useState<any[]>([])
+  const [filtros, setFiltros] = useState({
+    unidadeId: '',
+    setorId: '',
+    status: '',
+    dataInicio: '',
+    dataFim: '',
+    busca: ''
+  })
 
-  useEffect(() => {
-    const supabase = createClient()
+  // Pagination states
+  const [page, setPage] = useState(1)
+  const [pageSize] = useState(10)
+  const [totalCount, setTotalCount] = useState(0)
+
+  const supabase = createClient()
+
+  const fetchData = useCallback(async () => {
+    setLoading(true)
     
-    async function fetchData() {
-      // Fetch configs
-      const { data: configData } = await supabase.from('configuracoes_globais').select('*')
-      if (configData) {
-        const obj: Record<string, string> = {}
-        configData.forEach(c => { obj[c.chave] = String(c.valor) })
-        setConfigs(obj)
-      }
-
-      // Fetch logs
-      const { data: logsData } = await supabase
-        .from('logs_sobreaviso')
-        .select('*, servidores(nome), unidades(nome, latitude, longitude), validador:profiles!validado_por(full_name)')
-        .order('data_hora_acionamento', { ascending: false })
-        .limit(20)
-      
-      if (logsData) setLogs(logsData)
-      setLoading(false)
+    // Fetch configs
+    const { data: configData } = await supabase.from('configuracoes_globais').select('*')
+    if (configData) {
+      const obj: Record<string, string> = {}
+      configData.forEach(c => { obj[c.chave] = String(c.valor) })
+      setConfigs(obj)
     }
 
+    // Base query
+    let query = supabase
+      .from('logs_sobreaviso')
+      .select('*, servidores!inner(nome), unidades!inner(nome, latitude, longitude), validador:profiles!validado_por(full_name)', { count: 'exact' })
+
+    // Apply filters
+    if (filtros.unidadeId) query = query.eq('unidade_id', filtros.unidadeId)
+    if (filtros.setorId) query = query.eq('servidores.setor_id', filtros.setorId)
+    if (filtros.status) {
+      if (filtros.status === 'Falhou') query = query.eq('status', 'Falhou')
+      else if (filtros.status === 'Atendido') query = query.eq('status', 'Chegou')
+      else query = query.eq('status', filtros.status)
+    }
+    if (filtros.dataInicio) query = query.gte('data_hora_acionamento', `${filtros.dataInicio}T00:00:00`)
+    if (filtros.dataFim) query = query.lte('data_hora_acionamento', `${filtros.dataFim}T23:59:59`)
+    if (filtros.busca) query = query.ilike('servidores.nome', `%${filtros.busca}%`)
+
+    // Pagination
+    const from = (page - 1) * pageSize
+    const to = from + pageSize - 1
+
+    const { data, count, error } = await query
+      .order('data_hora_acionamento', { ascending: false })
+      .range(from, to)
+    
+    if (data) setLogs(data)
+    if (count !== null) setTotalCount(count)
+    setLoading(false)
+  }, [page, pageSize, filtros, supabase])
+
+  useEffect(() => {
     fetchData()
+
+    // Fetch initial filter data
+    const fetchFilterOptions = async () => {
+      const { data: u } = await supabase.from('unidades').select('*').eq('ativo', true).order('nome')
+      const { data: s } = await supabase.from('setores').select('*').eq('ativo', true).order('nome')
+      if (u) setUnidades(u)
+      if (s) setSetores(s)
+    }
+    fetchFilterOptions()
 
     // Realtime subscription
     const channel = supabase
@@ -49,7 +96,7 @@ export default function AuditoriaPage() {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [])
+  }, [fetchData, supabase])
 
   const [selectedLog, setSelectedLog] = useState<any>(null)
 
@@ -103,47 +150,167 @@ export default function AuditoriaPage() {
     window.open(`https://www.google.com/maps/search/?api=1&query=${lat},${long}`, '_blank')
   }
 
+  const handlePrint = () => {
+    window.print()
+  }
+
+  const totalPages = Math.ceil(totalCount / pageSize)
+
   return (
-    <div className="space-y-8">
-      <div className="flex items-center justify-between">
+    <div className="space-y-8 print:space-y-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 print:hidden">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-white">Painel de Auditoria</h1>
           <p className="mt-2 text-zinc-600 dark:text-zinc-400">
-            Monitoramento em tempo real dos acionamentos de sobreaviso.
+            Monitoramento e relatórios de acionamentos de sobreaviso.
           </p>
         </div>
-        <div className="flex items-center space-x-2 text-sm text-green-600 font-medium">
-          <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-          <span>Monitoramento Ativo</span>
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={handlePrint}
+            className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg text-sm font-bold hover:bg-zinc-50 transition-colors shadow-sm"
+          >
+            <FileDown className="h-4 w-4" />
+            Gerar PDF
+          </button>
+          <div className="flex items-center space-x-2 text-sm text-green-600 font-medium bg-green-50 dark:bg-green-900/10 px-3 py-1.5 rounded-full border border-green-100 dark:border-green-900/30">
+            <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+            <span>Monitoramento Ativo</span>
+          </div>
         </div>
       </div>
 
+      {/* Filtros */}
+      <div className="bg-white dark:bg-zinc-900 p-6 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-4 print:hidden">
+        <div className="flex items-center gap-2 text-sm font-bold text-zinc-900 dark:text-white mb-2">
+          <Filter className="h-4 w-4" />
+          FILTROS DE BUSCA
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+          <div className="space-y-1">
+            <label className="text-[10px] font-black uppercase text-zinc-500">Unidade</label>
+            <select 
+              value={filtros.unidadeId}
+              onChange={(e) => setFiltros(prev => ({ ...prev, unidadeId: e.target.value, setorId: '' }))}
+              className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            >
+              <option value="">Todas as Unidades</option>
+              {unidades.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[10px] font-black uppercase text-zinc-500">Setor</label>
+            <select 
+              value={filtros.setorId}
+              onChange={(e) => setFiltros(prev => ({ ...prev, setorId: e.target.value }))}
+              className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            >
+              <option value="">Todos os Setores</option>
+              {setores
+                .filter(s => !filtros.unidadeId || s.unidade_id === filtros.unidadeId)
+                .map(s => <option key={s.id} value={s.id}>{s.nome}</option>)
+              }
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[10px] font-black uppercase text-zinc-500">Status</label>
+            <select 
+              value={filtros.status}
+              onChange={(e) => setFiltros(prev => ({ ...prev, status: e.target.value }))}
+              className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            >
+              <option value="">Todos os Status</option>
+              <option value="Atendido">Atendido</option>
+              <option value="Falhou">Falhou</option>
+              <option value="Aceito">Aceito (A caminho)</option>
+              <option value="Aguardando">Aguardando Aceite</option>
+              <option value="Recusado">Recusado</option>
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[10px] font-black uppercase text-zinc-500">Início</label>
+            <input 
+              type="date"
+              value={filtros.dataInicio}
+              onChange={(e) => setFiltros(prev => ({ ...prev, dataInicio: e.target.value }))}
+              className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[10px] font-black uppercase text-zinc-500">Fim</label>
+            <input 
+              type="date"
+              value={filtros.dataFim}
+              onChange={(e) => setFiltros(prev => ({ ...prev, dataFim: e.target.value }))}
+              className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            />
+          </div>
+
+          <div className="flex items-end gap-2">
+            <button 
+              onClick={() => {
+                setFiltros({ unidadeId: '', setorId: '', status: '', dataInicio: '', dataFim: '', busca: '' })
+                setPage(1)
+              }}
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-400 rounded-lg text-sm font-bold transition-colors"
+              title="Limpar Filtros"
+            >
+              <RotateCcw className="h-4 w-4" />
+              Reset
+            </button>
+          </div>
+        </div>
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
+          <input 
+            type="text"
+            placeholder="Buscar por nome do servidor..."
+            value={filtros.busca}
+            onChange={(e) => setFiltros(prev => ({ ...prev, busca: e.target.value }))}
+            className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl pl-10 pr-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none shadow-inner"
+          />
+        </div>
+      </div>
+
+      {/* Lista com Impressão Otimizada */}
       <div className="grid grid-cols-1 gap-6">
-        <div className="overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="p-6 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50">
-            <h2 className="text-lg font-semibold flex items-center">
-              <Zap className="mr-2 h-5 w-5 text-orange-500" />
-              Últimos Acionamentos
+        <div className="overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900 print:border-none print:shadow-none">
+          <div className="p-6 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50 flex items-center justify-between print:bg-white print:border-zinc-300">
+            <h2 className="text-lg font-semibold flex items-center print:text-xl print:font-black">
+              <Zap className="mr-2 h-5 w-5 text-orange-500 print:hidden" />
+              Relatório de Acionamentos
             </h2>
+            <div className="text-xs text-zinc-500 font-medium">
+              Mostrando {logs.length} de {totalCount} registros
+            </div>
           </div>
           
           <div className="divide-y divide-zinc-200 dark:divide-zinc-800">
-            {logs.map((log) => (
+            {loading ? (
+              <div className="p-20 text-center space-y-4">
+                <Clock className="mx-auto h-12 w-12 text-zinc-300 animate-spin" />
+                <p className="text-zinc-500 font-medium">Carregando acionamentos...</p>
+              </div>
+            ) : logs.length > 0 ? logs.map((log) => (
               <div 
                 key={log.id} 
                 onClick={() => setSelectedLog(log)}
-                className="p-6 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors cursor-pointer"
+                className="p-6 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors cursor-pointer border-b border-zinc-100 dark:border-zinc-800 last:border-none print:break-inside-avoid print:border-zinc-300"
               >
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                   <div className="flex items-start space-x-4">
-                    <div className="mt-1 rounded-full p-2 bg-zinc-100 dark:bg-zinc-800">
+                    <div className="mt-1 rounded-full p-2 bg-zinc-100 dark:bg-zinc-800 print:hidden">
                       <UserCheck className="h-5 w-5 text-zinc-600" />
                     </div>
                     <div>
-                      <h3 className="font-semibold text-zinc-900 dark:text-white">
+                      <h3 className="font-semibold text-zinc-900 dark:text-white print:text-black">
                         {log.servidores?.nome}
                       </h3>
-                      <p className="text-sm text-zinc-600 dark:text-zinc-400 flex items-center">
+                      <p className="text-sm text-zinc-600 dark:text-zinc-400 flex items-center print:text-zinc-700">
                         <Building2 className="mr-1 h-3 w-3" />
                         {log.unidades?.nome}
                       </p>
@@ -152,63 +319,77 @@ export default function AuditoriaPage() {
 
                   <div className="flex flex-wrap items-center gap-6">
                     <div className="text-xs">
-                      <p className="text-zinc-600 dark:text-zinc-400 uppercase tracking-wider font-bold">Acionado</p>
+                      <p className="text-zinc-600 dark:text-zinc-400 uppercase tracking-wider font-bold print:text-zinc-600">Acionado</p>
                       <p className="font-medium">{new Date(log.data_hora_acionamento).toLocaleString('pt-BR')}</p>
-                      {log.motivo_acionamento && (
-                        <p className="text-[10px] text-zinc-500 dark:text-zinc-400 mt-1 line-clamp-1 italic">"{log.motivo_acionamento}"</p>
-                      )}
                     </div>
 
                     {log.data_hora_aceite && (
                       <div className="text-xs">
-                        <p className="text-zinc-600 dark:text-zinc-400 uppercase tracking-wider font-bold">Aceito</p>
+                        <p className="text-zinc-600 dark:text-zinc-400 uppercase tracking-wider font-bold print:text-zinc-600">Aceito</p>
                         <p className="font-medium text-green-600">{new Date(log.data_hora_aceite).toLocaleString('pt-BR')}</p>
                       </div>
                     )}
 
                     {log.data_hora_chegada && (
                       <div className="text-xs">
-                        <p className="text-zinc-600 dark:text-zinc-400 uppercase tracking-wider font-bold">Chegada</p>
+                        <p className="text-zinc-600 dark:text-zinc-400 uppercase tracking-wider font-bold print:text-zinc-600">Chegada</p>
                         <p className="font-medium text-blue-600">{new Date(log.data_hora_chegada).toLocaleString('pt-BR')}</p>
                       </div>
                     )}
 
-                    <div className={`rounded-full px-3 py-1 text-xs font-bold ${getStatusColor(getEffectiveStatus(log))}`}>
+                    <div className={`rounded-full px-3 py-1 text-xs font-bold ${getStatusColor(getEffectiveStatus(log))} print:border print:bg-white`}>
                       {getEffectiveStatus(log)}
                     </div>
 
                     {log.validacao_manual && (
-                      <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-[10px] font-bold border border-blue-100 dark:border-blue-800">
+                      <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-[10px] font-bold border border-blue-100 dark:border-blue-800 print:text-blue-800 print:bg-white">
                         <UserCheck className="h-3 w-3" />
                         VALIDADO MANUAL
                       </div>
                     )}
 
                     {log.motivo_falha && !log.validacao_manual && (
-                      <div className="text-[10px] text-red-600 font-medium max-w-[150px] truncate" title={log.motivo_falha}>
+                      <div className="text-[10px] text-red-600 font-medium max-w-[150px] truncate print:max-w-none print:text-red-800" title={log.motivo_falha}>
                         {log.motivo_falha}
                       </div>
                     )}
 
-                    <div className="flex space-x-2">
-                      {log.lat_aceite && (
-                        <MapPin className="h-4 w-4 text-green-500" />
-                      )}
-                      {log.lat_chegada && (
-                        <MapPin className="h-4 w-4 text-blue-500" />
-                      )}
+                    <div className="flex space-x-2 print:hidden">
+                      {log.lat_aceite && <MapPin className="h-4 w-4 text-green-500" />}
+                      {log.lat_chegada && <MapPin className="h-4 w-4 text-blue-500" />}
                     </div>
                   </div>
                 </div>
               </div>
-            ))}
-
-            {(!logs || logs.length === 0) && !loading && (
+            )) : (
               <div className="p-12 text-center text-zinc-500 dark:text-zinc-400">
                 <Clock className="mx-auto h-12 w-12 opacity-20 mb-4" />
-                <p>Nenhum acionamento registrado ainda.</p>
+                <p>Nenhum acionamento encontrado com os filtros aplicados.</p>
               </div>
             )}
+          </div>
+        </div>
+
+        {/* Paginação */}
+        <div className="flex items-center justify-between px-2 print:hidden">
+          <div className="text-sm text-zinc-500 dark:text-zinc-400">
+            Página <span className="font-bold text-zinc-900 dark:text-white">{page}</span> de <span className="font-bold text-zinc-900 dark:text-white">{totalPages || 1}</span>
+          </div>
+          <div className="flex gap-2">
+            <button 
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={page === 1 || loading}
+              className="p-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50 transition-colors"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+            <button 
+              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages || loading}
+              className="p-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50 transition-colors"
+            >
+              <ChevronRight className="h-5 w-5" />
+            </button>
           </div>
         </div>
       </div>
