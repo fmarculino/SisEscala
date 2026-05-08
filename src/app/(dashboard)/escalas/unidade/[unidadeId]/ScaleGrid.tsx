@@ -41,8 +41,17 @@ export function ScaleGrid({
   const [loading, setLoading] = useState(false)
   const [escalaMensal, setEscalaMensal] = useState(escalaMensalInicial)
   const [logsSobreaviso, setLogsSobreaviso] = useState(logsSobreavisoInicial)
-  const desconsiderarFalha = configsGlobais.find(c => c.chave === 'sobreaviso_desconsiderar_falha')?.valor === 'true'
-  const permitirValidacaoManual = configsGlobais.find(c => c.chave === 'sobreaviso_permitir_validacao_manual')?.valor === 'true'
+  
+  const configs = useMemo(() => {
+    const obj: Record<string, string> = {}
+    configsGlobais.forEach(c => {
+      obj[c.chave] = c.valor
+    })
+    return obj
+  }, [configsGlobais])
+
+  const desconsiderarFalha = configs['sobreaviso_desconsiderar_falha'] === 'true'
+  const permitirValidacaoManual = configs['sobreaviso_permitir_validacao_manual'] === 'true'
   const [triggerModal, setTriggerModal] = useState<{
     isOpen: boolean;
     servidorId: string;
