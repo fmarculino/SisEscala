@@ -753,8 +753,9 @@ export function ScaleGrid({
                   <div className="flex flex-col gap-2">
                     <button 
                       onClick={() => {
-                        navigator.clipboard.writeText(generatedLink)
-                        alert('Link copiado para a área de transferência!')
+                        const text = `Olá *${triggerModal.servidorNome}*, você foi acionado(a) para um chamado de Sobreaviso.\n\n*Motivo:*\n${motivo}\n\n*Para confirmar seu aceite, acesse o link abaixo:*\n${generatedLink}`
+                        navigator.clipboard.writeText(text)
+                        alert('Mensagem completa copiada para a área de transferência!')
                       }}
                       className="w-full px-4 py-2 rounded-lg bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 font-bold hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
                     >

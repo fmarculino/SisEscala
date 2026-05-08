@@ -89,7 +89,7 @@ export default function ProfessionalOvercallPage() {
     setLoading(true)
     setError(null)
 
-    const requireLocation = configs['sobreaviso_exigir_localizacao'] === 'true'
+    const requireLocation = String(configs['sobreaviso_exigir_localizacao']) === 'true'
 
     if (requireLocation && !navigator.geolocation) {
       setError('A configuração exige GPS para aceitar o chamado e seu navegador não suporta.')
@@ -118,16 +118,27 @@ export default function ProfessionalOvercallPage() {
       setLoading(false)
     }
 
-    if (requireLocation) {
+    if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => performAccept(pos.coords.latitude, pos.coords.longitude),
-        () => {
-          setError('Permissão de GPS negada. Por favor, habilite o acesso à sua localização para confirmar o chamado.')
-          setLoading(false)
-        }
+        (err) => {
+          console.warn('Erro ao obter GPS:', err)
+          if (requireLocation) {
+            setError('Permissão de GPS negada ou erro ao obter localização. Para este chamado, o GPS é obrigatório.')
+            setLoading(false)
+          } else {
+            performAccept()
+          }
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
       )
     } else {
-      performAccept()
+      if (requireLocation) {
+        setError('Seu navegador não suporta GPS, que é obrigatório nesta unidade.')
+        setLoading(false)
+      } else {
+        performAccept()
+      }
     }
   }
 
@@ -135,7 +146,7 @@ export default function ProfessionalOvercallPage() {
     setLoading(true)
     setError(null)
 
-    const requireLocation = configs['sobreaviso_exigir_localizacao'] === 'true'
+    const requireLocation = String(configs['sobreaviso_exigir_localizacao']) === 'true'
 
     if (requireLocation && !navigator.geolocation) {
       setError('GPS é obrigatório para validar a chegada.')
@@ -182,16 +193,27 @@ export default function ProfessionalOvercallPage() {
       setLoading(false)
     }
 
-    if (requireLocation) {
+    if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => performArrival(pos.coords.latitude, pos.coords.longitude),
         (err) => {
-          setError('Erro ao obter GPS: ' + err.message + '. Por favor, habilite a localização.')
-          setLoading(false)
-        }
+          console.warn('Erro ao obter GPS na chegada:', err)
+          if (requireLocation) {
+            setError('GPS é obrigatório para validar a chegada e não foi possível obtê-lo.')
+            setLoading(false)
+          } else {
+            performArrival()
+          }
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
       )
     } else {
-      performArrival()
+      if (requireLocation) {
+        setError('GPS é obrigatório para validar a chegada e seu navegador não suporta.')
+        setLoading(false)
+      } else {
+        performArrival()
+      }
     }
   }
 
