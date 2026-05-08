@@ -9,9 +9,8 @@ export default function ProfessionalOvercallPage() {
   const { token } = useParams()
   const [log, setLog] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [status, setStatus] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const [configs, setConfigs] = useState<Record<string, string>>({})
+  const [configsLoaded, setConfigsLoaded] = useState(false)
   const [timeLeft, setTimeLeft] = useState<number | null>(null)
   
   useEffect(() => {
@@ -37,6 +36,7 @@ export default function ProfessionalOvercallPage() {
           configData.forEach(c => cfg[c.chave] = c.valor)
         }
         setConfigs(cfg)
+        setConfigsLoaded(true)
 
         // Check timeouts
         let currentStatus = flattenedData.status
@@ -139,6 +139,16 @@ export default function ProfessionalOvercallPage() {
 
     const performAccept = async (lat?: number, long?: number) => {
       const supabase = createClient()
+      
+      let ip = 'N/A'
+      try {
+        const ipRes = await fetch('https://api.ipify.org?format=json')
+        const ipData = await ipRes.json()
+        ip = ipData.ip
+      } catch (e) {
+        console.warn('Erro ao obter IP:', e)
+      }
+
       const { error: updateError } = await supabase
         .from('logs_sobreaviso')
         .update({
@@ -146,7 +156,8 @@ export default function ProfessionalOvercallPage() {
           data_hora_aceite: new Date().toISOString(),
           lat_aceite: lat || null,
           long_aceite: long || null,
-          user_agent: navigator.userAgent
+          user_agent: navigator.userAgent,
+          ip_aceite: ip
         })
         .eq('token_magic_link', token)
 
@@ -212,6 +223,16 @@ export default function ProfessionalOvercallPage() {
       
       const now = new Date().toISOString()
       const supabase = createClient()
+
+      let ip = 'N/A'
+      try {
+        const ipRes = await fetch('https://api.ipify.org?format=json')
+        const ipData = await ipRes.json()
+        ip = ipData.ip
+      } catch (e) {
+        console.warn('Erro ao obter IP na chegada:', e)
+      }
+
       const { error: updateError } = await supabase
         .from('logs_sobreaviso')
         .update({
@@ -219,7 +240,8 @@ export default function ProfessionalOvercallPage() {
           data_hora_chegada: now,
           tipo_validacao_chegada: lat ? 'GPS' : 'Manual',
           lat_chegada: lat || null,
-          long_chegada: long || null
+          long_chegada: long || null,
+          ip_chegada: ip
         })
         .eq('token_magic_link', token)
 
@@ -339,8 +361,8 @@ export default function ProfessionalOvercallPage() {
                   <>
                     <button
                       onClick={handleAccept}
-                      disabled={loading}
-                      className="w-full flex items-center justify-center bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-xl transition-all shadow-lg hover:shadow-green-500/50"
+                      disabled={loading || !configsLoaded}
+                      className="w-full flex items-center justify-center bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-xl transition-all shadow-lg hover:shadow-green-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <CheckCircle className="mr-3 h-6 w-6" />
                       Aceitar Chamado
