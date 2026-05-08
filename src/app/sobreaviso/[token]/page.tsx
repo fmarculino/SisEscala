@@ -9,6 +9,8 @@ export default function ProfessionalOvercallPage() {
   const { token } = useParams()
   const [log, setLog] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [status, setStatus] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [configs, setConfigs] = useState<Record<string, string>>({})
   const [configsLoaded, setConfigsLoaded] = useState(false)
   const [timeLeft, setTimeLeft] = useState<number | null>(null)
