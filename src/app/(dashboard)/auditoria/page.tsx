@@ -326,8 +326,8 @@ export default function AuditoriaPage() {
                           <p className="text-xs font-bold uppercase tracking-wider text-green-400">Validação Administrativa</p>
                         </div>
                         <div className="space-y-1">
-                          <p className="text-sm font-medium">Aprovado por: <span className="text-zinc-300">{selectedLog.validador?.full_name || 'Administrador'}</span></p>
-                          <p className="text-[11px] text-zinc-400">Data/Hora: {selectedLog.data_hora_validacao ? new Date(selectedLog.data_hora_validacao).toLocaleString('pt-BR') : 'N/A'}</p>
+                          <p className="text-sm font-medium">Aprovado por: <span className="text-zinc-300">{selectedLog.validador?.full_name || selectedLog.validado_por || 'Sistema (Admin)'}</span></p>
+                          <p className="text-[11px] text-zinc-400">Data/Hora: {selectedLog.data_hora_validacao ? new Date(selectedLog.data_hora_validacao).toLocaleString('pt-BR') : 'Agora (Processando...)'}</p>
                         </div>
                       </div>
                     )}
