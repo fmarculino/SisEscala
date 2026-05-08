@@ -46,6 +46,7 @@ export default function AuditoriaPage() {
       case 'Aceito': return 'text-green-600 bg-green-50 dark:bg-green-900/20'
       case 'Recusado': return 'text-red-600 bg-red-50 dark:bg-red-900/20'
       case 'Expirado': return 'text-zinc-600 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-800'
+      case 'Falhou': return 'text-red-700 bg-red-100 dark:bg-red-900/40'
       default: return 'text-orange-600 bg-orange-50 dark:bg-orange-900/20'
     }
   }
@@ -127,6 +128,12 @@ export default function AuditoriaPage() {
                     <div className={`rounded-full px-3 py-1 text-xs font-bold ${getStatusColor(log.status)}`}>
                       {log.status}
                     </div>
+
+                    {log.motivo_falha && (
+                      <div className="text-[10px] text-red-600 font-medium max-w-[150px] truncate" title={log.motivo_falha}>
+                        {log.motivo_falha}
+                      </div>
+                    )}
 
                     <div className="flex space-x-2">
                       {log.lat_aceite && (

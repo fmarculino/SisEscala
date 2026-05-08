@@ -123,6 +123,41 @@ export function ScaleGrid({
         let hasS = false
 
         const categories: RowCategory[] = ['Regular', 'Extra', 'Plantão']
+    const getEffectiveStatus = (log: any) => {
+      if (!log) return null
+      if (log.status === 'Falhou') return 'Falhou'
+      if (log.status === 'Aceito' && configs['sobreaviso_tempo_chegada_minutos']) {
+        const limit = parseInt(configs['sobreaviso_tempo_chegada_minutos'])
+        const safeDateStr = log.data_hora_aceite ? log.data_hora_aceite.replace(' ', 'T') : new Date().toISOString()
+        const acceptedAt = new Date(safeDateStr).getTime()
+        const now = new Date().getTime()
+        if ((acceptedAt + limit * 60000) < now && !log.data_hora_chegada) {
+          return 'Falhou'
+        }
+      }
+      if (log.status === 'Aguardando' && configs['sobreaviso_tempo_aceite_minutos']) {
+        const limit = parseInt(configs['sobreaviso_tempo_aceite_minutos'])
+        const safeDateStr = log.created_at ? log.created_at.replace(' ', 'T') : new Date().toISOString()
+        const created = new Date(safeDateStr).getTime()
+        const now = new Date().getTime()
+        if ((created + limit * 60000) < now) {
+          return 'Falhou'
+        }
+      }
+      return log.status
+    }
+
+    daysArray.forEach(day => {
+      let countM = 0
+      let countT = 0
+      let countN = 0
+      let countS = 0
+
+      escalaMensal.forEach(em => {
+        let hasM = false
+        let hasT = false
+        let hasN = false
+        let hasS = false
         
         categories.forEach(cat => {
            const turnoId = gridData[em.servidor_id]?.[cat]?.[day]
@@ -137,8 +172,9 @@ export function ScaleGrid({
 
         const turnoIdS = gridData[em.servidor_id]?.['Sobreaviso']?.[day]
         if (turnoIdS) {
-          const logFailed = logsSobreaviso.find(l => l.escala_mensal_id === em.id && l.dia === day && l.status === 'Falhou')
-          if (!(desconsiderarFalha && logFailed)) {
+          const log = logsSobreaviso.find(l => l.escala_mensal_id === em.id && l.dia === day)
+          const effectiveStatus = getEffectiveStatus(log)
+          if (!(desconsiderarFalha && effectiveStatus === 'Falhou')) {
             hasS = true
           }
         }
@@ -156,7 +192,7 @@ export function ScaleGrid({
     })
     
     return totals
-  }, [daysArray, escalaMensal, gridData, turnos])
+  }, [daysArray, escalaMensal, gridData, turnos, logsSobreaviso, configs, desconsiderarFalha])
 
   const getDayOfWeek = (day: number) => {
     return new Date(ano, mes - 1, day).getDay()
@@ -218,8 +254,29 @@ export function ScaleGrid({
 
     // Sum Sobreavisos
     Object.entries(serverData['Sobreaviso']).forEach(([day, turnoId]) => {
-      const logFailed = logsSobreaviso.find(l => l.servidor_id === servidorId && l.dia === parseInt(day) && l.status === 'Falhou')
-      if (desconsiderarFalha && logFailed) return // Não soma horas se falhou
+      const log = logsSobreaviso.find(l => l.servidor_id === servidorId && l.dia === parseInt(day))
+      
+      // Virtual status check
+      let effectiveStatus = log?.status
+      if (log?.status === 'Aceito' && configs['sobreaviso_tempo_chegada_minutos']) {
+        const limit = parseInt(configs['sobreaviso_tempo_chegada_minutos'])
+        const safeDateStr = log.data_hora_aceite ? log.data_hora_aceite.replace(' ', 'T') : new Date().toISOString()
+        const acceptedAt = new Date(safeDateStr).getTime()
+        const now = new Date().getTime()
+        if ((acceptedAt + limit * 60000) < now && !log.data_hora_chegada) {
+          effectiveStatus = 'Falhou'
+        }
+      } else if (log?.status === 'Aguardando' && configs['sobreaviso_tempo_aceite_minutos']) {
+        const limit = parseInt(configs['sobreaviso_tempo_aceite_minutos'])
+        const safeDateStr = log.created_at ? log.created_at.replace(' ', 'T') : new Date().toISOString()
+        const created = new Date(safeDateStr).getTime()
+        const now = new Date().getTime()
+        if ((created + limit * 60000) < now) {
+          effectiveStatus = 'Falhou'
+        }
+      }
+
+      if (desconsiderarFalha && effectiveStatus === 'Falhou') return // Não soma horas se falhou
       
       const t = turnos.find(x => x.id === turnoId)
       if (t) {
@@ -570,14 +627,38 @@ export function ScaleGrid({
                         }
 
                         const logForDay = cat === 'Sobreaviso' ? logsSobreaviso.find(l => l.escala_mensal_id === em.id && l.dia === day) : null
-                        const isFailed = logForDay?.status === 'Falhou'
+                        
+                        // Virtual Fail Check
+                        let effectiveStatus = logForDay?.status
+                        let virtualReason = null
+                        if (logForDay?.status === 'Aceito' && configs['sobreaviso_tempo_chegada_minutos']) {
+                          const limit = parseInt(configs['sobreaviso_tempo_chegada_minutos'])
+                          const safeDateStr = logForDay.data_hora_aceite ? logForDay.data_hora_aceite.replace(' ', 'T') : new Date().toISOString()
+                          const acceptedAt = new Date(safeDateStr).getTime()
+                          const now = new Date().getTime()
+                          if ((acceptedAt + limit * 60000) < now && !logForDay.data_hora_chegada) {
+                            effectiveStatus = 'Falhou'
+                            virtualReason = 'Tempo limite de deslocamento excedido'
+                          }
+                        } else if (logForDay?.status === 'Aguardando' && configs['sobreaviso_tempo_aceite_minutos']) {
+                          const limit = parseInt(configs['sobreaviso_tempo_aceite_minutos'])
+                          const safeDateStr = logForDay.created_at ? logForDay.created_at.replace(' ', 'T') : new Date().toISOString()
+                          const created = new Date(safeDateStr).getTime()
+                          const now = new Date().getTime()
+                          if ((created + limit * 60000) < now) {
+                            effectiveStatus = 'Falhou'
+                            virtualReason = 'Tempo limite para aceite excedido'
+                          }
+                        }
+
+                        const isFailed = effectiveStatus === 'Falhou'
                         const isDisregarded = isFailed && desconsiderarFalha
 
                         return (
                           <td 
                             key={day} 
                             className={`p-0 border border-zinc-200 dark:border-zinc-700 text-center relative ${isHoliday ? 'bg-red-50 dark:bg-red-900/10' : isWE ? 'bg-zinc-50 dark:bg-zinc-800/50' : ''} ${isFailed ? 'bg-red-100 dark:bg-red-900/30' : ''}`}
-                            title={isFailed ? `FALHOU: ${logForDay?.motivo_falha || 'Tempo expirado'}${isDisregarded ? ' (Desconsiderado da carga horária)' : ''}` : ''}
+                            title={isFailed ? `FALHOU: ${logForDay?.motivo_falha || virtualReason || 'Tempo expirado'}${isDisregarded ? ' (Desconsiderado da carga horária)' : ''}` : ''}
                           >
                             <input
                               list={cat === 'Sobreaviso' ? "turnos-sobreaviso-list" : "turnos-list"}

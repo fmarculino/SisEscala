@@ -112,8 +112,15 @@ export default function ProfessionalOvercallPage() {
         
         if (diff <= 0) {
           if (status === 'Aceito') {
-             setStatus('Falhou')
-             setLog((prev: any) => ({ ...prev, status: 'Falhou', motivo_falha: 'Tempo limite de deslocamento excedido.' }))
+             // Trigger DB update for failure
+             const supabase = createClient()
+             supabase.from('logs_sobreaviso').update({ 
+               status: 'Falhou', 
+               motivo_falha: 'Tempo limite de deslocamento excedido.' 
+             }).eq('id', log.id).then(() => {
+                setStatus('Falhou')
+                setLog((prev: any) => ({ ...prev, status: 'Falhou', motivo_falha: 'Tempo limite de deslocamento excedido.' }))
+             })
           }
           return 0
         }
