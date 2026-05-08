@@ -62,6 +62,22 @@ export function ScaleGrid({
   } | null>(null)
   const [motivo, setMotivo] = useState('')
   const [generatedLink, setGeneratedLink] = useState<string | null>(null)
+  const [userRole, setUserRole] = useState<string | null>(null)
+
+  useEffect(() => {
+    const fetchUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', user.id)
+          .single()
+        if (profile) setUserRole(profile.role)
+      }
+    }
+    fetchUser()
+  }, [supabase])
   
   // Realtime subscription for logs_sobreaviso
   useEffect(() => {
@@ -330,7 +346,7 @@ export function ScaleGrid({
         .update({ 
           status: 'Chegou', 
           validacao_manual: true,
-          tipo_validacao_chegada: 'Manual/Admin',
+          tipo_validacao_chegada: 'Manual',
           motivo_falha: null
         })
         .eq('id', logId)
@@ -678,7 +694,7 @@ export function ScaleGrid({
                               className={`w-full h-full bg-transparent border-none text-center focus:outline-none focus:ring-1 focus:ring-blue-500 font-black p-0 text-[11px] uppercase ${isFailed ? 'text-red-600 dark:text-red-400 line-through' : 'text-zinc-900 dark:text-zinc-100'}`}
                               placeholder="-"
                             />
-                            {isFailed && permitirValidacaoManual && !isClosed && (
+                            {isFailed && permitirValidacaoManual && !isClosed && (userRole === 'admin' || userRole === 'super_admin') && (
                               <button 
                                 onClick={(e) => {
                                   e.stopPropagation();
