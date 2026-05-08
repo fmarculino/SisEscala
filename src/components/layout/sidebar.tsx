@@ -46,6 +46,7 @@ const menuGroups: MenuGroup[] = [
       { name: 'Servidores', href: '/servidores', icon: Users },
       { name: 'Cargos', href: '/cargos', icon: Briefcase },
       { name: 'Feriados', href: '/feriados', icon: CalendarDays },
+      { name: 'Jornadas', href: '/jornadas', icon: Clock },
       { name: 'Dicionário de Turnos', href: '/turnos', icon: Clock },
     ]
   },

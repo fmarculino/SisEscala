@@ -66,6 +66,7 @@ export function ScaleGrid({
   const [allUnidades, setAllUnidades] = useState<any[]>([])
   const [allSetores, setAllSetores] = useState<any[]>([])
   const [isExternalModalOpen, setIsExternalModalOpen] = useState(false)
+  const [jornadas, setJornadas] = useState<any[]>([])
   const [externalData, setExternalData] = useState({
     unidadeId: '',
     setorId: '',
@@ -90,8 +91,10 @@ export function ScaleGrid({
       // Fetch all units and sectors for external server logic
       const { data: units } = await supabase.from('unidades').select('*').eq('ativo', true).order('nome')
       const { data: sectors } = await supabase.from('setores').select('*').eq('ativo', true).order('nome')
+      const { data: journeys } = await supabase.from('jornadas').select('*').eq('ativo', true).order('nome')
       if (units) setAllUnidades(units)
       if (sectors) setAllSetores(sectors)
+      if (journeys) setJornadas(journeys)
     }
     fetchData()
   }, [supabase])
@@ -276,7 +279,9 @@ export function ScaleGrid({
           setor_id: setorId,
           servidor_id: externalData.servidorId,
           mes,
-          ano
+          ano,
+          status: 'Rascunho',
+          jornada_id: jornadas.find(j => j.nome === '07H ÀS 19H')?.id
         })
         .select('*, servidores(*)')
         .single()
@@ -471,6 +476,20 @@ export function ScaleGrid({
         })
       })
 
+      // Update escala_mensal (jornadas)
+      const updates = escalaMensal.map(em => ({
+        id: em.id,
+        jornada_id: em.jornada_id,
+        updated_at: new Date().toISOString()
+      }))
+
+      const { error: emError } = await supabase
+        .from('escala_mensal')
+        .upsert(updates)
+
+      if (emError) throw emError
+
+      // Scale Daily
       const emIds = escalaMensal.map(em => em.id)
       await supabase.from('escala_diaria').delete().in('escala_mensal_id', emIds)
       
@@ -725,7 +744,23 @@ export function ScaleGrid({
                         </td>
                       )}
                       <td className={`sticky left-[180px] z-10 p-1 border border-zinc-200 dark:border-zinc-700 font-bold uppercase text-zinc-800 dark:text-zinc-200 ${cat === 'Extra' ? 'bg-zinc-50 dark:bg-zinc-800/50' : 'bg-white dark:bg-zinc-900'}`}>
-                        {cat === 'Regular' ? '07h às 19h' : cat === 'Extra' ? 'EXTRAS' : cat === 'Plantão' ? 'PLANTÕES' : 'SOBREAVISO'}
+                        {cat === 'Regular' ? (
+                          <select
+                            value={em.jornada_id || ''}
+                            onChange={(e) => {
+                              const newJornadaId = e.target.value
+                              setEscalaMensal(prev => prev.map(item => 
+                                item.id === em.id ? { ...item, jornada_id: newJornadaId } : item
+                              ))
+                            }}
+                            className="w-full bg-transparent border-none outline-none text-[10px] font-bold uppercase focus:ring-1 focus:ring-blue-500 rounded p-0"
+                          >
+                            <option value="">Selecione...</option>
+                            {jornadas.map(j => (
+                              <option key={j.id} value={j.id}>{j.nome}</option>
+                            ))}
+                          </select>
+                        ) : cat === 'Extra' ? 'EXTRAS' : cat === 'Plantão' ? 'PLANTÕES' : 'SOBREAVISO'}
                       </td>
                       {daysArray.map(day => {
                         const turnoId = gridData[em.servidor_id]?.[cat]?.[day] || ''
