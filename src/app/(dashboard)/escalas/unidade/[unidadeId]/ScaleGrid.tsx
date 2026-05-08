@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { Save, Loader2, Info, Zap, Lock, FileText, Plus, UserPlus, Users, CheckCircle, Trash2, Globe, X } from 'lucide-react'
 import { ScalePrintView } from '@/components/ScalePrintView'
