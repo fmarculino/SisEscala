@@ -456,20 +456,34 @@ export function ScaleGrid({
     
     setLoading(true)
     try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Usuário não autenticado')
+
+      const now = new Date().toISOString()
+      
       const { error } = await supabase
         .from('logs_sobreaviso')
         .update({ 
           status: 'Chegou', 
           validacao_manual: true,
           tipo_validacao_chegada: 'Manual',
-          motivo_falha: null
+          motivo_falha: null,
+          validado_por: user.id,
+          data_hora_validacao: now
         })
         .eq('id', logId)
 
       if (error) throw error
       
       // Update local state
-      setLogsSobreaviso(prev => prev.map(l => l.id === logId ? { ...l, status: 'Chegou', validacao_manual: true, motivo_falha: null } : l))
+      setLogsSobreaviso(prev => prev.map(l => l.id === logId ? { 
+        ...l, 
+        status: 'Chegou', 
+        validacao_manual: true, 
+        motivo_falha: null,
+        validado_por: user.id,
+        data_hora_validacao: now
+      } : l))
       alert('Validação manual realizada com sucesso!')
     } catch (err: any) {
       alert('Erro ao validar manualmente: ' + err.message)

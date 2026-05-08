@@ -24,7 +24,7 @@ export default function AuditoriaPage() {
       // Fetch logs
       const { data: logsData } = await supabase
         .from('logs_sobreaviso')
-        .select('*, servidores(nome), unidades(nome, latitude, longitude)')
+        .select('*, servidores(nome), unidades(nome, latitude, longitude), validador:profiles!validado_por(full_name)')
         .order('data_hora_acionamento', { ascending: false })
         .limit(20)
       
@@ -64,33 +64,39 @@ export default function AuditoriaPage() {
     }
   }
 
-  const getEffectiveStatus = (log: any) => {
-    if (!log) return null
-    if (log.status === 'Falhou') return 'Falhou'
+  const getDetailedStatus = (log: any) => {
+    if (!log) return { status: null, reason: null }
     
-    // Check virtual failure for Accepted -> Arrival
+    let status = log.status
+    let reason = log.motivo_falha
+    
     if (log.status === 'Aceito' && configs['sobreaviso_tempo_chegada_minutos']) {
       const limit = parseInt(configs['sobreaviso_tempo_chegada_minutos'])
       const safeDateStr = log.data_hora_aceite ? log.data_hora_aceite.replace(' ', 'T') : new Date().toISOString()
       const acceptedAt = new Date(safeDateStr).getTime()
       const now = new Date().getTime()
       if ((acceptedAt + limit * 60000) < now && !log.data_hora_chegada) {
-        return 'Falhou'
+        status = 'Falhou'
+        reason = 'Tempo limite de deslocamento excedido'
       }
     }
 
-    // Check virtual failure for Triggered -> Accepted
     if (log.status === 'Aguardando' && configs['sobreaviso_tempo_aceite_minutos']) {
       const limit = parseInt(configs['sobreaviso_tempo_aceite_minutos'])
       const safeDateStr = log.created_at ? log.created_at.replace(' ', 'T') : new Date().toISOString()
       const created = new Date(safeDateStr).getTime()
       const now = new Date().getTime()
       if ((created + limit * 60000) < now) {
-        return 'Falhou'
+        status = 'Falhou'
+        reason = 'Tempo limite para aceite excedido'
       }
     }
     
-    return log.status
+    return { status, reason }
+  }
+
+  const getEffectiveStatus = (log: any) => {
+    return getDetailedStatus(log).status
   }
 
   const openInGoogleMaps = (lat: number, long: number) => {
@@ -171,7 +177,14 @@ export default function AuditoriaPage() {
                       {getEffectiveStatus(log)}
                     </div>
 
-                    {log.motivo_falha && (
+                    {log.validacao_manual && (
+                      <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-[10px] font-bold border border-blue-100 dark:border-blue-800">
+                        <UserCheck className="h-3 w-3" />
+                        VALIDADO MANUAL
+                      </div>
+                    )}
+
+                    {log.motivo_falha && !log.validacao_manual && (
                       <div className="text-[10px] text-red-600 font-medium max-w-[150px] truncate" title={log.motivo_falha}>
                         {log.motivo_falha}
                       </div>
@@ -211,98 +224,134 @@ export default function AuditoriaPage() {
               </button>
             </div>
             
-            <div className="p-6 space-y-6">
-              <div className="flex items-center space-x-4">
-                <div className="h-12 w-12 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600">
-                  <UserCheck className="h-6 w-6" />
-                </div>
-                <div>
-                  <p className="text-sm text-zinc-600 dark:text-zinc-400">Servidor</p>
-                  <p className="text-lg font-bold">{selectedLog.servidores?.nome}</p>
-                  <p className="text-sm text-zinc-600 dark:text-zinc-400">{selectedLog.unidades?.nome}</p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-4">
-                <div className="bg-zinc-50 dark:bg-zinc-800/50 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800">
-                  <p className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase mb-2">Linha do Tempo</p>
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-zinc-600 dark:text-zinc-400">Acionamento:</span>
-                      <span className="text-sm font-medium">{new Date(selectedLog.data_hora_acionamento).toLocaleString('pt-BR')}</span>
+            {(() => {
+              const { status: effectiveStatus, reason: failureReason } = getDetailedStatus(selectedLog)
+              return (
+                <div className="p-6 space-y-6">
+                  <div className="flex items-center space-x-4">
+                    <div className="h-12 w-12 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600">
+                      <UserCheck className="h-6 w-6" />
                     </div>
-                    {selectedLog.data_hora_aceite && (
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <span className="text-sm text-zinc-600 dark:text-zinc-400">
-                            {selectedLog.status === 'Recusado' ? 'Recusa:' : 'Aceite:'}
-                          </span>
-                          {(selectedLog.lat_aceite || selectedLog.lat_recusa) && (
-                            <button 
-                              onClick={() => openInGoogleMaps(
-                                selectedLog.status === 'Recusado' ? selectedLog.lat_recusa : selectedLog.lat_aceite, 
-                                selectedLog.status === 'Recusado' ? selectedLog.long_recusa : selectedLog.long_aceite
+                    <div>
+                      <p className="text-sm text-zinc-600 dark:text-zinc-400">Servidor</p>
+                      <p className="text-lg font-bold">{selectedLog.servidores?.nome}</p>
+                      <p className="text-sm text-zinc-600 dark:text-zinc-400">{selectedLog.unidades?.nome}</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="bg-zinc-50 dark:bg-zinc-800/50 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800">
+                      <p className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase mb-2">Linha do Tempo</p>
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-zinc-600 dark:text-zinc-400">Acionamento:</span>
+                          <span className="text-sm font-medium">{new Date(selectedLog.data_hora_acionamento).toLocaleString('pt-BR')}</span>
+                        </div>
+                        {selectedLog.data_hora_aceite && (
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <span className="text-sm text-zinc-600 dark:text-zinc-400">
+                                {selectedLog.status === 'Recusado' ? 'Recusa:' : 'Aceite:'}
+                              </span>
+                              {(selectedLog.lat_aceite || selectedLog.lat_recusa) && (
+                                <button 
+                                  onClick={() => openInGoogleMaps(
+                                    selectedLog.status === 'Recusado' ? selectedLog.lat_recusa : selectedLog.lat_aceite, 
+                                    selectedLog.status === 'Recusado' ? selectedLog.long_recusa : selectedLog.long_aceite
+                                  )}
+                                  className="ml-2 text-[10px] text-blue-600 hover:underline flex items-center"
+                                >
+                                  <MapPin className="h-3 w-3 mr-0.5" /> Ver no Mapa
+                                </button>
                               )}
-                              className="ml-2 text-[10px] text-blue-600 hover:underline flex items-center"
-                            >
-                              <MapPin className="h-3 w-3 mr-0.5" /> Ver no Mapa
-                            </button>
-                          )}
+                            </div>
+                            <span className={`text-sm font-medium ${selectedLog.status === 'Recusado' ? 'text-red-600' : 'text-green-600'}`}>
+                              {new Date(selectedLog.data_hora_aceite).toLocaleString('pt-BR')}
+                            </span>
+                          </div>
+                        )}
+                        {selectedLog.data_hora_chegada && (
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <span className="text-sm text-zinc-600 dark:text-zinc-400">Chegada:</span>
+                              <button 
+                                onClick={() => openInGoogleMaps(selectedLog.lat_chegada, selectedLog.long_chegada)}
+                                className="ml-2 text-[10px] text-blue-600 hover:underline flex items-center"
+                              >
+                                <MapPin className="h-3 w-3 mr-0.5" /> Ver no Mapa
+                              </button>
+                            </div>
+                            <span className="text-sm font-medium text-blue-600">{new Date(selectedLog.data_hora_chegada).toLocaleString('pt-BR')}</span>
+                          </div>
+                        )}
+                        {effectiveStatus === 'Falhou' && (
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm text-red-600 dark:text-red-400 font-bold">Falha Detectada:</span>
+                            <span className="text-sm font-bold text-red-600 dark:text-red-400">STATUS: FALHOU</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {effectiveStatus === 'Falhou' && (
+                      <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-xl border border-red-100 dark:border-red-800 animate-pulse">
+                        <div className="flex items-center gap-2 mb-1 text-red-700 dark:text-red-400">
+                          <AlertCircle className="h-4 w-4" />
+                          <p className="text-xs font-bold uppercase">Chamado com Falha</p>
                         </div>
-                        <span className={`text-sm font-medium ${selectedLog.status === 'Recusado' ? 'text-red-600' : 'text-green-600'}`}>
-                          {new Date(selectedLog.data_hora_aceite).toLocaleString('pt-BR')}
-                        </span>
+                        <p className="text-sm text-red-900 dark:text-red-200 font-medium">
+                          {failureReason || 'Tempo limite excedido ou regra de negócio violada'}
+                        </p>
                       </div>
                     )}
-                    {selectedLog.data_hora_chegada && (
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <span className="text-sm text-zinc-600 dark:text-zinc-400">Chegada:</span>
-                          <button 
-                            onClick={() => openInGoogleMaps(selectedLog.lat_chegada, selectedLog.long_chegada)}
-                            className="ml-2 text-[10px] text-blue-600 hover:underline flex items-center"
-                          >
-                            <MapPin className="h-3 w-3 mr-0.5" /> Ver no Mapa
-                          </button>
-                        </div>
-                        <span className="text-sm font-medium text-blue-600">{new Date(selectedLog.data_hora_chegada).toLocaleString('pt-BR')}</span>
+
+                    {selectedLog.motivo_acionamento && (
+                      <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-100 dark:border-blue-800">
+                        <p className="text-xs font-bold text-blue-700 dark:text-blue-400 uppercase mb-1">Motivo do Chamado</p>
+                        <p className="text-sm text-blue-900 dark:text-blue-200 italic">"{selectedLog.motivo_acionamento}"</p>
                       </div>
                     )}
+
+                    {selectedLog.status === 'Recusado' && selectedLog.justificativa_recusa && (
+                      <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-xl border border-red-100 dark:border-red-800">
+                        <p className="text-xs font-bold text-red-700 dark:text-red-400 uppercase mb-1">Justificativa da Recusa</p>
+                        <p className="text-sm text-red-900 dark:text-red-200 italic">"{selectedLog.justificativa_recusa}"</p>
+                      </div>
+                    )}
+
+                    {selectedLog.validacao_manual && (
+                      <div className="bg-zinc-900 dark:bg-zinc-800 p-4 rounded-xl border border-zinc-700 dark:border-zinc-600 text-white shadow-lg">
+                        <div className="flex items-center gap-2 mb-2">
+                          <ShieldCheck className="h-5 w-5 text-green-400" />
+                          <p className="text-xs font-bold uppercase tracking-wider text-green-400">Validação Administrativa</p>
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium">Aprovado por: <span className="text-zinc-300">{selectedLog.validador?.full_name || 'Administrador'}</span></p>
+                          <p className="text-[11px] text-zinc-400">Data/Hora: {selectedLog.data_hora_validacao ? new Date(selectedLog.data_hora_validacao).toLocaleString('pt-BR') : 'N/A'}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="bg-zinc-50 dark:bg-zinc-800/50 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800">
+                      <p className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase mb-2">Dados Técnicos</p>
+                      <div className="space-y-2 text-[11px] font-mono text-zinc-600 dark:text-zinc-400">
+                        <p>Status Atual: <span className={effectiveStatus === 'Falhou' ? 'text-red-600 font-bold' : ''}>{effectiveStatus}</span></p>
+                        <p>IP Aceite: {selectedLog.ip_aceite || 'N/A'}</p>
+                        <p className="truncate">Browser: {selectedLog.user_agent || 'N/A'}</p>
+                        <p>Token: {selectedLog.token_magic_link}</p>
+                      </div>
+                    </div>
                   </div>
+
+                  <button 
+                    onClick={() => setSelectedLog(null)}
+                    className="w-full py-3 bg-zinc-900 dark:bg-white dark:text-zinc-900 text-white font-bold rounded-xl hover:opacity-90 transition-opacity"
+                  >
+                    Fechar
+                  </button>
                 </div>
-
-                {selectedLog.motivo_acionamento && (
-                  <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-100 dark:border-blue-800">
-                    <p className="text-xs font-bold text-blue-700 dark:text-blue-400 uppercase mb-1">Motivo do Chamado</p>
-                    <p className="text-sm text-blue-900 dark:text-blue-200 italic">"{selectedLog.motivo_acionamento}"</p>
-                  </div>
-                )}
-
-                {selectedLog.status === 'Recusado' && selectedLog.justificativa_recusa && (
-                  <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-xl border border-red-100 dark:border-red-800">
-                    <p className="text-xs font-bold text-red-700 dark:text-red-400 uppercase mb-1">Justificativa da Recusa</p>
-                    <p className="text-sm text-red-900 dark:text-red-200 italic">"{selectedLog.justificativa_recusa}"</p>
-                  </div>
-                )}
-
-                <div className="bg-zinc-50 dark:bg-zinc-800/50 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800">
-                  <p className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase mb-2">Dados Técnicos</p>
-                  <div className="space-y-2 text-[11px] font-mono text-zinc-600 dark:text-zinc-400">
-                    <p>Status: {selectedLog.status}</p>
-                    <p>IP Aceite: {selectedLog.ip_aceite || 'N/A'}</p>
-                    <p className="truncate">Browser: {selectedLog.user_agent || 'N/A'}</p>
-                    <p>Token: {selectedLog.token_magic_link}</p>
-                  </div>
-                </div>
-              </div>
-
-              <button 
-                onClick={() => setSelectedLog(null)}
-                className="w-full py-3 bg-zinc-900 dark:bg-white dark:text-zinc-900 text-white font-bold rounded-xl hover:opacity-90 transition-opacity"
-              >
-                Fechar
-              </button>
-            </div>
+              )
+            })()}
           </div>
         </div>
       )}
