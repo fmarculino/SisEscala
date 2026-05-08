@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { Plus, Clock, Loader2, Edit2, Check, X, Info, Trash2 } from 'lucide-react'
+import { Plus, Clock, Loader2, Edit2, Check, X, Power, PowerOff } from 'lucide-react'
 
 interface Jornada {
   id: string
@@ -29,6 +29,7 @@ export default function JornadasPage() {
       const { data, error } = await supabase
         .from('jornadas')
         .select('*')
+        .order('ativo', { ascending: false })
         .order('nome', { ascending: true })
       
       if (error) throw error
@@ -77,19 +78,21 @@ export default function JornadasPage() {
     }
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm('Deseja excluir esta jornada?')) return
+  async function handleToggleAtivo(id: string, currentStatus: boolean) {
+    const action = currentStatus ? 'inativar' : 'ativar'
+    if (!confirm(`Deseja ${action} esta jornada?`)) return
+    
     setSaving(true)
     try {
       const { error } = await supabase
         .from('jornadas')
-        .delete()
+        .update({ ativo: !currentStatus })
         .eq('id', id)
       
       if (error) throw error
       fetchJornadas()
     } catch (error: any) {
-      alert('Erro ao excluir jornada. Provavelmente está sendo usada em alguma escala.')
+      alert(`Erro ao ${action} jornada: ` + error.message)
     } finally {
       setSaving(false)
     }
@@ -105,7 +108,7 @@ export default function JornadasPage() {
       {/* Header */}
       <div>
         <h1 className="text-3xl font-black tracking-tight text-zinc-900 dark:text-white uppercase">Jornadas de Trabalho</h1>
-        <p className="mt-1 text-zinc-500 text-sm italic">Defina os horários de trabalho padrão para a escala regular.</p>
+        <p className="mt-1 text-zinc-500 text-sm italic">Gerencie os horários de trabalho. Jornadas inativas não aparecerão na escala regular.</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -141,26 +144,27 @@ export default function JornadasPage() {
             <thead className="bg-zinc-50 dark:bg-zinc-800/50">
               <tr>
                 <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-zinc-500 dark:text-zinc-400">Jornada</th>
+                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-zinc-500 dark:text-zinc-400">Status</th>
                 <th className="px-6 py-4 text-center text-[10px] font-black uppercase tracking-widest text-zinc-500 dark:text-zinc-400 w-32">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
               {loading ? (
                 <tr>
-                  <td colSpan={2} className="px-6 py-20 text-center">
+                  <td colSpan={3} className="px-6 py-20 text-center">
                     <Loader2 className="h-10 w-10 animate-spin mx-auto text-blue-500 opacity-50" />
                   </td>
                 </tr>
               ) : jornadas.length === 0 ? (
                 <tr>
-                  <td colSpan={2} className="px-6 py-20 text-center">
+                  <td colSpan={3} className="px-6 py-20 text-center">
                     <Clock className="h-12 w-12 mx-auto text-zinc-200 dark:text-zinc-800 mb-4" />
                     <p className="text-zinc-400 font-bold uppercase text-xs tracking-widest">Nenhuma jornada cadastrada</p>
                   </td>
                 </tr>
               ) : (
                 jornadas.map(j => (
-                  <tr key={j.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
+                  <tr key={j.id} className={`hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors ${!j.ativo ? 'opacity-50' : ''}`}>
                     <td className="px-6 py-4">
                       {editingId === j.id ? (
                         <input
@@ -172,10 +176,15 @@ export default function JornadasPage() {
                         />
                       ) : (
                         <div className="flex items-center font-black text-zinc-900 dark:text-white uppercase tracking-tighter text-lg">
-                          <Clock className="mr-3 h-5 w-5 text-blue-500" />
+                          <Clock className={`mr-3 h-5 w-5 ${j.ativo ? 'text-blue-500' : 'text-zinc-400'}`} />
                           {j.nome}
                         </div>
                       )}
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className={`inline-flex items-center rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-widest ${j.ativo ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'}`}>
+                        {j.ativo ? 'Ativo' : 'Inativo'}
+                      </span>
                     </td>
                     <td className="px-6 py-4 text-center">
                       <div className="flex justify-center items-center gap-3">
@@ -207,11 +216,11 @@ export default function JornadasPage() {
                               <Edit2 className="h-5 w-5" />
                             </button>
                             <button
-                              onClick={() => handleDelete(j.id)}
-                              className="p-2 text-zinc-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"
-                              title="Excluir"
+                              onClick={() => handleToggleAtivo(j.id, j.ativo)}
+                              className={`p-2 rounded-lg transition-all ${j.ativo ? 'text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20' : 'text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20'}`}
+                              title={j.ativo ? 'Inativar' : 'Ativar'}
                             >
-                              <Trash2 className="h-5 w-5" />
+                              {j.ativo ? <PowerOff className="h-5 w-5" /> : <Power className="h-5 w-5" />}
                             </button>
                           </>
                         )}

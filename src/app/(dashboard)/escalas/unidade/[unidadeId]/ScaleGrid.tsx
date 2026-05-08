@@ -91,7 +91,7 @@ export function ScaleGrid({
       // Fetch all units and sectors for external server logic
       const { data: units } = await supabase.from('unidades').select('*').eq('ativo', true).order('nome')
       const { data: sectors } = await supabase.from('setores').select('*').eq('ativo', true).order('nome')
-      const { data: journeys } = await supabase.from('jornadas').select('*').eq('ativo', true).order('nome')
+      const { data: journeys } = await supabase.from('jornadas').select('*').order('nome')
       if (units) setAllUnidades(units)
       if (sectors) setAllSetores(sectors)
       if (journeys) setJornadas(journeys)
@@ -756,8 +756,8 @@ export function ScaleGrid({
                             className="w-full bg-transparent border-none outline-none text-[10px] font-bold uppercase focus:ring-1 focus:ring-blue-500 rounded p-0"
                           >
                             <option value="">Selecione...</option>
-                            {jornadas.map(j => (
-                              <option key={j.id} value={j.id}>{j.nome}</option>
+                            {jornadas.filter(j => j.ativo || j.id === em.jornada_id).map(j => (
+                              <option key={j.id} value={j.id}>{j.nome} {!j.ativo ? '(Inativo)' : ''}</option>
                             ))}
                           </select>
                         ) : cat === 'Extra' ? 'EXTRAS' : cat === 'Plantão' ? 'PLANTÕES' : 'SOBREAVISO'}
