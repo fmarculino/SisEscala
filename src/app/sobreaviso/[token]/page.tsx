@@ -53,7 +53,8 @@ export default function ProfessionalOvercallPage() {
 
         if (currentStatus === 'Aguardando' && cfg['sobreaviso_tempo_aceite_minutos']) {
           const limit = parseInt(cfg['sobreaviso_tempo_aceite_minutos'])
-          const created = new Date(flattenedData.created_at).getTime()
+          const safeDateStr = flattenedData.created_at ? flattenedData.created_at.replace(' ', 'T') : new Date().toISOString()
+          const created = new Date(safeDateStr).getTime()
           const diffMinutes = (now - created) / 60000
           if (diffMinutes > limit) {
             currentStatus = 'Falhou'
@@ -65,7 +66,8 @@ export default function ProfessionalOvercallPage() {
           }
         } else if (currentStatus === 'Aceito' && cfg['sobreaviso_tempo_chegada_minutos']) {
           const limit = parseInt(cfg['sobreaviso_tempo_chegada_minutos'])
-          const accepted = new Date(flattenedData.data_hora_aceite).getTime()
+          const safeDateStr = flattenedData.data_hora_aceite ? flattenedData.data_hora_aceite.replace(' ', 'T') : new Date().toISOString()
+          const accepted = new Date(safeDateStr).getTime()
           const diffMinutes = (now - accepted) / 60000
           if (diffMinutes > limit) {
             currentStatus = 'Falhou'
@@ -96,14 +98,16 @@ export default function ProfessionalOvercallPage() {
       
       if (status === 'Aguardando' && configs['sobreaviso_tempo_aceite_minutos']) {
         const limit = parseInt(configs['sobreaviso_tempo_aceite_minutos'])
-        const created = new Date(log.created_at).getTime()
+        const safeDateStr = log.created_at ? log.created_at.replace(' ', 'T') : new Date().toISOString()
+        const created = new Date(safeDateStr).getTime()
         const diff = (created + limit * 60000) - now
         return Math.max(0, diff)
       }
       
       if (status === 'Aceito' && configs['sobreaviso_tempo_chegada_minutos']) {
         const limit = parseInt(configs['sobreaviso_tempo_chegada_minutos'])
-        const acceptedAt = new Date(log.data_hora_aceite).getTime()
+        const safeDateStr = log.data_hora_aceite ? log.data_hora_aceite.replace(' ', 'T') : new Date().toISOString()
+        const acceptedAt = new Date(safeDateStr).getTime()
         const diff = (acceptedAt + limit * 60000) - now
         
         if (diff <= 0) {
