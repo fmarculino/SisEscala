@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { ShieldCheck, MapPin, Navigation, CheckCircle, Loader2, AlertCircle } from 'lucide-react'
+import { ShieldCheck, MapPin, Navigation, CheckCircle, Loader2, AlertCircle, Clock } from 'lucide-react'
 import { useParams } from 'next/navigation'
 
 export default function ProfessionalOvercallPage() {
@@ -12,6 +12,7 @@ export default function ProfessionalOvercallPage() {
   const [status, setStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [configs, setConfigs] = useState<Record<string, string>>({})
+  const [timeLeft, setTimeLeft] = useState<number | null>(null)
   
   useEffect(() => {
     const supabase = createClient()
@@ -68,6 +69,45 @@ export default function ProfessionalOvercallPage() {
 
     fetchLog()
   }, [token])
+
+  useEffect(() => {
+    if (status !== 'Aceito' || !log?.data_hora_aceite || !configs['sobreaviso_tempo_chegada_minutos']) {
+      setTimeLeft(null)
+      return
+    }
+
+    const calculateTime = () => {
+      const limit = parseInt(configs['sobreaviso_tempo_chegada_minutos'])
+      const acceptedAt = new Date(log.data_hora_aceite).getTime()
+      const now = new Date().getTime()
+      const diff = (acceptedAt + limit * 60000) - now
+      
+      if (diff <= 0) {
+        if (status === 'Aceito') {
+           setStatus('Falhou')
+           setLog((prev: any) => ({ ...prev, status: 'Falhou', motivo_falha: 'Tempo limite de deslocamento excedido.' }))
+        }
+        return 0
+      }
+      return diff
+    }
+
+    setTimeLeft(calculateTime())
+    const interval = setInterval(() => {
+      const remaining = calculateTime()
+      setTimeLeft(remaining)
+      if (remaining <= 0) clearInterval(interval)
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [status, log?.data_hora_aceite, configs])
+
+  const formatTime = (ms: number) => {
+    const totalSeconds = Math.floor(ms / 1000)
+    const minutes = Math.floor(totalSeconds / 60)
+    const seconds = totalSeconds % 60
+    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+  }
 
   // Helper to calculate distance in meters
   const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
@@ -382,10 +422,26 @@ export default function ProfessionalOvercallPage() {
                 <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-xl text-green-700 dark:text-green-400 text-center font-medium">
                   Chamado Aceito! Dirija-se à unidade.
                 </div>
+
+                {timeLeft !== null && (
+                  <div className={`p-4 rounded-xl border flex items-center justify-center gap-3 transition-all duration-500 ${
+                    timeLeft < 60000 
+                      ? 'bg-red-50 border-red-200 text-red-600 animate-pulse' 
+                      : 'bg-blue-50 border-blue-200 text-blue-600'
+                  }`}>
+                    <Clock className={`h-5 w-5 ${timeLeft < 60000 ? 'text-red-500' : 'text-blue-500'}`} />
+                    <div className="text-center">
+                      <p className="text-[10px] uppercase font-bold opacity-70">Tempo restante para chegada:</p>
+                      <p className="text-2xl font-black font-mono tracking-tighter">{formatTime(timeLeft)}</p>
+                    </div>
+                  </div>
+                )}
+
                 {!log.data_hora_chegada ? (
                   <button
                     onClick={handleRegisterArrival}
-                    className="w-full flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl transition-all shadow-lg"
+                    disabled={timeLeft === 0}
+                    className="w-full flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl transition-all shadow-lg disabled:opacity-50 disabled:grayscale"
                   >
                     <Navigation className="mr-3 h-6 w-6" />
                     Registrar Chegada na Unidade

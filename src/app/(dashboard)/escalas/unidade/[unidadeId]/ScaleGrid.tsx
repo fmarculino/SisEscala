@@ -753,7 +753,8 @@ export function ScaleGrid({
                   <div className="flex flex-col gap-2">
                     <button 
                       onClick={() => {
-                        const text = `Olá *${triggerModal.servidorNome}*, você foi acionado(a) para um chamado de Sobreaviso.\n\n*Motivo:*\n${motivo}\n\n*Para confirmar seu aceite, acesse o link abaixo:*\n${generatedLink}`
+                        const tempoAceite = configsGlobais.find(c => c.chave === 'sobreaviso_tempo_aceite_minutos')?.valor || '30'
+                        const text = `Olá *${triggerModal.servidorNome}*, você foi acionado(a) para um chamado de Sobreaviso.\n\n*Motivo:*\n${motivo}\n\n*Você tem ${tempoAceite} minutos para aceitar esse chamado.*\n\n*Para confirmar seu aceite, acesse o link abaixo:*\n${generatedLink}`
                         navigator.clipboard.writeText(text)
                         alert('Mensagem completa copiada para a área de transferência!')
                       }}
@@ -764,8 +765,9 @@ export function ScaleGrid({
                     
                     <button 
                       onClick={() => {
+                        const tempoAceite = configsGlobais.find(c => c.chave === 'sobreaviso_tempo_aceite_minutos')?.valor || '30'
                         // Formatação usando Markdown do WhatsApp (* para negrito)
-                        const text = encodeURIComponent(`Olá *${triggerModal.servidorNome}*, você foi acionado(a) para um chamado de Sobreaviso.\n\n*Motivo:*\n${motivo}\n\n*Para confirmar seu aceite, acesse o link abaixo:*\n${generatedLink}`)
+                        const text = encodeURIComponent(`Olá *${triggerModal.servidorNome}*, você foi acionado(a) para um chamado de Sobreaviso.\n\n*Motivo:*\n${motivo}\n\n*Você tem ${tempoAceite} minutos para aceitar esse chamado.*\n\n*Para confirmar seu aceite, acesse o link abaixo:*\n${generatedLink}`)
                         window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank')
                       }}
                       className="w-full px-4 py-2 rounded-lg bg-green-600 text-white font-bold hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
