@@ -181,30 +181,44 @@ export function ScaleGrid({
       S: {} as Record<number, number>
     }
 
-    const getEffectiveStatus = (log: any) => {
-      if (!log) return null
-      if (log.status === 'Falhou') return 'Falhou'
-      if (log.status === 'Aceito' && configs['sobreaviso_tempo_chegada_minutos']) {
-        const limit = parseInt(configs['sobreaviso_tempo_chegada_minutos'])
-        const safeDateStr = log.data_hora_aceite ? log.data_hora_aceite.replace(' ', 'T') : new Date().toISOString()
-        const acceptedAt = new Date(safeDateStr).getTime()
-        const now = new Date().getTime()
-        if ((acceptedAt + limit * 60000) < now && !log.data_hora_chegada) {
-          return 'Falhou'
+    const getStatusForDay = (day: number, emId: string) => {
+      const logs = logsSobreaviso.filter(l => l.escala_mensal_id === emId && l.dia === day)
+      if (logs.length === 0) return { status: null, reason: null, log: null }
+
+      for (const log of logs) {
+        let status = log.status
+        let reason = log.motivo_falha
+
+        if (status === 'Aceito' && configs['sobreaviso_tempo_chegada_minutos']) {
+          const limit = parseInt(configs['sobreaviso_tempo_chegada_minutos'])
+          const safeDateStr = log.data_hora_aceite ? log.data_hora_aceite.replace(' ', 'T') : new Date().toISOString()
+          const acceptedAt = new Date(safeDateStr).getTime()
+          const now = new Date().getTime()
+          if ((acceptedAt + limit * 60000) < now && !log.data_hora_chegada) {
+            status = 'Falhou'
+            reason = 'Tempo limite de deslocamento excedido'
+          }
+        } else if (status === 'Aguardando' && configs['sobreaviso_tempo_aceite_minutos']) {
+          const limit = parseInt(configs['sobreaviso_tempo_aceite_minutos'])
+          const safeDateStr = log.created_at ? log.created_at.replace(' ', 'T') : new Date().toISOString()
+          const created = new Date(safeDateStr).getTime()
+          const now = new Date().getTime()
+          if ((created + limit * 60000) < now) {
+            status = 'Falhou'
+            reason = 'Tempo limite para aceite excedido'
+          }
         }
+
+        if (status === 'Falhou') return { status: 'Falhou', reason: reason || 'Tempo expirado', log }
       }
-      if (log.status === 'Aguardando' && configs['sobreaviso_tempo_aceite_minutos']) {
-        const limit = parseInt(configs['sobreaviso_tempo_aceite_minutos'])
-        const safeDateStr = log.created_at ? log.created_at.replace(' ', 'T') : new Date().toISOString()
-        const created = new Date(safeDateStr).getTime()
-        const now = new Date().getTime()
-        if ((created + limit * 60000) < now) {
-          return 'Falhou'
-        }
-      }
-      return log.status
+
+      const pending = logs.find(l => l.status === 'Aceito' || l.status === 'Aguardando')
+      if (pending) return { status: pending.status, reason: null, log: pending }
+
+      const last = logs[logs.length - 1]
+      return { status: last.status, reason: null, log: last }
     }
-    
+
     daysArray.forEach(day => {
       let countM = 0
       let countT = 0
@@ -232,8 +246,7 @@ export function ScaleGrid({
 
         const turnoIdS = gridData[em.servidor_id]?.['Sobreaviso']?.[day]
         if (turnoIdS) {
-          const log = logsSobreaviso.find(l => l.escala_mensal_id === em.id && l.dia === day)
-          const effectiveStatus = getEffectiveStatus(log)
+          const { status: effectiveStatus } = getStatusForDay(day, em.id)
           if (!(desconsiderarFalha && effectiveStatus === 'Falhou')) {
             hasS = true
           }
@@ -387,27 +400,10 @@ export function ScaleGrid({
 
     // Sum Sobreavisos
     Object.entries(serverData['Sobreaviso']).forEach(([day, turnoId]) => {
-      const log = logsSobreaviso.find(l => l.servidor_id === servidorId && l.dia === parseInt(day))
-      
-      // Virtual status check
-      let effectiveStatus = log?.status
-      if (log?.status === 'Aceito' && configs['sobreaviso_tempo_chegada_minutos']) {
-        const limit = parseInt(configs['sobreaviso_tempo_chegada_minutos'])
-        const safeDateStr = log.data_hora_aceite ? log.data_hora_aceite.replace(' ', 'T') : new Date().toISOString()
-        const acceptedAt = new Date(safeDateStr).getTime()
-        const now = new Date().getTime()
-        if ((acceptedAt + limit * 60000) < now && !log.data_hora_chegada) {
-          effectiveStatus = 'Falhou'
-        }
-      } else if (log?.status === 'Aguardando' && configs['sobreaviso_tempo_aceite_minutos']) {
-        const limit = parseInt(configs['sobreaviso_tempo_aceite_minutos'])
-        const safeDateStr = log.created_at ? log.created_at.replace(' ', 'T') : new Date().toISOString()
-        const created = new Date(safeDateStr).getTime()
-        const now = new Date().getTime()
-        if ((created + limit * 60000) < now) {
-          effectiveStatus = 'Falhou'
-        }
-      }
+      const em = escalaMensal.find(x => x.servidor_id === servidorId)
+      if (!em) return
+
+      const { status: effectiveStatus } = getStatusForDay(parseInt(day), em.id)
 
       if (desconsiderarFalha && effectiveStatus === 'Falhou') return // Não soma horas se falhou
       
@@ -838,30 +834,9 @@ export function ScaleGrid({
                           isTriggerAllowed = now >= start && now < end
                         }
 
-                        const logForDay = cat === 'Sobreaviso' ? logsSobreaviso.find(l => l.escala_mensal_id === em.id && l.dia === day) : null
-                        
-                        // Virtual Fail Check
-                        let effectiveStatus = logForDay?.status
-                        let virtualReason = null
-                        if (logForDay?.status === 'Aceito' && configs['sobreaviso_tempo_chegada_minutos']) {
-                          const limit = parseInt(configs['sobreaviso_tempo_chegada_minutos'])
-                          const safeDateStr = logForDay.data_hora_aceite ? logForDay.data_hora_aceite.replace(' ', 'T') : new Date().toISOString()
-                          const acceptedAt = new Date(safeDateStr).getTime()
-                          const now = new Date().getTime()
-                          if ((acceptedAt + limit * 60000) < now && !logForDay.data_hora_chegada) {
-                            effectiveStatus = 'Falhou'
-                            virtualReason = 'Tempo limite de deslocamento excedido'
-                          }
-                        } else if (logForDay?.status === 'Aguardando' && configs['sobreaviso_tempo_aceite_minutos']) {
-                          const limit = parseInt(configs['sobreaviso_tempo_aceite_minutos'])
-                          const safeDateStr = logForDay.created_at ? logForDay.created_at.replace(' ', 'T') : new Date().toISOString()
-                          const created = new Date(safeDateStr).getTime()
-                          const now = new Date().getTime()
-                          if ((created + limit * 60000) < now) {
-                            effectiveStatus = 'Falhou'
-                            virtualReason = 'Tempo limite para aceite excedido'
-                          }
-                        }
+                        const { status: effectiveStatus, reason: virtualReason, log: logForDay } = cat === 'Sobreaviso' 
+                          ? getStatusForDay(day, em.id) 
+                          : { status: null, reason: null, log: null }
 
                         const isFailed = effectiveStatus === 'Falhou'
                         // Hide trigger button if it failed or if currently pending (Accepted/Waiting)
