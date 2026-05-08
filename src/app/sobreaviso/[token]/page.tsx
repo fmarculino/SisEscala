@@ -11,9 +11,16 @@ export default function ProfessionalOvercallPage() {
   const [loading, setLoading] = useState(true)
   const [status, setStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [configs, setConfigs] = useState<Record<string, string>>({})
+  const [configs, setConfigs] = useState<Record<string, any>>({})
   const [configsLoaded, setConfigsLoaded] = useState(false)
   const [timeLeft, setTimeLeft] = useState<number | null>(null)
+
+  // Helper to parse config values robustly
+  const isConfigTrue = (key: string) => {
+    const val = configs[key]
+    if (val === undefined || val === null) return false
+    return val === true || String(val).toLowerCase() === 'true' || String(val).toLowerCase() === 'sim'
+  }
   
   useEffect(() => {
     const supabase = createClient()
@@ -33,31 +40,39 @@ export default function ProfessionalOvercallPage() {
         
         // Fetch configs
         const { data: configData } = await supabase.from('configuracoes_globais').select('chave, valor')
-        const cfg: Record<string, string> = {}
+        const cfg: Record<string, any> = {}
         if (configData) {
           configData.forEach(c => cfg[c.chave] = c.valor)
         }
         setConfigs(cfg)
         setConfigsLoaded(true)
 
-        // Check timeouts
+        // Check timeouts immediately on load
         let currentStatus = flattenedData.status
+        const now = new Date().getTime()
+
         if (currentStatus === 'Aguardando' && cfg['sobreaviso_tempo_aceite_minutos']) {
           const limit = parseInt(cfg['sobreaviso_tempo_aceite_minutos'])
-          const created = new Date(flattenedData.created_at)
-          const diffMinutes = (new Date().getTime() - created.getTime()) / 60000
+          const created = new Date(flattenedData.created_at).getTime()
+          const diffMinutes = (now - created) / 60000
           if (diffMinutes > limit) {
             currentStatus = 'Falhou'
-            await supabase.from('logs_sobreaviso').update({ status: 'Falhou', motivo_falha: 'Tempo limite para aceite excedido.' }).eq('id', flattenedData.id)
+            await supabase.from('logs_sobreaviso').update({ 
+              status: 'Falhou', 
+              motivo_falha: 'Tempo limite para aceite excedido.' 
+            }).eq('id', flattenedData.id)
             flattenedData.motivo_falha = 'Tempo limite para aceite excedido.'
           }
         } else if (currentStatus === 'Aceito' && cfg['sobreaviso_tempo_chegada_minutos']) {
           const limit = parseInt(cfg['sobreaviso_tempo_chegada_minutos'])
-          const accepted = new Date(flattenedData.data_hora_aceite)
-          const diffMinutes = (new Date().getTime() - accepted.getTime()) / 60000
+          const accepted = new Date(flattenedData.data_hora_aceite).getTime()
+          const diffMinutes = (now - accepted) / 60000
           if (diffMinutes > limit) {
             currentStatus = 'Falhou'
-            await supabase.from('logs_sobreaviso').update({ status: 'Falhou', motivo_falha: 'Tempo limite de deslocamento excedido.' }).eq('id', flattenedData.id)
+            await supabase.from('logs_sobreaviso').update({ 
+              status: 'Falhou', 
+              motivo_falha: 'Tempo limite de deslocamento excedido.' 
+            }).eq('id', flattenedData.id)
             flattenedData.motivo_falha = 'Tempo limite de deslocamento excedido.'
           }
         }
@@ -72,37 +87,52 @@ export default function ProfessionalOvercallPage() {
     fetchLog()
   }, [token])
 
+  // Timer Effect (Acceptance or Arrival)
   useEffect(() => {
-    if (status !== 'Aceito' || !log?.data_hora_aceite || !configs['sobreaviso_tempo_chegada_minutos']) {
-      setTimeLeft(null)
-      return
-    }
+    if (!status || !log || !configsLoaded) return
 
     const calculateTime = () => {
-      const limit = parseInt(configs['sobreaviso_tempo_chegada_minutos'])
-      const acceptedAt = new Date(log.data_hora_aceite).getTime()
       const now = new Date().getTime()
-      const diff = (acceptedAt + limit * 60000) - now
       
-      if (diff <= 0) {
-        if (status === 'Aceito') {
-           setStatus('Falhou')
-           setLog((prev: any) => ({ ...prev, status: 'Falhou', motivo_falha: 'Tempo limite de deslocamento excedido.' }))
-        }
-        return 0
+      if (status === 'Aguardando' && configs['sobreaviso_tempo_aceite_minutos']) {
+        const limit = parseInt(configs['sobreaviso_tempo_aceite_minutos'])
+        const created = new Date(log.created_at).getTime()
+        const diff = (created + limit * 60000) - now
+        return Math.max(0, diff)
       }
-      return diff
+      
+      if (status === 'Aceito' && configs['sobreaviso_tempo_chegada_minutos']) {
+        const limit = parseInt(configs['sobreaviso_tempo_chegada_minutos'])
+        const acceptedAt = new Date(log.data_hora_aceite).getTime()
+        const diff = (acceptedAt + limit * 60000) - now
+        
+        if (diff <= 0) {
+          if (status === 'Aceito') {
+             setStatus('Falhou')
+             setLog((prev: any) => ({ ...prev, status: 'Falhou', motivo_falha: 'Tempo limite de deslocamento excedido.' }))
+          }
+          return 0
+        }
+        return diff
+      }
+      
+      return null
     }
 
-    setTimeLeft(calculateTime())
-    const interval = setInterval(() => {
-      const remaining = calculateTime()
-      setTimeLeft(remaining)
-      if (remaining <= 0) clearInterval(interval)
-    }, 1000)
+    const initial = calculateTime()
+    setTimeLeft(initial)
 
-    return () => clearInterval(interval)
-  }, [status, log?.data_hora_aceite, configs])
+    if (initial !== null) {
+      const interval = setInterval(() => {
+        const remaining = calculateTime()
+        setTimeLeft(remaining)
+        if (remaining !== null && remaining <= 0) {
+          clearInterval(interval)
+        }
+      }, 1000)
+      return () => clearInterval(interval)
+    }
+  }, [status, log, configsLoaded, configs])
 
   const formatTime = (ms: number) => {
     const totalSeconds = Math.floor(ms / 1000)
@@ -111,19 +141,16 @@ export default function ProfessionalOvercallPage() {
     return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
   }
 
-  // Helper to calculate distance in meters
   const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-    const R = 6371e3 // Earth radius in meters
+    const R = 6371e3 
     const φ1 = lat1 * Math.PI / 180
     const φ2 = lat2 * Math.PI / 180
     const Δφ = (lat2 - lat1) * Math.PI / 180
     const Δλ = (lon2 - lon1) * Math.PI / 180
-
     const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
               Math.cos(φ1) * Math.cos(φ2) *
               Math.sin(Δλ / 2) * Math.sin(Δλ / 2)
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-
     return R * c
   }
 
@@ -131,17 +158,18 @@ export default function ProfessionalOvercallPage() {
     setLoading(true)
     setError(null)
 
-    const requireLocation = String(configs['sobreaviso_exigir_localizacao']) === 'true'
-
-    if (requireLocation && !navigator.geolocation) {
-      setError('A configuração exige GPS para aceitar o chamado e seu navegador não suporta.')
-      setLoading(false)
-      return
-    }
+    // Robust check - if in doubt, require location
+    const requireLocation = !configsLoaded || isConfigTrue('sobreaviso_exigir_localizacao')
 
     const performAccept = async (lat?: number, long?: number) => {
+      // Final security check: if it was required but not provided, ABORT
+      if (requireLocation && (!lat || !long)) {
+        setError('O GPS é obrigatório para este chamado. Por favor, ative a localização precisa no seu navegador.')
+        setLoading(false)
+        return
+      }
+
       const supabase = createClient()
-      
       let ip = 'N/A'
       try {
         const ipRes = await fetch('https://api.ipify.org?format=json')
@@ -167,6 +195,7 @@ export default function ProfessionalOvercallPage() {
         setError('Erro ao aceitar: ' + updateError.message)
       } else {
         setStatus('Aceito')
+        setLog((prev: any) => ({ ...prev, status: 'Aceito', data_hora_aceite: new Date().toISOString() }))
       }
       setLoading(false)
     }
@@ -183,7 +212,7 @@ export default function ProfessionalOvercallPage() {
             performAccept()
           }
         },
-        { enableHighAccuracy: true, timeout: 10000 }
+        { enableHighAccuracy: true, timeout: 15000 } // Increased timeout to 15s
       )
     } else {
       if (requireLocation) {
@@ -199,15 +228,15 @@ export default function ProfessionalOvercallPage() {
     setLoading(true)
     setError(null)
 
-    const requireLocation = String(configs['sobreaviso_exigir_localizacao']) === 'true'
-
-    if (requireLocation && !navigator.geolocation) {
-      setError('GPS é obrigatório para validar a chegada.')
-      setLoading(false)
-      return
-    }
+    const requireLocation = !configsLoaded || isConfigTrue('sobreaviso_exigir_localizacao')
 
     const performArrival = async (lat?: number, long?: number) => {
+      if (requireLocation && (!lat || !long)) {
+        setError('GPS é obrigatório para validar a chegada.')
+        setLoading(false)
+        return
+      }
+
       if (lat && long) {
         const unitLat = log.unidades?.latitude
         const unitLong = log.unidades?.longitude
@@ -269,7 +298,7 @@ export default function ProfessionalOvercallPage() {
             performArrival()
           }
         },
-        { enableHighAccuracy: true, timeout: 10000 }
+        { enableHighAccuracy: true, timeout: 15000 }
       )
     } else {
       if (requireLocation) {
@@ -323,7 +352,7 @@ export default function ProfessionalOvercallPage() {
     }
   }
 
-  if (loading) return <div className="flex min-h-screen items-center justify-center"><Loader2 className="h-8 w-8 animate-spin" /></div>
+  if (loading && !log) return <div className="flex min-h-screen items-center justify-center"><Loader2 className="h-8 w-8 animate-spin" /></div>
   if (error) return <div className="flex min-h-screen items-center justify-center p-4"><div className="bg-red-50 p-6 rounded-xl text-red-700 flex items-center"><AlertCircle className="mr-3" /> {error}</div></div>
 
   return (
@@ -338,19 +367,19 @@ export default function ProfessionalOvercallPage() {
         <div className="p-8 space-y-6">
           <div className="text-center space-y-2">
             <h2 className="text-xl font-semibold text-zinc-900 dark:text-white">
-              {log.servidores?.nome}
+              {log?.servidores?.nome}
             </h2>
             <p className="text-zinc-600 dark:text-zinc-400">Você foi acionado para a unidade:</p>
             <div className="inline-flex items-center text-blue-600 font-bold bg-blue-50 dark:bg-blue-900/20 px-4 py-2 rounded-lg">
               <MapPin className="mr-2 h-4 w-4" />
-              {log.unidades?.nome}
+              {log?.unidades?.nome}
             </div>
 
-            {log.motivo_acionamento && (
+            {log?.motivo_acionamento && (
               <div className="bg-amber-50 dark:bg-amber-900/20 p-4 rounded-xl border border-amber-200 dark:border-amber-800 text-left">
                 <p className="text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase mb-1">Motivo do Acionamento:</p>
                 <p className="text-sm text-amber-900 dark:text-amber-200 italic">
-                  "{log.motivo_acionamento}"
+                  "{log?.motivo_acionamento}"
                 </p>
               </div>
             )}
@@ -359,15 +388,29 @@ export default function ProfessionalOvercallPage() {
           <div className="pt-6 border-t border-zinc-100 dark:border-zinc-800">
             {status === 'Aguardando' && (
               <div className="space-y-4">
+                {timeLeft !== null && (
+                  <div className={`p-3 rounded-xl border flex items-center justify-center gap-3 transition-all ${
+                    timeLeft < 300000 
+                      ? 'bg-amber-50 border-amber-200 text-amber-700' 
+                      : 'bg-zinc-50 border-zinc-200 text-zinc-600'
+                  }`}>
+                    <Clock className="h-4 w-4" />
+                    <div className="text-center">
+                      <p className="text-[9px] uppercase font-bold opacity-70">Tempo restante para aceite:</p>
+                      <p className="text-xl font-mono font-bold">{formatTime(timeLeft)}</p>
+                    </div>
+                  </div>
+                )}
+
                 {!showRecuseForm ? (
                   <>
                     <button
                       onClick={handleAccept}
-                      disabled={loading || !configsLoaded}
+                      disabled={loading || !configsLoaded || timeLeft === 0}
                       className="w-full flex items-center justify-center bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-xl transition-all shadow-lg hover:shadow-green-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <CheckCircle className="mr-3 h-6 w-6" />
-                      Aceitar Chamado
+                      {loading ? 'Processando...' : 'Aceitar Chamado'}
                     </button>
                     <button
                       onClick={() => setShowRecuseForm(true)}
@@ -426,7 +469,7 @@ export default function ProfessionalOvercallPage() {
                 <AlertCircle className="h-12 w-12 text-red-600 mx-auto mb-2" />
                 <h3 className="text-lg font-bold text-red-800 dark:text-red-400">Chamado Falhou</h3>
                 <p className="text-sm text-red-600 dark:text-red-300">
-                  {log.motivo_falha || 'O tempo limite expirou e este chamado foi invalidado.'}
+                  {log?.motivo_falha || 'O tempo limite expirou e este chamado foi invalidado.'}
                 </p>
               </div>
             )}
@@ -449,11 +492,11 @@ export default function ProfessionalOvercallPage() {
 
                 {timeLeft !== null && (
                   <div className={`p-4 rounded-xl border flex items-center justify-center gap-3 transition-all duration-500 ${
-                    timeLeft < 60000 
+                    timeLeft < 300000 
                       ? 'bg-red-50 border-red-200 text-red-600 animate-pulse' 
                       : 'bg-blue-50 border-blue-200 text-blue-600'
                   }`}>
-                    <Clock className={`h-5 w-5 ${timeLeft < 60000 ? 'text-red-500' : 'text-blue-500'}`} />
+                    <Clock className={`h-5 w-5 ${timeLeft < 300000 ? 'text-red-500' : 'text-blue-500'}`} />
                     <div className="text-center">
                       <p className="text-[10px] uppercase font-bold opacity-70">Tempo restante para chegada:</p>
                       <p className="text-2xl font-black font-mono tracking-tighter">{formatTime(timeLeft)}</p>
@@ -461,14 +504,14 @@ export default function ProfessionalOvercallPage() {
                   </div>
                 )}
 
-                {!log.data_hora_chegada ? (
+                {!log?.data_hora_chegada ? (
                   <button
                     onClick={handleRegisterArrival}
-                    disabled={timeLeft === 0}
+                    disabled={loading || timeLeft === 0}
                     className="w-full flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl transition-all shadow-lg disabled:opacity-50 disabled:grayscale"
                   >
                     <Navigation className="mr-3 h-6 w-6" />
-                    Registrar Chegada na Unidade
+                    {loading ? 'Processando...' : 'Registrar Chegada na Unidade'}
                   </button>
                 ) : (
                   <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl text-blue-700 dark:text-blue-400 text-center font-medium">
