@@ -254,7 +254,7 @@ export function ScaleGrid({
   const handleClearScale = () => {
     if (confirm('Deseja limpar todos os lançamentos desta escala? Esta ação não pode ser desfeita até que você salve novamente.')) {
       setGridData({})
-      toast.success('Escala limpa! Não esqueça de salvar.')
+      alert('Escala limpa! Não esqueça de salvar.')
     }
   }
 
@@ -263,7 +263,7 @@ export function ScaleGrid({
 
     // Check if already in grid
     if (escalaMensal.some(em => em.servidor_id === externalData.servidorId)) {
-      toast.error('Este servidor já está nesta escala.')
+      alert('Este servidor já está nesta escala.')
       return
     }
 
@@ -285,9 +285,9 @@ export function ScaleGrid({
 
       setEscalaMensal(prev => [...prev, data])
       setIsExternalModalOpen(false)
-      toast.success('Servidor externo adicionado!')
+      alert('Servidor externo adicionado!')
     } catch (error: any) {
-      toast.error('Erro ao adicionar servidor: ' + error.message)
+      alert('Erro ao adicionar servidor: ' + error.message)
     } finally {
       setLoading(false)
     }
