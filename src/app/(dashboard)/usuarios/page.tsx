@@ -1,9 +1,10 @@
-import { createClient } from '@/utils/supabase/server'
-import { Users, Plus, Shield, Mail, Building2 } from 'lucide-react'
-import { createUser } from './actions'
+import { createClient, createAdminClient } from '@/utils/supabase/server'
+import { Shield } from 'lucide-react'
+import UserManagementClient from './UserManagementClient'
 
 export default async function UsuariosPage() {
   const supabase = await createClient()
+  const supabaseAdmin = await createAdminClient()
 
   // 1. Check permissions (only super_admin and admin)
   const { data: { user } } = await supabase.auth.getUser()
@@ -14,18 +15,6 @@ export default async function UsuariosPage() {
     .single()
 
   const isAuthorized = profile?.role === 'super_admin' || profile?.role === 'admin'
-
-  // 2. Fetch users
-  const { data: profiles } = await supabase
-    .from('profiles')
-    .select('*, unidades(nome)')
-    .order('full_name')
-
-  // 3. Fetch units for dropdown
-  const { data: unidades } = await supabase
-    .from('unidades')
-    .select('id, nome')
-    .order('nome')
 
   if (!isAuthorized) {
     return (
@@ -39,6 +28,49 @@ export default async function UsuariosPage() {
     )
   }
 
+  // 2. Fetch profiles with new multi-assignment structure
+  const { data: profiles } = await supabase
+    .from('profiles')
+    .select(`
+      *,
+      profile_unidades(unidade_id, unidades(nome)),
+      profile_setores(setor_id, setores(nome))
+    `)
+    .order('full_name')
+
+  // 3. Fetch auth users to get emails
+  const { data: { users: authUsers } } = await supabaseAdmin.auth.admin.listUsers()
+
+  // 4. Merge profiles with auth data based on Auth Users (to catch orphaned accounts)
+  const profilesWithEmail = authUsers.map(u => {
+    const p = profiles?.find(profile => profile.id === u.id)
+    return {
+      id: u.id,
+      email: u.email || '',
+      full_name: p?.full_name || u.user_metadata?.full_name || 'Usuário Órfão (Sem Perfil)',
+      role: p?.role || 'comum',
+      acesso_todas_unidades: p?.acesso_todas_unidades || false,
+      acesso_todos_setores: p?.acesso_todos_setores || false,
+      permitted_unidades: p?.profile_unidades?.map((pu: any) => pu.unidade_id) || [],
+      permitted_setores: p?.profile_setores?.map((ps: any) => ps.setor_id) || [],
+      unidades_nomes: p?.profile_unidades?.map((pu: any) => pu.unidades?.nome).filter(Boolean) || [],
+      setores_nomes: p?.profile_setores?.map((ps: any) => ps.setores?.nome).filter(Boolean) || [],
+      isOrphaned: !p,
+      ativo: p ? (p.ativo !== false) : false
+    }
+  }).sort((a, b) => a.full_name.localeCompare(b.full_name))
+
+  // 5. Fetch units for dropdown
+  const { data: unidades } = await supabase
+    .from('unidades')
+    .select('id, nome')
+    .order('nome')
+
+  const { data: setores } = await supabase
+    .from('setores')
+    .select('id, nome, unidade_id')
+    .order('nome')
+
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between">
@@ -50,101 +82,12 @@ export default async function UsuariosPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Formulário de Criação */}
-        <div className="lg:col-span-1">
-          <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm overflow-hidden sticky top-8">
-            <div className="p-6 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50">
-              <h2 className="text-lg font-semibold flex items-center">
-                <Plus className="mr-2 h-5 w-5 text-blue-600" />
-                Novo Usuário
-              </h2>
-            </div>
-            
-            <form action={async (formData) => {
-              'use server'
-              await createUser(formData)
-            }} className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Nome Completo</label>
-                <input required type="text" name="full_name" className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 py-2 px-3 text-sm focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800" />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Email</label>
-                <input required type="email" name="email" className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 py-2 px-3 text-sm focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800" />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Senha Padrão</label>
-                <input required type="text" name="password" defaultValue="sisEscala2026" className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 py-2 px-3 text-sm focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800" />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Nível de Acesso</label>
-                <select required name="role" className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 py-2 px-3 text-sm focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800">
-                  <option value="comum">Comum (Apenas visualização)</option>
-                  <option value="coordenador">Coordenador (Gerencia escalas do seu setor)</option>
-                  <option value="admin">Administrador (Gerencia unidades e usuários)</option>
-                  {profile.role === 'super_admin' && <option value="super_admin">Super Usuário (Acesso total)</option>}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Unidade Vinculada</label>
-                <select name="unidade_id" className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 py-2 px-3 text-sm focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800">
-                  <option value="">Todas (Geral)</option>
-                  {unidades?.map(u => (
-                    <option key={u.id} value={u.id}>{u.nome}</option>
-                  ))}
-                </select>
-              </div>
-
-              <button type="submit" className="w-full mt-4 flex justify-center rounded-md bg-blue-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-blue-700">
-                Cadastrar Usuário
-              </button>
-            </form>
-          </div>
-        </div>
-
-        {/* Lista de Usuários */}
-        <div className="lg:col-span-2">
-          <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm overflow-hidden">
-            <div className="p-6 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50">
-              <h2 className="text-lg font-semibold flex items-center">
-                <Users className="mr-2 h-5 w-5 text-blue-600" />
-                Usuários Cadastrados
-              </h2>
-            </div>
-            
-            <div className="divide-y divide-zinc-200 dark:divide-zinc-800">
-              {profiles?.map((p) => (
-                <div key={p.id} className="p-6 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors flex items-center justify-between">
-                  <div className="flex items-center space-x-4">
-                    <div className="h-10 w-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 font-bold">
-                      {p.full_name?.charAt(0).toUpperCase() || 'U'}
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-medium text-zinc-900 dark:text-white">{p.full_name || 'Sem nome'}</h3>
-                      <div className="flex items-center text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-                        <Shield className="mr-1 h-3 w-3" />
-                        <span className="uppercase">{p.role || 'comum'}</span>
-                        {p.unidades?.nome && (
-                          <>
-                            <span className="mx-2">•</span>
-                            <Building2 className="mr-1 h-3 w-3" />
-                            {p.unidades.nome}
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
+      <UserManagementClient 
+        initialProfiles={profilesWithEmail}
+        unidades={unidades || []}
+        setores={setores || []}
+        currentUserRole={profile.role}
+      />
     </div>
   )
 }

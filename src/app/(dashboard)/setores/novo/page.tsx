@@ -2,19 +2,45 @@ import { createClient } from '@/utils/supabase/server'
 import { createSetor } from '../actions'
 import { ArrowLeft, Save, Layers } from 'lucide-react'
 import Link from 'next/link'
+import { applyAccessFilters } from '@/utils/permissions'
 
 export default async function NovoSetorPage() {
   const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  
+  // Fetch profile with permissions
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('*, profile_unidades(unidade_id), profile_setores(setor_id)')
+    .eq('id', user?.id)
+    .single()
 
-  const { data: unidades } = await supabase
+  // Transform permissions
+  const userProfile = profile ? {
+    ...profile,
+    permitted_unidades: profile.profile_unidades?.map((pu: any) => pu.unidade_id) || [],
+    permitted_setores: profile.profile_setores?.map((ps: any) => ps.setor_id) || []
+  } : null
+
+  // Fetch Units with access filter
+  let unitsQuery = supabase
     .from('unidades')
     .select('id, nome')
+    .eq('ativo', true)
     .order('nome')
+  
+  unitsQuery = applyAccessFilters(unitsQuery, userProfile, { unidadeField: 'id' })
+  const { data: unidades } = await unitsQuery
 
-  const { data: setoresPai } = await supabase
+  // Fetch Parent Sectors with access filter
+  let parentSectorsQuery = supabase
     .from('setores')
     .select('id, nome')
+    .eq('ativo', true)
     .order('nome')
+
+  parentSectorsQuery = applyAccessFilters(parentSectorsQuery, userProfile)
+  const { data: setoresPai } = await parentSectorsQuery
 
   async function handleSubmit(formData: FormData) {
     'use server'

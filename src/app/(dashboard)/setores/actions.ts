@@ -4,6 +4,16 @@ import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 
+const AUTH_ERRORS_PT: Record<string, string> = {
+  'User already registered': 'Este e-mail já está cadastrado no sistema.',
+  'Password should be at least 6 characters': 'A senha deve ter pelo menos 6 caracteres.',
+  'Invalid email': 'E-mail inválido.',
+}
+
+function translateError(error: string): string {
+  return AUTH_ERRORS_PT[error] || error
+}
+
 export async function createSetor(formData: FormData) {
   const supabase = await createClient()
 
@@ -18,7 +28,7 @@ export async function createSetor(formData: FormData) {
   })
 
   if (error) {
-    return { error: error.message }
+    return { error: translateError(error.message) }
   }
 
   revalidatePath('/setores')
@@ -42,7 +52,7 @@ export async function updateSetor(id: string, formData: FormData) {
     .eq('id', id)
 
   if (error) {
-    return { error: error.message }
+    return { error: translateError(error.message) }
   }
 
   revalidatePath('/setores')
@@ -58,7 +68,7 @@ export async function toggleStatusSetor(id: string, currentStatus: boolean) {
     .eq('id', id)
 
   if (error) {
-    return { error: error.message }
+    return { error: translateError(error.message) }
   }
 
   revalidatePath('/setores')

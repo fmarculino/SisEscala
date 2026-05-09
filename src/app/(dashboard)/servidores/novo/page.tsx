@@ -5,6 +5,7 @@ import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Save, Layers, ChevronRight } from 'lucide-react'
 import { createClient } from '@/utils/supabase/client'
+import { applyAccessFilters } from '@/utils/permissions'
 
 interface Cargo {
   id: string
@@ -29,10 +30,40 @@ export default function NovoServidorPage() {
   useEffect(() => {
     async function loadData() {
       const supabase = createClient()
-      const { data: units } = await supabase.from('unidades').select('id, nome').eq('ativo', true).order('nome')
-      if (units) setUnidades(units)
+      
+      // 1. Get current user
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
 
-      const { data: sectors } = await supabase.from('setores').select('id, nome, unidade_id').eq('ativo', true).order('nome')
+      // 2. Fetch profile with permissions
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('*, profile_unidades(unidade_id), profile_setores(setor_id)')
+        .eq('id', user.id)
+        .single()
+
+      const userProfile = profile ? {
+        ...profile,
+        permitted_unidades: profile.profile_unidades?.map((pu: any) => pu.unidade_id) || [],
+        permitted_setores: profile.profile_setores?.map((ps: any) => ps.setor_id) || []
+      } : null
+
+      // 3. Fetch Units with access filter
+      let unitsQuery = supabase.from('unidades').select('id, nome').eq('ativo', true).order('nome')
+      unitsQuery = applyAccessFilters(unitsQuery, userProfile, { unidadeField: 'id' })
+      const { data: units } = await unitsQuery
+      if (units) {
+        setUnidades(units)
+        // Auto-select if only one unit available
+        if (units.length === 1) {
+          setSelectedUnidade(units[0].id)
+        }
+      }
+
+      // 4. Fetch Sectors with access filter
+      let sectorsQuery = supabase.from('setores').select('id, nome, unidade_id').eq('ativo', true).order('nome')
+      sectorsQuery = applyAccessFilters(sectorsQuery, userProfile)
+      const { data: sectors } = await sectorsQuery
       if (sectors) setSetores(sectors)
 
       const { data: roles } = await supabase.from('cargos').select('*').eq('ativo', true).order('nome')
@@ -225,6 +256,61 @@ export default function NovoServidorPage() {
                 </option>
               ))}
             </select>
+          </div>
+
+          <div className="sm:col-span-6 space-y-4 pt-6 border-t border-zinc-100 dark:border-zinc-800">
+            <h3 className="text-sm font-bold text-zinc-900 dark:text-white flex items-center">
+              <div className="w-1.5 h-4 bg-amber-500 rounded-full mr-2" />
+              Portal do Servidor (Consulta de Escala)
+            </h3>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="email" className="block text-xs font-medium text-zinc-500 uppercase">E-mail</label>
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  placeholder="email@servidor.com"
+                  className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800"
+                />
+              </div>
+              <div>
+                <label htmlFor="telefone" className="block text-xs font-medium text-zinc-500 uppercase">Telefone / WhatsApp</label>
+                <input
+                  id="telefone"
+                  name="telefone"
+                  type="text"
+                  placeholder="(00) 00000-0000"
+                  className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800"
+                />
+              </div>
+              <div className="sm:col-span-1">
+                <label htmlFor="pin_acesso" className="block text-xs font-medium text-zinc-500 uppercase">PIN de Acesso</label>
+                <div className="mt-1 flex gap-2">
+                  <input
+                    id="pin_acesso"
+                    name="pin_acesso"
+                    type="text"
+                    maxLength={6}
+                    placeholder="Ex: 1234"
+                    className="block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm font-mono dark:border-zinc-700 dark:bg-zinc-800"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const pin = Math.floor(1000 + Math.random() * 9000).toString()
+                      const input = document.getElementById('pin_acesso') as HTMLInputElement
+                      if (input) input.value = pin
+                    }}
+                    className="px-3 py-2 bg-zinc-100 dark:bg-zinc-800 text-xs font-bold rounded-md hover:bg-zinc-200"
+                  >
+                    Gerar PIN
+                  </button>
+                </div>
+                <p className="mt-1 text-[10px] text-zinc-500">Este PIN permitirá ao servidor consultar sua escala sem senha.</p>
+              </div>
+            </div>
           </div>
         </div>
 

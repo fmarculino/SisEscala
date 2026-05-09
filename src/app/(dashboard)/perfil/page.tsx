@@ -1,6 +1,7 @@
 import { createClient } from '@/utils/supabase/server'
 import { User, Mail, Lock, Shield } from 'lucide-react'
 import { updateProfile } from './actions'
+import { getRoleLabel } from '@/utils/roles'
 
 export default async function PerfilPage() {
   const supabase = await createClient()
@@ -33,7 +34,7 @@ export default async function PerfilPage() {
           </h2>
           <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-900/20 dark:text-blue-400 dark:ring-blue-900/30">
             <Shield className="mr-1 h-3 w-3" />
-            Nível: {profile?.role?.toUpperCase()}
+            Nível: {getRoleLabel(profile?.role).toUpperCase()}
           </span>
         </div>
 

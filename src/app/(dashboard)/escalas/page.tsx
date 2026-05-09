@@ -2,8 +2,10 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { Calendar, Plus, ChevronRight, Layers, Filter, Eye, EyeOff, Search, Loader2, Building2 } from 'lucide-react'
+import { Calendar, Plus, ChevronRight, Layers, Filter, Eye, EyeOff, Search, Loader2, Building2, Check } from 'lucide-react'
 import Link from 'next/link'
+import { Modal } from '@/components/ui/Modal'
+import { applyAccessFilters, hasSectorAccess, hasUnitAccess } from '@/utils/permissions'
 
 export default function EscalasPage() {
   const supabase = createClient()
@@ -12,18 +14,79 @@ export default function EscalasPage() {
   const [showInactive, setShowInactive] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [filterUnidade, setFilterUnidade] = useState('todas')
+  const [profile, setProfile] = useState<any>(null)
+  const [linkedServidorId, setLinkedServidorId] = useState<string | null>(null)
+  
+  // Modal states
+  const [alertModal, setAlertModal] = useState<{ isOpen: boolean, title: string, message: string, type: 'default' | 'danger' | 'success' }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'default'
+  })
+  const [confirmModal, setConfirmModal] = useState<{ 
+    isOpen: boolean, 
+    title: string, 
+    message: string, 
+    onConfirm: () => void,
+    type: 'default' | 'danger' | 'warning'
+  } | null>(null)
 
   useEffect(() => {
-    fetchEscalas()
+    async function init() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('*, profile_unidades(unidade_id), profile_setores(setor_id)')
+          .eq('id', user.id)
+          .single()
+        
+        if (prof) {
+          const userProfile = {
+            ...prof,
+            permitted_unidades: prof.profile_unidades?.map((pu: any) => pu.unidade_id) || [],
+            permitted_setores: prof.profile_setores?.map((ps: any) => ps.setor_id) || []
+          }
+          setProfile(userProfile)
+
+          // If common user, find linked server by email
+          if (prof?.role === 'comum' || prof?.role === 'servidor') {
+            const { data: serv } = await supabase
+              .from('servidores')
+              .select('id')
+              .eq('email', user.email)
+              .single()
+            if (serv) setLinkedServidorId(serv.id)
+          }
+
+          // Fetch with the profile we just loaded to avoid race conditions
+          fetchEscalas(userProfile)
+          return
+        }
+      }
+      fetchEscalas()
+    }
+    init()
   }, [])
 
-  async function fetchEscalas() {
+  async function fetchEscalas(activeProfile?: any) {
     setLoading(true)
-    const { data, error } = await supabase
+    let query = supabase
       .from('escala_mensal')
       .select('*, servidores(nome), unidades(nome), setores(nome)')
       .order('ano', { ascending: false })
       .order('mes', { ascending: false })
+
+    // Use passed profile or state profile
+    const targetProfile = activeProfile || profile
+
+    // Apply security filters at DB level if profile is available
+    if (targetProfile) {
+      query = applyAccessFilters(query, targetProfile)
+    }
+
+    const { data, error } = await query
 
     if (error) {
       console.error('Erro ao carregar escalas:', error)
@@ -34,25 +97,44 @@ export default function EscalasPage() {
   }
 
   async function toggleAtivo(uId: string, sId: string, mes: number, ano: number, currentAtivo: boolean) {
-    const confirmMsg = currentAtivo 
-      ? 'Deseja INATIVAR todas as escalas deste período/setor?' 
+    const title = currentAtivo ? 'Inativar Escala' : 'Reativar Escala'
+    const message = currentAtivo 
+      ? 'Deseja INATIVAR todas as escalas deste período/setor? Elas não aparecerão nas buscas padrão.' 
       : 'Deseja REATIVAR todas as escalas deste período/setor?'
     
-    if (!confirm(confirmMsg)) return
+    setConfirmModal({
+      isOpen: true,
+      title,
+      message,
+      type: currentAtivo ? 'warning' : 'default',
+      onConfirm: async () => {
+        const { error } = await supabase
+          .from('escala_mensal')
+          .update({ 
+            ativo: !currentAtivo,
+            inativada_em: !currentAtivo ? new Date().toISOString() : null
+          })
+          .match({ unidade_id: uId, setor_id: sId, mes, ano })
 
-    const { error } = await supabase
-      .from('escala_mensal')
-      .update({ 
-        ativo: !currentAtivo,
-        inativada_em: !currentAtivo ? new Date().toISOString() : null
-      })
-      .match({ unidade_id: uId, setor_id: sId, mes, ano })
-
-    if (error) {
-      alert('Erro: ' + error.message)
-    } else {
-      fetchEscalas()
-    }
+        if (error) {
+          setAlertModal({
+            isOpen: true,
+            title: 'Erro',
+            message: error.message,
+            type: 'danger'
+          })
+        } else {
+          setAlertModal({
+            isOpen: true,
+            title: 'Sucesso',
+            message: currentAtivo ? 'Escala inativada com sucesso.' : 'Escala reativada com sucesso.',
+            type: 'success'
+          })
+          fetchEscalas()
+        }
+        setConfirmModal(null)
+      }
+    })
   }
 
   // Get unique units for the filter
@@ -66,7 +148,20 @@ export default function EscalasPage() {
     const matchesUnidade = filterUnidade === 'todas' || e.unidade_id === filterUnidade
     const matchesAtivo = showInactive ? true : e.ativo !== false
     
-    return matchesSearch && matchesUnidade && matchesAtivo
+    // Security layer in memory (Secondary check)
+    let rolePermitted = true
+    if (profile?.role === 'super_admin') {
+      rolePermitted = true
+    } else if (profile?.role === 'admin') {
+      rolePermitted = hasSectorAccess(profile, e.setor_id, e.unidade_id)
+    } else if (profile?.role === 'coordenador') {
+      // Regra restrita: Coordenador só vê se estiver vinculado ao setor
+      rolePermitted = profile.permitted_setores?.includes(e.setor_id)
+    } else if (profile?.role === 'comum' || profile?.role === 'servidor') {
+      rolePermitted = e.servidor_id === linkedServidorId
+    }
+
+    return matchesSearch && matchesUnidade && matchesAtivo && rolePermitted
   })
 
   const groupedKeys = Array.from(new Set(filteredEscalas.map(e => `${e.unidade_id}|${e.setor_id}|${e.mes}|${e.ano}`)))
@@ -87,13 +182,15 @@ export default function EscalasPage() {
           <h1 className="text-3xl font-black tracking-tight text-zinc-900 dark:text-white uppercase">Escalas de Serviço</h1>
           <p className="mt-1 text-zinc-500 text-sm italic">Gestão centralizada de plantões e sobreavisos.</p>
         </div>
-        <Link
-          href="/escalas/nova"
-          className="inline-flex items-center rounded-xl bg-blue-600 px-6 py-3 text-sm font-black text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all uppercase tracking-tighter"
-        >
-          <Plus className="mr-2 h-5 w-5" />
-          Gerar Nova Escala
-        </Link>
+          {(profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'coordenador') && (
+            <Link
+              href="/escalas/nova"
+              className="inline-flex items-center rounded-xl bg-blue-600 px-6 py-3 text-sm font-black text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all uppercase tracking-tighter"
+            >
+              <Plus className="mr-2 h-5 w-5" />
+              Gerar Nova Escala
+            </Link>
+          )}
       </div>
 
       {/* Filters Bar */}
@@ -221,6 +318,55 @@ export default function EscalasPage() {
           )}
         </div>
       </div>
+
+      {/* Modals */}
+      <Modal
+        isOpen={alertModal.isOpen}
+        onClose={() => setAlertModal(prev => ({ ...prev, isOpen: false }))}
+        title={alertModal.title}
+        type={alertModal.type as any}
+        footer={
+          <button
+            onClick={() => setAlertModal(prev => ({ ...prev, isOpen: false }))}
+            className="w-full px-4 py-2 rounded-xl bg-zinc-900 dark:bg-white dark:text-zinc-900 text-white font-bold"
+          >
+            Entendido
+          </button>
+        }
+      >
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">{alertModal.message}</p>
+      </Modal>
+
+      {confirmModal && (
+        <Modal
+          isOpen={confirmModal.isOpen}
+          onClose={() => setConfirmModal(null)}
+          title={confirmModal.title}
+          type={confirmModal.type as any}
+          footer={
+            <>
+              <button
+                onClick={() => setConfirmModal(null)}
+                className="flex-1 px-4 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmModal.onConfirm}
+                className={`flex-1 px-4 py-2 rounded-xl text-white font-bold ${
+                  confirmModal.type === 'danger' ? 'bg-red-600 hover:bg-red-700' : 
+                  confirmModal.type === 'warning' ? 'bg-amber-600 hover:bg-amber-700' : 
+                  'bg-blue-600 hover:bg-blue-700'
+                }`}
+              >
+                Confirmar
+              </button>
+            </>
+          }
+        >
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">{confirmModal.message}</p>
+        </Modal>
+      )}
     </div>
   )
 }

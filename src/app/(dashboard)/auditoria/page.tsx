@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { ShieldCheck, Zap, Clock, MapPin, UserCheck, AlertCircle, Building2, Filter, FileDown, RotateCcw, ChevronLeft, ChevronRight, Search, LayoutList } from 'lucide-react'
+import { applyAccessFilters } from '@/utils/permissions'
 
 export default function AuditoriaPage() {
   const [logs, setLogs] = useState<any[]>([])
@@ -26,9 +27,11 @@ export default function AuditoriaPage() {
   const [pageSize] = useState(10)
   const [totalCount, setTotalCount] = useState(0)
 
+  const [userProfile, setUserProfile] = useState<any>(null)
   const supabase = createClient()
 
   const fetchData = useCallback(async () => {
+    if (!userProfile && logs.length === 0) return // Wait for profile
     setLoading(true)
     
     // Fetch configs
@@ -44,7 +47,10 @@ export default function AuditoriaPage() {
       .from('logs_sobreaviso')
       .select('*, servidores!inner(nome), unidades!inner(nome, latitude, longitude), validador:profiles!validado_por(full_name)', { count: 'exact' })
 
-    // Apply filters
+    // Aplicar filtros de permissão
+    query = applyAccessFilters(query, userProfile)
+
+    // Apply UI filters
     if (filtros.unidadeId) query = query.eq('unidade_id', filtros.unidadeId)
     if (filtros.setorId) query = query.eq('servidores.setor_id', filtros.setorId)
     if (filtros.status) {
@@ -67,19 +73,48 @@ export default function AuditoriaPage() {
     if (data) setLogs(data)
     if (count !== null) setTotalCount(count)
     setLoading(false)
-  }, [page, pageSize, filtros, supabase])
+  }, [page, pageSize, filtros, supabase, userProfile])
 
   useEffect(() => {
-    fetchData()
+    async function init() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('*, profile_unidades(unidade_id), profile_setores(setor_id)')
+          .eq('id', user.id)
+          .single()
+        
+        if (prof) {
+          const profile = {
+            ...prof,
+            permitted_unidades: prof.profile_unidades?.map((pu: any) => pu.unidade_id) || [],
+            permitted_setores: prof.profile_setores?.map((ps: any) => ps.setor_id) || []
+          }
+          setUserProfile(profile)
+          
+          // Fetch initial filter data with scoped filters
+          let uQuery = supabase.from('unidades').select('*').eq('ativo', true).order('nome')
+          uQuery = applyAccessFilters(uQuery, profile)
+          const { data: u } = await uQuery
 
-    // Fetch initial filter data
-    const fetchFilterOptions = async () => {
-      const { data: u } = await supabase.from('unidades').select('*').eq('ativo', true).order('nome')
-      const { data: s } = await supabase.from('setores').select('*').eq('ativo', true).order('nome')
-      if (u) setUnidades(u)
-      if (s) setSetores(s)
+          let sQuery = supabase.from('setores').select('*').eq('ativo', true).order('nome')
+          sQuery = applyAccessFilters(sQuery, profile)
+          const { data: s } = await sQuery
+
+          if (u) setUnidades(u)
+          if (s) setSetores(s)
+        }
+      }
     }
-    fetchFilterOptions()
+    
+    init()
+  }, [])
+
+  useEffect(() => {
+    if (userProfile) {
+      fetchData()
+    }
 
     // Realtime subscription
     const channel = supabase
@@ -96,7 +131,7 @@ export default function AuditoriaPage() {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [fetchData, supabase])
+  }, [fetchData, supabase, userProfile])
 
   const [selectedLog, setSelectedLog] = useState<any>(null)
 

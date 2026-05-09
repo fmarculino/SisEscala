@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.0-RC1] - 2026-05-09
+
+### Added
+- **Governança de Segurança e RBAC**: 
+    - Implementação rigorosa de **Row Level Security (RLS)** no Supabase para isolamento de dados entre unidades e setores.
+    - Suporte a vínculos muitos-para-muitos (`profile_unidades` e `profile_setores`) para administradores e coordenadores.
+- **Isolamento de Cadastro**:
+    - Telas de **Novo Setor** e **Novo Servidor** agora filtram automaticamente unidades e setores com base nas permissões do administrador logado.
+    - Implementada auto-seleção de unidade única para otimização do fluxo de trabalho administrativo.
+- **Gestão de Usuários Protegida**: 
+    - Substituição de exclusão destrutiva por lógica de **Inativação/Reativação** para preservar integridade histórica.
+    - Restrição de exclusão de contas órfãs exclusivamente para o papel de `super_admin`.
+- **Localização Completa**: Tradução de dezenas de mensagens de erro do Supabase e Auth para o português.
+
+### Changed
+- **Privilégio Mínimo na Interface**: 
+    - Menus de configuração estrutural (**Unidades, Cargos, Jornadas, Turnos**) agora são visíveis apenas para o **Administrador Geral** (`super_admin`).
+    - Grupo de menu **SISTEMA** totalmente oculto para administradores padrão.
+- **Dashboard Operacional**: Corrigida a lógica de contagem de cards para respeitar os filtros de acesso do administrador logado.
+
+### Fixed
+- **Visibilidade de Dados**: Resolvido problema que impedia administradores de visualizarem servidores e unidades vinculadas no painel principal.
+- **Lógica de Sobreaviso**: Refinada a exibição do botão de acionamento para respeitar transições de turno (MT, N, MTN) e evitar disparos em horários incorretos.
+
+
 ## [0.0.3-RC2] - 2026-05-08
 
 ### Added

@@ -13,6 +13,9 @@ export async function createServidor(formData: FormData) {
   const vinculo = formData.get('vinculo') as any
   const unidade_id = formData.get('unidade_id') as string
   const setor_id = formData.get('setor_id') as string
+  const email = formData.get('email') as string
+  const telefone = formData.get('telefone') as string
+  const pin_acesso = formData.get('pin_acesso') as string
 
   const { error } = await supabase.from('servidores').insert({
     nome,
@@ -21,6 +24,9 @@ export async function createServidor(formData: FormData) {
     vinculo,
     unidade_id: unidade_id || null,
     setor_id: setor_id || null,
+    email: email || null,
+    telefone: telefone || null,
+    pin_acesso: pin_acesso || null,
   })
 
   if (error) {
@@ -70,6 +76,9 @@ export async function updateServidor(id: string, formData: FormData) {
   const vinculo = formData.get('vinculo') as any
   const unidade_id = formData.get('unidade_id') as string
   const setor_id = formData.get('setor_id') as string
+  const email = formData.get('email') as string
+  const telefone = formData.get('telefone') as string
+  const pin_acesso = formData.get('pin_acesso') as string
 
   const { error } = await supabase
     .from('servidores')
@@ -80,6 +89,9 @@ export async function updateServidor(id: string, formData: FormData) {
       vinculo,
       unidade_id: unidade_id || null,
       setor_id: setor_id || null,
+      email: email || null,
+      telefone: telefone || null,
+      pin_acesso: pin_acesso || null,
     })
     .eq('id', id)
 

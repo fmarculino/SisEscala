@@ -84,6 +84,26 @@ export default function LoginPage() {
             </button>
           </div>
         </form>
+
+        <div className="mt-6">
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-zinc-200 dark:border-zinc-800"></div>
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="bg-white px-2 text-zinc-500 dark:bg-zinc-900">Acesso Rápido</span>
+            </div>
+          </div>
+
+          <div className="mt-6">
+            <Link
+              href="/consultar-escala"
+              className="flex w-full justify-center items-center rounded-md border border-zinc-300 bg-white py-2 px-4 text-sm font-medium text-zinc-700 shadow-sm hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 transition-all duration-200"
+            >
+              🗓️ Sou Servidor: Consultar Escala
+            </Link>
+          </div>
+        </div>
       </div>
     </div>
   )

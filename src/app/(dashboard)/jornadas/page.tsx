@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { Plus, Clock, Loader2, Edit2, Check, X, Power, PowerOff } from 'lucide-react'
+import { Modal } from '@/components/ui/Modal'
 
 interface Jornada {
   id: string
@@ -20,6 +21,20 @@ export default function JornadasPage() {
   
   const supabase = createClient()
 
+  const [alertModal, setAlertModal] = useState<{ isOpen: boolean, title: string, message: string, type: 'default' | 'danger' | 'success' | 'warning' }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'default'
+  })
+
+  const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean, title: string, message: string, onConfirm: () => void }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  })
+
   useEffect(() => {
     fetchJornadas()
   }, [])
@@ -35,7 +50,12 @@ export default function JornadasPage() {
       if (error) throw error
       setJornadas(data || [])
     } catch (error: any) {
-      alert('Erro ao carregar jornadas: ' + error.message)
+      setAlertModal({
+        isOpen: true,
+        title: 'Erro ao Carregar',
+        message: 'Não foi possível carregar as jornadas: ' + error.message,
+        type: 'danger'
+      })
     } finally {
       setLoading(false)
     }
@@ -52,8 +72,19 @@ export default function JornadasPage() {
       if (error) throw error
       setNewNome('')
       fetchJornadas()
+      setAlertModal({
+        isOpen: true,
+        title: 'Sucesso',
+        message: 'Jornada cadastrada com sucesso!',
+        type: 'success'
+      })
     } catch (error: any) {
-      alert('Erro ao adicionar jornada: ' + error.message)
+      setAlertModal({
+        isOpen: true,
+        title: 'Erro no Cadastro',
+        message: 'Não foi possível cadastrar a jornada: ' + error.message,
+        type: 'danger'
+      })
     } finally {
       setSaving(false)
     }
@@ -72,7 +103,12 @@ export default function JornadasPage() {
       setEditingId(null)
       fetchJornadas()
     } catch (error: any) {
-      alert('Erro ao atualizar jornada: ' + error.message)
+      setAlertModal({
+        isOpen: true,
+        title: 'Erro na Atualização',
+        message: 'Não foi possível atualizar a jornada: ' + error.message,
+        type: 'danger'
+      })
     } finally {
       setSaving(false)
     }
@@ -80,22 +116,34 @@ export default function JornadasPage() {
 
   async function handleToggleAtivo(id: string, currentStatus: boolean) {
     const action = currentStatus ? 'inativar' : 'ativar'
-    if (!confirm(`Deseja ${action} esta jornada?`)) return
     
-    setSaving(true)
-    try {
-      const { error } = await supabase
-        .from('jornadas')
-        .update({ ativo: !currentStatus })
-        .eq('id', id)
-      
-      if (error) throw error
-      fetchJornadas()
-    } catch (error: any) {
-      alert(`Erro ao ${action} jornada: ` + error.message)
-    } finally {
-      setSaving(false)
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: 'Confirmar Alteração',
+      message: `Deseja realmente ${action} esta jornada? Ela deixará de aparecer nas novas seleções.`,
+      onConfirm: async () => {
+        setSaving(true)
+        try {
+          const { error } = await supabase
+            .from('jornadas')
+            .update({ ativo: !currentStatus })
+            .eq('id', id)
+          
+          if (error) throw error
+          fetchJornadas()
+        } catch (error: any) {
+          setAlertModal({
+            isOpen: true,
+            title: 'Erro',
+            message: `Erro ao ${action} jornada: ` + error.message,
+            type: 'danger'
+          })
+        } finally {
+          setSaving(false)
+          setConfirmModal(prev => ({ ...prev, isOpen: false }))
+        }
+      }
+    })
   }
 
   const startEditing = (j: Jornada) => {
@@ -105,6 +153,50 @@ export default function JornadasPage() {
 
   return (
     <div className="space-y-8">
+      {/* Modais */}
+      <Modal
+        isOpen={alertModal.isOpen}
+        onClose={() => setAlertModal(prev => ({ ...prev, isOpen: false }))}
+        title={alertModal.title}
+        type={alertModal.type as any}
+        footer={
+          <button
+            onClick={() => setAlertModal(prev => ({ ...prev, isOpen: false }))}
+            className="w-full px-4 py-2 rounded-xl bg-zinc-900 dark:bg-white dark:text-zinc-900 text-white font-black uppercase tracking-widest text-[10px]"
+          >
+            Entendido
+          </button>
+        }
+      >
+        <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">{alertModal.message}</p>
+      </Modal>
+
+      <Modal
+        isOpen={confirmModal.isOpen}
+        onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+        title={confirmModal.title}
+        type="warning"
+        footer={
+          <div className="flex gap-3 w-full">
+            <button
+              onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+              className="flex-1 px-4 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-black uppercase tracking-widest text-[10px]"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={confirmModal.onConfirm}
+              disabled={saving}
+              className="flex-1 px-4 py-2 rounded-xl bg-blue-600 text-white font-black uppercase tracking-widest text-[10px] hover:bg-blue-700 disabled:opacity-50"
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : 'Confirmar'}
+            </button>
+          </div>
+        }
+      >
+        <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">{confirmModal.message}</p>
+      </Modal>
+
       {/* Header */}
       <div>
         <h1 className="text-3xl font-black tracking-tight text-zinc-900 dark:text-white uppercase">Jornadas de Trabalho</h1>

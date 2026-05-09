@@ -2,8 +2,9 @@
 
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { Save, Loader2, Info, Zap, Lock, FileText, Plus, UserPlus, Users, CheckCircle, Trash2, Globe, X } from 'lucide-react'
+import { Save, Loader2, Info, Zap, Lock, FileText, Plus, UserPlus, Users, CheckCircle, Trash2, Globe, X, Copy, Check } from 'lucide-react'
 import { ScalePrintView } from '@/components/ScalePrintView'
+import { Modal } from '@/components/ui/Modal'
 import React from 'react'
 
 interface ScaleGridProps {
@@ -19,6 +20,7 @@ interface ScaleGridProps {
   diasInativacao: number
   logsSobreavisoInicial: any[]
   configsGlobais: any[]
+  userProfile: any
 }
 
 type RowCategory = 'Regular' | 'Extra' | 'Plantão' | 'Sobreaviso'
@@ -35,12 +37,31 @@ export function ScaleGrid({
   feriados,
   diasInativacao,
   logsSobreavisoInicial,
-  configsGlobais
+  configsGlobais,
+  userProfile
 }: ScaleGridProps) {
   const supabase = createClient()
   const [loading, setLoading] = useState(false)
   const [escalaMensal, setEscalaMensal] = useState(escalaMensalInicial)
   const [logsSobreaviso, setLogsSobreaviso] = useState(logsSobreavisoInicial)
+  const [linkedServidorId, setLinkedServidorId] = useState<string | null>(null)
+
+  useEffect(() => {
+    async function findServidor() {
+      if (userProfile?.role === 'comum' || userProfile?.role === 'servidor') {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user) {
+          const { data: serv } = await supabase
+            .from('servidores')
+            .select('id')
+            .eq('email', user.email)
+            .single()
+          if (serv) setLinkedServidorId(serv.id)
+        }
+      }
+    }
+    findServidor()
+  }, [userProfile, supabase])
   
   const configs = useMemo(() => {
     const obj: Record<string, string> = {}
@@ -75,19 +96,23 @@ export function ScaleGrid({
   const [externalSectors, setExternalSectors] = useState<any[]>([])
   const [externalServers, setExternalServers] = useState<any[]>([])
 
+  // Modal & Alert states
+  const [alertModal, setAlertModal] = useState<{ isOpen: boolean, title: string, message: string, type: 'default' | 'danger' | 'success' | 'warning' }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'default'
+  })
+  const [confirmModal, setConfirmModal] = useState<{ 
+    isOpen: boolean, 
+    title: string, 
+    message: string, 
+    onConfirm: () => void,
+    type: 'default' | 'danger' | 'warning' | 'success'
+  } | null>(null)
+
   useEffect(() => {
     const fetchData = async () => {
-      // Fetch user role
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', user.id)
-          .single()
-        if (profile) setUserRole(profile.role)
-      }
-
       // Fetch all units and sectors for external server logic
       const { data: units } = await supabase.from('unidades').select('*').eq('ativo', true).order('nome')
       const { data: sectors } = await supabase.from('setores').select('*').eq('ativo', true).order('nome')
@@ -268,10 +293,22 @@ export function ScaleGrid({
   }, [daysArray, escalaMensal, gridData, turnos, getStatusForDay, desconsiderarFalha])
 
   const handleClearScale = () => {
-    if (confirm('Deseja limpar todos os lançamentos desta escala? Esta ação não pode ser desfeita até que você salve novamente.')) {
-      setGridData({})
-      alert('Escala limpa! Não esqueça de salvar.')
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: 'Limpar Escala',
+      message: 'Deseja limpar todos os lançamentos desta escala? Esta ação não pode ser desfeita até que você salve novamente.',
+      type: 'danger',
+      onConfirm: () => {
+        setGridData({})
+        setAlertModal({
+          isOpen: true,
+          title: 'Escala Limpa',
+          message: 'Lançamentos removidos da tela. Não esqueça de salvar para persistir no banco.',
+          type: 'success'
+        })
+        setConfirmModal(null)
+      }
+    })
   }
 
   const handleAddExternalServer = async () => {
@@ -279,7 +316,12 @@ export function ScaleGrid({
 
     // Check if already in grid
     if (escalaMensal.some(em => em.servidor_id === externalData.servidorId)) {
-      alert('Este servidor já está nesta escala.')
+      setAlertModal({
+        isOpen: true,
+        title: 'Servidor já Adicionado',
+        message: 'Este servidor já está inserido nesta escala.',
+        type: 'warning'
+      })
       return
     }
 
@@ -303,9 +345,19 @@ export function ScaleGrid({
 
       setEscalaMensal(prev => [...prev, data])
       setIsExternalModalOpen(false)
-      alert('Servidor externo adicionado!')
+      setAlertModal({
+        isOpen: true,
+        title: 'Sucesso',
+        message: 'Servidor externo adicionado à grade!',
+        type: 'success'
+      })
     } catch (error: any) {
-      alert('Erro ao adicionar servidor: ' + error.message)
+      setAlertModal({
+        isOpen: true,
+        title: 'Erro ao Adicionar',
+        message: error.message,
+        type: 'danger'
+      })
     } finally {
       setLoading(false)
     }
@@ -313,31 +365,49 @@ export function ScaleGrid({
 
   const handleRemoveServer = async (escalaMensalId: string, servidorId: string) => {
     if (isClosed) return
-    if (!confirm('Deseja remover este servidor e todos os seus lançamentos desta escala?')) return
+    
+    setConfirmModal({
+      isOpen: true,
+      title: 'Remover Servidor',
+      message: 'Deseja remover este servidor e todos os seus lançamentos desta escala?',
+      type: 'danger',
+      onConfirm: async () => {
+        setLoading(true)
+        try {
+          // Delete daily records first
+          await supabase.from('escala_diaria').delete().eq('escala_mensal_id', escalaMensalId)
+          
+          // Delete monthly record
+          const { error } = await supabase.from('escala_mensal').delete().eq('id', escalaMensalId)
 
-    setLoading(true)
-    try {
-      // Delete daily records first
-      await supabase.from('escala_diaria').delete().eq('escala_mensal_id', escalaMensalId)
-      
-      // Delete monthly record
-      const { error } = await supabase.from('escala_mensal').delete().eq('id', escalaMensalId)
+          if (error) throw error
 
-      if (error) throw error
-
-      // Update local state
-      setEscalaMensal(prev => prev.filter(em => em.id !== escalaMensalId))
-      setGridData(prev => {
-        const newData = { ...prev }
-        delete newData[servidorId]
-        return newData
-      })
-      alert('Servidor removido com sucesso!')
-    } catch (error: any) {
-      alert('Erro ao remover servidor: ' + error.message)
-    } finally {
-      setLoading(false)
-    }
+          // Update local state
+          setEscalaMensal(prev => prev.filter(em => em.id !== escalaMensalId))
+          setGridData(prev => {
+            const newData = { ...prev }
+            delete newData[servidorId]
+            return newData
+          })
+          setAlertModal({
+            isOpen: true,
+            title: 'Removido',
+            message: 'Servidor removido com sucesso.',
+            type: 'success'
+          })
+        } catch (error: any) {
+          setAlertModal({
+            isOpen: true,
+            title: 'Erro ao Remover',
+            message: error.message,
+            type: 'danger'
+          })
+        } finally {
+          setLoading(false)
+          setConfirmModal(null)
+        }
+      }
+    })
   }
 
   const getDayOfWeek = (day: number) => {
@@ -439,7 +509,12 @@ export function ScaleGrid({
       setGeneratedLink(link)
     } catch (error: any) {
       console.error('Erro ao acionar sobreaviso:', error)
-      alert('Erro ao acionar sobreaviso: ' + error.message)
+      setAlertModal({
+        isOpen: true,
+        title: 'Falha no Acionamento',
+        message: error.message,
+        type: 'danger'
+      })
     } finally {
       setLoading(false)
     }
@@ -452,44 +527,61 @@ export function ScaleGrid({
   }
 
   const handleManualOverride = async (logId: string) => {
-    if (!confirm('Deseja validar manualmente este sobreaviso que falhou? Ele voltará a ser contabilizado na carga horária do servidor.')) return
-    
-    setLoading(true)
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('Usuário não autenticado')
+    setConfirmModal({
+      isOpen: true,
+      title: 'Validar Sobreaviso',
+      message: 'Deseja validar manualmente este sobreaviso que falhou? Ele voltará a ser contabilizado na carga horária do servidor.',
+      type: 'warning',
+      onConfirm: async () => {
+        setLoading(true)
+        try {
+          const { data: { user } } = await supabase.auth.getUser()
+          if (!user) throw new Error('Usuário não autenticado')
 
-      const now = new Date().toISOString()
-      
-      const { error } = await supabase
-        .from('logs_sobreaviso')
-        .update({ 
-          status: 'Chegou', 
-          validacao_manual: true,
-          tipo_validacao_chegada: 'Manual',
-          motivo_falha: null,
-          validado_por: user.id,
-          data_hora_validacao: now
-        })
-        .eq('id', logId)
+          const now = new Date().toISOString()
+          
+          const { error } = await supabase
+            .from('logs_sobreaviso')
+            .update({ 
+              status: 'Chegou', 
+              validacao_manual: true,
+              tipo_validacao_chegada: 'Manual',
+              motivo_falha: null,
+              validado_por: user.id,
+              data_hora_validacao: now
+            })
+            .eq('id', logId)
 
-      if (error) throw error
-      
-      // Update local state
-      setLogsSobreaviso(prev => prev.map(l => l.id === logId ? { 
-        ...l, 
-        status: 'Chegou', 
-        validacao_manual: true, 
-        motivo_falha: null,
-        validado_por: user.id,
-        data_hora_validacao: now
-      } : l))
-      alert('Validação manual realizada com sucesso!')
-    } catch (err: any) {
-      alert('Erro ao validar manualmente: ' + err.message)
-    } finally {
-      setLoading(false)
-    }
+          if (error) throw error
+          
+          // Update local state
+          setLogsSobreaviso(prev => prev.map(l => l.id === logId ? { 
+            ...l, 
+            status: 'Chegou', 
+            validacao_manual: true, 
+            motivo_falha: null,
+            validado_por: user.id,
+            data_hora_validacao: now
+          } : l))
+          setAlertModal({
+            isOpen: true,
+            title: 'Validado',
+            message: 'O sobreaviso foi validado manualmente com sucesso.',
+            type: 'success'
+          })
+        } catch (err: any) {
+          setAlertModal({
+            isOpen: true,
+            title: 'Erro na Validação',
+            message: err.message,
+            type: 'danger'
+          })
+        } finally {
+          setLoading(false)
+          setConfirmModal(null)
+        }
+      }
+    })
   }
 
   const handleSave = async () => {
@@ -543,9 +635,20 @@ export function ScaleGrid({
         if (error) throw error
       }
       
-      alert('Escala salva com sucesso!')
+      
+      setAlertModal({
+        isOpen: true,
+        title: 'Escala Salva',
+        message: 'A previsão da escala foi salva com sucesso no banco de dados.',
+        type: 'success'
+      })
     } catch (error: any) {
-      alert('Erro ao salvar: ' + error.message)
+      setAlertModal({
+        isOpen: true,
+        title: 'Erro ao Salvar',
+        message: error.message,
+        type: 'danger'
+      })
     } finally {
       setLoading(false)
     }
@@ -584,7 +687,12 @@ export function ScaleGrid({
         }
       }))
     } catch (error: any) {
-      alert('Erro ao adicionar servidor: ' + error.message)
+      setAlertModal({
+        isOpen: true,
+        title: 'Erro',
+        message: 'Não foi possível adicionar o servidor: ' + error.message,
+        type: 'danger'
+      })
     } finally {
       setLoading(false)
     }
@@ -625,26 +733,48 @@ export function ScaleGrid({
       })
       setGridData(newGridData)
     } catch (error: any) {
-      alert('Erro ao adicionar todos os servidores: ' + error.message)
+      setAlertModal({
+        isOpen: true,
+        title: 'Erro',
+        message: error.message,
+        type: 'danger'
+      })
     } finally {
       setLoading(false)
     }
   }
 
   const handleCloseScale = async () => {
-    const confirmClose = confirm('Deseja FECHAR esta escala?')
-    if (!confirmClose) return
-    setLoading(true)
-    try {
-      const ids = escalaMensal.map(em => em.id)
-      await supabase.from('escala_mensal').update({ status: 'Fechada' }).in('id', ids)
-      setEscalaMensal(prev => prev.map(em => ({ ...em, status: 'Fechada' })))
-      alert('Escala fechada!')
-    } catch (error: any) {
-      alert('Erro: ' + error.message)
-    } finally {
-      setLoading(false)
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: 'Fechar Escala',
+      message: 'Deseja FECHAR esta escala? Uma escala fechada não permite mais edições manuais, apenas acionamentos de sobreaviso.',
+      type: 'warning',
+      onConfirm: async () => {
+        setLoading(true)
+        try {
+          const ids = escalaMensal.map(em => em.id)
+          await supabase.from('escala_mensal').update({ status: 'Fechada' }).in('id', ids)
+          setEscalaMensal(prev => prev.map(em => ({ ...em, status: 'Fechada' })))
+          setAlertModal({
+            isOpen: true,
+            title: 'Escala Fechada',
+            message: 'A escala foi finalizada com sucesso.',
+            type: 'success'
+          })
+        } catch (error: any) {
+          setAlertModal({
+            isOpen: true,
+            title: 'Erro',
+            message: error.message,
+            type: 'danger'
+          })
+        } finally {
+          setLoading(false)
+          setConfirmModal(null)
+        }
+      }
+    })
   }
 
   const endOfMonth = new Date(ano, mes, 0)
@@ -653,7 +783,16 @@ export function ScaleGrid({
   const isAutoInactivated = new Date() > thresholdDate
 
   const isInactive = escalaMensal[0]?.ativo === false || isAutoInactivated
-  const isClosed = escalaMensal[0]?.status === 'Fechada' || isInactive
+  const isComum = userProfile?.role === 'comum' || userProfile?.role === 'servidor'
+  const isClosed = escalaMensal[0]?.status === 'Fechada' || isInactive || isComum
+
+  // Filter scales for common users
+  const visibleEscalaMensal = useMemo(() => {
+    if (isComum && linkedServidorId) {
+      return escalaMensal.filter(em => em.servidor_id === linkedServidorId)
+    }
+    return escalaMensal
+  }, [isComum, linkedServidorId, escalaMensal])
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-xl overflow-hidden">
@@ -663,66 +802,70 @@ export function ScaleGrid({
           Escala Inativa {isAutoInactivated ? '(Inativação Automática por Prazo)' : '(Inativada Manualmente)'} - Modo de Visualização Ativado
         </div>
       )}
-      {/* Toolbar */}
-      <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 flex justify-between items-center bg-zinc-50 dark:bg-zinc-800/50">
-        <div className="flex items-center space-x-4">
-          <select 
-            onChange={(e) => handleAddServer(e.target.value)}
-            value=""
-            disabled={loading || isClosed}
-            className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none"
-          >
-            <option value="">+ Adicionar Servidor...</option>
-            {todosServidoresSetor
-              .filter(s => !escalaMensal.some(em => em.servidor_id === s.id))
-              .map(s => (
-                <option key={s.id} value={s.id}>{s.nome}</option>
-              ))
-            }
-          </select>
-          <button 
-            onClick={handleAddAll}
-            disabled={loading || isClosed || (todosServidoresSetor.length === escalaMensal.length)}
-            className="inline-flex items-center rounded-md bg-blue-50 dark:bg-blue-900/20 text-blue-600 px-3 py-2 text-sm font-medium border border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors disabled:opacity-50"
-          >
-            {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Users className="mr-2 h-4 w-4" />}
-            Adicionar Todos
-          </button>
-          
-          <button
-            onClick={handleClearScale}
-            disabled={loading || isClosed}
-            className="inline-flex items-center rounded-md border border-red-200 text-red-600 px-3 py-2 text-sm font-medium hover:bg-red-50 dark:border-red-900/30 dark:hover:bg-red-950/30 transition-colors disabled:opacity-50"
-          >
-            <Trash2 className="h-4 w-4 mr-2" />
-            Limpar Escala
-          </button>
 
-          <button
-            onClick={() => setIsExternalModalOpen(true)}
-            disabled={loading || isClosed}
-            className="inline-flex items-center rounded-md border border-blue-200 text-blue-700 px-3 py-2 text-sm font-medium hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 transition-colors disabled:opacity-50"
-          >
-            <Globe className="h-4 w-4 mr-2" />
-            Servidor Externo
-          </button>
-        </div>
-        
-        <div className="flex items-center space-x-3">
-          <button onClick={() => window.print()} className="inline-flex items-center rounded-md bg-white dark:bg-zinc-800 px-3 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-50">
-            <FileText className="mr-2 h-4 w-4" /> Gerar PDF
-          </button>
-          <button onClick={handleSave} disabled={loading || isClosed} className="inline-flex items-center rounded-md bg-green-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-700 transition-all disabled:opacity-50">
-            {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-            Salvar Previsão
-          </button>
-          {!isClosed && (
-            <button onClick={handleCloseScale} disabled={loading} className="inline-flex items-center rounded-md bg-zinc-900 dark:bg-zinc-100 px-4 py-2 text-sm font-semibold text-white dark:text-zinc-900 shadow-sm hover:bg-black dark:hover:bg-white transition-all">
-              <Lock className="mr-2 h-4 w-4" /> Fechar Escala
+      {/* Toolbar */}
+      {!isComum && (
+        <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 flex justify-between items-center bg-zinc-50 dark:bg-zinc-800/50">
+          <div className="flex items-center space-x-4">
+            <select 
+              onChange={(e) => handleAddServer(e.target.value)}
+              value=""
+              disabled={loading || isClosed}
+              className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none"
+            >
+              <option value="">+ Adicionar Servidor...</option>
+              {todosServidoresSetor
+                .filter(s => !escalaMensal.some(em => em.servidor_id === s.id))
+                .map(s => (
+                  <option key={s.id} value={s.id}>{s.nome}</option>
+                ))
+              }
+            </select>
+            <button 
+              onClick={handleAddAll}
+              disabled={loading || isClosed || (todosServidoresSetor.length === escalaMensal.length)}
+              className="inline-flex items-center rounded-md bg-blue-50 dark:bg-blue-900/20 text-blue-600 px-3 py-2 text-sm font-medium border border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors disabled:opacity-50"
+            >
+              {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Users className="mr-2 h-4 w-4" />}
+              Adicionar Todos
             </button>
-          )}
+            
+            <button
+              onClick={handleClearScale}
+              disabled={loading || isClosed}
+              className="inline-flex items-center rounded-md border border-red-200 text-red-600 px-3 py-2 text-sm font-medium hover:bg-red-50 dark:border-red-900/30 dark:hover:bg-red-950/30 transition-colors disabled:opacity-50"
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Limpar Escala
+            </button>
+
+            <button
+              onClick={() => setIsExternalModalOpen(true)}
+              disabled={loading || isClosed}
+              className="inline-flex items-center rounded-md border border-blue-200 text-blue-700 px-3 py-2 text-sm font-medium hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 transition-colors disabled:opacity-50"
+            >
+              <Globe className="h-4 w-4 mr-2" />
+              Servidor Externo
+            </button>
+          </div>
+          
+          <div className="flex items-center space-x-3">
+            <button onClick={() => window.print()} className="inline-flex items-center rounded-md bg-white dark:bg-zinc-800 px-3 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-50">
+              <FileText className="mr-2 h-4 w-4" /> Gerar PDF
+            </button>
+            
+            <button onClick={handleSave} disabled={loading || isClosed} className="inline-flex items-center rounded-md bg-green-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-700 transition-all disabled:opacity-50">
+              {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+              Salvar Previsão
+            </button>
+            {!isClosed && (
+              <button onClick={handleCloseScale} disabled={loading} className="inline-flex items-center rounded-md bg-zinc-900 dark:bg-zinc-100 px-4 py-2 text-sm font-semibold text-white dark:text-zinc-900 shadow-sm hover:bg-black dark:hover:bg-white transition-all">
+                <Lock className="mr-2 h-4 w-4" /> Fechar Escala
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="flex-1 overflow-auto no-print">
         <table className="w-full border-collapse text-[10px] table-fixed">
@@ -759,7 +902,7 @@ export function ScaleGrid({
             </tr>
           </thead>
           <tbody>
-            {escalaMensal.map(em => {
+            {visibleEscalaMensal.map(em => {
               const totals = calculateTotals(em.servidor_id)
               const categories: RowCategory[] = ['Regular', 'Extra', 'Plantão', 'Sobreaviso']
               const isExternal = em.servidores?.unidade_id !== unidadeId || em.servidores?.setor_id !== setorId
@@ -829,7 +972,7 @@ export function ScaleGrid({
                         if (cat === 'Sobreaviso' && turno) {
                           const now = new Date()
                           let startHour = 7
-                          let endHour = 19
+                          let endHour = 16 // Padrão para MT: 07h às 16h
                           let endDayOffset = 0
                       
                           if (turno.codigo === 'N') {
@@ -882,7 +1025,7 @@ export function ScaleGrid({
                               className={`w-full h-full bg-transparent border-none text-center focus:outline-none focus:ring-1 focus:ring-blue-500 font-black p-0 text-[11px] uppercase ${isFailed ? 'text-red-600 dark:text-red-400 line-through' : 'text-zinc-900 dark:text-zinc-100'}`}
                               placeholder="-"
                             />
-                            {isFailed && permitirValidacaoManual && !isClosed && (userRole === 'admin' || userRole === 'super_admin') && (
+                            {isFailed && permitirValidacaoManual && !isClosed && (userProfile?.role === 'admin' || userProfile?.role === 'super_admin') && (
                               <button 
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -1070,7 +1213,12 @@ export function ScaleGrid({
                         const tempoAceite = configsGlobais.find(c => c.chave === 'sobreaviso_tempo_aceite_minutos')?.valor || '30'
                         const text = `Olá *${triggerModal.servidorNome}*, você foi acionado(a) para um chamado de Sobreaviso.\n\n*Motivo:*\n${motivo}\n\n*Você tem ${tempoAceite} minutos para aceitar esse chamado.*\n\n*Para confirmar seu aceite, acesse o link abaixo:*\n${generatedLink}`
                         navigator.clipboard.writeText(text)
-                        alert('Mensagem completa copiada para a área de transferência!')
+                        setAlertModal({
+                          isOpen: true,
+                          title: 'Link Copiado',
+                          message: 'Mensagem completa copiada para a área de transferência!',
+                          type: 'success'
+                        })
                       }}
                       className="w-full px-4 py-2 rounded-lg bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 font-bold hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
                     >
@@ -1178,6 +1326,54 @@ export function ScaleGrid({
             </div>
           </div>
         </div>
+      )}
+      {/* Modals Extras */}
+      <Modal
+        isOpen={alertModal.isOpen}
+        onClose={() => setAlertModal(prev => ({ ...prev, isOpen: false }))}
+        title={alertModal.title}
+        type={alertModal.type as any}
+        footer={
+          <button
+            onClick={() => setAlertModal(prev => ({ ...prev, isOpen: false }))}
+            className="w-full px-4 py-2 rounded-xl bg-zinc-900 dark:bg-white dark:text-zinc-900 text-white font-bold"
+          >
+            Entendido
+          </button>
+        }
+      >
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">{alertModal.message}</p>
+      </Modal>
+
+      {confirmModal && (
+        <Modal
+          isOpen={confirmModal.isOpen}
+          onClose={() => setConfirmModal(null)}
+          title={confirmModal.title}
+          type={confirmModal.type as any}
+          footer={
+            <>
+              <button
+                onClick={() => setConfirmModal(null)}
+                className="flex-1 px-4 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmModal.onConfirm}
+                className={`flex-1 px-4 py-2 rounded-xl text-white font-bold ${
+                  confirmModal.type === 'danger' ? 'bg-red-600 hover:bg-red-700' : 
+                  confirmModal.type === 'warning' ? 'bg-amber-600 hover:bg-amber-700' : 
+                  'bg-blue-600 hover:bg-blue-700'
+                }`}
+              >
+                Confirmar
+              </button>
+            </>
+          }
+        >
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">{confirmModal.message}</p>
+        </Modal>
       )}
     </div>
   )

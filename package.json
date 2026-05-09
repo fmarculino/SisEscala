@@ -1,6 +1,6 @@
 {
   "name": "sisescala",
-  "version": "0.0.3-RC2",
+  "version": "0.1.0-RC1",
   "private": true,
   "scripts": {
     "dev": "next dev",

@@ -3,6 +3,7 @@ import { updateSetor, toggleStatusSetor } from '../actions'
 import { StatusToggleButton } from '@/components/ui/StatusToggleButton'
 import { ArrowLeft, Save, Layers } from 'lucide-react'
 import Link from 'next/link'
+import { applyAccessFilters } from '@/utils/permissions'
 
 export default async function EditSetorPage({
   params,
@@ -11,6 +12,21 @@ export default async function EditSetorPage({
 }) {
   const { id } = await params
   const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  
+  // Fetch profile with permissions
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('*, profile_unidades(unidade_id), profile_setores(setor_id)')
+    .eq('id', user?.id)
+    .single()
+
+  // Transform permissions
+  const userProfile = profile ? {
+    ...profile,
+    permitted_unidades: profile.profile_unidades?.map((pu: any) => pu.unidade_id) || [],
+    permitted_setores: profile.profile_setores?.map((ps: any) => ps.setor_id) || []
+  } : null
 
   const { data: setor } = await supabase
     .from('setores')
@@ -18,16 +34,24 @@ export default async function EditSetorPage({
     .eq('id', id)
     .single()
 
-  const { data: unidades } = await supabase
+  // Fetch Units with access filter
+  let unitsQuery = supabase
     .from('unidades')
     .select('id, nome')
     .order('nome')
+  
+  unitsQuery = applyAccessFilters(unitsQuery, userProfile, { unidadeField: 'id' })
+  const { data: unidades } = await unitsQuery
 
-  const { data: setoresPai } = await supabase
+  // Fetch Parent Sectors with access filter
+  let parentSectorsQuery = supabase
     .from('setores')
     .select('id, nome')
     .neq('id', id) // Can't be parent of itself
     .order('nome')
+
+  parentSectorsQuery = applyAccessFilters(parentSectorsQuery, userProfile)
+  const { data: setoresPai } = await parentSectorsQuery
 
   if (!setor) {
     return <div>Setor não encontrado</div>

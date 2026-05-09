@@ -3,6 +3,7 @@ import { StatusToggle } from '@/components/servidores/StatusToggle'
 import { EditServidorForm } from './EditServidorForm'
 import { ArrowLeft, Info } from 'lucide-react'
 import Link from 'next/link'
+import { applyAccessFilters } from '@/utils/permissions'
 
 export default async function EditServidorPage({
   params,
@@ -11,6 +12,20 @@ export default async function EditServidorPage({
 }) {
   const { id } = await params
   const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  
+  // Fetch profile with permissions
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('*, profile_unidades(unidade_id), profile_setores(setor_id)')
+    .eq('id', user?.id)
+    .single()
+
+  const userProfile = profile ? {
+    ...profile,
+    permitted_unidades: profile.profile_unidades?.map((pu: any) => pu.unidade_id) || [],
+    permitted_setores: profile.profile_setores?.map((ps: any) => ps.setor_id) || []
+  } : null
 
   const { data: servidor } = await supabase
     .from('servidores')
@@ -18,17 +33,25 @@ export default async function EditServidorPage({
     .eq('id', id)
     .single()
 
-  const { data: unidades } = await supabase
+  // Fetch Units with access filter
+  let unitsQuery = supabase
     .from('unidades')
     .select('id, nome')
     .eq('ativo', true)
     .order('nome')
+  
+  unitsQuery = applyAccessFilters(unitsQuery, userProfile, { unidadeField: 'id' })
+  const { data: unidades } = await unitsQuery
 
-  const { data: setores } = await supabase
+  // Fetch Sectors with access filter
+  let sectorsQuery = supabase
     .from('setores')
     .select('id, nome, unidade_id')
     .eq('ativo', true)
     .order('nome')
+
+  sectorsQuery = applyAccessFilters(sectorsQuery, userProfile)
+  const { data: setores } = await sectorsQuery
 
   const { data: cargos } = await supabase
     .from('cargos')

@@ -1,8 +1,12 @@
-'use client'
-
 import { FileText, ChevronRight, BarChart3, PieChart, Download, Search } from 'lucide-react'
+import { createClient } from '@/utils/supabase/server'
+import { AcessoNegado } from '@/components/AcessoNegado'
 
-export default function RelatoriosPage() {
+export default async function RelatoriosPage() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user?.id).single()
+
   const relatorios = [
     { title: 'Consolidado de Horas', desc: 'Resumo total de CH, HE e Sobreaviso por setor.', icon: BarChart3 },
     { title: 'Frequência Mensal', desc: 'Espelho de ponto baseado nas escalas fechadas.', icon: FileText },

@@ -1,109 +1,113 @@
-// Tipos derivados do schema do Supabase
-// Gerados em 2026-05-06
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[]
 
-export type VinculoType = 'Contratada' | 'Concursada' | 'Efetiva' | 'Comissionada'
-export type TurnoTipo = 'Normal' | 'Plantão' | 'Sobreaviso' | 'Extra'
-export type EscalaCategoria = 'Regular' | 'Extra' | 'Plantão' | 'Sobreaviso'
-export type SobreavisoStatus = 'Aguardando' | 'Aceito' | 'Chegou' | 'Falhou' | 'Recusado' | 'Expirado'
-export type UserRole = 'super_admin' | 'coordenador' | 'servidor'
-
-export interface Unidade {
-  id: string
-  nome: string
-  endereco: string | null
-  latitude: number | null
-  longitude: number | null
-  raio_geofence: number | null
-  created_at: string | null
-  updated_at: string | null
-}
-
-export interface Servidor {
-  id: string
-  nome: string
-  matricula: string | null
-  cargo: string | null
-  vinculo: VinculoType
-  unidade_id: string | null
-  setor_id: string | null
-  created_at: string | null
-  updated_at: string | null
-}
-
-export interface Setor {
-  id: string
-  nome: string
-  unidade_id: string | null
-  parent_id: string | null
-  created_at: string | null
-  updated_at: string | null
-}
-
-export interface DicionarioTurno {
-  id: string
-  codigo: string
-  descricao: string | null
-  horas_computadas: number
-  tipo: TurnoTipo
-  created_at: string | null
-  updated_at: string | null
-}
-
-export interface EscalaMensal {
-  id: string
-  mes: number
-  ano: number
-  servidor_id: string | null
-  unidade_id: string | null
-  setor_id: string | null
-  status: string
-  created_at: string | null
-  updated_at: string | null
-}
-
-export interface EscalaDiaria {
-  id: string
-  escala_mensal_id: string | null
-  dia: number
-  dicionario_turnos_id: string | null
-  categoria: EscalaCategoria | null
-  created_at: string | null
-  updated_at: string | null
-}
-
-export interface LogSobreaviso {
-  id: string
-  servidor_id: string | null
-  unidade_id: string | null
-  escala_mensal_id: string | null
-  dia: number | null
-  data_hora_acionamento: string | null
-  status: SobreavisoStatus
-  token_magic_link: string | null
-  data_hora_aceite: string | null
-  ip_aceite: string | null
-  user_agent: string | null
-  lat_aceite: number | null
-  long_aceite: number | null
-  eta_minutos: number | null
-  data_hora_chegada: string | null
-  tipo_validacao_chegada: string | null
-  lat_chegada: number | null
-  long_chegada: number | null
-  motivo_acionamento: string | null
-  justificativa_recusa: string | null
-  lat_recusa: number | null
-  long_recusa: number | null
-  motivo_falha: string | null
-  validacao_manual: boolean | null
-  created_at: string | null
-}
-
-export interface Profile {
-  id: string
-  full_name: string | null
-  role: UserRole
-  unidade_id: string | null
-  created_at: string | null
-  updated_at: string | null
+export interface Database {
+  public: {
+    Tables: {
+      profiles: {
+        Row: {
+          id: string
+          full_name: string | null
+          role: 'super_admin' | 'admin' | 'coordenador' | 'servidor' | 'comum'
+          unidade_id: string | null
+          setor_id: string | null
+          acesso_todas_unidades: boolean
+          acesso_todos_setores: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id: string
+          full_name?: string | null
+          role?: 'super_admin' | 'admin' | 'coordenador' | 'servidor' | 'comum'
+          unidade_id?: string | null
+          setor_id?: string | null
+          acesso_todas_unidades?: boolean
+          acesso_todos_setores?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          full_name?: string | null
+          role?: 'super_admin' | 'admin' | 'coordenador' | 'servidor' | 'comum'
+          unidade_id?: string | null
+          setor_id?: string | null
+          acesso_todas_unidades?: boolean
+          acesso_todos_setores?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      profile_unidades: {
+        Row: {
+          profile_id: string
+          unidade_id: string
+        }
+        Insert: {
+          profile_id: string
+          unidade_id: string
+        }
+        Update: {
+          profile_id?: string
+          unidade_id?: string
+        }
+      }
+      profile_setores: {
+        Row: {
+          profile_id: string
+          setor_id: string
+        }
+        Insert: {
+          profile_id: string
+          setor_id: string
+        }
+        Update: {
+          profile_id?: string
+          setor_id?: string
+        }
+      }
+      unidades: {
+        Row: {
+          id: string
+          nome: string
+          endereco: string | null
+          ativo: boolean
+        }
+      }
+      setores: {
+        Row: {
+          id: string
+          unidade_id: string | null
+          nome: string
+          ativo: boolean
+        }
+      }
+      servidores: {
+        Row: {
+          id: string
+          nome: string
+          matricula: string | null
+          unidade_id: string | null
+          setor_id: string | null
+        }
+      }
+      escala_mensal: {
+        Row: {
+          id: string
+          mes: number
+          ano: number
+          unidade_id: string | null
+          setor_id: string | null
+          servidor_id: string | null
+          status: string
+        }
+      }
+    }
+  }
 }

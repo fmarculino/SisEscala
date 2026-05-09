@@ -12,6 +12,38 @@ export default async function UnidadeEscalaPage({
   const { mes, ano, setor } = await searchParams
   
   const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) {
+    return <div>Não autenticado</div>
+  }
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .single()
+
+  // Permission Check
+  if (profile?.role === 'coordenador') {
+    if (profile.unidade_id !== unidadeId) {
+      return <div>Acesso negado: Unidade não permitida.</div>
+    }
+    if (profile.setor_id && profile.setor_id !== setor) {
+      return <div>Acesso negado: Setor não permitido.</div>
+    }
+  } else if (profile?.role === 'comum' || profile?.role === 'servidor') {
+    // Check if the user is in the scale being viewed
+    const { data: servidor } = await supabase
+      .from('servidores')
+      .select('id')
+      .eq('email', user.email)
+      .single()
+    
+    if (!servidor) {
+      return <div>Acesso negado: Servidor não encontrado.</div>
+    }
+  }
 
   // 1. Fetch unit info
   const { data: unidade } = await supabase
@@ -104,6 +136,7 @@ export default async function UnidadeEscalaPage({
         diasInativacao={diasInativacao}
         logsSobreavisoInicial={logsSobreaviso || []}
         configsGlobais={configsGlobais || []}
+        userProfile={profile}
       />
     </div>
   )
