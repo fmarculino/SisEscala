@@ -9,6 +9,8 @@ interface Jornada {
   id: string
   nome: string
   ativo: boolean
+  intervalo_minutos: number
+  horas_totais: number
 }
 
 export default function JornadasPage() {
@@ -17,7 +19,11 @@ export default function JornadasPage() {
   const [saving, setSaving] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editNome, setEditNome] = useState('')
+  const [editIntervalo, setEditIntervalo] = useState<number>(0)
+  const [editHorasTotais, setEditHorasTotais] = useState<number>(0)
   const [newNome, setNewNome] = useState('')
+  const [newIntervalo, setNewIntervalo] = useState<number>(0)
+  const [newHorasTotais, setNewHorasTotais] = useState<number>(0)
   
   const supabase = createClient()
 
@@ -67,10 +73,15 @@ export default function JornadasPage() {
     try {
       const { error } = await supabase
         .from('jornadas')
-        .insert({ nome: newNome.trim().toUpperCase() })
+        .insert({ 
+          nome: newNome.trim().toUpperCase(),
+          intervalo_minutos: newIntervalo || 0,
+          horas_totais: newHorasTotais || 0
+        })
       
       if (error) throw error
       setNewNome('')
+      setNewIntervalo(0)
       fetchJornadas()
       setAlertModal({
         isOpen: true,
@@ -96,7 +107,11 @@ export default function JornadasPage() {
     try {
       const { error } = await supabase
         .from('jornadas')
-        .update({ nome: editNome.trim().toUpperCase() })
+        .update({ 
+          nome: editNome.trim().toUpperCase(),
+          intervalo_minutos: editIntervalo || 0,
+          horas_totais: editHorasTotais || 0
+        })
         .eq('id', id)
       
       if (error) throw error
@@ -149,6 +164,8 @@ export default function JornadasPage() {
   const startEditing = (j: Jornada) => {
     setEditingId(j.id)
     setEditNome(j.nome)
+    setEditIntervalo(j.intervalo_minutos || 0)
+    setEditHorasTotais(j.horas_totais || 0)
   }
 
   return (
@@ -217,6 +234,27 @@ export default function JornadasPage() {
                 placeholder="Ex: 08H ÀS 18H"
                 value={newNome}
                 onChange={e => setNewNome(e.target.value)}
+                className="w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium mb-4"
+              />
+
+              <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Duração Total (Horas)</label>
+              <input
+                type="number"
+                placeholder="Ex: 10"
+                min={0}
+                step="0.5"
+                value={newHorasTotais || ''}
+                onChange={e => setNewHorasTotais(Math.max(0, parseFloat(e.target.value) || 0))}
+                className="w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium mb-4"
+              />
+
+              <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Intervalo (Minutos)</label>
+              <input
+                type="number"
+                placeholder="Ex: 60"
+                min={0}
+                value={newIntervalo || ''}
+                onChange={e => setNewIntervalo(Math.max(0, parseInt(e.target.value) || 0))}
                 className="w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium"
               />
             </div>
@@ -236,6 +274,8 @@ export default function JornadasPage() {
             <thead className="bg-zinc-50 dark:bg-zinc-800/50">
               <tr>
                 <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-zinc-500 dark:text-zinc-400">Jornada</th>
+                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-zinc-500 dark:text-zinc-400">Duração</th>
+                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-zinc-500 dark:text-zinc-400">Intervalo</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-zinc-500 dark:text-zinc-400">Status</th>
                 <th className="px-6 py-4 text-center text-[10px] font-black uppercase tracking-widest text-zinc-500 dark:text-zinc-400 w-32">Ações</th>
               </tr>
@@ -264,13 +304,43 @@ export default function JornadasPage() {
                           value={editNome}
                           onChange={e => setEditNome(e.target.value)}
                           className="w-full bg-zinc-100 dark:bg-zinc-800 border border-blue-300 dark:border-blue-700 rounded-lg px-4 py-2 outline-none focus:ring-2 focus:ring-blue-500 font-bold text-zinc-900 dark:text-white uppercase"
-                          autoFocus
                         />
                       ) : (
                         <div className="flex items-center font-black text-zinc-900 dark:text-white uppercase tracking-tighter text-lg">
                           <Clock className={`mr-3 h-5 w-5 ${j.ativo ? 'text-blue-500' : 'text-zinc-400'}`} />
                           {j.nome}
                         </div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      {editingId === j.id ? (
+                        <input
+                          type="number"
+                          value={editHorasTotais || ''}
+                          min={0}
+                          step="0.5"
+                          onChange={e => setEditHorasTotais(Math.max(0, parseFloat(e.target.value) || 0))}
+                          className="w-24 bg-zinc-100 dark:bg-zinc-800 border border-blue-300 dark:border-blue-700 rounded-lg px-4 py-2 outline-none focus:ring-2 focus:ring-blue-500 font-bold text-zinc-900 dark:text-white"
+                        />
+                      ) : (
+                        <span className="font-bold text-zinc-600 dark:text-zinc-400">
+                          {j.horas_totais}h
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      {editingId === j.id ? (
+                        <input
+                          type="number"
+                          value={editIntervalo || ''}
+                          min={0}
+                          onChange={e => setEditIntervalo(Math.max(0, parseInt(e.target.value) || 0))}
+                          className="w-24 bg-zinc-100 dark:bg-zinc-800 border border-blue-300 dark:border-blue-700 rounded-lg px-4 py-2 outline-none focus:ring-2 focus:ring-blue-500 font-bold text-zinc-900 dark:text-white"
+                        />
+                      ) : (
+                        <span className="font-bold text-zinc-600 dark:text-zinc-400">
+                          {j.intervalo_minutos > 0 ? `${j.intervalo_minutos} min` : '-'}
+                        </span>
                       )}
                     </td>
                     <td className="px-6 py-4">

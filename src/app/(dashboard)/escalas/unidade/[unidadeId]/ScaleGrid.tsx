@@ -110,6 +110,25 @@ export function ScaleGrid({
     onConfirm: () => void,
     type: 'default' | 'danger' | 'warning' | 'success'
   } | null>(null)
+  const [externalOccupancy, setExternalOccupancy] = useState<any[]>([])
+
+  const fetchOccupancy = useCallback(async (servidorIds: string[]) => {
+    if (servidorIds.length === 0) return
+    const { data, error } = await supabase.rpc('fn_get_monthly_occupancy', {
+      p_servidor_ids: servidorIds,
+      p_mes: mes,
+      p_ano: ano
+    })
+    if (data) setExternalOccupancy(data)
+    if (error) console.error('Erro ao buscar ocupação externa:', error)
+  }, [supabase, mes, ano])
+
+  useEffect(() => {
+    if (escalaMensal.length > 0) {
+      const ids = escalaMensal.map(em => em.servidor_id)
+      fetchOccupancy(ids)
+    }
+  }, [escalaMensal, fetchOccupancy])
 
   useEffect(() => {
     const fetchData = async () => {
@@ -414,17 +433,100 @@ export function ScaleGrid({
     return new Date(ano, mes - 1, day).getDay()
   }
 
-  const handleCellChange = (servidorId: string, categoria: RowCategory, day: number, turnoId: string) => {
-    setGridData(prev => ({
-      ...prev,
-      [servidorId]: {
-        ...prev[servidorId],
-        [categoria]: {
-          ...prev[servidorId][categoria],
-          [day]: turnoId
+  const handleCellChange = async (servidorId: string, categoria: RowCategory, day: number, turnoId: string) => {
+    // Se estiver limpando a célula, atualiza direto
+    if (!turnoId) {
+      setGridData(prev => ({
+        ...prev,
+        [servidorId]: {
+          ...prev[servidorId],
+          [categoria]: {
+            ...prev[servidorId][categoria],
+            [day]: turnoId
+          }
+        }
+      }))
+      return
+    }
+
+    // Validação de Conflito Interno (Checa mudanças não salvas na grade atual)
+    try {
+      const currentTurno = turnos.find(t => t.id === turnoId)
+      const currentSlots = currentTurno?.slots || []
+      const serverRows = gridData[servidorId] || {}
+      
+      let internalConflictMsg = null
+      Object.entries(serverRows).forEach(([cat, days]: [string, any]) => {
+        if (cat === categoria) return
+        const otherTurnoId = days[day]
+        if (!otherTurnoId) return
+        
+        const otherTurno = turnos.find(t => t.id === otherTurnoId)
+        const otherSlots = otherTurno?.slots || []
+        
+        if (otherSlots.some((s: string) => currentSlots.includes(s))) {
+          internalConflictMsg = `Este servidor já possui um turno (${otherTurno.codigo}) na linha de ${cat} para este dia nesta escala.`
+        }
+      })
+
+      if (internalConflictMsg) {
+        setAlertModal({
+          isOpen: true,
+          title: '⚠️ Conflito Interno Detectado',
+          message: internalConflictMsg,
+          type: 'warning'
+        })
+        return
+      }
+    } catch (err) {
+      console.error('Erro na validação interna:', err)
+    }
+
+    // Validação de Conflito Externo (Cross-Unit/Cross-Sector via Banco)
+    try {
+      const { data, error } = await supabase.rpc('fn_check_shift_conflicts', {
+        p_servidor_id: servidorId,
+        p_dia: day,
+        p_mes: mes,
+        p_ano: ano,
+        p_turno_id: turnoId
+      })
+
+      if (error) throw error
+
+      if (data && data.length > 0 && data[0].conflito) {
+        setAlertModal({
+          isOpen: true,
+          title: '⚠️ Conflito de Escala Detectado',
+          message: data[0].mensagem,
+          type: 'warning'
+        })
+        return // Bloqueia a alteração
+      }
+    } catch (err) {
+      console.error('Erro na validação de conflito:', err)
+    }
+
+    setGridData(prev => {
+      const serverData = prev[servidorId] || { 
+        'Regular': {}, 
+        'Extra': {}, 
+        'Plantão': {}, 
+        'Sobreaviso': {} 
+      }
+      const catData = serverData[categoria] || {}
+
+      return {
+        ...prev,
+        [servidorId]: {
+          ...serverData,
+          [categoria]: {
+            ...catData,
+            [day]: turnoId
+          }
         }
       }
-    }))
+    })
   }
 
   const calculateTotals = (servidorId: string) => {
@@ -438,10 +540,23 @@ export function ScaleGrid({
     let pl4 = 0
     let so12 = 0
 
-    // Sum Regular CH
+    // Sum Regular CH (Apply interval deduction)
+    const emRecord = escalaMensal.find(x => x.servidor_id === servidorId)
+    const jornada = jornadas.find(j => j.id === emRecord?.jornada_id)
+    const intervaloHoras = (jornada?.intervalo_minutos || 0) / 60
+
     Object.values(serverData['Regular']).forEach(turnoId => {
       const t = turnos.find(x => x.id === turnoId)
-      if (t) chTotal += Number(t.horas_computadas)
+      if (t) {
+        // Prioritize jornada duration for Regular row, fallback to turno hours if jornada duration is not set
+        const baseHours = (jornada && Number(jornada.horas_totais) > 0) 
+          ? Number(jornada.horas_totais) 
+          : Number(t.horas_computadas)
+
+        // Subtract interval from base hours, ensuring it doesn't go below zero
+        const liquidHours = Math.max(0, baseHours - intervaloHoras)
+        chTotal += liquidHours
+      }
     })
 
     // Sum Extras
@@ -642,6 +757,9 @@ export function ScaleGrid({
         message: 'A previsão da escala foi salva com sucesso no banco de dados.',
         type: 'success'
       })
+      // Refresh occupancy after save to reflect current state
+      const ids = escalaMensal.map(em => em.servidor_id)
+      fetchOccupancy(ids)
     } catch (error: any) {
       setAlertModal({
         isOpen: true,
@@ -686,6 +804,8 @@ export function ScaleGrid({
           'Sobreaviso': {}
         }
       }))
+      // Refresh occupancy for the new server
+      fetchOccupancy([...escalaMensal.map(em => em.servidor_id), servidorId])
     } catch (error: any) {
       setAlertModal({
         isOpen: true,
@@ -723,6 +843,7 @@ export function ScaleGrid({
       setEscalaMensal(prev => [...prev, ...data])
       
       const newGridData = { ...gridData }
+      const newIds = data.map(em => em.servidor_id)
       data.forEach(em => {
         newGridData[em.servidor_id] = {
           'Regular': {},
@@ -732,6 +853,8 @@ export function ScaleGrid({
         }
       })
       setGridData(newGridData)
+      // Refresh occupancy for all
+      fetchOccupancy([...escalaMensal.map(em => em.servidor_id), ...newIds])
     } catch (error: any) {
       setAlertModal({
         isOpen: true,
@@ -995,9 +1118,31 @@ export function ScaleGrid({
                           ? getStatusForDay(day, em.id) 
                           : { status: null, reason: null, log: null }
 
+                        // Check for REAL external conflicts (different unit/sector)
+                        const realExternalShifts = externalOccupancy.filter(o => 
+                          o.servidor_id === em.servidor_id && 
+                          o.dia === day && 
+                          (o.unidade_id !== unidadeId || o.setor_id !== setorId)
+                        )
+                        
+                        // Current turno in THIS grid
+                        const currentTurno = turnos.find(t => t.id === turnoId)
+                        const currentSlots = currentTurno?.slots || []
+                        
+                        // Does it overlap with external?
+                        const hasExternalConflict = realExternalShifts.some(os => 
+                          os.slots.some((s: string) => currentSlots.includes(s))
+                        )
+                        
+                        // Is the server busy elsewhere regardless of what we put here? (Bonus)
+                        const isBusyElsewhere = realExternalShifts.length > 0
+                        
+                        const conflictDetails = realExternalShifts
+                          .map(os => os.descricao_conflito)
+                          .join(' | ')
+
                         const isFailed = effectiveStatus === 'Falhou'
                         // Hide trigger button if it failed or if currently pending (Accepted/Waiting)
-                        // If it's 'Chegou', the professional is active and can be triggered again.
                         if (isFailed || effectiveStatus === 'Aceito' || effectiveStatus === 'Aguardando') {
                           isTriggerAllowed = false
                         }
@@ -1006,8 +1151,16 @@ export function ScaleGrid({
                         return (
                           <td 
                             key={day} 
-                            className={`p-0 border border-zinc-200 dark:border-zinc-700 text-center relative ${isHoliday ? 'bg-red-50 dark:bg-red-900/10' : isWE ? 'bg-zinc-50 dark:bg-zinc-800/50' : ''} ${isFailed ? 'bg-red-100 dark:bg-red-900/30' : ''}`}
-                            title={isFailed ? `FALHOU: ${logForDay?.motivo_falha || virtualReason || 'Tempo expirado'}${isDisregarded ? ' (Desconsiderado da carga horária)' : ''}` : ''}
+                            className={`p-0 border border-zinc-200 dark:border-zinc-700 text-center relative ${isHoliday ? 'bg-red-50 dark:bg-red-900/10' : isWE ? 'bg-zinc-50 dark:bg-zinc-800/50' : ''} ${isFailed ? 'bg-red-100 dark:bg-red-900/30' : ''} ${hasExternalConflict ? 'ring-1 ring-inset ring-red-500' : ''}`}
+                            title={
+                              hasExternalConflict 
+                                ? `⚠️ CONFLITO REAL: ${conflictDetails}` 
+                                : isBusyElsewhere
+                                  ? `ℹ️ Servidor já escalado em: ${conflictDetails}`
+                                  : isFailed 
+                                    ? `FALHOU: ${logForDay?.motivo_falha || virtualReason || 'Tempo expirado'}${isDisregarded ? ' (Desconsiderado da carga horária)' : ''}` 
+                                    : ''
+                            }
                           >
                             <input
                               list={cat === 'Sobreaviso' ? "turnos-sobreaviso-list" : "turnos-list"}
@@ -1015,7 +1168,6 @@ export function ScaleGrid({
                               disabled={isClosed}
                               onChange={(e) => {
                                 const val = e.target.value.toUpperCase()
-                                // Se for Sobreaviso, só permite MT, N ou MTN
                                 if (cat === 'Sobreaviso' && val !== '' && val !== 'MT' && val !== 'N' && val !== 'MTN') {
                                   return
                                 }
@@ -1025,6 +1177,10 @@ export function ScaleGrid({
                               className={`w-full h-full bg-transparent border-none text-center focus:outline-none focus:ring-1 focus:ring-blue-500 font-black p-0 text-[11px] uppercase ${isFailed ? 'text-red-600 dark:text-red-400 line-through' : 'text-zinc-900 dark:text-zinc-100'}`}
                               placeholder="-"
                             />
+                            {/* Indicador de Ocupação Externa (Bônus) */}
+                            {isBusyElsewhere && !hasExternalConflict && (
+                              <div className="absolute top-0.5 right-0.5 w-1.5 h-1.5 bg-blue-500 rounded-full opacity-70" />
+                            )}
                             {isFailed && permitirValidacaoManual && !isClosed && (userProfile?.role === 'admin' || userProfile?.role === 'super_admin') && (
                               <button 
                                 onClick={(e) => {
@@ -1144,6 +1300,7 @@ export function ScaleGrid({
         escalaMensal={escalaMensal}
         gridData={gridData} 
         turnos={turnos}
+        jornadas={jornadas}
         shiftTotals={shiftTotals}
       />
       {/* Modal de Acionamento de Sobreaviso */}

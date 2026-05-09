@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0-Beta] - 2026-05-09
+
+### Added
+- **Validação Global de Conflitos de Escala**: 
+    - Implementação de motor de validação cross-unit/cross-sector que impede que um servidor seja escalado em dois lugares simultaneamente.
+    - **Indicadores Proativos**: Adição de marcador visual (ponto azul) em células onde o servidor já possui compromisso em outra unidade, com tooltip detalhado sobre o local e turno.
+    - **Detecção de Sobreposição**: Mapeamento inteligente de turnos (slots M, T, N, S) para identificar choques de horário entre diferentes códigos (ex: MT conflitando com M ou T).
+- **Cálculo de Carga Horária com Intervalo**:
+    - Suporte a dedução de intervalos de almoço/descanso no cálculo da CH na linha Regular.
+    - Nova coluna `horas_totais` e `intervalo_minutos` no cadastro de Jornadas.
+
+### Fixed
+- **Estabilidade da Grade**: Corrigido erro de runtime `Cannot read properties of undefined (reading 'Regular')` ao interagir com células de servidores recém-adicionados.
+- **Auto-Conflito**: Refinada a lógica de validação para ignorar registros da própria escala atual, eliminando falsos positivos de conflito ao carregar a tela.
+
 ## [0.1.0-RC1] - 2026-05-09
 
 ### Added

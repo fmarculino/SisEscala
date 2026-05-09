@@ -12,6 +12,7 @@ interface ScalePrintViewProps {
   escalaMensal: any[]
   gridData: Record<string, Record<RowCategory, Record<number, string>>>
   turnos: any[]
+  jornadas: any[]
   shiftTotals: {
     M: Record<number, number>
     T: Record<number, number>
@@ -28,6 +29,7 @@ export function ScalePrintView({
   escalaMensal, 
   gridData, 
   turnos,
+  jornadas,
   shiftTotals
 }: ScalePrintViewProps) {
   const daysInMonth = new Date(ano, mes, 0).getDate()
@@ -58,9 +60,21 @@ export function ScalePrintView({
     let pl4 = 0
     let so12 = 0
 
+    const emRecord = escalaMensal.find(x => x.servidor_id === servidorId)
+    const jornada = jornadas.find(j => j.id === emRecord?.jornada_id)
+    const intervaloHoras = (jornada?.intervalo_minutos || 0) / 60
+
     Object.values(serverData['Regular']).forEach(id => {
       const t = turnos.find(x => x.id === id)
-      if (t) chTotal += Number(t.horas_computadas)
+      if (t) {
+        // Prioritize jornada duration for Regular row, fallback to turno hours if jornada duration is not set
+        const baseHours = (jornada && Number(jornada.horas_totais) > 0) 
+          ? Number(jornada.horas_totais) 
+          : Number(t.horas_computadas)
+
+        const liquidHours = Math.max(0, baseHours - intervaloHoras)
+        chTotal += liquidHours
+      }
     })
 
     Object.values(serverData['Extra']).forEach(id => {
@@ -178,7 +192,7 @@ export function ScalePrintView({
                         </>
                       )}
                       <td className="text-left uppercase" style={{ fontSize: '4pt' }}>
-                        {cat === 'Regular' ? '07h às 19h' : cat === 'Extra' ? 'Extras' : cat === 'Plantão' ? 'Plantões' : 'Sobreaviso'}
+                        {cat === 'Regular' ? (em.jornadas?.nome || 'Regular') : cat === 'Extra' ? 'Extras' : cat === 'Plantão' ? 'Plantões' : 'Sobreaviso'}
                       </td>
                       {daysArray.map(day => {
                         const code = getTurnoCode(em.servidor_id, cat, day)
