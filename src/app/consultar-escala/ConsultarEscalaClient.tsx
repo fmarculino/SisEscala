@@ -344,6 +344,7 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
                   escalaMensal={fullEscalaData.escalaMensal}
                   gridData={generateGridData(fullEscalaData)}
                   turnos={fullEscalaData.turnos}
+                  jornadas={fullEscalaData.jornadas}
                   shiftTotals={calculateShiftTotals(fullEscalaData)}
                />
             </div>

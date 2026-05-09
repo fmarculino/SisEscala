@@ -102,6 +102,7 @@ export async function getEscalaDetails(escala: any) {
       .in('escala_mensal_id', emIds)
 
     const { data: turnos } = await supabase.from('dicionario_turnos').select('*').eq('ativo', true)
+    const { data: jornadas } = await supabase.from('jornadas').select('*').eq('ativo', true)
     const { data: feriados } = await supabase.from('feriados').select('*')
     const { data: unidade } = await supabase.from('unidades').select('*').eq('id', escala.unidade_id).single()
     const { data: setor } = await supabase.from('setores').select('*').eq('id', escala.setor_id).single()
@@ -111,6 +112,7 @@ export async function getEscalaDetails(escala: any) {
         escalaMensal: escalaMensalRecords,
         escalaDiaria: escalaDiaria || [],
         turnos: turnos || [],
+        jornadas: jornadas || [],
         feriados: feriados || [],
         unidade,
         setor,
