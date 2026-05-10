@@ -9,6 +9,7 @@ export default function ConfigPage() {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [configs, setConfigs] = useState<any[]>([])
+  const [originalConfigs, setOriginalConfigs] = useState<any[]>([])
 
   useEffect(() => {
     fetchConfigs()
@@ -25,27 +26,49 @@ export default function ConfigPage() {
       console.error('Erro ao carregar configurações:', error)
     } else {
       setConfigs(data || [])
+      setOriginalConfigs(JSON.parse(JSON.stringify(data || [])))
     }
     setLoading(false)
   }
 
-  async function handleSave(chave: string, valor: any) {
+  const hasChanges = JSON.stringify(configs) !== JSON.stringify(originalConfigs)
+
+  async function handleSaveAll() {
     setSaving(true)
+    
+    const updates = configs.filter(c => {
+      const original = originalConfigs.find(oc => oc.chave === c.chave)
+      return JSON.stringify(original?.valor) !== JSON.stringify(c.valor)
+    })
+
+    if (updates.length === 0) {
+      setSaving(false)
+      return
+    }
+
     const { error } = await supabase
       .from('configuracoes_globais')
-      .update({ valor, updated_at: new Date().toISOString() })
-      .eq('chave', chave)
+      .upsert(updates.map(u => ({
+        chave: u.chave,
+        valor: u.valor,
+        updated_at: new Date().toISOString()
+      })), { onConflict: 'chave' })
 
     if (error) {
       alert('Erro ao salvar: ' + error.message)
     } else {
-      // Update local state
-      setConfigs(prev => prev.map(c => c.chave === chave ? { ...c, valor } : c))
+      setOriginalConfigs(JSON.parse(JSON.stringify(configs)))
+      // Trigger a brief success state or notification would be better than an alert
+      alert('Configurações aplicadas com sucesso!')
     }
     setSaving(false)
   }
 
   const getConfig = (chave: string) => configs.find(c => c.chave === chave)
+
+  const updateConfig = (chave: string, valor: any) => {
+    setConfigs(prev => prev.map(c => c.chave === chave ? { ...c, valor } : c))
+  }
 
   if (loading) {
     return (
@@ -56,257 +79,243 @@ export default function ConfigPage() {
   }
 
   return (
-    <div className="p-8 max-w-4xl mx-auto space-y-8">
-      <div className="flex items-center gap-3 border-b border-zinc-200 dark:border-zinc-800 pb-6">
-        <div className="p-3 bg-blue-600 rounded-xl">
-          <Settings className="h-6 w-6 text-white" />
+    <div className="p-8 max-w-5xl mx-auto space-y-8 pb-32">
+      {/* Header com Botão Salvar Global */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-zinc-200 dark:border-zinc-800 pb-8 sticky top-0 bg-zinc-50/80 dark:bg-zinc-950/80 backdrop-blur-md z-20 -mx-8 px-8 py-6">
+        <div className="flex items-center gap-4">
+          <div className="p-3 bg-blue-600 rounded-2xl shadow-lg shadow-blue-500/20 text-white">
+            <Settings className="h-6 w-6" />
+          </div>
+          <div>
+            <h1 className="text-3xl font-black tracking-tight text-zinc-900 dark:text-white uppercase">Governança do Sistema</h1>
+            <p className="text-zinc-500 text-sm font-medium">Ajuste as regras de negócio e parâmetros globais da plataforma.</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-2xl font-black tracking-tight text-zinc-900 dark:text-white uppercase">Configurações do Sistema</h1>
-          <p className="text-zinc-500 text-sm">Gerencie as regras globais e o comportamento da plataforma.</p>
-        </div>
+
+        <button 
+          onClick={handleSaveAll}
+          disabled={!hasChanges || saving}
+          className={`
+            flex items-center gap-3 px-8 py-4 rounded-2xl font-black text-sm uppercase tracking-widest transition-all
+            ${hasChanges 
+              ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/20 hover:scale-105 active:scale-95' 
+              : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed opacity-50'}
+          `}
+        >
+          {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : <Save className="h-5 w-5" />}
+          {saving ? 'Gravando...' : hasChanges ? 'Salvar Alterações' : 'Nada para salvar'}
+        </button>
       </div>
 
-      <div className="grid gap-6">
-        {/* Regra de Inativação */}
-        <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden shadow-sm">
-          <div className="p-6 flex items-start gap-4">
-            <div className="p-2 bg-amber-100 dark:bg-amber-900/30 rounded-lg text-amber-600">
-              <Clock className="h-5 w-5" />
+      <div className="grid gap-8">
+        {/* Inativação Automática */}
+        <div className="bg-white dark:bg-zinc-900 rounded-[2rem] border border-zinc-200 dark:border-zinc-800 p-8 shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex flex-col md:flex-row md:items-center gap-8">
+            <div className="p-4 bg-amber-100 dark:bg-amber-900/30 rounded-2xl text-amber-600">
+              <Clock className="h-6 w-6" />
             </div>
             <div className="flex-1 space-y-1">
-              <h3 className="font-bold text-zinc-900 dark:text-white">Inativação Automática de Escalas</h3>
-              <p className="text-xs text-zinc-500">Define após quantos dias do fechamento do mês as escalas serão bloqueadas para edição automática.</p>
-              
-              <div className="pt-4 flex items-center gap-4">
-                <input 
-                  type="number" 
-                  className="w-24 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold"
-                  value={getConfig('dias_inativacao_automatica')?.valor || ''}
-                  onChange={(e) => {
-                    const newVal = e.target.value
-                    setConfigs(prev => prev.map(c => c.chave === 'dias_inativacao_automatica' ? { ...c, valor: newVal } : c))
-                  }}
-                />
-                <span className="text-sm text-zinc-600 dark:text-zinc-400 font-medium">Dias após o fim do mês</span>
-                
-                <button 
-                  onClick={() => handleSave('dias_inativacao_automatica', getConfig('dias_inativacao_automatica')?.valor)}
-                  disabled={saving}
-                  className="ml-auto inline-flex items-center gap-2 bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-4 py-2 rounded-lg text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-50"
-                >
-                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                  Salvar Regra
-                </button>
-              </div>
+              <h3 className="text-lg font-black text-zinc-900 dark:text-white uppercase tracking-tight">Inativação Automática de Escalas</h3>
+              <p className="text-sm text-zinc-500 leading-relaxed max-w-2xl">Bloqueio automático de edição após o fechamento do mês para garantir integridade dos dados históricos.</p>
+            </div>
+            <div className="flex items-center gap-4 bg-zinc-50 dark:bg-zinc-800 p-2 rounded-2xl border border-zinc-200 dark:border-zinc-700">
+              <input 
+                type="number" 
+                className="w-24 bg-white dark:bg-zinc-900 border-none rounded-xl px-4 py-3 text-lg focus:ring-2 focus:ring-blue-500 outline-none font-black text-center"
+                value={getConfig('dias_inativacao_automatica')?.valor || ''}
+                onChange={(e) => updateConfig('dias_inativacao_automatica', e.target.value)}
+              />
+              <span className="pr-4 text-xs font-bold text-zinc-500 uppercase tracking-widest">Dias úteis</span>
             </div>
           </div>
         </div>
 
-        {/* Dia Limite de Planejamento */}
-        <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden shadow-sm">
-          <div className="p-6 flex items-start gap-4">
-            <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg text-indigo-600">
-              <Lock className="h-5 w-5" />
+        {/* Prazo de Planejamento */}
+        <div className="bg-white dark:bg-zinc-900 rounded-[2rem] border border-zinc-200 dark:border-zinc-800 p-8 shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex flex-col md:flex-row md:items-center gap-8">
+            <div className="p-4 bg-indigo-100 dark:bg-indigo-900/30 rounded-2xl text-indigo-600">
+              <Lock className="h-6 w-6" />
             </div>
             <div className="flex-1 space-y-1">
-              <h3 className="font-bold text-zinc-900 dark:text-white">Prazo de Planejamento Mensal</h3>
-              <p className="text-xs text-zinc-500">Bloqueia a edição de escalas do mês atual para Coordenadores após este dia.</p>
-              
-              <div className="pt-4 flex items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-zinc-400 uppercase">Dia Limite:</span>
-                  <input 
-                    type="number" 
-                    min="1"
-                    max="28"
-                    className="w-24 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-bold"
-                    value={getConfig('dia_limite_planejamento')?.valor || ''}
-                    onChange={(e) => {
-                      const newVal = e.target.value
-                      setConfigs(prev => prev.map(c => c.chave === 'dia_limite_planejamento' ? { ...c, valor: newVal } : c))
-                    }}
-                  />
-                </div>
-                <p className="text-[10px] text-zinc-500 max-w-[250px]">Do dia seguinte em diante, apenas Admins podem alterar o mês corrente.</p>
-                
-                <button 
-                  onClick={() => handleSave('dia_limite_planejamento', getConfig('dia_limite_planejamento')?.valor)}
-                  disabled={saving}
-                  className="ml-auto inline-flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-indigo-700 transition-colors disabled:opacity-50"
-                >
-                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                  Atualizar Prazo
-                </button>
-              </div>
+              <h3 className="text-lg font-black text-zinc-900 dark:text-white uppercase tracking-tight">Prazo de Planejamento Mensal</h3>
+              <p className="text-sm text-zinc-500 leading-relaxed max-w-2xl">Define o dia limite para coordenadores submeterem o planejamento da escala do mês atual.</p>
+            </div>
+            <div className="flex items-center gap-4 bg-zinc-50 dark:bg-zinc-800 p-2 rounded-2xl border border-zinc-200 dark:border-zinc-700">
+              <span className="pl-4 text-[10px] font-black text-zinc-400 uppercase tracking-widest">Até dia</span>
+              <input 
+                type="number" 
+                min="1" max="31"
+                className="w-24 bg-white dark:bg-zinc-900 border-none rounded-xl px-4 py-3 text-lg focus:ring-2 focus:ring-indigo-500 outline-none font-black text-center"
+                value={getConfig('dia_limite_planejamento')?.valor || ''}
+                onChange={(e) => updateConfig('dia_limite_planejamento', e.target.value)}
+              />
             </div>
           </div>
         </div>
 
         {/* Regras de Sobreaviso */}
-        <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden shadow-sm">
-          <div className="p-6 flex items-start gap-4">
-            <div className="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg text-orange-600">
-              <Zap className="h-5 w-5" />
-            </div>
-            <div className="flex-1 space-y-4">
+        <div className="bg-white dark:bg-zinc-900 rounded-[2rem] border border-zinc-200 dark:border-zinc-800 p-8 shadow-sm hover:shadow-md transition-shadow">
+          <div className="space-y-8">
+            <div className="flex items-center gap-4">
+              <div className="p-4 bg-orange-100 dark:bg-orange-900/30 rounded-2xl text-orange-600">
+                <Zap className="h-6 w-6" />
+              </div>
               <div>
-                <h3 className="font-bold text-zinc-900 dark:text-white">Regras de Sobreaviso</h3>
-                <p className="text-xs text-zinc-500">Defina os prazos, obrigações de GPS e penalidades para acionamento de sobreaviso.</p>
+                <h3 className="text-lg font-black text-zinc-900 dark:text-white uppercase tracking-tight">Protocolos de Sobreaviso</h3>
+                <p className="text-sm text-zinc-500 leading-relaxed">Gerencie prazos, geolocalização e fluxos de aceite para o regime de prontidão.</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="space-y-2">
+                <label className="text-xs font-black text-zinc-400 uppercase tracking-widest">Exigir Localização (GPS)</label>
+                <select 
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold transition-all"
+                  value={getConfig('sobreaviso_exigir_localizacao')?.valor || 'false'}
+                  onChange={(e) => updateConfig('sobreaviso_exigir_localizacao', e.target.value)}
+                >
+                  <option value="true">Sim, obrigatório</option>
+                  <option value="false">Não exigir</option>
+                </select>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Exigir Localização (GPS)</label>
-                  <select 
-                    className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                    value={getConfig('sobreaviso_exigir_localizacao')?.valor || 'false'}
-                    onChange={(e) => handleSave('sobreaviso_exigir_localizacao', e.target.value)}
-                    disabled={saving}
-                  >
-                    <option value="true">Sim, obrigatório</option>
-                    <option value="false">Não exigir</option>
-                  </select>
-                  <p className="text-[10px] text-zinc-500">Bloqueia o aceite se o servidor não compartilhar a localização.</p>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Tempo Limite para Aceite (minutos)</label>
+              <div className="space-y-2">
+                <label className="text-xs font-black text-zinc-400 uppercase tracking-widest">Tempo para Aceite</label>
+                <div className="relative">
                   <input 
                     type="number" 
-                    className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                    className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold transition-all pr-12"
                     value={getConfig('sobreaviso_tempo_aceite_minutos')?.valor || ''}
-                    onBlur={(e) => handleSave('sobreaviso_tempo_aceite_minutos', e.target.value)}
-                    onChange={(e) => setConfigs(prev => prev.map(c => c.chave === 'sobreaviso_tempo_aceite_minutos' ? { ...c, valor: e.target.value } : c))}
-                    disabled={saving}
+                    onChange={(e) => updateConfig('sobreaviso_tempo_aceite_minutos', e.target.value)}
                   />
-                  <p className="text-[10px] text-zinc-500">Tempo máximo antes de invalidar a chamada.</p>
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-zinc-400 uppercase">min</div>
                 </div>
+              </div>
 
-                <div className="space-y-1">
-                  <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Tempo Limite de Deslocamento (minutos)</label>
+              <div className="space-y-2">
+                <label className="text-xs font-black text-zinc-400 uppercase tracking-widest">Tempo de Deslocamento</label>
+                <div className="relative">
                   <input 
                     type="number" 
-                    className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                    className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold transition-all pr-12"
                     value={getConfig('sobreaviso_tempo_chegada_minutos')?.valor || ''}
-                    onBlur={(e) => handleSave('sobreaviso_tempo_chegada_minutos', e.target.value)}
-                    onChange={(e) => setConfigs(prev => prev.map(c => c.chave === 'sobreaviso_tempo_chegada_minutos' ? { ...c, valor: e.target.value } : c))}
-                    disabled={saving}
+                    onChange={(e) => updateConfig('sobreaviso_tempo_chegada_minutos', e.target.value)}
                   />
-                  <p className="text-[10px] text-zinc-500">Tempo máximo para registrar a chegada após o aceite.</p>
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-zinc-400 uppercase">min</div>
                 </div>
+              </div>
 
-                <div className="space-y-1">
-                  <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Penalizar Falha na Escala</label>
-                  <select 
-                    className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                    value={getConfig('sobreaviso_desconsiderar_falha')?.valor || 'false'}
-                    onChange={(e) => handleSave('sobreaviso_desconsiderar_falha', e.target.value)}
-                    disabled={saving}
-                  >
-                    <option value="true">Desconsiderar turno da soma de totais</option>
-                    <option value="false">Manter contabilizado nos totais</option>
-                  </select>
-                  <p className="text-[10px] text-zinc-500">Se ativo, o plantão não entra nos cálculos mensais.</p>
-                </div>
+              <div className="space-y-2">
+                <label className="text-xs font-black text-zinc-400 uppercase tracking-widest">Penalizar Falha</label>
+                <select 
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold transition-all"
+                  value={getConfig('sobreaviso_desconsiderar_falha')?.valor || 'false'}
+                  onChange={(e) => updateConfig('sobreaviso_desconsiderar_falha', e.target.value)}
+                >
+                  <option value="true">Desconsiderar Turno</option>
+                  <option value="false">Manter nos Totais</option>
+                </select>
+              </div>
 
-                <div className="space-y-1">
-                  <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Permitir Validação Manual</label>
-                  <select 
-                    className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                    value={getConfig('sobreaviso_permitir_validacao_manual')?.valor || 'false'}
-                    onChange={(e) => handleSave('sobreaviso_permitir_validacao_manual', e.target.value)}
-                    disabled={saving}
-                  >
-                    <option value="true">Sim, administradores podem sobrepor a falha</option>
-                    <option value="false">Não permitir sobreposição manual</option>
-                  </select>
-                  <p className="text-[10px] text-zinc-500">Permite que um admin valide manualmente um sobreaviso que falhou.</p>
-                </div>
+              <div className="space-y-2">
+                <label className="text-xs font-black text-zinc-400 uppercase tracking-widest">Validação Manual</label>
+                <select 
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold transition-all"
+                  value={getConfig('sobreaviso_permitir_validacao_manual')?.valor || 'false'}
+                  onChange={(e) => updateConfig('sobreaviso_permitir_validacao_manual', e.target.value)}
+                >
+                  <option value="true">Sim, Permitir</option>
+                  <option value="false">Bloquear Manual</option>
+                </select>
               </div>
             </div>
           </div>
         </div>
 
         {/* Configuração de Presença */}
-        <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden shadow-sm">
-          <div className="p-6 flex items-start gap-4">
-            <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg text-emerald-600">
-              <CheckSquare className="h-5 w-5" />
-            </div>
-            <div className="flex-1 space-y-4">
+        <div className="bg-white dark:bg-zinc-900 rounded-[2rem] border border-zinc-200 dark:border-zinc-800 p-8 shadow-sm hover:shadow-md transition-shadow">
+          <div className="space-y-8">
+            <div className="flex items-center gap-4">
+              <div className="p-4 bg-emerald-100 dark:bg-emerald-900/30 rounded-2xl text-emerald-600">
+                <CheckSquare className="h-6 w-6" />
+              </div>
               <div>
-                <h3 className="font-bold text-zinc-900 dark:text-white">Confirmação de Presença (Ponto Digital)</h3>
-                <p className="text-xs text-zinc-500">Gerencie como os servidores devem registrar entrada e saída dos plantões.</p>
+                <h3 className="text-lg font-black text-zinc-900 dark:text-white uppercase tracking-tight">Presença e Ponto Digital</h3>
+                <p className="text-sm text-zinc-500 leading-relaxed">Defina a janela de tolerância e a obrigatoriedade da confirmação de plantão.</p>
               </div>
+            </div>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
-                <div className="space-y-1">
-                  <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Obrigatoriedade</label>
-                  <select 
-                    className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 outline-none font-bold"
-                    value={getConfig('exigir_confirmacao_presenca')?.valor || 'false'}
-                    onChange={(e) => handleSave('exigir_confirmacao_presenca', e.target.value)}
-                    disabled={saving}
-                  >
-                    <option value="true">Sim, Obrigatório para cálculo</option>
-                    <option value="false">Não, Apenas Visual</option>
-                  </select>
-                  <p className="text-[10px] text-zinc-500">Se obrigatório, plantões não confirmados são excluídos dos totais.</p>
-                </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              <div className="space-y-2">
+                <label className="text-xs font-black text-zinc-400 uppercase tracking-widest">Obrigatoriedade</label>
+                <select 
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none font-bold transition-all"
+                  value={getConfig('exigir_confirmacao_presenca')?.valor || 'false'}
+                  onChange={(e) => updateConfig('exigir_confirmacao_presenca', e.target.value)}
+                >
+                  <option value="true">Sim, Obrigatório</option>
+                  <option value="false">Não, Apenas Visual</option>
+                </select>
+              </div>
 
-                <div className="space-y-1">
-                  <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Janela de Tolerância (minutos)</label>
-                  <div className="flex items-center gap-3">
-                    <input 
-                      type="number" 
-                      className="flex-1 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 outline-none font-bold"
-                      value={getConfig('janela_presenca_minutos')?.valor || '30'}
-                      onBlur={(e) => handleSave('janela_presenca_minutos', e.target.value)}
-                      onChange={(e) => setConfigs(prev => prev.map(c => c.chave === 'janela_presenca_minutos' ? { ...c, valor: e.target.value } : c))}
-                      disabled={saving}
-                    />
-                    <button 
-                      onClick={() => handleSave('janela_presenca_minutos', getConfig('janela_presenca_minutos')?.valor)}
-                      disabled={saving}
-                      className="p-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
-                    >
-                      <Save className="h-4 w-4" />
-                    </button>
-                  </div>
-                  <p className="text-[10px] text-zinc-500">Tempo permitido antes/depois do horário de entrada/saída.</p>
+              <div className="space-y-2">
+                <label className="text-xs font-black text-zinc-400 uppercase tracking-widest">Janela de Tolerância</label>
+                <div className="relative">
+                  <input 
+                    type="number" 
+                    className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none font-bold transition-all pr-12"
+                    value={getConfig('janela_presenca_minutos')?.valor || '30'}
+                    onChange={(e) => updateConfig('janela_presenca_minutos', e.target.value)}
+                  />
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-zinc-400 uppercase">min</div>
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-black text-zinc-400 uppercase tracking-widest">Fuso Horário (Timezone)</label>
+                <select 
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none font-bold transition-all"
+                  value={getConfig('timezone')?.valor || 'America/Sao_Paulo'}
+                  onChange={(e) => updateConfig('timezone', e.target.value)}
+                >
+                  <option value="America/Sao_Paulo">Brasília (GMT-3)</option>
+                  <option value="America/Manaus">Manaus (GMT-4)</option>
+                  <option value="America/Cuiaba">Cuiabá (GMT-4)</option>
+                  <option value="America/Rio_Branco">Acre (GMT-5)</option>
+                  <option value="UTC">UTC (Universal)</option>
+                </select>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Placeholder: Segurança */}
-        <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-6 flex items-center justify-between opacity-50 cursor-not-allowed">
-          <div className="flex items-center gap-4">
-            <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-lg text-red-600">
-              <Shield className="h-5 w-5" />
+        {/* Placeholders com design premium */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 opacity-60">
+          <div className="bg-zinc-100 dark:bg-zinc-800/50 rounded-[2rem] p-8 flex items-center justify-between group cursor-not-allowed border border-dashed border-zinc-300 dark:border-zinc-700">
+            <div className="flex items-center gap-6">
+              <div className="p-4 bg-white dark:bg-zinc-800 rounded-2xl text-zinc-400 shadow-sm">
+                <Shield className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-zinc-900 dark:text-white uppercase tracking-tight">Segurança Avançada</h3>
+                <p className="text-xs text-zinc-500">MFA e auditoria detalhada.</p>
+              </div>
             </div>
-            <div>
-              <h3 className="font-bold text-zinc-900 dark:text-white">Políticas de Segurança</h3>
-              <p className="text-xs text-zinc-500">MFA, expiração de senha e logs de acesso.</p>
-            </div>
+            <span className="text-[10px] font-black uppercase tracking-widest bg-zinc-200 dark:bg-zinc-800 px-3 py-1 rounded-full text-zinc-500">Breve</span>
           </div>
-          <span className="text-[10px] font-black uppercase tracking-widest bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded">Em breve</span>
-        </div>
 
-        {/* Placeholder: Backup */}
-        <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-6 flex items-center justify-between opacity-50 cursor-not-allowed">
-          <div className="flex items-center gap-4">
-            <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg text-blue-600">
-              <Database className="h-5 w-5" />
+          <div className="bg-zinc-100 dark:bg-zinc-800/50 rounded-[2rem] p-8 flex items-center justify-between group cursor-not-allowed border border-dashed border-zinc-300 dark:border-zinc-700">
+            <div className="flex items-center gap-6">
+              <div className="p-4 bg-white dark:bg-zinc-800 rounded-2xl text-zinc-400 shadow-sm">
+                <Database className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-zinc-900 dark:text-white uppercase tracking-tight">Arquivamento</h3>
+                <p className="text-xs text-zinc-500">Backup automático em nuvem.</p>
+              </div>
             </div>
-            <div>
-              <h3 className="font-bold text-zinc-900 dark:text-white">Backup e Exportação</h3>
-              <p className="text-xs text-zinc-500">Agendamento de backups e snapshots do banco.</p>
-            </div>
+            <span className="text-[10px] font-black uppercase tracking-widest bg-zinc-200 dark:bg-zinc-800 px-3 py-1 rounded-full text-zinc-500">Breve</span>
           </div>
-          <span className="text-[10px] font-black uppercase tracking-widest bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded">Em breve</span>
         </div>
       </div>
     </div>

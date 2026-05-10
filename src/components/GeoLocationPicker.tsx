@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { MapPin, Loader2 } from 'lucide-react'
+import { MapPin, Loader2, ExternalLink } from 'lucide-react'
 
 interface GeoLocationPickerProps {
   defaultLat?: number | null
@@ -42,15 +42,29 @@ export function GeoLocationPicker({ defaultLat, defaultLong, defaultRaio }: GeoL
           <MapPin className="mr-2 h-4 w-4 text-blue-600" />
           Geolocalização (Check-in Digital)
         </h3>
-        <button
-          type="button"
-          onClick={getMyLocation}
-          disabled={loading}
-          className="text-xs font-medium text-blue-600 hover:text-blue-700 flex items-center bg-blue-50 dark:bg-blue-900/20 px-2 py-1 rounded"
-        >
-          {loading ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <MapPin className="mr-1 h-3 w-3" />}
-          Pegar Localização Atual
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              if (!lat || !long) return
+              window.open(`https://www.google.com/maps/@${lat},${long},20z`, '_blank')
+            }}
+            disabled={!lat || !long}
+            className="text-xs font-medium text-emerald-600 hover:text-emerald-700 flex items-center bg-emerald-50 dark:bg-emerald-900/20 px-2 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <ExternalLink className="mr-1 h-3 w-3" />
+            Ver no Google Maps
+          </button>
+          <button
+            type="button"
+            onClick={getMyLocation}
+            disabled={loading}
+            className="text-xs font-medium text-blue-600 hover:text-blue-700 flex items-center bg-blue-50 dark:bg-blue-900/20 px-2 py-1 rounded transition-colors"
+          >
+            {loading ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <MapPin className="mr-1 h-3 w-3" />}
+            Pegar Localização Atual
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-4">

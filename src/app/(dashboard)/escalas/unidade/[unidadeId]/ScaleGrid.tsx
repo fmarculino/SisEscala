@@ -111,6 +111,17 @@ export function ScaleGrid({
     onConfirm: () => void,
     type: 'default' | 'danger' | 'warning' | 'success'
   } | null>(null)
+  
+  const [manualPresenceModal, setManualPresenceModal] = useState<{
+    isOpen: boolean;
+    servidorId: string;
+    servidorNome: string;
+    dia: number;
+    categoria: RowCategory;
+    tipo: 'entrada' | 'saida';
+    escalaMensalId: string;
+    isReverting: boolean;
+  } | null>(null)
   const [externalOccupancy, setExternalOccupancy] = useState<any[]>([])
 
   const fetchOccupancy = useCallback(async (servidorIds: string[]) => {
@@ -714,6 +725,30 @@ export function ScaleGrid({
     }
   }
 
+  const isRedIndicator = (day: number, categoria: string, tipo: 'entrada' | 'saida') => {
+    const today = new Date()
+    const currentMonth = today.getMonth() + 1
+    const currentYear = today.getFullYear()
+    
+    // Only show red indicators for current or past months
+    if (ano > currentYear) return false
+    if (ano === currentYear && mes > currentMonth) return false
+
+    // If past month, all missed shifts are red
+    if (ano < currentYear || (ano === currentYear && mes < currentMonth)) return true
+
+    // Current month logic
+    if (day > today.getDate()) return false
+    if (day < today.getDate()) return true
+    
+    const shiftHour = categoria === 'Plantão' || categoria === 'Regular' ? 7 : 0
+    const endHour = shiftHour + 12
+    const currentHour = today.getHours()
+    
+    if (tipo === 'entrada') return currentHour >= shiftHour + 1
+    return currentHour >= endHour
+  }
+
   const handleCloseModal = () => {
     setTriggerModal(null)
     setGeneratedLink(null)
@@ -776,6 +811,86 @@ export function ScaleGrid({
         }
       }
     })
+  }
+
+  const fetchData = useCallback(async () => {
+    try {
+      const { data: dailies, error } = await supabase
+        .from('escala_diaria')
+        .select('*')
+        .in('escala_mensal_id', escalaMensal.map(em => em.id))
+
+      if (error) throw error
+
+      if (dailies) {
+        const newPresence: Record<string, Record<RowCategory, Record<number, { entrada: boolean, saida: boolean }>>> = {}
+        escalaMensal.forEach(em => {
+          newPresence[em.servidor_id] = {
+            'Regular': {}, 'Extra': {}, 'Plantão': {}, 'Sobreaviso': {}
+          }
+          const serverDailies = dailies.filter(ed => ed.escala_mensal_id === em.id)
+          serverDailies.forEach(ed => {
+            const cat = (ed.categoria || 'Regular') as RowCategory
+            newPresence[em.servidor_id][cat][ed.dia] = {
+              entrada: !!ed.presenca_entrada_em,
+              saida: !!ed.presenca_saida_em
+            }
+          })
+        })
+        setPresenceData(newPresence)
+      }
+    } catch (err) {
+      console.error('Erro ao recarregar dados:', err)
+    }
+  }, [supabase, escalaMensal])
+
+  const handleConfirmManualPresence = async () => {
+    if (!manualPresenceModal) return
+    
+    setLoading(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Usuário não autenticado')
+
+      const isReverting = manualPresenceModal.isReverting
+      const tipo = manualPresenceModal.tipo
+      const rpcName = isReverting ? 'fn_reverter_presenca_manual' : 'fn_confirmar_presenca_manual'
+
+      const { data, error } = await supabase.rpc(rpcName, {
+        p_escala_mensal_id: manualPresenceModal.escalaMensalId,
+        p_dia: manualPresenceModal.dia,
+        p_categoria: manualPresenceModal.categoria,
+        p_tipo: manualPresenceModal.tipo,
+        p_validador_id: user.id
+      })
+
+      // Fechar modal de confirmação IMEDIATAMENTE antes de qualquer outra coisa
+      setManualPresenceModal(null)
+
+      if (error) throw error
+      if (data && !data.success) throw new Error(data.message)
+
+      // Refresh data
+      await fetchData()
+
+      setAlertModal({
+        isOpen: true,
+        title: isReverting ? 'Presença Revertida' : 'Presença Validada',
+        message: data.message || (isReverting ? `A ${tipo} foi revertida.` : `A ${tipo} foi validada.`),
+        type: isReverting ? 'warning' : 'success'
+      })
+      
+    } catch (err: any) {
+      setManualPresenceModal(null) // Fechar também em caso de erro para não travar a UI
+      setAlertModal({
+        isOpen: true,
+        title: 'Erro na Operação',
+        message: err.message,
+        type: 'danger'
+      })
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleSave = async () => {
@@ -1309,12 +1424,13 @@ export function ScaleGrid({
 
                             {/* Indicador de Presença (Entrada/Saída) */}
                             {turnoId && cat !== 'Sobreaviso' && (
-                              <div className="absolute bottom-0 left-0 right-0 h-[3px] flex gap-[1px]">
+                              <div className="absolute bottom-0 left-0 right-0 h-[3px] flex gap-[1px] z-20">
                                 {(() => {
                                   const today = new Date()
                                   const currentDay = today.getDate()
                                   const currentMonth = today.getMonth() + 1
                                   const currentYear = today.getFullYear()
+                                  const currentHour = today.getHours()
                                   
                                   const d = new Date(ano, mes - 1, day)
                                   const isPast = d < new Date(currentYear, currentMonth - 1, currentDay)
@@ -1322,17 +1438,51 @@ export function ScaleGrid({
                                   
                                   const presence = presenceData[em.servidor_id]?.[cat]?.[day] || { entrada: false, saida: false }
 
+                                  // Lógica para determinar se o turno já deveria ter começado ou terminado
+                                  const redEntrada = isRedIndicator(day, cat, 'entrada')
+                                  const redSaida = isRedIndicator(day, cat, 'saida')
+
+                                  const canEditPresence = !isClosed && (userProfile?.role === 'admin' || userProfile?.role === 'super_admin' || userProfile?.role === 'coordenador')
+
                                   return (
                                     <>
                                       {/* Metade Entrada */}
                                       <div 
-                                        className={`flex-1 h-full ${presence.entrada ? 'bg-emerald-500' : (isPast ? 'bg-red-500' : 'bg-transparent')}`} 
-                                        title={presence.entrada ? "Entrada Confirmada" : "Entrada Pendente"} 
+                                        onClick={(e) => {
+                                          if (!canEditPresence) return
+                                          e.stopPropagation()
+                                          setManualPresenceModal({
+                                            isOpen: true,
+                                            servidorId: em.servidor_id,
+                                            servidorNome: em.servidores?.nome,
+                                            dia: day,
+                                            categoria: cat,
+                                            tipo: 'entrada',
+                                            escalaMensalId: em.id,
+                                            isReverting: !!presence.entrada
+                                          })
+                                        }}
+                                        className={`flex-1 h-full cursor-pointer transition-colors ${presence.entrada ? 'bg-emerald-500 hover:bg-emerald-600' : (redEntrada ? 'bg-red-500 hover:bg-red-600' : 'bg-transparent hover:bg-zinc-300 dark:hover:bg-zinc-600')}`} 
+                                        title={presence.entrada ? "Entrada Confirmada (Clique para reverter)" : (redEntrada ? "Entrada Faltante/Pendente" : "Entrada Programada")} 
                                       />
                                       {/* Metade Saída */}
                                       <div 
-                                        className={`flex-1 h-full ${presence.saida ? 'bg-emerald-500' : (presence.entrada && isToday ? 'bg-amber-400 animate-pulse' : (isPast ? 'bg-red-500' : 'bg-transparent'))}`} 
-                                        title={presence.saida ? "Saída Confirmada" : (presence.entrada && isToday ? "Em Plantão" : "Saída Pendente")} 
+                                        onClick={(e) => {
+                                          if (!canEditPresence) return
+                                          e.stopPropagation()
+                                          setManualPresenceModal({
+                                            isOpen: true,
+                                            servidorId: em.servidor_id,
+                                            servidorNome: em.servidores?.nome,
+                                            dia: day,
+                                            categoria: cat,
+                                            tipo: 'saida',
+                                            escalaMensalId: em.id,
+                                            isReverting: !!presence.saida
+                                          })
+                                        }}
+                                        className={`flex-1 h-full cursor-pointer transition-colors ${presence.saida ? 'bg-emerald-500 hover:bg-emerald-600' : (presence.entrada && isToday ? 'bg-amber-400 animate-pulse hover:bg-amber-500' : (redSaida ? 'bg-red-500 hover:bg-red-600' : 'bg-transparent hover:bg-zinc-300 dark:hover:bg-zinc-600'))}`} 
+                                        title={presence.saida ? "Saída Confirmada (Clique para reverter)" : (presence.entrada && isToday ? "Em Plantão" : (redSaida ? "Saída Faltante/Pendente" : "Saída Programada"))} 
                                       />
                                     </>
                                   )
@@ -1658,6 +1808,51 @@ export function ScaleGrid({
           }
         >
           <p className="text-sm text-zinc-600 dark:text-zinc-400">{confirmModal.message}</p>
+        </Modal>
+      )}
+
+      {manualPresenceModal && (
+        <Modal
+          isOpen={manualPresenceModal.isOpen}
+          onClose={() => setManualPresenceModal(null)}
+          title={manualPresenceModal.isReverting ? `Reverter ${manualPresenceModal.tipo === 'entrada' ? 'Entrada' : 'Saída'} Manual` : `Validar ${manualPresenceModal.tipo === 'entrada' ? 'Entrada' : 'Saída'} Manual`}
+          type={manualPresenceModal.isReverting ? "danger" : "warning"}
+          footer={
+            <>
+              <button
+                onClick={() => setManualPresenceModal(null)}
+                className="flex-1 px-4 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleConfirmManualPresence}
+                disabled={loading}
+                className={`flex-1 px-4 py-2 rounded-xl font-bold flex items-center justify-center gap-2 ${
+                  manualPresenceModal.isReverting 
+                    ? "bg-red-600 hover:bg-red-700 text-white" 
+                    : "bg-amber-600 hover:bg-amber-700 text-white"
+                }`}
+              >
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : (manualPresenceModal.isReverting ? 'Confirmar Reversão' : 'Confirmar Validação')}
+              </button>
+            </>
+          }
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              {manualPresenceModal.isReverting ? (
+                <>Você deseja <strong>reverter</strong> a <strong>{manualPresenceModal.tipo}</strong> do servidor <strong>{manualPresenceModal.servidorNome}</strong> para o dia <strong>{manualPresenceModal.dia}</strong>?</>
+              ) : (
+                <>Você está validando manualmente a <strong>{manualPresenceModal.tipo}</strong> do servidor <strong>{manualPresenceModal.servidorNome}</strong> para o dia <strong>{manualPresenceModal.dia}</strong>.</>
+              )}
+            </p>
+            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3 rounded-lg">
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                Esta ação será registrada com seu usuário para fins de auditoria.
+              </p>
+            </div>
+          </div>
         </Modal>
       )}
     </div>
