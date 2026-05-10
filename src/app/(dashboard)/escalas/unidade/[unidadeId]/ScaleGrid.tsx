@@ -600,13 +600,10 @@ export function ScaleGrid({
   const calculateTotals = (servidorId: string) => {
     const serverData = gridData[servidorId] || { 'Regular': {}, 'Extra': {}, 'Plantão': {}, 'Sobreaviso': {} }
     
-    let chTotal = 0
-    let he100 = 0
-    let he50 = 0
-    let pl12 = 0
-    let pl6 = 0
-    let pl4 = 0
-    let so12 = 0
+    // Contadores para o Total Validado (Respeita as regras de presença)
+    let v_ch = 0, v_he100 = 0, v_he50 = 0, v_pl12 = 0, v_pl6 = 0, v_pl4 = 0, v_so12 = 0
+    // Contadores para o Total Planejado (Cálculo bruto da grade)
+    let p_ch = 0, p_he100 = 0, p_he50 = 0, p_pl12 = 0, p_pl6 = 0, p_pl4 = 0, p_so12 = 0
 
     const exigirPresenca = configs['exigir_confirmacao_presenca'] === 'true'
     const today = new Date()
@@ -614,28 +611,25 @@ export function ScaleGrid({
     const currentMonth = today.getMonth() + 1
     const currentYear = today.getFullYear()
 
-    // Sum Regular CH (Apply interval deduction)
     const emRecord = escalaMensal.find(x => x.servidor_id === servidorId)
     const jornada = jornadas.find(j => j.id === emRecord?.jornada_id)
     const intervaloHoras = (jornada?.intervalo_minutos || 0) / 60
 
+    // Sum Regular CH
     Object.entries(serverData['Regular']).forEach(([day, turnoId]) => {
       const t = turnos.find(x => x.id === turnoId)
       if (t) {
-        // Presence Check
         const d = parseInt(day)
         const isPast = ano < currentYear || (ano === currentYear && mes < currentMonth) || (ano === currentYear && mes === currentMonth && d < currentDay)
         const presence = presenceData[servidorId]?.['Regular']?.[d]
-        if (exigirPresenca && isPast && !presence?.entrada) return
-
-        // Prioritize jornada duration for Regular row, fallback to turno hours if jornada duration is not set
-        const baseHours = (jornada && Number(jornada.horas_totais) > 0) 
-          ? Number(jornada.horas_totais) 
-          : Number(t.horas_computadas)
-
-        // Subtract interval from base hours, ensuring it doesn't go below zero
+        
+        const baseHours = (jornada && Number(jornada.horas_totais) > 0) ? Number(jornada.horas_totais) : Number(t.horas_computadas)
         const liquidHours = Math.max(0, baseHours - intervaloHoras)
-        chTotal += liquidHours
+        
+        p_ch += liquidHours
+        if (!(exigirPresenca && isPast && !presence?.entrada)) {
+          v_ch += liquidHours
+        }
       }
     })
 
@@ -646,15 +640,20 @@ export function ScaleGrid({
         const d = parseInt(day)
         const isPast = ano < currentYear || (ano === currentYear && mes < currentMonth) || (ano === currentYear && mes === currentMonth && d < currentDay)
         const presence = presenceData[servidorId]?.['Extra']?.[d]
-        if (exigirPresenca && isPast && !presence?.entrada) return
-
+        
         const dateObj = new Date(ano, mes - 1, d)
         const isWE = dateObj.getDay() === 0 || dateObj.getDay() === 6
         const dateStr = `${ano}-${mes.toString().padStart(2, '0')}-${day.padStart(2, '0')}`
         const isHoliday = feriados.some(f => f.data === dateStr)
+        const horas = Number(t.horas_computadas)
 
-        if (isWE || isHoliday) he100 += Number(t.horas_computadas)
-        else he50 += Number(t.horas_computadas)
+        if (isWE || isHoliday) {
+          p_he100 += horas
+          if (!(exigirPresenca && isPast && !presence?.entrada)) v_he100 += horas
+        } else {
+          p_he50 += horas
+          if (!(exigirPresenca && isPast && !presence?.entrada)) v_he50 += horas
+        }
       }
     })
 
@@ -665,11 +664,23 @@ export function ScaleGrid({
         const d = parseInt(day)
         const isPast = ano < currentYear || (ano === currentYear && mes < currentMonth) || (ano === currentYear && mes === currentMonth && d < currentDay)
         const presence = presenceData[servidorId]?.['Plantão']?.[d]
-        if (exigirPresenca && isPast && !presence?.entrada) return
+        const horas = Number(t.horas_computadas)
 
-        if (Number(t.horas_computadas) >= 12) pl12++
-        else if (Number(t.horas_computadas) >= 6) pl6++
-        else pl4++
+        const incrementP = () => {
+          if (horas >= 12) p_pl12++
+          else if (horas >= 6) p_pl6++
+          else p_pl4++
+        }
+        const incrementV = () => {
+          if (horas >= 12) v_pl12++
+          else if (horas >= 6) v_pl6++
+          else v_pl4++
+        }
+
+        incrementP()
+        if (!(exigirPresenca && isPast && !presence?.entrada)) {
+          incrementV()
+        }
       }
     })
 
@@ -677,22 +688,31 @@ export function ScaleGrid({
     Object.entries(serverData['Sobreaviso']).forEach(([day, turnoId]) => {
       const em = escalaMensal.find(x => x.servidor_id === servidorId)
       if (!em) return
-
       const d = parseInt(day)
-      const { status: effectiveStatus } = getStatusForDay(d, em.id)
-      if (desconsiderarFalha && effectiveStatus === 'Falhou') return 
-      
       const t = turnos.find(x => x.id === turnoId)
-      if (t) {
-        if (t.codigo === 'MTN') so12 += 2
-        else if (t.codigo === 'MT' || t.codigo === 'N') so12++
+      if (!t) return
+
+      const { status: effectiveStatus } = getStatusForDay(d, em.id)
+      const val = (t.codigo === 'MTN') ? 2 : (t.codigo === 'MT' || t.codigo === 'N' ? 1 : 0)
+      
+      p_so12 += val
+      if (!(desconsiderarFalha && effectiveStatus === 'Falhou')) {
+        v_so12 += val
       }
     })
 
-    const totalGeral = chTotal + he100 + he50 + (pl12 * 12) + (pl6 * 8) + (pl4 * 4) + (so12 * 12)
+    const totalValidado = v_ch + v_he100 + v_he50 + (v_pl12 * 12) + (v_pl6 * 8) + (v_pl4 * 4) + (v_so12 * 12)
+    const totalPlanejado = p_ch + p_he100 + p_he50 + (p_pl12 * 12) + (p_pl6 * 8) + (p_pl4 * 4) + (p_so12 * 12)
 
-    return { chTotal, he100, he50, pl12, pl6, pl4, so12, totalGeral }
+    return { 
+      chTotal: v_ch, he100: v_he100, he50: v_he50, pl12: v_pl12, pl6: v_pl6, pl4: v_pl4, so12: v_so12, 
+      p_ch, p_he100, p_he50, p_pl12, p_pl6, p_pl4, p_so12,
+      totalGeral: totalValidado,
+      totalPlanejado
+    }
   }
+
+
 
   const confirmTriggerSobreaviso = async () => {
     if (!triggerModal || !motivo) return
@@ -894,6 +914,18 @@ export function ScaleGrid({
   }
 
   const handleSave = async () => {
+    // Validação: Todas as Jornadas devem estar selecionadas
+    const servidorSemJornada = escalaMensal.find(em => !em.jornada_id)
+    if (servidorSemJornada) {
+      setAlertModal({
+        isOpen: true,
+        title: 'Jornada Obrigatória',
+        message: `O servidor ${servidorSemJornada.servidores?.nome || 'da lista'} não possui uma jornada de trabalho selecionada. Por favor, selecione a jornada para todos os servidores antes de salvar.`,
+        type: 'warning'
+      })
+      return
+    }
+
     setLoading(true)
     try {
       const allInserts: any[] = []
@@ -1062,6 +1094,18 @@ export function ScaleGrid({
   }
 
   const handleCloseScale = async () => {
+    // Validação: Todas as Jornadas devem estar selecionadas
+    const servidorSemJornada = escalaMensal.find(em => !em.jornada_id)
+    if (servidorSemJornada) {
+      setAlertModal({
+        isOpen: true,
+        title: 'Jornada Obrigatória',
+        message: `Não é possível fechar a escala pois o servidor ${servidorSemJornada.servidores?.nome || 'da lista'} não possui uma jornada de trabalho selecionada.`,
+        type: 'warning'
+      })
+      return
+    }
+
     setConfirmModal({
       isOpen: true,
       title: 'Fechar Escala',
@@ -1284,7 +1328,7 @@ export function ScaleGrid({
                                 item.id === em.id ? { ...item, jornada_id: newJornadaId } : item
                               ))
                             }}
-                            className="w-full bg-transparent border-none outline-none text-[10px] font-bold uppercase focus:ring-1 focus:ring-blue-500 rounded p-0"
+                            className={`w-full ${!em.jornada_id ? 'bg-red-50 dark:bg-red-900/10 text-red-500 animate-pulse' : 'bg-transparent'} border-none outline-none text-[10px] font-bold uppercase focus:ring-1 focus:ring-blue-500 rounded p-0 transition-colors`}
                           >
                             <option value="">Selecione...</option>
                             {jornadas.filter(j => j.ativo || j.id === em.jornada_id).map(j => (
@@ -1494,14 +1538,110 @@ export function ScaleGrid({
                       })}
                       {catIdx === 0 && (
                         <>
-                          <td rowSpan={4} className="sticky right-[296px] z-10 p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-blue-50 dark:bg-blue-900 text-blue-900 dark:text-blue-100">{totals.chTotal}</td>
-                          <td rowSpan={4} className="sticky right-[258px] z-10 p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-indigo-50 dark:bg-indigo-900 text-indigo-900 dark:text-indigo-100">{totals.he100}</td>
-                          <td rowSpan={4} className="sticky right-[220px] z-10 p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-indigo-50 dark:bg-indigo-900 text-indigo-900 dark:text-indigo-100">{totals.he50}</td>
-                          <td rowSpan={4} className="sticky right-[182px] z-10 p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-orange-50 dark:bg-orange-900 text-orange-900 dark:text-orange-100">{totals.pl12}</td>
-                          <td rowSpan={4} className="sticky right-[144px] z-10 p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-orange-50 dark:bg-orange-900 text-orange-900 dark:text-orange-100">{totals.pl6}</td>
-                          <td rowSpan={4} className="sticky right-[106px] z-10 p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-orange-50 dark:bg-orange-900 text-orange-900 dark:text-orange-100">{totals.pl4}</td>
-                          <td rowSpan={4} className="sticky right-[68px] z-10 p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-emerald-50 dark:bg-emerald-900 text-emerald-900 dark:text-emerald-100">{totals.so12}</td>
-                          <td rowSpan={4} className="sticky right-0 z-10 p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black bg-amber-400 text-black text-xs">{totals.totalGeral}</td>
+                          {/* CH */}
+                          <td rowSpan={4} className="sticky right-[296px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-blue-50 dark:bg-blue-900 text-blue-900 dark:text-blue-100">
+                            <div className="flex flex-col h-full divide-y divide-blue-200 dark:divide-blue-800">
+                              <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
+                                <span className="text-[6px] uppercase leading-none">Plan</span>
+                                <span className="text-[10px] leading-tight">{totals.p_ch}</span>
+                              </div>
+                              <div className="flex-1 flex flex-col justify-center p-1 bg-blue-100/50 dark:bg-blue-800/30">
+                                <span className="text-[6px] uppercase leading-none">Val</span>
+                                <span className="text-[10px] leading-tight">{totals.chTotal}</span>
+                              </div>
+                            </div>
+                          </td>
+                          {/* HE100 */}
+                          <td rowSpan={4} className="sticky right-[258px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-indigo-50 dark:bg-indigo-900 text-indigo-900 dark:text-indigo-100">
+                            <div className="flex flex-col h-full divide-y divide-indigo-200 dark:divide-indigo-800">
+                              <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
+                                <span className="text-[6px] uppercase leading-none">Plan</span>
+                                <span className="text-[10px] leading-tight">{totals.p_he100}</span>
+                              </div>
+                              <div className="flex-1 flex flex-col justify-center p-1 bg-indigo-100/50 dark:bg-indigo-800/30">
+                                <span className="text-[6px] uppercase leading-none">Val</span>
+                                <span className="text-[10px] leading-tight">{totals.he100}</span>
+                              </div>
+                            </div>
+                          </td>
+                          {/* HE50 */}
+                          <td rowSpan={4} className="sticky right-[220px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-indigo-50 dark:bg-indigo-900 text-indigo-900 dark:text-indigo-100">
+                            <div className="flex flex-col h-full divide-y divide-indigo-200 dark:divide-indigo-800">
+                              <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
+                                <span className="text-[6px] uppercase leading-none">Plan</span>
+                                <span className="text-[10px] leading-tight">{totals.p_he50}</span>
+                              </div>
+                              <div className="flex-1 flex flex-col justify-center p-1 bg-indigo-100/50 dark:bg-indigo-800/30">
+                                <span className="text-[6px] uppercase leading-none">Val</span>
+                                <span className="text-[10px] leading-tight">{totals.he50}</span>
+                              </div>
+                            </div>
+                          </td>
+                          {/* PL12 */}
+                          <td rowSpan={4} className="sticky right-[182px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-orange-50 dark:bg-orange-900 text-orange-900 dark:text-orange-100">
+                            <div className="flex flex-col h-full divide-y divide-orange-200 dark:divide-orange-800">
+                              <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
+                                <span className="text-[6px] uppercase leading-none">Plan</span>
+                                <span className="text-[10px] leading-tight">{totals.p_pl12}</span>
+                              </div>
+                              <div className="flex-1 flex flex-col justify-center p-1 bg-orange-100/50 dark:bg-orange-800/30">
+                                <span className="text-[6px] uppercase leading-none">Val</span>
+                                <span className="text-[10px] leading-tight">{totals.pl12}</span>
+                              </div>
+                            </div>
+                          </td>
+                          {/* PL6 */}
+                          <td rowSpan={4} className="sticky right-[144px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-orange-50 dark:bg-orange-900 text-orange-900 dark:text-orange-100">
+                            <div className="flex flex-col h-full divide-y divide-orange-200 dark:divide-orange-800">
+                              <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
+                                <span className="text-[6px] uppercase leading-none">Plan</span>
+                                <span className="text-[10px] leading-tight">{totals.p_pl6}</span>
+                              </div>
+                              <div className="flex-1 flex flex-col justify-center p-1 bg-orange-100/50 dark:bg-orange-800/30">
+                                <span className="text-[6px] uppercase leading-none">Val</span>
+                                <span className="text-[10px] leading-tight">{totals.pl6}</span>
+                              </div>
+                            </div>
+                          </td>
+                          {/* PL4 */}
+                          <td rowSpan={4} className="sticky right-[106px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-orange-50 dark:bg-orange-900 text-orange-900 dark:text-orange-100">
+                            <div className="flex flex-col h-full divide-y divide-orange-200 dark:divide-orange-800">
+                              <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
+                                <span className="text-[6px] uppercase leading-none">Plan</span>
+                                <span className="text-[10px] leading-tight">{totals.p_pl4}</span>
+                              </div>
+                              <div className="flex-1 flex flex-col justify-center p-1 bg-orange-100/50 dark:bg-orange-800/30">
+                                <span className="text-[6px] uppercase leading-none">Val</span>
+                                <span className="text-[10px] leading-tight">{totals.pl4}</span>
+                              </div>
+                            </div>
+                          </td>
+                          {/* SO12 */}
+                          <td rowSpan={4} className="sticky right-[68px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-emerald-50 dark:bg-emerald-900 text-emerald-900 dark:text-emerald-100">
+                            <div className="flex flex-col h-full divide-y divide-emerald-200 dark:divide-emerald-800">
+                              <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
+                                <span className="text-[6px] uppercase leading-none">Plan</span>
+                                <span className="text-[10px] leading-tight">{totals.p_so12}</span>
+                              </div>
+                              <div className="flex-1 flex flex-col justify-center p-1 bg-emerald-100/50 dark:bg-emerald-800/30">
+                                <span className="text-[6px] uppercase leading-none">Val</span>
+                                <span className="text-[10px] leading-tight">{totals.so12}</span>
+                              </div>
+                            </div>
+                          </td>
+
+                          <td rowSpan={4} className="sticky right-0 z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-amber-400 text-black">
+                            <div className="flex flex-col h-full divide-y divide-black/10">
+                              <div className="flex-1 flex flex-col justify-center p-1">
+                                <span className="text-[7px] uppercase leading-none opacity-60">Planejado</span>
+                                <span className="text-[11px] leading-tight">{totals.totalPlanejado}</span>
+                              </div>
+                              <div className="flex-1 flex flex-col justify-center p-1 bg-black/5">
+                                <span className="text-[7px] uppercase leading-none opacity-60">Validado</span>
+                                <span className="text-[11px] leading-tight">{totals.totalGeral}</span>
+                              </div>
+                            </div>
+                          </td>
                         </>
                       )}
                     </tr>
