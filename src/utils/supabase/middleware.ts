@@ -40,6 +40,7 @@ export async function updateSession(request: NextRequest) {
     !request.nextUrl.pathname.startsWith('/login') &&
     !request.nextUrl.pathname.startsWith('/auth') &&
     !request.nextUrl.pathname.startsWith('/sobreaviso') &&
+    !request.nextUrl.pathname.startsWith('/presenca') &&
     !request.nextUrl.pathname.startsWith('/consultar-escala')
   ) {
     // no user, potentially respond by redirecting the user to the login page

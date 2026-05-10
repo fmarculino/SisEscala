@@ -95,12 +95,19 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <div className="mt-6">
+          <div className="mt-6 space-y-3">
             <Link
               href="/consultar-escala"
               className="flex w-full justify-center items-center rounded-md border border-zinc-300 bg-white py-2 px-4 text-sm font-medium text-zinc-700 shadow-sm hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 transition-all duration-200"
             >
               🗓️ Sou Servidor: Consultar Escala
+            </Link>
+            
+            <Link
+              href="/presenca"
+              className="flex w-full justify-center items-center rounded-md border border-emerald-200 bg-emerald-50/50 py-2 px-4 text-sm font-bold text-emerald-700 shadow-sm hover:bg-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 dark:border-emerald-900/30 dark:bg-emerald-900/10 dark:text-emerald-400 dark:hover:bg-emerald-900/20 transition-all duration-200"
+            >
+              ✅ Confirmação de Presença
             </Link>
           </div>
         </div>

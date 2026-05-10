@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { Save, Loader2, Settings, Clock, Shield, Bell, Database, Zap } from 'lucide-react'
+import { Save, Loader2, Settings, Clock, Shield, Bell, Database, Zap, Lock, CheckSquare } from 'lucide-react'
 
 export default function ConfigPage() {
   const supabase = createClient()
@@ -103,6 +103,46 @@ export default function ConfigPage() {
           </div>
         </div>
 
+        {/* Dia Limite de Planejamento */}
+        <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden shadow-sm">
+          <div className="p-6 flex items-start gap-4">
+            <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg text-indigo-600">
+              <Lock className="h-5 w-5" />
+            </div>
+            <div className="flex-1 space-y-1">
+              <h3 className="font-bold text-zinc-900 dark:text-white">Prazo de Planejamento Mensal</h3>
+              <p className="text-xs text-zinc-500">Bloqueia a edição de escalas do mês atual para Coordenadores após este dia.</p>
+              
+              <div className="pt-4 flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-zinc-400 uppercase">Dia Limite:</span>
+                  <input 
+                    type="number" 
+                    min="1"
+                    max="28"
+                    className="w-24 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-bold"
+                    value={getConfig('dia_limite_planejamento')?.valor || ''}
+                    onChange={(e) => {
+                      const newVal = e.target.value
+                      setConfigs(prev => prev.map(c => c.chave === 'dia_limite_planejamento' ? { ...c, valor: newVal } : c))
+                    }}
+                  />
+                </div>
+                <p className="text-[10px] text-zinc-500 max-w-[250px]">Do dia seguinte em diante, apenas Admins podem alterar o mês corrente.</p>
+                
+                <button 
+                  onClick={() => handleSave('dia_limite_planejamento', getConfig('dia_limite_planejamento')?.valor)}
+                  disabled={saving}
+                  className="ml-auto inline-flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-indigo-700 transition-colors disabled:opacity-50"
+                >
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  Atualizar Prazo
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Regras de Sobreaviso */}
         <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden shadow-sm">
           <div className="p-6 flex items-start gap-4">
@@ -182,6 +222,59 @@ export default function ConfigPage() {
                     <option value="false">Não permitir sobreposição manual</option>
                   </select>
                   <p className="text-[10px] text-zinc-500">Permite que um admin valide manualmente um sobreaviso que falhou.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Configuração de Presença */}
+        <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden shadow-sm">
+          <div className="p-6 flex items-start gap-4">
+            <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg text-emerald-600">
+              <CheckSquare className="h-5 w-5" />
+            </div>
+            <div className="flex-1 space-y-4">
+              <div>
+                <h3 className="font-bold text-zinc-900 dark:text-white">Confirmação de Presença (Ponto Digital)</h3>
+                <p className="text-xs text-zinc-500">Gerencie como os servidores devem registrar entrada e saída dos plantões.</p>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+                <div className="space-y-1">
+                  <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Obrigatoriedade</label>
+                  <select 
+                    className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 outline-none font-bold"
+                    value={getConfig('exigir_confirmacao_presenca')?.valor || 'false'}
+                    onChange={(e) => handleSave('exigir_confirmacao_presenca', e.target.value)}
+                    disabled={saving}
+                  >
+                    <option value="true">Sim, Obrigatório para cálculo</option>
+                    <option value="false">Não, Apenas Visual</option>
+                  </select>
+                  <p className="text-[10px] text-zinc-500">Se obrigatório, plantões não confirmados são excluídos dos totais.</p>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Janela de Tolerância (minutos)</label>
+                  <div className="flex items-center gap-3">
+                    <input 
+                      type="number" 
+                      className="flex-1 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 outline-none font-bold"
+                      value={getConfig('janela_presenca_minutos')?.valor || '30'}
+                      onBlur={(e) => handleSave('janela_presenca_minutos', e.target.value)}
+                      onChange={(e) => setConfigs(prev => prev.map(c => c.chave === 'janela_presenca_minutos' ? { ...c, valor: e.target.value } : c))}
+                      disabled={saving}
+                    />
+                    <button 
+                      onClick={() => handleSave('janela_presenca_minutos', getConfig('janela_presenca_minutos')?.valor)}
+                      disabled={saving}
+                      className="p-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+                    >
+                      <Save className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-zinc-500">Tempo permitido antes/depois do horário de entrada/saída.</p>
                 </div>
               </div>
             </div>

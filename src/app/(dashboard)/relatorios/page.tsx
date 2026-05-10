@@ -1,6 +1,7 @@
 import { FileText, ChevronRight, BarChart3, PieChart, Download, Search } from 'lucide-react'
 import { createClient } from '@/utils/supabase/server'
 import { AcessoNegado } from '@/components/AcessoNegado'
+import Link from 'next/link'
 
 export default async function RelatoriosPage() {
   const supabase = await createClient()
@@ -8,9 +9,24 @@ export default async function RelatoriosPage() {
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user?.id).single()
 
   const relatorios = [
-    { title: 'Consolidado de Horas', desc: 'Resumo total de CH, HE e Sobreaviso por setor.', icon: BarChart3 },
-    { title: 'Frequência Mensal', desc: 'Espelho de ponto baseado nas escalas fechadas.', icon: FileText },
-    { title: 'Distribuição de Plantões', desc: 'Análise de cobertura por unidade e turno.', icon: PieChart },
+    { 
+      title: 'Consolidado de Horas', 
+      desc: 'Resumo total de CH, HE e Sobreaviso por setor.', 
+      icon: BarChart3,
+      href: '/relatorios/consolidado'
+    },
+    { 
+      title: 'Frequência Mensal', 
+      desc: 'Espelho de ponto baseado nas escalas fechadas.', 
+      icon: FileText,
+      href: '/relatorios/frequencia'
+    },
+    { 
+      title: 'Distribuição de Plantões', 
+      desc: 'Análise de cobertura por unidade e turno.', 
+      icon: PieChart,
+      href: '/relatorios/distribuicao'
+    },
   ]
 
   return (
@@ -29,16 +45,20 @@ export default async function RelatoriosPage() {
 
       <div className="grid md:grid-cols-3 gap-6">
         {relatorios.map((rel, i) => (
-          <div key={i} className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-6 rounded-2xl hover:border-indigo-500 transition-all cursor-pointer group shadow-sm">
+          <Link 
+            key={i} 
+            href={rel.href}
+            className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-6 rounded-2xl hover:border-indigo-500 transition-all cursor-pointer group shadow-sm flex flex-col"
+          >
             <div className="p-3 bg-zinc-50 dark:bg-zinc-800 rounded-xl w-fit mb-4 text-zinc-600 dark:text-zinc-400 group-hover:bg-indigo-50 dark:group-hover:bg-indigo-900/20 group-hover:text-indigo-600 transition-all">
               <rel.icon className="h-6 w-6" />
             </div>
             <h3 className="font-bold text-zinc-900 dark:text-white mb-1">{rel.title}</h3>
-            <p className="text-xs text-zinc-500 leading-relaxed mb-4">{rel.desc}</p>
+            <p className="text-xs text-zinc-500 leading-relaxed mb-6 flex-1">{rel.desc}</p>
             <div className="flex items-center text-[10px] font-black uppercase tracking-widest text-indigo-600 group-hover:gap-2 transition-all">
               Acessar Relatório <ChevronRight className="h-3 w-3" />
             </div>
-          </div>
+          </Link>
         ))}
       </div>
 

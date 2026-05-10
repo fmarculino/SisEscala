@@ -6,6 +6,7 @@ import { Save, Loader2, Info, Zap, Lock, FileText, Plus, UserPlus, Users, CheckC
 import { ScalePrintView } from '@/components/ScalePrintView'
 import { Modal } from '@/components/ui/Modal'
 import React from 'react'
+import { canEditScale, UserRole } from '@/utils/governance'
 
 interface ScaleGridProps {
   unidadeId: string
@@ -194,6 +195,41 @@ export function ScaleGrid({
       supabase.removeChannel(channel)
     }
   }, [supabase])
+
+  // Realtime subscription for escala_diaria (presence updates)
+  useEffect(() => {
+    const channel = supabase
+      .channel('escala_diaria_presence')
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'escala_diaria'
+      }, (payload) => {
+        // Find which server/category/day this belongs to
+        const ed = payload.new as any
+        const em = escalaMensal.find(x => x.id === ed.escala_mensal_id)
+        if (em) {
+          setPresenceData(prev => ({
+            ...prev,
+            [em.servidor_id]: {
+              ...prev[em.servidor_id],
+              [ed.categoria as RowCategory]: {
+                ...(prev[em.servidor_id]?.[ed.categoria as RowCategory] || {}),
+                [ed.dia]: {
+                  entrada: !!ed.presenca_entrada_em,
+                  saida: !!ed.presenca_saida_em
+                }
+              }
+            }
+          }))
+        }
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [supabase, escalaMensal])
   
   // State structured by Servidor -> Categoria -> Dia -> TurnoId
   const [gridData, setGridData] = useState<Record<string, Record<RowCategory, Record<number, string>>>>(() => {
@@ -209,6 +245,27 @@ export function ScaleGrid({
       dailies.forEach(ed => {
         const cat = (ed.categoria || 'Regular') as RowCategory
         initial[em.servidor_id][cat][ed.dia] = ed.dicionario_turnos_id
+      })
+    })
+    return initial
+  })
+
+  const [presenceData, setPresenceData] = useState<Record<string, Record<RowCategory, Record<number, { entrada: boolean, saida: boolean }>>>>(() => {
+    const initial: Record<string, Record<RowCategory, Record<number, { entrada: boolean, saida: boolean }>>> = {}
+    escalaMensalInicial.forEach(em => {
+      initial[em.servidor_id] = {
+        'Regular': {},
+        'Extra': {},
+        'Plantão': {},
+        'Sobreaviso': {}
+      }
+      const dailies = escalaDiariaInicial.filter(ed => ed.escala_mensal_id === em.id)
+      dailies.forEach(ed => {
+        const cat = (ed.categoria || 'Regular') as RowCategory
+        initial[em.servidor_id][cat][ed.dia] = {
+          entrada: !!ed.presenca_entrada_em,
+          saida: !!ed.presenca_saida_em
+        }
       })
     })
     return initial
@@ -540,14 +597,26 @@ export function ScaleGrid({
     let pl4 = 0
     let so12 = 0
 
+    const exigirPresenca = configs['exigir_confirmacao_presenca'] === 'true'
+    const today = new Date()
+    const currentDay = today.getDate()
+    const currentMonth = today.getMonth() + 1
+    const currentYear = today.getFullYear()
+
     // Sum Regular CH (Apply interval deduction)
     const emRecord = escalaMensal.find(x => x.servidor_id === servidorId)
     const jornada = jornadas.find(j => j.id === emRecord?.jornada_id)
     const intervaloHoras = (jornada?.intervalo_minutos || 0) / 60
 
-    Object.values(serverData['Regular']).forEach(turnoId => {
+    Object.entries(serverData['Regular']).forEach(([day, turnoId]) => {
       const t = turnos.find(x => x.id === turnoId)
       if (t) {
+        // Presence Check
+        const d = parseInt(day)
+        const isPast = ano < currentYear || (ano === currentYear && mes < currentMonth) || (ano === currentYear && mes === currentMonth && d < currentDay)
+        const presence = presenceData[servidorId]?.['Regular']?.[d]
+        if (exigirPresenca && isPast && !presence?.entrada) return
+
         // Prioritize jornada duration for Regular row, fallback to turno hours if jornada duration is not set
         const baseHours = (jornada && Number(jornada.horas_totais) > 0) 
           ? Number(jornada.horas_totais) 
@@ -563,8 +632,13 @@ export function ScaleGrid({
     Object.entries(serverData['Extra']).forEach(([day, turnoId]) => {
       const t = turnos.find(x => x.id === turnoId)
       if (t) {
-        const d = new Date(ano, mes - 1, parseInt(day))
-        const isWE = d.getDay() === 0 || d.getDay() === 6
+        const d = parseInt(day)
+        const isPast = ano < currentYear || (ano === currentYear && mes < currentMonth) || (ano === currentYear && mes === currentMonth && d < currentDay)
+        const presence = presenceData[servidorId]?.['Extra']?.[d]
+        if (exigirPresenca && isPast && !presence?.entrada) return
+
+        const dateObj = new Date(ano, mes - 1, d)
+        const isWE = dateObj.getDay() === 0 || dateObj.getDay() === 6
         const dateStr = `${ano}-${mes.toString().padStart(2, '0')}-${day.padStart(2, '0')}`
         const isHoliday = feriados.some(f => f.data === dateStr)
 
@@ -574,9 +648,14 @@ export function ScaleGrid({
     })
 
     // Sum Plantões
-    Object.values(serverData['Plantão']).forEach(turnoId => {
+    Object.entries(serverData['Plantão']).forEach(([day, turnoId]) => {
       const t = turnos.find(x => x.id === turnoId)
       if (t) {
+        const d = parseInt(day)
+        const isPast = ano < currentYear || (ano === currentYear && mes < currentMonth) || (ano === currentYear && mes === currentMonth && d < currentDay)
+        const presence = presenceData[servidorId]?.['Plantão']?.[d]
+        if (exigirPresenca && isPast && !presence?.entrada) return
+
         if (Number(t.horas_computadas) >= 12) pl12++
         else if (Number(t.horas_computadas) >= 6) pl6++
         else pl4++
@@ -588,9 +667,9 @@ export function ScaleGrid({
       const em = escalaMensal.find(x => x.servidor_id === servidorId)
       if (!em) return
 
-      const { status: effectiveStatus } = getStatusForDay(parseInt(day), em.id)
-
-      if (desconsiderarFalha && effectiveStatus === 'Falhou') return // Não soma horas se falhou
+      const d = parseInt(day)
+      const { status: effectiveStatus } = getStatusForDay(d, em.id)
+      if (desconsiderarFalha && effectiveStatus === 'Falhou') return 
       
       const t = turnos.find(x => x.id === turnoId)
       if (t) {
@@ -907,7 +986,16 @@ export function ScaleGrid({
 
   const isInactive = escalaMensal[0]?.ativo === false || isAutoInactivated
   const isComum = userProfile?.role === 'comum' || userProfile?.role === 'servidor'
-  const isClosed = escalaMensal[0]?.status === 'Fechada' || isInactive || isComum
+  
+  const deadlineDay = parseInt(configs['dia_limite_planejamento'] || '10')
+  const governanceLock = canEditScale({
+    role: userProfile?.role as UserRole,
+    scaleMonth: mes,
+    scaleYear: ano,
+    deadlineDay
+  })
+
+  const isClosed = escalaMensal[0]?.status === 'Fechada' || isInactive || isComum || !governanceLock.canEdit
 
   // Filter scales for common users
   const visibleEscalaMensal = useMemo(() => {
@@ -923,6 +1011,13 @@ export function ScaleGrid({
         <div className="bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800 px-4 py-2 flex items-center gap-2 text-amber-700 dark:text-amber-500 text-xs font-bold uppercase tracking-tight">
           <Lock className="h-4 w-4" />
           Escala Inativa {isAutoInactivated ? '(Inativação Automática por Prazo)' : '(Inativada Manualmente)'} - Modo de Visualização Ativado
+        </div>
+      )}
+
+      {!governanceLock.canEdit && !isInactive && (
+        <div className="bg-indigo-50 dark:bg-indigo-900/20 border-b border-indigo-200 dark:border-indigo-800 px-4 py-2 flex items-center gap-2 text-indigo-700 dark:text-indigo-400 text-xs font-bold uppercase tracking-tight">
+          <Lock className="h-4 w-4" />
+          {governanceLock.reason} - Modo de Somente Leitura Ativado
         </div>
       )}
 
@@ -1210,6 +1305,39 @@ export function ScaleGrid({
                               >
                                 <Zap className="h-2 w-2 fill-current" />
                               </button>
+                            )}
+
+                            {/* Indicador de Presença (Entrada/Saída) */}
+                            {turnoId && cat !== 'Sobreaviso' && (
+                              <div className="absolute bottom-0 left-0 right-0 h-[3px] flex gap-[1px]">
+                                {(() => {
+                                  const today = new Date()
+                                  const currentDay = today.getDate()
+                                  const currentMonth = today.getMonth() + 1
+                                  const currentYear = today.getFullYear()
+                                  
+                                  const d = new Date(ano, mes - 1, day)
+                                  const isPast = d < new Date(currentYear, currentMonth - 1, currentDay)
+                                  const isToday = day === currentDay && mes === currentMonth && ano === currentYear
+                                  
+                                  const presence = presenceData[em.servidor_id]?.[cat]?.[day] || { entrada: false, saida: false }
+
+                                  return (
+                                    <>
+                                      {/* Metade Entrada */}
+                                      <div 
+                                        className={`flex-1 h-full ${presence.entrada ? 'bg-emerald-500' : (isPast ? 'bg-red-500' : 'bg-transparent')}`} 
+                                        title={presence.entrada ? "Entrada Confirmada" : "Entrada Pendente"} 
+                                      />
+                                      {/* Metade Saída */}
+                                      <div 
+                                        className={`flex-1 h-full ${presence.saida ? 'bg-emerald-500' : (presence.entrada && isToday ? 'bg-amber-400 animate-pulse' : (isPast ? 'bg-red-500' : 'bg-transparent'))}`} 
+                                        title={presence.saida ? "Saída Confirmada" : (presence.entrada && isToday ? "Em Plantão" : "Saída Pendente")} 
+                                      />
+                                    </>
+                                  )
+                                })()}
+                              </div>
                             )}
                           </td>
                         )
