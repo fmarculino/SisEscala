@@ -18,5 +18,15 @@ export async function login(formData: FormData) {
     return { error: error.message }
   }
 
+  // Log successful login
+  const { data: { user } } = await supabase.auth.getUser()
+  if (user) {
+    await supabase.from('logs_sistema').insert({
+      user_id: user.id,
+      acao: 'LOGIN',
+      detalhes: { info: 'Login efetuado com sucesso' }
+    })
+  }
+
   redirect('/home')
 }

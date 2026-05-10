@@ -43,6 +43,29 @@ export function ScaleGrid({
 }: ScaleGridProps) {
   const supabase = createClient()
   const [loading, setLoading] = useState(false)
+
+  const logAction = useCallback(async (acao: string, detalhes: any = {}) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      await supabase.from('logs_sistema').insert({
+        user_id: user.id,
+        acao,
+        detalhes: {
+          ...detalhes,
+          mes,
+          ano,
+          setor_id: setorId,
+          unidade_id: unidadeId
+        },
+        unidade_id: unidadeId,
+        setor_id: setorId
+      })
+    } catch (error) {
+      console.error('Erro ao registrar log:', error)
+    }
+  }, [supabase, mes, ano, setorId, unidadeId])
   const [escalaMensal, setEscalaMensal] = useState(escalaMensalInicial)
   const [logsSobreaviso, setLogsSobreaviso] = useState(logsSobreavisoInicial)
   const [linkedServidorId, setLinkedServidorId] = useState<string | null>(null)
@@ -387,6 +410,7 @@ export function ScaleGrid({
       type: 'danger',
       onConfirm: () => {
         setGridData({})
+        logAction('LIMPAR_ESCALA', { info: 'Lançamentos removidos da tela' })
         setAlertModal({
           isOpen: true,
           title: 'Escala Limpa',
@@ -431,6 +455,10 @@ export function ScaleGrid({
       if (error) throw error
 
       setEscalaMensal(prev => [...prev, data])
+      logAction('ADICIONAR_SERVIDOR_EXTERNO', { 
+        servidor_id: externalData.servidorId,
+        nome: data.servidores?.nome 
+      })
       setIsExternalModalOpen(false)
       setAlertModal({
         isOpen: true,
@@ -470,6 +498,12 @@ export function ScaleGrid({
           if (error) throw error
 
           // Update local state
+          const servidorRemovido = escalaMensal.find(em => em.id === escalaMensalId)
+          logAction('REMOVER_SERVIDOR', { 
+            escala_mensal_id: escalaMensalId, 
+            servidor_id: servidorId,
+            nome: servidorRemovido?.servidores?.nome
+          })
           setEscalaMensal(prev => prev.filter(em => em.id !== escalaMensalId))
           setGridData(prev => {
             const newData = { ...prev }
@@ -812,6 +846,12 @@ export function ScaleGrid({
             validado_por: user.id,
             data_hora_validacao: now
           } : l))
+          
+          logAction('VALIDACAO_MANUAL_SOBREAVISO', { 
+            log_id: logId,
+            info: 'Validação manual de sobreaviso que falhou'
+          })
+
           setAlertModal({
             isOpen: true,
             title: 'Validado',
@@ -983,6 +1023,10 @@ export function ScaleGrid({
         message: 'A previsão da escala foi salva com sucesso no banco de dados.',
         type: 'success'
       })
+      logAction('SALVAR_PREVISAO_ESCALA', { 
+        total_lancamentos: allInserts.length,
+        total_servidores: escalaMensal.length
+      })
       // Refresh occupancy after save to reflect current state
       const ids = escalaMensal.map(em => em.servidor_id)
       fetchOccupancy(ids)
@@ -1021,6 +1065,10 @@ export function ScaleGrid({
       if (error) throw error
 
       setEscalaMensal(prev => [...prev, data])
+      logAction('ADICIONAR_SERVIDOR', { 
+        servidor_id: servidorId,
+        nome: data.servidores?.nome
+      })
       setGridData(prev => ({
         ...prev,
         [servidorId]: {
@@ -1067,6 +1115,10 @@ export function ScaleGrid({
       if (error) throw error
 
       setEscalaMensal(prev => [...prev, ...data])
+      logAction('ADICIONAR_TODOS_SERVIDORES', { 
+        quantidade: data.length,
+        servidores: data.map((em: any) => em.servidores?.nome)
+      })
       
       const newGridData = { ...gridData }
       const newIds = data.map(em => em.servidor_id)
@@ -1117,6 +1169,10 @@ export function ScaleGrid({
           const ids = escalaMensal.map(em => em.id)
           await supabase.from('escala_mensal').update({ status: 'Fechada' }).in('id', ids)
           setEscalaMensal(prev => prev.map(em => ({ ...em, status: 'Fechada' })))
+          logAction('FECHAR_ESCALA', { 
+            ids_escala: ids,
+            total_servidores: ids.length
+          })
           setAlertModal({
             isOpen: true,
             title: 'Escala Fechada',

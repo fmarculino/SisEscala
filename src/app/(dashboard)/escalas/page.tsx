@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { Calendar, Plus, ChevronRight, Layers, Filter, Eye, EyeOff, Search, Loader2, Building2, Check } from 'lucide-react'
+import { Calendar, Plus, ChevronRight, Layers, Filter, Eye, EyeOff, Search, Loader2, Building2, Check, ShieldCheck } from 'lucide-react'
 import Link from 'next/link'
 import { Modal } from '@/components/ui/Modal'
 import { applyAccessFilters, hasSectorAccess, hasUnitAccess } from '@/utils/permissions'
+import { useCallback } from 'react'
 
 export default function EscalasPage() {
   const supabase = createClient()
@@ -31,6 +32,29 @@ export default function EscalasPage() {
     onConfirm: () => void,
     type: 'default' | 'danger' | 'warning'
   } | null>(null)
+
+  const logAction = useCallback(async (acao: string, unidadeId: string, setorId: string, mes: number, ano: number, detalhes: any = {}) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      await supabase.from('logs_sistema').insert({
+        user_id: user.id,
+        acao,
+        detalhes: {
+          ...detalhes,
+          mes,
+          ano,
+          setor_id: setorId,
+          unidade_id: unidadeId
+        },
+        unidade_id: unidadeId,
+        setor_id: setorId
+      })
+    } catch (error) {
+      console.error('Erro ao registrar log:', error)
+    }
+  }, [supabase])
 
   useEffect(() => {
     async function init() {
@@ -130,6 +154,11 @@ export default function EscalasPage() {
             message: currentAtivo ? 'Escala inativada com sucesso.' : 'Escala reativada com sucesso.',
             type: 'success'
           })
+          logAction(
+            currentAtivo ? 'INATIVAR_ESCALA' : 'REATIVAR_ESCALA',
+            uId, sId, mes, ano,
+            { motivo: currentAtivo ? 'Inativação manual pela lista' : 'Reativação manual pela lista' }
+          )
           fetchEscalas()
         }
         setConfirmModal(null)

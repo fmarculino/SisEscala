@@ -10,6 +10,17 @@ export function LogoutButton({ collapsed = false }: { collapsed?: boolean }) {
   async function handleLogout() {
     try {
       const supabase = createClient()
+      
+      // Log logout before signing out
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        await supabase.from('logs_sistema').insert({
+          user_id: user.id,
+          acao: 'LOGOUT',
+          detalhes: { info: 'Sessão encerrada pelo usuário' }
+        })
+      }
+
       await supabase.auth.signOut()
       
       // Use window.location.href to force a full page reload and clear all states/caches
