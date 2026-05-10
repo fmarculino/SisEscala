@@ -6,7 +6,7 @@ import {
   LayoutDashboard, Users, Building2, Clock, ShieldCheck, 
   Calendar, Layers, Shield, User, Briefcase, CalendarDays, 
   ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
-  Settings, Database, Lock, FileText, Activity
+  Settings, Database, Lock, FileText, Activity, HelpCircle, BookOpen
 } from 'lucide-react'
 import { LogoutButton } from './LogoutButton'
 import { ThemeToggle } from '../ThemeToggle'
@@ -67,6 +67,13 @@ const menuGroups: MenuGroup[] = [
       { name: 'Usuários', href: '/usuarios', icon: Shield },
       { name: 'Backup', href: '/backup', icon: Database },
       { name: 'Segurança', href: '/seguranca', icon: Lock },
+    ]
+  },
+  {
+    title: 'SUPORTE',
+    icon: HelpCircle,
+    items: [
+      { name: 'Ajuda', href: '/ajuda', icon: BookOpen },
     ]
   },
   {
