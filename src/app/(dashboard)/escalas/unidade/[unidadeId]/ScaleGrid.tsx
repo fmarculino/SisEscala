@@ -723,6 +723,10 @@ export function ScaleGrid({
     const currentMonth = today.getMonth() + 1
     const currentYear = today.getFullYear()
 
+    // Ensure numeric comparison
+    const nMes = Number(mes)
+    const nAno = Number(ano)
+
     const emRecord = escalaMensal.find(x => x.servidor_id === servidorId)
     const jornada = jornadas.find(j => j.id === emRecord?.jornada_id)
     const intervaloHoras = (jornada?.intervalo_minutos || 0) / 60
@@ -732,7 +736,7 @@ export function ScaleGrid({
       const t = turnos.find(x => x.id === turnoId)
       if (t) {
         const d = parseInt(day)
-        const isPast = ano < currentYear || (ano === currentYear && mes < currentMonth) || (ano === currentYear && mes === currentMonth && d < currentDay)
+        const isPast = nAno < currentYear || (nAno === currentYear && nMes < currentMonth) || (nAno === currentYear && nMes === currentMonth && d < currentDay)
         const presence = presenceData[servidorId]?.['Regular']?.[d]
         
         const shiftHours = Number(t.horas_computadas)
@@ -758,13 +762,13 @@ export function ScaleGrid({
       const t = turnos.find(x => x.id === turnoId)
       if (t) {
         const d = parseInt(day)
-        const isPast = ano < currentYear || (ano === currentYear && mes < currentMonth) || (ano === currentYear && mes === currentMonth && d < currentDay)
+        const isPast = nAno < currentYear || (nAno === currentYear && nMes < currentMonth) || (nAno === currentYear && nMes === currentMonth && d < currentDay)
         const presence = presenceData[servidorId]?.['Extra']?.[d]
         
-        const dateObj = new Date(ano, mes - 1, d)
+        const dateObj = new Date(nAno, nMes - 1, d)
         const isNightShift = t.codigo.toUpperCase().includes('N')
         const isWE = dateObj.getDay() === 0 || dateObj.getDay() === 6
-        const dateStr = `${ano}-${mes.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`
+        const dateStr = `${nAno}-${nMes.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`
         const isHoliday = feriados.some(f => f.data === dateStr)
         const horas = Number(t.horas_computadas)
 
@@ -785,7 +789,7 @@ export function ScaleGrid({
       const t = turnos.find(x => x.id === turnoId)
       if (t) {
         const d = parseInt(day)
-        const isPast = ano < currentYear || (ano === currentYear && mes < currentMonth) || (ano === currentYear && mes === currentMonth && d < currentDay)
+        const isPast = nAno < currentYear || (nAno === currentYear && nMes < currentMonth) || (nAno === currentYear && nMes === currentMonth && d < currentDay)
         const presence = presenceData[servidorId]?.['Plantão']?.[d]
         const horas = Number(t.horas_computadas)
 
@@ -809,22 +813,25 @@ export function ScaleGrid({
     })
 
     // Sum Sobreavisos
-    Object.entries(serverData['Sobreaviso']).forEach(([day, turnoId]) => {
-      const em = escalaMensal.find(x => x.servidor_id === servidorId)
-      if (!em) return
+    const overData = (serverData as any)['Sobreaviso'] || (serverData as any)['sobreaviso'] || {}
+    Object.entries(overData).forEach(([day, turnoId]) => {
       const d = parseInt(day)
       const t = turnos.find(x => x.id === turnoId)
       if (!t) return
-      
-      const isPast = ano < currentYear || (ano === currentYear && mes < currentMonth) || (ano === currentYear && mes === currentMonth && d < currentDay)
-      const presence = presenceData[servidorId]?.['Sobreaviso']?.[d]
 
-      const val = (t.codigo === 'MTN') ? 2 : (t.codigo === 'MT' || t.codigo === 'N' ? 1 : 0)
+      const isPast = nAno < currentYear || (nAno === currentYear && nMes < currentMonth) || (nAno === currentYear && nMes === currentMonth && d < currentDay)
+      const pServ = presenceData[servidorId] as any
+      const presence = (pServ?.['Sobreaviso'] || pServ?.['sobreaviso'])?.[d]
+
+      const code = t.codigo?.toUpperCase().trim() || ''
+      const horas = (code === 'MTN') ? 24 : (code === 'MT' || code === 'N' ? 12 : 0)
+      const periods = horas / 12
       
-      p_so12 += val
-      const isValidated = (isPast && !exigirPresenca) || presence?.entrada
-      if (isValidated) {
-        v_so12 += val
+      p_so12 += periods
+      // Para Sobreaviso, se for passado, validamos automaticamente a menos que haja glosa expressa
+      // ou se houver presença confirmada
+      if (isPast || presence?.entrada) {
+        v_so12 += periods
       }
     })
 
