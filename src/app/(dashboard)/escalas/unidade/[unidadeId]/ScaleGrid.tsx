@@ -410,26 +410,39 @@ export function ScaleGrid({
     return totals
   }, [daysArray, escalaMensal, gridData, turnos, getStatusForDay, desconsiderarFalha])
 
-  const hasConfirmedPresence = useCallback((servidorId: string, emId: string) => {
-    // Verificar presença manual (entradas/saídas)
+  const hasConfirmedPresence = useCallback((servidorId: string, escalaMensalId: string) => {
     const presenceForServer = presenceData[servidorId]
     if (presenceForServer) {
-      for (const cat of (Object.keys(presenceForServer) as RowCategory[])) {
+      const categories: RowCategory[] = ['Regular', 'Extra', 'Plantão']
+      for (const cat of categories) {
         const days = presenceForServer[cat]
-        for (const dayStr in days) {
-          const day = parseInt(dayStr)
-          const p = days[day]
-          if (p && (p.entrada || p.saida)) return true
+        if (days) {
+          const hasPresence = Object.values(days).some(p => p.entrada || p.saida)
+          if (hasPresence) return true
         }
       }
     }
-    // Verificar chegada de sobreaviso
+
     const hasOnCallArrival = logsSobreaviso.some(l => 
-      l.escala_mensal_id === emId && 
-      (l.status === 'Chegou' || l.status === 'Executado' || l.data_hora_chegada)
+      l.escala_mensal_id === escalaMensalId && 
+      l.status === 'Chegou'
     )
     return hasOnCallArrival
   }, [presenceData, logsSobreaviso])
+
+  const hasPresenceForDay = useCallback((servidorId: string, escalaMensalId: string, categoria: RowCategory, day: number) => {
+    // Check regular presence
+    const presence = presenceData[servidorId]?.[categoria]?.[day]
+    if (presence?.entrada || presence?.saida) return true
+
+    // Check on-call status for that specific day
+    if (categoria === 'Sobreaviso') {
+      const { status } = getStatusForDay(day, escalaMensalId, 'Sobreaviso')
+      if (status === 'Chegou') return true
+    }
+
+    return false
+  }, [presenceData, getStatusForDay])
 
   const handleClearScale = () => {
     setConfirmModal({
@@ -518,12 +531,12 @@ export function ScaleGrid({
   }
 
   const handleRemoveServer = async (escalaMensalId: string, servidorId: string) => {
-    const isProtected = hasConfirmedPresence(servidorId, escalaMensalId)
-    if (isProtected) {
+    const em = escalaMensal.find(x => x.servidor_id === servidorId)
+    if (em && hasConfirmedPresence(servidorId, em.id)) {
       setAlertModal({
         isOpen: true,
-        title: 'Operação Bloqueada',
-        message: 'Este servidor possui registros de presença confirmada ou acionamentos de sobreaviso. Para garantir a integridade dos dados e o direito do servidor, ele não pode ser removido da escala.',
+        title: 'Direito Adquirido',
+        message: 'Este servidor já possui registros de presença validados ou sobreavisos concluídos. Por questões de integridade e direitos adquiridos, ele não pode ser removido da escala.',
         type: 'warning'
       })
       return
@@ -586,6 +599,21 @@ export function ScaleGrid({
   }
 
   const handleCellChange = async (servidorId: string, categoria: RowCategory, day: number, turnoId: string) => {
+    // REGRA DE DIREITO ADQUIRIDO: Se existe presença confirmada para o dia/categoria, não permite apagar o turno
+    const emRecord = escalaMensal.find(x => x.servidor_id === servidorId)
+    if (!turnoId && emRecord) {
+      const hasPresence = hasPresenceForDay(servidorId, emRecord.id, categoria, day)
+      if (hasPresence) {
+        setAlertModal({
+          isOpen: true,
+          title: 'Direito Adquirido',
+          message: 'Não é possível remover o turno de um dia que já possui registro de presença ou sobreaviso concluído.',
+          type: 'warning'
+        })
+        return
+      }
+    }
+
     // Se estiver limpando a célula, atualiza direto
     if (!turnoId) {
       setGridData(prev => ({
@@ -733,14 +761,14 @@ export function ScaleGrid({
         const presence = presenceData[servidorId]?.['Extra']?.[d]
         
         const dateObj = new Date(ano, mes - 1, d)
+        const isNightShift = t.codigo.toUpperCase().includes('N')
         const isWE = dateObj.getDay() === 0 || dateObj.getDay() === 6
         const dateStr = `${ano}-${mes.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`
         const isHoliday = feriados.some(f => f.data === dateStr)
         const horas = Number(t.horas_computadas)
 
-        const isNightShift = t.codigo.toUpperCase().includes('N')
-
-        if (isWE || isHoliday || isNightShift) {
+        // REGRA: Toda hora extra noturna (qualquer turno com 'N') é 100%
+        if (isNightShift || isWE || isHoliday) {
           p_he100 += horas
           if (!(exigirPresenca && isPast && !presence?.entrada)) v_he100 += horas
         } else {
@@ -839,6 +867,9 @@ export function ScaleGrid({
   }
 
   const isRedIndicator = (day: number, categoria: string, tipo: 'entrada' | 'saida') => {
+    // REGRA: Somente mostra indicadores vermelhos se a confirmação de presença estiver exigida nas configurações
+    if (configs['exigir_confirmacao_presenca'] !== 'true') return false
+
     const today = new Date()
     const currentMonth = today.getMonth() + 1
     const currentYear = today.getFullYear()

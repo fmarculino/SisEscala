@@ -24,12 +24,13 @@ interface LogSobreaviso {
   validado_por?: string;
   data_hora_validacao?: string;
   categoria?: string;
-  dia?: number;
+  dia?: number | string | null;
   servidores?: { nome: string; matricula?: string; setor_id?: string };
   unidades?: { nome: string; latitude?: number; longitude?: number };
   setores?: { nome: string };
   validador?: { full_name: string };
-  localizacao_chegada?: number; // Added to match usage in code
+  localizacao_chegada?: number;
+  distancia_chegada?: number;
 }
 
 interface LogSistema {
@@ -139,45 +140,71 @@ export default function AuditoriaPage() {
       const periodoFiltro = filtros.dataInicio ? `${new Date(filtros.dataInicio).toLocaleDateString('pt-BR')} até ${filtros.dataFim ? new Date(filtros.dataFim).toLocaleDateString('pt-BR') : 'Hoje'}` : 'Todo o período'
       
       let tableRows = ''
-      if (activeTab === 'sobreaviso' || activeTab === 'presenca') {
-        tableRows = (data as LogSobreaviso[]).map((log) => {
+      tableRows = (data as any[]).map((item) => {
+        if (activeTab === 'sistema') {
+          const log = item as LogSistema;
+          return `
+            <tr class="border-b border-zinc-100">
+              <td class="py-3 px-2 text-[10px] font-bold text-zinc-700">${log.acao}</td>
+              <td class="py-3 px-2 text-[10px] font-medium">${log.profiles?.full_name || 'Sistema'}</td>
+              <td class="py-3 px-2 text-[10px]">${log.unidades?.nome || '-'} / ${log.setores?.nome || '-'}</td>
+              <td class="py-3 px-2 text-[10px]">${new Date(log.created_at).toLocaleString('pt-BR')}</td>
+              <td class="py-3 px-2 text-[10px] text-zinc-500">${JSON.stringify(log.detalhes)}</td>
+            </tr>
+          `;
+        } else {
+          const log = item as LogSobreaviso;
           const isRegular = log.categoria && log.categoria !== 'Sobreaviso';
+          
           if (isRegular) {
             return `
-              <tr class="border-b border-zinc-200 bg-blue-50/20">
-                <td class="py-3 px-2 font-bold text-[11px]">${log.servidores?.nome}</td>
-                <td class="py-3 px-2 text-[10px]">${log.unidades?.nome}</td>
-                <td class="py-3 px-2 text-[10px] font-bold text-blue-700">${log.categoria} (Dia ${log.dia})</td>
-                <td class="py-3 px-2 text-[10px]" colspan="2">
-                  Validador: ${log.validador?.full_name || 'Sistema'} 
-                  <br/><span class="text-zinc-500">${log.motivo_acionamento || ''}</span>
+              <tr class="border-b border-zinc-100">
+                <td class="py-3 px-2 text-[10px] font-medium">
+                  <div class="font-bold">${log.servidores?.nome || 'N/A'}</div>
+                  <div class="text-[8px] text-zinc-400">Matrícula: ${log.servidores?.matricula || '-'}</div>
                 </td>
-                <td class="py-3 px-2 text-[10px] font-bold uppercase">${log.status === 'Cancelado' ? 'REVERTIDO' : 'VALIDADO'}</td>
+                <td class="py-3 px-2 text-[10px]">${log.unidades?.nome || '-'}</td>
+                <td class="py-3 px-2 text-[10px] font-bold text-blue-700">${log.categoria} (Dia ${log.dia || '-'})</td>
+                <td class="py-3 px-2 text-[10px]" colspan="2">
+                  <div class="font-bold text-[9px] ${log.validacao_manual ? 'text-orange-600' : 'text-green-600'}">
+                    ${log.validacao_manual ? 'VALIDAÇÃO ADMINISTRATIVA (MANUAL)' : 'VALIDAÇÃO SISTEMA (AUTOMÁTICA)'}
+                  </div>
+                  <div class="text-zinc-500">Validador: ${log.validador?.full_name || 'Sistema'}</div>
+                  <div class="text-[8px] italic">${log.motivo_acionamento || ''}</div>
+                </td>
+                <td class="py-3 px-2 text-center">
+                  <span class="inline-block px-2 py-0.5 rounded text-[8px] font-bold bg-green-100 text-green-700">
+                    VALIDADO
+                  </span>
+                </td>
               </tr>
             `;
           }
+          
           return `
-            <tr class="border-b border-zinc-200">
-              <td class="py-3 px-2 font-bold text-[11px]">${log.servidores?.nome}</td>
-              <td class="py-3 px-2 text-[10px]">${log.unidades?.nome}</td>
+            <tr class="border-b border-zinc-100">
+              <td class="py-3 px-2 text-[10px] font-medium">
+                <div class="font-bold">${log.servidores?.nome || 'N/A'}</div>
+                <div class="text-[8px] text-zinc-400">Matrícula: ${log.servidores?.matricula || '-'}</div>
+              </td>
+              <td class="py-3 px-2 text-[10px]">${log.unidades?.nome || '-'}</td>
               <td class="py-3 px-2 text-[10px]">${new Date(log.data_hora_acionamento).toLocaleString('pt-BR')}</td>
               <td class="py-3 px-2 text-[10px]">${log.data_hora_aceite ? new Date(log.data_hora_aceite).toLocaleString('pt-BR') : '-'}</td>
               <td class="py-3 px-2 text-[10px]">${log.data_hora_chegada ? new Date(log.data_hora_chegada).toLocaleString('pt-BR') : '-'}</td>
-              <td class="py-3 px-2 text-[10px] font-bold uppercase">${getEffectiveStatus(log)}</td>
+              <td class="py-3 px-2 text-center">
+                <span class="inline-block px-2 py-0.5 rounded text-[8px] font-bold ${
+                  log.status === 'Chegou' ? 'bg-blue-100 text-blue-700' :
+                  log.status === 'Falhou' ? 'bg-red-100 text-red-700' :
+                  log.status === 'Recusado' ? 'bg-zinc-100 text-zinc-700' :
+                  'bg-amber-100 text-amber-700'
+                }">
+                  ${log.status.toUpperCase()}
+                </span>
+              </td>
             </tr>
           `;
-        }).join('')
-      } else {
-        tableRows = (data as LogSistema[]).map((log) => `
-          <tr class="border-b border-zinc-200">
-            <td class="py-3 px-2 font-bold uppercase text-[10px]">${(log.acao || '').replace(/_/g, ' ')}</td>
-            <td class="py-3 px-2 text-xs">${log.profiles?.full_name}</td>
-            <td class="py-3 px-2 text-xs">${log.unidades?.nome || '-'} / ${log.setores?.nome || 'Geral'}</td>
-            <td class="py-3 px-2 text-xs">${new Date(log.created_at).toLocaleString('pt-BR')}</td>
-            <td class="py-3 px-2 text-[10px] text-zinc-600 max-w-[300px]">${log.detalhes?.nome || log.detalhes?.servidor || '-'}</td>
-          </tr>
-        `).join('')
-      }
+        }
+      }).join('')
 
       const reportHtml = `
         <!DOCTYPE html>
