@@ -24,6 +24,7 @@ interface LogSobreaviso {
   validado_por?: string;
   data_hora_validacao?: string;
   categoria?: string;
+  dia?: number;
   servidores?: { nome: string; matricula?: string; setor_id?: string };
   unidades?: { nome: string; latitude?: number; longitude?: number };
   setores?: { nome: string };
