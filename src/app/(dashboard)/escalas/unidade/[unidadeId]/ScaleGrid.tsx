@@ -657,8 +657,15 @@ export function ScaleGrid({
         const isPast = ano < currentYear || (ano === currentYear && mes < currentMonth) || (ano === currentYear && mes === currentMonth && d < currentDay)
         const presence = presenceData[servidorId]?.['Regular']?.[d]
         
-        const baseHours = (jornada && Number(jornada.horas_totais) > 0) ? Number(jornada.horas_totais) : Number(t.horas_computadas)
-        const liquidHours = Math.max(0, baseHours - intervaloHoras)
+        const shiftHours = Number(t.horas_computadas)
+        let liquidHours = shiftHours
+
+        if (jornada && Number(jornada.horas_totais) > 0) {
+          const journeyMaxLiquid = Math.max(0, Number(jornada.horas_totais) - intervaloHoras)
+          // Se o turno for reduzido (ex: M4=4h), usa as 4h.
+          // Se o turno for normal/longo (ex: MT=12h), limita ao teto da jornada (ex: 8h).
+          liquidHours = Math.min(shiftHours, journeyMaxLiquid)
+        }
         
         p_ch += liquidHours
         if (!(exigirPresenca && isPast && !presence?.entrada)) {
