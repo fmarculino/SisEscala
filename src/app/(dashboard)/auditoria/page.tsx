@@ -368,7 +368,7 @@ export default function AuditoriaPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
           <input 
             type="text"
-            placeholder={activeTab === 'sobreaviso' ? "Buscar por nome do servidor..." : "Buscar por ação (ex: SALVAR, REMOVER)..."}
+            placeholder={activeTab === 'sobreaviso' ? "Buscar por nome do servidor..." : "Buscar por ação (ex: SALVAR, REMOVER SERVIDOR DA ESCALA)..."}
             value={filtros.busca}
             onChange={(e) => setFiltros(prev => ({ ...prev, busca: e.target.value }))}
             className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl pl-10 pr-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none shadow-inner"

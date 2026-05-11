@@ -499,7 +499,7 @@ export function ScaleGrid({
 
           // Update local state
           const servidorRemovido = escalaMensal.find(em => em.id === escalaMensalId)
-          logAction('REMOVER_SERVIDOR', { 
+          logAction('REMOVER_SERVIDOR_DA_ESCALA', { 
             escala_mensal_id: escalaMensalId, 
             servidor_id: servidorId,
             nome: servidorRemovido?.servidores?.nome
