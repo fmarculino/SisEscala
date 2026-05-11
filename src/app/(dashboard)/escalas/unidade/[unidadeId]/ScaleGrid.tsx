@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { 
-  Save, Loader2, Info, Zap, Lock, FileText, Plus, UserPlus, Users, 
+  Save, Loader2, Info, Zap, Lock, Unlock, FileText, Plus, UserPlus, Users, 
   CheckCircle, Trash2, Globe, X, Copy, Check, Clock, Navigation2,
   ShieldCheck, ShieldAlert
 } from 'lucide-react'
@@ -822,8 +822,8 @@ export function ScaleGrid({
       }
     })
 
-    const totalValidado = v_ch + v_he100 + v_he50 + (v_pl12 * 12) + (v_pl6 * 8) + (v_pl4 * 4) + (v_so12 * 12)
-    const totalPlanejado = p_ch + p_he100 + p_he50 + (p_pl12 * 12) + (p_pl6 * 8) + (p_pl4 * 4) + (p_so12 * 12)
+    const totalValidado = v_ch + v_he100 + v_he50 + (v_pl12 * 12) + (v_pl6 * 6) + (v_pl4 * 4) + (v_so12 * 12)
+    const totalPlanejado = p_ch + p_he100 + p_he50 + (p_pl12 * 12) + (p_pl6 * 6) + (p_pl4 * 4) + (p_so12 * 12)
 
     return { 
       chTotal: v_ch, he100: v_he100, he50: v_he50, pl12: v_pl12, pl6: v_pl6, pl4: v_pl4, so12: v_so12, 
@@ -1353,6 +1353,43 @@ export function ScaleGrid({
     })
   }
 
+  const handleReopenScale = async () => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Reabrir Escala',
+      message: 'Deseja REABRIR esta escala? Isso permitirá edições manuais novamente.',
+      type: 'warning',
+      onConfirm: async () => {
+        setLoading(true)
+        try {
+          const ids = escalaMensal.map(em => em.id)
+          await supabase.from('escala_mensal').update({ status: 'Rascunho' }).in('id', ids)
+          setEscalaMensal(prev => prev.map(em => ({ ...em, status: 'Rascunho' })))
+          logAction('REABRIR_ESCALA', { 
+            ids_escala: ids,
+            total_servidores: ids.length
+          })
+          setAlertModal({
+            isOpen: true,
+            title: 'Escala Reaberta',
+            message: 'A escala foi reaberta para edições.',
+            type: 'success'
+          })
+        } catch (error: any) {
+          setAlertModal({
+            isOpen: true,
+            title: 'Erro',
+            message: error.message,
+            type: 'danger'
+          })
+        } finally {
+          setLoading(false)
+          setConfirmModal(null)
+        }
+      }
+    })
+  }
+
   const endOfMonth = new Date(ano, mes, 0)
   const thresholdDate = new Date(endOfMonth)
   thresholdDate.setDate(thresholdDate.getDate() + (diasInativacao || 5))
@@ -1446,13 +1483,18 @@ export function ScaleGrid({
               <FileText className="mr-2 h-4 w-4" /> Gerar PDF
             </button>
             
-            <button onClick={handleSave} disabled={loading || isClosed} className="inline-flex items-center rounded-md bg-green-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-700 transition-all disabled:opacity-50">
+            <button onClick={handleSave} disabled={loading || (isClosed && userProfile?.role !== 'admin' && userProfile?.role !== 'super_admin')} className="inline-flex items-center rounded-md bg-green-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-700 transition-all disabled:opacity-50">
               {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
               Salvar Previsão
             </button>
             {!isClosed && (
               <button onClick={handleCloseScale} disabled={loading} className="inline-flex items-center rounded-md bg-zinc-900 dark:bg-zinc-100 px-4 py-2 text-sm font-semibold text-white dark:text-zinc-900 shadow-sm hover:bg-black dark:hover:bg-white transition-all">
                 <Lock className="mr-2 h-4 w-4" /> Fechar Escala
+              </button>
+            )}
+            {isClosed && (userProfile?.role === 'admin' || userProfile?.role === 'super_admin') && !isInactive && (
+              <button onClick={handleReopenScale} disabled={loading} className="inline-flex items-center rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-700 transition-all">
+                <Unlock className="mr-2 h-4 w-4" /> Reabrir Escala
               </button>
             )}
           </div>

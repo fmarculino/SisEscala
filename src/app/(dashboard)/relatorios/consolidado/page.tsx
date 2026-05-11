@@ -54,18 +54,21 @@ export default async function ConsolidadoPage({ searchParams }: Props) {
   // Fetch Master Data for filters
   const { data: unidades } = await applyAccessFilters(supabase.from('unidades').select('id, nome').eq('ativo', true), userProfile, { bypassSuperAdmin: true })
   const { data: setores } = await applyAccessFilters(supabase.from('setores').select('id, nome, unidade_id').eq('ativo', true), userProfile, { bypassSuperAdmin: true })
+  const { data: jornadas } = await supabase.from('jornadas').select('*')
+  const { data: feriados } = await supabase.from('feriados').select('*')
 
   // Main Query
   let query = supabase
     .from('escala_mensal')
     .select(`
-      id, mes, ano, status,
+      id, mes, ano, status, jornada_id,
       servidores(nome, matricula, cargo, vinculo),
       unidades(nome),
       setores(nome),
       escala_diaria(
+        dia,
         categoria,
-        dicionario_turnos(horas_computadas)
+        dicionario_turnos(codigo, horas_computadas)
       )
     `)
     .eq('mes', mes)
@@ -87,12 +90,34 @@ export default async function ConsolidadoPage({ searchParams }: Props) {
       sobreaviso: 0
     }
 
+    const jornada = jornadas?.find(j => j.id === item.jornada_id)
+    const intervaloHoras = (jornada?.intervalo_minutos || 0) / 60
+
     item.escala_diaria?.forEach((ed: any) => {
-      const horas = Number(ed.dicionario_turnos?.horas_computadas || 0)
-      if (ed.categoria === 'Regular') totals.regular += horas
-      else if (ed.categoria === 'Extra') totals.extra += horas
-      else if (ed.categoria === 'Plantão') totals.plantao += horas
-      else if (ed.categoria === 'Sobreaviso') totals.sobreaviso += horas
+      const t = ed.dicionario_turnos
+      if (!t) return
+
+      const horas = Number(t.horas_computadas || 0)
+      const dia = Number(ed.dia)
+      const cat = ed.categoria
+
+      if (cat === 'Regular') {
+        let liquidHours = horas
+        if (jornada && Number(jornada.horas_totais) > 0) {
+          const journeyMaxLiquid = Math.max(0, Number(jornada.horas_totais) - intervaloHoras)
+          liquidHours = Math.min(horas, journeyMaxLiquid)
+        }
+        totals.regular += liquidHours
+      } else if (cat === 'Extra') {
+        // Extras in this report are usually simplified, but let's sum them
+        totals.extra += horas
+      } else if (cat === 'Plantão') {
+        totals.plantao += horas
+      } else if (cat === 'Sobreaviso') {
+        // Calculation: MTN=24h, MT/N=12h
+        const val = (t.codigo === 'MTN') ? 24 : (t.codigo === 'MT' || t.codigo === 'N' ? 12 : 0)
+        totals.sobreaviso += val
+      }
     })
 
     return {

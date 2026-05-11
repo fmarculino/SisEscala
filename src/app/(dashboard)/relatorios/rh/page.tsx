@@ -11,11 +11,15 @@ interface RHReportItem {
   mes: number;
   ano: number;
   escala_diaria: Array<{
+    dia: number;
+    categoria: string;
     dicionario_turnos: {
+      codigo: string;
       horas_computadas: number | string;
       tipo: string;
     };
   }>;
+  jornada_id: string;
 }
 
 export default async function RelatorioRHPage() {
@@ -37,10 +41,15 @@ export default async function RelatorioRHPage() {
       servidores!inner(nome, cargo),
       unidades!inner(nome),
       escala_diaria(
-        dicionario_turnos(horas_computadas, tipo)
+        dia,
+        categoria,
+        dicionario_turnos(codigo, horas_computadas, tipo)
       )
     `)
     .eq('status', 'Fechada')
+
+  const { data: jornadas } = await supabase.from('jornadas').select('*')
+  const { data: feriados } = await supabase.from('feriados').select('*')
 
   const userProfile = profile ? {
     ...profile,
@@ -70,16 +79,51 @@ export default async function RelatorioRHPage() {
           }}
           reportData={reportData.map((item: RHReportItem) => {
             let chTotal = 0
+            let he50 = 0
+            let he100 = 0
             let sobCount = 0
+
+            const jornada = jornadas?.find(j => j.id === item.jornada_id)
+            const intervaloHoras = (jornada?.intervalo_minutos || 0) / 60
+
             item.escala_diaria.forEach((ed: any) => {
-              chTotal += Number(ed.dicionario_turnos.horas_computadas)
-              if (ed.dicionario_turnos.tipo === 'Sobreaviso') sobCount++
+              const t = ed.dicionario_turnos
+              if (!t) return
+              const horas = Number(t.horas_computadas || 0)
+              const dia = Number(ed.dia)
+              const cat = ed.categoria
+
+              if (cat === 'Regular') {
+                let liquidHours = horas
+                if (jornada && Number(jornada.horas_totais) > 0) {
+                  const journeyMaxLiquid = Math.max(0, Number(jornada.horas_totais) - intervaloHoras)
+                  liquidHours = Math.min(horas, journeyMaxLiquid)
+                }
+                chTotal += liquidHours
+              } else if (cat === 'Extra') {
+                const dateObj = new Date(item.ano, item.mes - 1, dia)
+                const isNightShift = t.codigo?.toUpperCase().includes('N')
+                const isWE = dateObj.getDay() === 0 || dateObj.getDay() === 6
+                const dateStr = `${item.ano}-${item.mes.toString().padStart(2, '0')}-${dia.toString().padStart(2, '0')}`
+                const isHoliday = feriados?.some(f => f.data === dateStr)
+
+                if (isNightShift || isWE || isHoliday) he100 += horas
+                else he50 += horas
+              } else if (cat === 'Plantão') {
+                chTotal += horas // Plantões are often counted as CH in RH reports if not separated
+              } else if (cat === 'Sobreaviso') {
+                const val = (t.codigo === 'MTN') ? 2 : (t.codigo === 'MT' || t.codigo === 'N' ? 1 : 0)
+                sobCount += val
+              }
             })
+
             return {
               servidor: item.servidores?.nome,
               unidade: item.unidades?.nome,
               periodo: `${item.mes}/${item.ano}`,
               chTotal,
+              he50,
+              he100,
               sobCount
             }
           })}
@@ -102,10 +146,42 @@ export default async function RelatorioRHPage() {
           <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
             {reportData.map((item: RHReportItem) => {
               let chTotal = 0
+              let he50 = 0
+              let he100 = 0
               let sobCount = 0
+
+              const jornada = jornadas?.find(j => j.id === item.jornada_id)
+              const intervaloHoras = (jornada?.intervalo_minutos || 0) / 60
+
               item.escala_diaria.forEach((ed) => {
-                chTotal += Number(ed.dicionario_turnos.horas_computadas)
-                if (ed.dicionario_turnos.tipo === 'Sobreaviso') sobCount++
+                const t = ed.dicionario_turnos
+                if (!t) return
+                const horas = Number(t.horas_computadas || 0)
+                const dia = Number(ed.dia)
+                const cat = ed.categoria
+
+                if (cat === 'Regular') {
+                  let liquidHours = horas
+                  if (jornada && Number(jornada.horas_totais) > 0) {
+                    const journeyMaxLiquid = Math.max(0, Number(jornada.horas_totais) - intervaloHoras)
+                    liquidHours = Math.min(horas, journeyMaxLiquid)
+                  }
+                  chTotal += liquidHours
+                } else if (cat === 'Extra') {
+                  const dateObj = new Date(item.ano, item.mes - 1, dia)
+                  const isNightShift = t.codigo?.toUpperCase().includes('N')
+                  const isWE = dateObj.getDay() === 0 || dateObj.getDay() === 6
+                  const dateStr = `${item.ano}-${item.mes.toString().padStart(2, '0')}-${dia.toString().padStart(2, '0')}`
+                  const isHoliday = feriados?.some(f => f.data === dateStr)
+
+                  if (isNightShift || isWE || isHoliday) he100 += horas
+                  else he50 += horas
+                } else if (cat === 'Plantão') {
+                  chTotal += horas
+                } else if (cat === 'Sobreaviso') {
+                  const val = (t.codigo === 'MTN') ? 2 : (t.codigo === 'MT' || t.codigo === 'N' ? 1 : 0)
+                  sobCount += val
+                }
               })
 
               return (
@@ -117,8 +193,8 @@ export default async function RelatorioRHPage() {
                   <td className="px-6 py-4 text-zinc-600 dark:text-zinc-400">{item.unidades?.nome}</td>
                   <td className="px-6 py-4">{item.mes}/{item.ano}</td>
                   <td className="px-6 py-4 text-right font-bold text-blue-600">{chTotal}h</td>
-                  <td className="px-6 py-4 text-right">{(chTotal > 160 ? chTotal - 160 : 0)}h</td>
-                  <td className="px-6 py-4 text-right">0h</td>
+                  <td className="px-6 py-4 text-right text-indigo-600 font-medium">{he50}h</td>
+                  <td className="px-6 py-4 text-right text-indigo-600 font-medium">{he100}h</td>
                   <td className="px-6 py-4 text-right text-orange-600 font-bold">{sobCount}</td>
                 </tr>
               )
