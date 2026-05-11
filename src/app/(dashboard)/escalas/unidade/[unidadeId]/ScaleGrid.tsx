@@ -2,7 +2,11 @@
 
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { Save, Loader2, Info, Zap, Lock, FileText, Plus, UserPlus, Users, CheckCircle, Trash2, Globe, X, Copy, Check } from 'lucide-react'
+import { 
+  Save, Loader2, Info, Zap, Lock, FileText, Plus, UserPlus, Users, 
+  CheckCircle, Trash2, Globe, X, Copy, Check, Clock, Navigation2,
+  ShieldCheck, ShieldAlert
+} from 'lucide-react'
 import { ScalePrintView } from '@/components/ScalePrintView'
 import { Modal } from '@/components/ui/Modal'
 import React from 'react'
@@ -402,19 +406,50 @@ export function ScaleGrid({
     return totals
   }, [daysArray, escalaMensal, gridData, turnos, getStatusForDay, desconsiderarFalha])
 
+  const hasConfirmedPresence = useCallback((servidorId: string, emId: string) => {
+    // Verificar presença manual (entradas/saídas)
+    const presenceForServer = presenceData[servidorId]
+    if (presenceForServer) {
+      for (const cat of (Object.keys(presenceForServer) as RowCategory[])) {
+        const days = presenceForServer[cat]
+        for (const dayStr in days) {
+          const day = parseInt(dayStr)
+          const p = days[day]
+          if (p && (p.entrada || p.saida)) return true
+        }
+      }
+    }
+    // Verificar chegada de sobreaviso
+    const hasOnCallArrival = logsSobreaviso.some(l => 
+      l.escala_mensal_id === emId && 
+      (l.status === 'Chegou' || l.status === 'Executado' || l.data_hora_chegada)
+    )
+    return hasOnCallArrival
+  }, [presenceData, logsSobreaviso])
+
   const handleClearScale = () => {
     setConfirmModal({
       isOpen: true,
       title: 'Limpar Escala',
-      message: 'Deseja limpar todos os lançamentos desta escala? Esta ação não pode ser desfeita até que você salve novamente.',
+      message: 'Deseja limpar os lançamentos desta escala? Servidores com presença confirmada serão preservados para proteger seus registros.',
       type: 'danger',
       onConfirm: () => {
-        setGridData({})
-        logAction('LIMPAR_ESCALA', { info: 'Lançamentos removidos da tela' })
+        setGridData(prev => {
+          const newData = { ...prev }
+          // Só limpar servidores que NÃO possuem presença
+          for (const sId in newData) {
+            const em = escalaMensal.find(x => x.servidor_id === sId)
+            if (em && !hasConfirmedPresence(sId, em.id)) {
+              delete newData[sId]
+            }
+          }
+          return newData
+        })
+        logAction('LIMPAR_ESCALA', { info: 'Lançamentos removidos (preservando presenças)' })
         setAlertModal({
           isOpen: true,
-          title: 'Escala Limpa',
-          message: 'Lançamentos removidos da tela. Não esqueça de salvar para persistir no banco.',
+          title: 'Escala Ajustada',
+          message: 'Lançamentos removidos. Servidores com registros de presença foram mantidos por segurança.',
           type: 'success'
         })
         setConfirmModal(null)
@@ -479,7 +514,18 @@ export function ScaleGrid({
   }
 
   const handleRemoveServer = async (escalaMensalId: string, servidorId: string) => {
-    if (isClosed) return
+    const isProtected = hasConfirmedPresence(servidorId, escalaMensalId)
+    if (isProtected) {
+      setAlertModal({
+        isOpen: true,
+        title: 'Operação Bloqueada',
+        message: 'Este servidor possui registros de presença confirmada ou acionamentos de sobreaviso. Para garantir a integridade dos dados e o direito do servidor, ele não pode ser removido da escala.',
+        type: 'warning'
+      })
+      return
+    }
+
+    if (isClosed && userProfile?.role !== 'admin' && userProfile?.role !== 'super_admin') return
     
     setConfirmModal({
       isOpen: true,
@@ -688,7 +734,9 @@ export function ScaleGrid({
         const isHoliday = feriados.some(f => f.data === dateStr)
         const horas = Number(t.horas_computadas)
 
-        if (isWE || isHoliday) {
+        const isNightShift = t.codigo.toUpperCase().includes('N')
+
+        if (isWE || isHoliday || isNightShift) {
           p_he100 += horas
           if (!(exigirPresenca && isPast && !presence?.entrada)) v_he100 += horas
         } else {
@@ -886,6 +934,7 @@ export function ScaleGrid({
         .from('escala_diaria')
         .select('*')
         .in('escala_mensal_id', escalaMensal.map(em => em.id))
+        .limit(5000)
 
       if (error) throw error
 
@@ -1014,13 +1063,80 @@ export function ScaleGrid({
 
       if (emError) throw emError
 
-      // Scale Daily
+      // 1. Buscar registros diários existentes para preservar presenças
       const emIds = escalaMensal.map(em => em.id)
-      await supabase.from('escala_diaria').delete().in('escala_mensal_id', emIds)
-      
-      if (allInserts.length > 0) {
-        const { error } = await supabase.from('escala_diaria').insert(allInserts)
-        if (error) throw error
+      const { data: existingDailies } = await supabase
+        .from('escala_diaria')
+        .select('*')
+        .in('escala_mensal_id', emIds)
+
+      const existingMap = new Map()
+      existingDailies?.forEach(ed => {
+        existingMap.set(`${ed.escala_mensal_id}-${ed.categoria}-${ed.dia}`, ed)
+      })
+
+      const toUpdate: any[] = []
+      const toInsert: any[] = []
+      const processedKeys = new Set()
+
+      // 2. Mapear o que deve ser inserido/atualizado
+      escalaMensal.forEach(em => {
+        const serverData = gridData[em.servidor_id]
+        if (!serverData) return
+
+        Object.entries(serverData).forEach(([categoria, days]) => {
+          Object.entries(days).forEach(([dayStr, turnoId]) => {
+            const day = parseInt(dayStr)
+            if (!turnoId) return
+
+            const key = `${em.id}-${categoria}-${day}`
+            const existing = existingMap.get(key)
+            
+            const item: any = {
+              escala_mensal_id: em.id,
+              dia: day,
+              categoria: categoria,
+              dicionario_turnos_id: turnoId,
+              presenca_entrada_em: existing?.presenca_entrada_em || null,
+              presenca_saida_em: existing?.presenca_saida_em || null,
+              presenca_confirmada: existing?.presenca_confirmada || false,
+              confirmado_por_id: existing?.confirmado_por_id || null
+            }
+
+            if (existing?.id) {
+              item.id = existing.id
+              toUpdate.push(item)
+            } else {
+              toInsert.push(item)
+            }
+            
+            processedKeys.add(key)
+          })
+        })
+      })
+
+      // 3. Identificar o que deve ser deletado (apenas se não houver presença)
+      const idsToDelete = existingDailies
+        ?.filter(ed => {
+          const key = `${ed.escala_mensal_id}-${ed.categoria}-${ed.dia}`
+          return !processedKeys.has(key) && !ed.presenca_entrada_em && !ed.presenca_saida_em
+        })
+        .map(ed => ed.id) || []
+
+      // 4. Executar operações no banco separadamente para evitar erro de colunas nulas
+      if (idsToDelete.length > 0) {
+        const { error: delError } = await supabase.from('escala_diaria').delete().in('id', idsToDelete)
+        if (delError) throw delError
+      }
+
+      if (toUpdate.length > 0) {
+        const { error: updError } = await supabase.from('escala_diaria').upsert(toUpdate)
+        if (updError) throw updError
+      }
+
+      if (toInsert.length > 0) {
+        const { error: insError } = await supabase.from('escala_diaria').insert(toInsert)
+        if (insError) throw insError
       }
       
       
@@ -1034,9 +1150,10 @@ export function ScaleGrid({
         total_lancamentos: allInserts.length,
         total_servidores: escalaMensal.length
       })
-      // Refresh occupancy after save to reflect current state
+      // Refresh local states
       const ids = escalaMensal.map(em => em.servidor_id)
       fetchOccupancy(ids)
+      await fetchData()
     } catch (error: any) {
       setAlertModal({
         isOpen: true,
@@ -1355,6 +1472,11 @@ export function ScaleGrid({
                         <td rowSpan={4} className="sticky left-0 z-10 bg-white dark:bg-zinc-900 p-2 border border-zinc-200 dark:border-zinc-700 font-bold whitespace-nowrap align-top text-zinc-900 dark:text-zinc-100">
                           <div className="flex items-center gap-2">
                             {em.servidores?.nome}
+                            {hasConfirmedPresence(em.servidor_id, em.id) && (
+                              <span title="Escala Protegida: Contém registros de presença">
+                                <ShieldCheck className="h-3 w-3 text-emerald-500" />
+                              </span>
+                            )}
                             {isExternal && (
                               <span title="Servidor Externo">
                                 <Globe className="h-3 w-3 text-blue-500" />
@@ -1370,7 +1492,7 @@ export function ScaleGrid({
                             </div>
                           )}
 
-                          {!isClosed && (
+                          {!isClosed && !hasConfirmedPresence(em.servidor_id, em.id) && (
                             <button
                               onClick={() => handleRemoveServer(em.id, em.servidor_id)}
                               className="mt-2 text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
@@ -1459,8 +1581,9 @@ export function ScaleGrid({
                           .join(' | ')
 
                         const isFailed = effectiveStatus === 'Falhou'
-                        // Hide trigger button if it failed or if currently pending (Accepted/Waiting)
-                        if (isFailed || effectiveStatus === 'Aceito' || effectiveStatus === 'Aguardando') {
+                        // Hide trigger button if currently pending (Accepted/Waiting)
+                        // It SHOULD return if failed or arrived (as requested by user)
+                        if (effectiveStatus === 'Aceito' || effectiveStatus === 'Aguardando') {
                           isTriggerAllowed = false
                         }
                         const isDisregarded = isFailed && desconsiderarFalha
@@ -1468,7 +1591,11 @@ export function ScaleGrid({
                         return (
                           <td 
                             key={day} 
-                            className={`p-0 border border-zinc-200 dark:border-zinc-700 text-center relative ${isHoliday ? 'bg-red-50 dark:bg-red-900/10' : isWE ? 'bg-zinc-50 dark:bg-zinc-800/50' : ''} ${isFailed ? 'bg-red-100 dark:bg-red-900/30' : ''} ${hasExternalConflict ? 'ring-1 ring-inset ring-red-500' : ''}`}
+                            className={`p-0 border border-zinc-200 dark:border-zinc-700 text-center relative 
+                              ${isHoliday ? 'bg-red-50 dark:bg-red-900/10' : isWE ? 'bg-zinc-50 dark:bg-zinc-800/50' : ''} 
+                              ${isFailed ? 'bg-red-100 dark:bg-red-900/30' : ''} 
+                              ${hasExternalConflict ? 'ring-1 ring-inset ring-red-500' : ''}
+                              ${(presenceData[em.servidor_id]?.[cat]?.[day]?.entrada || presenceData[em.servidor_id]?.[cat]?.[day]?.saida || effectiveStatus === 'Chegou') ? 'bg-emerald-50/50 dark:bg-emerald-900/10' : ''}`}
                             title={
                               hasExternalConflict 
                                 ? `⚠️ CONFLITO REAL: ${conflictDetails}` 
@@ -1482,7 +1609,7 @@ export function ScaleGrid({
                             <input
                               list={cat === 'Sobreaviso' ? "turnos-sobreaviso-list" : "turnos-list"}
                               value={turno?.codigo || ''}
-                              disabled={isClosed}
+                              disabled={isClosed && userProfile?.role !== 'admin' && userProfile?.role !== 'super_admin'}
                               onChange={(e) => {
                                 const val = e.target.value.toUpperCase()
                                 if (cat === 'Sobreaviso' && val !== '' && val !== 'MT' && val !== 'N' && val !== 'MTN') {
@@ -1510,6 +1637,27 @@ export function ScaleGrid({
                               >
                                 <CheckCircle className="h-2 w-2" />
                               </button>
+                            )}
+
+                            {/* Indicadores de Status em Tempo Real (Sobreaviso) - Somente se houver turno escalado */}
+                            {cat === 'Sobreaviso' && turnoId && (
+                              <>
+                                {effectiveStatus === 'Aguardando' && (
+                                  <div className="absolute -top-1 -right-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-amber-500 text-white z-20 shadow-sm border border-white dark:border-zinc-800" title="Aguardando Aceite">
+                                    <Clock className="h-2 w-2" />
+                                  </div>
+                                )}
+                                {effectiveStatus === 'Aceito' && (
+                                  <div className="absolute -top-1 -right-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-emerald-500 text-white z-20 shadow-sm border border-white dark:border-zinc-800 animate-pulse" title="Em Deslocamento">
+                                    <Navigation2 className="h-2 w-2 fill-current" />
+                                  </div>
+                                )}
+                                {effectiveStatus === 'Chegou' && (
+                                  <div className="absolute -top-1 -left-1 flex h-3 w-3 items-center justify-center rounded-full bg-blue-500 text-white z-20 shadow-sm border border-white dark:border-zinc-800" title="Servidor chegou">
+                                    <Check className="h-2 w-2" />
+                                  </div>
+                                )}
+                              </>
                             )}
                             {isTriggerAllowed && (
                               <button 

@@ -23,6 +23,7 @@ interface LogSobreaviso {
   validacao_manual?: boolean;
   validado_por?: string;
   data_hora_validacao?: string;
+  categoria?: string;
   servidores?: { nome: string; matricula?: string; setor_id?: string };
   unidades?: { nome: string; latitude?: number; longitude?: number };
   setores?: { nome: string };
@@ -132,16 +133,30 @@ export default function AuditoriaPage() {
       
       let tableRows = ''
       if (activeTab === 'sobreaviso') {
-        tableRows = (data as LogSobreaviso[]).map((log) => `
-          <tr class="border-b border-zinc-200">
-            <td class="py-3 px-2 font-bold text-sm">${log.servidores?.nome}</td>
-            <td class="py-3 px-2 text-xs">${log.unidades?.nome}</td>
-            <td class="py-3 px-2 text-xs">${new Date(log.data_hora_acionamento).toLocaleString('pt-BR')}</td>
-            <td class="py-3 px-2 text-xs">${log.data_hora_aceite ? new Date(log.data_hora_aceite).toLocaleString('pt-BR') : '-'}</td>
-            <td class="py-3 px-2 text-xs">${log.data_hora_chegada ? new Date(log.data_hora_chegada).toLocaleString('pt-BR') : '-'}</td>
-            <td class="py-3 px-2 text-xs font-bold uppercase">${getEffectiveStatus(log)}</td>
-          </tr>
-        `).join('')
+        tableRows = (data as LogSobreaviso[]).map((log) => {
+          const isRegular = log.categoria && log.categoria !== 'Sobreaviso';
+          if (isRegular) {
+            return `
+              <tr class="border-b border-zinc-200 bg-blue-50/20">
+                <td class="py-3 px-2 font-bold text-[11px]">${log.servidores?.nome}</td>
+                <td class="py-3 px-2 text-[10px]">${log.unidades?.nome}</td>
+                <td class="py-3 px-2 text-[10px] font-bold text-blue-700">${log.categoria}</td>
+                <td class="py-3 px-2 text-[10px]" colspan="2">Validador: ${log.validador?.full_name || 'Sistema'}</td>
+                <td class="py-3 px-2 text-[10px] font-bold uppercase">${log.status === 'Cancelado' ? 'REVERTIDO' : 'VALIDADO'}</td>
+              </tr>
+            `;
+          }
+          return `
+            <tr class="border-b border-zinc-200">
+              <td class="py-3 px-2 font-bold text-[11px]">${log.servidores?.nome}</td>
+              <td class="py-3 px-2 text-[10px]">${log.unidades?.nome}</td>
+              <td class="py-3 px-2 text-[10px]">${new Date(log.data_hora_acionamento).toLocaleString('pt-BR')}</td>
+              <td class="py-3 px-2 text-[10px]">${log.data_hora_aceite ? new Date(log.data_hora_aceite).toLocaleString('pt-BR') : '-'}</td>
+              <td class="py-3 px-2 text-[10px]">${log.data_hora_chegada ? new Date(log.data_hora_chegada).toLocaleString('pt-BR') : '-'}</td>
+              <td class="py-3 px-2 text-[10px] font-bold uppercase">${getEffectiveStatus(log)}</td>
+            </tr>
+          `;
+        }).join('')
       } else {
         tableRows = (data as LogSistema[]).map((log) => `
           <tr class="border-b border-zinc-200">
@@ -223,8 +238,8 @@ export default function AuditoriaPage() {
                     ${activeTab === 'sobreaviso' ? `
                       <th class="py-3 px-2 text-[10px] font-black uppercase">Servidor</th>
                       <th class="py-3 px-2 text-[10px] font-black uppercase">Unidade</th>
-                      <th class="py-3 px-2 text-[10px] font-black uppercase">Acionamento</th>
-                      <th class="py-3 px-2 text-[10px] font-black uppercase">Aceite</th>
+                      <th class="py-3 px-2 text-[10px] font-black uppercase">Ação / Categoria</th>
+                      <th class="py-3 px-2 text-[10px] font-black uppercase">Aceite / Detalhes</th>
                       <th class="py-3 px-2 text-[10px] font-black uppercase">Chegada</th>
                       <th class="py-3 px-2 text-[10px] font-black uppercase">Status</th>
                     ` : `
@@ -611,9 +626,98 @@ export default function AuditoriaPage() {
                 <Clock className="mx-auto h-12 w-12 text-zinc-300 animate-spin" />
                 <p className="text-zinc-500 font-medium">Carregando registros...</p>
               </div>
-            ) : logs.length > 0 ? (
-              activeTab === 'sobreaviso' ? (
-                (logs as LogSobreaviso[]).map((log) => (
+            ) : logs.length === 0 ? (
+              <div className="p-12 text-center text-zinc-500 dark:text-zinc-400">
+                <Clock className="mx-auto h-12 w-12 opacity-20 mb-4" />
+                <p>Nenhum registro encontrado com os filtros aplicados.</p>
+              </div>
+            ) : activeTab === 'sobreaviso' ? (
+              (logs as LogSobreaviso[]).map((log) => {
+                const isRegularPresence = log.categoria && log.categoria !== 'Sobreaviso';
+                
+                if (isRegularPresence) {
+                  return (
+                    <div 
+                      key={log.id} 
+                      onClick={() => setSelectedLog(log)}
+                      className="group hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors cursor-pointer border-b border-zinc-100 dark:border-zinc-800 last:border-none print:break-inside-avoid print:border-zinc-300 bg-blue-50/20 dark:bg-blue-900/5"
+                    >
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 items-center gap-4 p-6">
+                        <div className="flex items-start space-x-4 lg:col-span-4">
+                          <div className="mt-1 rounded-full p-2 bg-blue-100 dark:bg-blue-900/30 print:hidden">
+                            <ShieldCheck className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                          </div>
+                          <div className="min-w-0">
+                            <h3 className="font-bold text-zinc-900 dark:text-white print:text-black truncate text-sm">
+                              {log.servidores?.nome}
+                            </h3>
+                            <p className="text-[10px] text-zinc-500 font-medium truncate flex items-center">
+                              <Building2 className="mr-1 h-3 w-3 flex-shrink-0" />
+                              {log.unidades?.nome}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="lg:col-span-8 flex flex-wrap items-center justify-end gap-x-8 gap-y-4">
+                          <div className="space-y-1">
+                            <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">
+                              Origem da Validação
+                            </p>
+                            <div className={`flex items-center gap-1.5 font-bold text-[11px] ${log.validacao_manual ? 'text-orange-600 dark:text-orange-400' : 'text-green-600 dark:text-green-400'}`}>
+                              {log.validacao_manual ? (
+                                <>
+                                  <UserCheck className="h-3 w-3" />
+                                  ADMINISTRATIVA (MANUAL)
+                                </>
+                              ) : (
+                                <>
+                                  <CheckCircle2 className="h-3 w-3" />
+                                  SISTEMA (AUTOMÁTICA)
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="space-y-1">
+                            <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">
+                              Categoria / Tipo
+                            </p>
+                            <p className="font-mono text-[11px] text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
+                              {log.categoria} - {log.motivo_acionamento?.includes('entrada') ? 'ENTRADA' : 'SAÍDA'}
+                            </p>
+                          </div>
+
+                          <div className="space-y-1 min-w-[120px]">
+                            <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">
+                              Validador Responsável
+                            </p>
+                            <p className="text-[11px] text-zinc-700 dark:text-zinc-300 font-medium truncate">
+                              {log.validador?.full_name || 'Automação SisEscala'}
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-3">
+                            <div className="flex flex-col items-end gap-1">
+                              <div className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1">Status</div>
+                              <div className={`rounded-full px-3 py-1 text-[10px] font-black ${getStatusColor(getEffectiveStatus(log))} print:border print:bg-white whitespace-nowrap`}>
+                                {log.status === 'Cancelado' ? 'REVERTIDO' : 'VALIDADO'}
+                              </div>
+                            </div>
+
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); setSelectedLog(log); }}
+                              className="p-1.5 text-zinc-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition-all print:hidden ml-1"
+                            >
+                              <ChevronRight className="h-5 w-5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
                   <div 
                     key={log.id} 
                     onClick={() => setSelectedLog(log)}
@@ -699,25 +803,26 @@ export default function AuditoriaPage() {
                             {log.lat_chegada && (
                               <button
                                 onClick={(e) => { e.stopPropagation(); openInGoogleMaps(log.lat_chegada!, log.long_chegada!); }}
-                                className="p-1 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-600 rounded transition-colors"
-                                title="Ver local de chegada"
-                              >
-                                <MapPin className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-                          </div>
+                                  className="p-1 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-600 rounded transition-colors"
+                                  title="Ver local de chegada"
+                                >
+                                  <MapPin className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                            </div>
 
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); setSelectedLog(log); }}
-                            className="p-1.5 text-zinc-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition-all print:hidden ml-1"
-                          >
-                            <ChevronRight className="h-5 w-5" />
-                          </button>
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); setSelectedLog(log); }}
+                              className="p-1.5 text-zinc-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition-all print:hidden ml-1"
+                            >
+                              <ChevronRight className="h-5 w-5" />
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 (logs as LogSistema[]).map((log) => (
                   <div 
@@ -774,13 +879,7 @@ export default function AuditoriaPage() {
                     </div>
                   </div>
                 ))
-              )
-            ) : (
-              <div className="p-12 text-center text-zinc-500 dark:text-zinc-400">
-                <Clock className="mx-auto h-12 w-12 opacity-20 mb-4" />
-                <p>Nenhum registro encontrado com os filtros aplicados.</p>
-              </div>
-            )}
+              )}
           </div>
         </div>
 
