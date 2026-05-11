@@ -241,6 +241,3 @@ export default async function RelatorioRHPage() {
     </div>
   )
 }
-    </div>
-  )
-}
