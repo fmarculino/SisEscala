@@ -84,6 +84,7 @@ export default async function RelatorioRHPage() {
           }}
           reportData={reportData.map((item: RHReportItem) => {
             let chTotal = 0
+            let plTotal = 0
             let he50 = 0
             let he100 = 0
             let sobCount = 0
@@ -110,7 +111,8 @@ export default async function RelatorioRHPage() {
                 chTotal += liquidHours
               } else if (cat === 'Extra') {
                 const dateObj = new Date(item.ano, item.mes - 1, dia)
-                const isNightShift = t.codigo?.toUpperCase().includes('N')
+                const code = t.codigo?.toUpperCase() || ''
+                const isNightShift = code.includes('N')
                 const isWE = dateObj.getDay() === 0 || dateObj.getDay() === 6
                 const dateStr = `${item.ano}-${item.mes.toString().padStart(2, '0')}-${dia.toString().padStart(2, '0')}`
                 const isHoliday = feriados?.some(f => f.data === dateStr)
@@ -118,108 +120,127 @@ export default async function RelatorioRHPage() {
                 if (isNightShift || isWE || isHoliday) he100 += horas
                 else he50 += horas
               } else if (cat === 'Plantão') {
-                chTotal += horas // Plantões are often counted as CH in RH reports if not separated
+                plTotal += horas
               } else if (cat === 'Sobreaviso') {
-                const val = (t.codigo === 'MTN') ? 2 : (t.codigo === 'MT' || t.codigo === 'N' ? 1 : 0)
+                const code = t.codigo?.toUpperCase() || ''
+                const val = (code === 'MTN') ? 2 : (code === 'MT' || code === 'N' ? 1 : 0)
                 sobCount += val
               }
             })
+
+            const totalGeral = chTotal + plTotal + he50 + he100 + (sobCount * 12)
 
             return {
               servidor: item.servidores?.nome,
               unidade: item.unidades?.nome,
               periodo: `${item.mes}/${item.ano}`,
-              chTotal,
-              he50,
-              he100,
-              sobCount
+              chTotal: `${chTotal}h`,
+              he50: `${he50}h`,
+              he100: `${he100}h`,
+              plantao: `${plTotal}h`,
+              sobreaviso: sobCount,
+              total: `${totalGeral}h`
             }
           })}
         />
       </div>
 
       <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm overflow-hidden">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-zinc-50 dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700">
-            <tr>
-              <th className="px-6 py-4 font-semibold">Servidor</th>
-              <th className="px-6 py-4 font-semibold">Unidade</th>
-              <th className="px-6 py-4 font-semibold">Período</th>
-              <th className="px-6 py-4 font-semibold text-right">Total CH</th>
-              <th className="px-6 py-4 font-semibold text-right">HE 50%</th>
-              <th className="px-6 py-4 font-semibold text-right">HE 100%</th>
-              <th className="px-6 py-4 font-semibold text-right">Sobreavisos</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-            {reportData.map((item: RHReportItem) => {
-              let chTotal = 0
-              let he50 = 0
-              let he100 = 0
-              let sobCount = 0
-
-              const jornada = jornadas?.find(j => j.id === item.jornada_id)
-              const intervaloHoras = (jornada?.intervalo_minutos || 0) / 60
-
-              item.escala_diaria.forEach((ed) => {
-                const t = ed.dicionario_turnos
-                if (!t) return
-                const horas = Number(t.horas_computadas || 0)
-                const dia = Number(ed.dia)
-                const cat = ed.categoria
-
-                const isPast = item.ano < currentYear || (item.ano === currentYear && item.mes < currentMonth) || (item.ano === currentYear && item.mes === currentMonth && dia < currentDay)
-                if (!isPast && (item.mes === currentMonth && item.ano === currentYear)) return
-
-                if (cat === 'Regular') {
-                  let liquidHours = horas
-                  if (jornada && Number(jornada.horas_totais) > 0) {
-                    const journeyMaxLiquid = Math.max(0, Number(jornada.horas_totais) - intervaloHoras)
-                    liquidHours = Math.min(horas, journeyMaxLiquid)
-                  }
-                  chTotal += liquidHours
-                } else if (cat === 'Extra') {
-                  const dateObj = new Date(item.ano, item.mes - 1, dia)
-                  const isNightShift = t.codigo?.toUpperCase().includes('N')
-                  const isWE = dateObj.getDay() === 0 || dateObj.getDay() === 6
-                  const dateStr = `${item.ano}-${item.mes.toString().padStart(2, '0')}-${dia.toString().padStart(2, '0')}`
-                  const isHoliday = feriados?.some(f => f.data === dateStr)
-
-                  if (isNightShift || isWE || isHoliday) he100 += horas
-                  else he50 += horas
-                } else if (cat === 'Plantão') {
-                  chTotal += horas
-                } else if (cat === 'Sobreaviso') {
-                  const val = (t.codigo === 'MTN') ? 2 : (t.codigo === 'MT' || t.codigo === 'N' ? 1 : 0)
-                  sobCount += val
-                }
-              })
-
-              return (
-                <tr key={item.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
-                  <td className="px-6 py-4">
-                    <div className="font-medium text-zinc-900 dark:text-white">{item.servidores?.nome}</div>
-                    <div className="text-xs text-zinc-600 dark:text-zinc-400">{item.servidores?.cargo}</div>
-                  </td>
-                  <td className="px-6 py-4 text-zinc-600 dark:text-zinc-400">{item.unidades?.nome}</td>
-                  <td className="px-6 py-4">{item.mes}/{item.ano}</td>
-                  <td className="px-6 py-4 text-right font-bold text-blue-600">{chTotal}h</td>
-                  <td className="px-6 py-4 text-right text-indigo-600 font-medium">{he50}h</td>
-                  <td className="px-6 py-4 text-right text-indigo-600 font-medium">{he100}h</td>
-                  <td className="px-6 py-4 text-right text-orange-600 font-bold">{sobCount}</td>
-                </tr>
-              )
-            })}
-            {(!reportData || reportData.length === 0) && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-zinc-50 dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700">
               <tr>
-                <td colSpan={7} className="px-6 py-12 text-center text-zinc-500 dark:text-zinc-400">
-                  Nenhuma escala fechada para gerar relatório.
-                </td>
+                <th className="px-6 py-4 font-semibold whitespace-nowrap">Servidor</th>
+                <th className="px-6 py-4 font-semibold whitespace-nowrap">Unidade</th>
+                <th className="px-6 py-4 font-semibold whitespace-nowrap">Período</th>
+                <th className="px-6 py-4 font-semibold text-right whitespace-nowrap">Total CH</th>
+                <th className="px-6 py-4 font-semibold text-right whitespace-nowrap">Plantões</th>
+                <th className="px-6 py-4 font-semibold text-right whitespace-nowrap">HE 50%</th>
+                <th className="px-6 py-4 font-semibold text-right whitespace-nowrap">HE 100%</th>
+                <th className="px-6 py-4 font-semibold text-right whitespace-nowrap">Sobreavisos</th>
+                <th className="px-6 py-4 font-semibold text-right whitespace-nowrap bg-zinc-100/50 dark:bg-zinc-800/50">Total</th>
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+              {reportData.map((item: RHReportItem) => {
+                let chTotal = 0
+                let plTotal = 0
+                let he50 = 0
+                let he100 = 0
+                let sobCount = 0
+
+                const jornada = jornadas?.find(j => j.id === item.jornada_id)
+                const intervaloHoras = (jornada?.intervalo_minutos || 0) / 60
+
+                item.escala_diaria.forEach((ed) => {
+                  const t = ed.dicionario_turnos
+                  if (!t) return
+                  const horas = Number(t.horas_computadas || 0)
+                  const dia = Number(ed.dia)
+                  const cat = ed.categoria
+
+                  const isPast = item.ano < currentYear || (item.ano === currentYear && item.mes < currentMonth) || (item.ano === currentYear && item.mes === currentMonth && dia < currentDay)
+                  if (!isPast && (item.mes === currentMonth && item.ano === currentYear)) return
+
+                  if (cat === 'Regular') {
+                    let liquidHours = horas
+                    if (jornada && Number(jornada.horas_totais) > 0) {
+                      const journeyMaxLiquid = Math.max(0, Number(jornada.horas_totais) - intervaloHoras)
+                      liquidHours = Math.min(horas, journeyMaxLiquid)
+                    }
+                    chTotal += liquidHours
+                  } else if (cat === 'Extra') {
+                    const dateObj = new Date(item.ano, item.mes - 1, dia)
+                    const code = t.codigo?.toUpperCase() || ''
+                    const isNightShift = code.includes('N')
+                    const isWE = dateObj.getDay() === 0 || dateObj.getDay() === 6
+                    const dateStr = `${item.ano}-${item.mes.toString().padStart(2, '0')}-${dia.toString().padStart(2, '0')}`
+                    const isHoliday = feriados?.some(f => f.data === dateStr)
+
+                    if (isNightShift || isWE || isHoliday) he100 += horas
+                    else he50 += horas
+                  } else if (cat === 'Plantão') {
+                    plTotal += horas
+                  } else if (cat === 'Sobreaviso') {
+                    const code = t.codigo?.toUpperCase() || ''
+                    const val = (code === 'MTN') ? 2 : (code === 'MT' || code === 'N' ? 1 : 0)
+                    sobCount += val
+                  }
+                })
+
+                const totalGeral = chTotal + plTotal + he50 + he100 + (sobCount * 12)
+
+                return (
+                  <tr key={item.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
+                    <td className="px-6 py-4">
+                      <div className="font-medium text-zinc-900 dark:text-white">{item.servidores?.nome}</div>
+                      <div className="text-xs text-zinc-600 dark:text-zinc-400">{item.servidores?.cargo}</div>
+                    </td>
+                    <td className="px-6 py-4 text-zinc-600 dark:text-zinc-400 whitespace-nowrap">{item.unidades?.nome}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">{item.mes}/{item.ano}</td>
+                    <td className="px-6 py-4 text-right font-medium text-zinc-700 dark:text-zinc-300">{chTotal}h</td>
+                    <td className="px-6 py-4 text-right font-medium text-amber-600">{plTotal}h</td>
+                    <td className="px-6 py-4 text-right text-indigo-600 font-medium">{he50}h</td>
+                    <td className="px-6 py-4 text-right text-indigo-600 font-medium">{he100}h</td>
+                    <td className="px-6 py-4 text-right text-orange-600 font-bold">{sobCount}</td>
+                    <td className="px-6 py-4 text-right font-bold text-blue-600 bg-zinc-50/50 dark:bg-zinc-800/30 text-base">{totalGeral}h</td>
+                  </tr>
+                )
+              })}
+              {(!reportData || reportData.length === 0) && (
+                <tr>
+                  <td colSpan={9} className="px-6 py-12 text-center text-zinc-500 dark:text-zinc-400">
+                    Nenhuma escala fechada para gerar relatório.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
+    </div>
+  )
+}
     </div>
   )
 }
