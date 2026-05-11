@@ -1658,15 +1658,22 @@ export function ScaleGrid({
                         const currentTurno = turnos.find(t => t.id === turnoId)
                         const currentSlots = currentTurno?.slots || []
                         
-                        // Does it overlap with external?
+                        // Does it overlap with external? (Time-based conflict)
                         const hasExternalConflict = realExternalShifts.some(os => 
                           os.slots.some((s: string) => currentSlots.includes(s))
                         )
                         
-                        // Is the server busy elsewhere regardless of what we put here? (Bonus)
-                        const isBusyElsewhere = realExternalShifts.length > 0
+                        // Is the server busy elsewhere IN THIS SPECIFIC CATEGORY?
+                        const isBusyElsewhere = realExternalShifts.some(os => os.categoria === cat)
                         
-                        const conflictDetails = realExternalShifts
+                        // Tooltip details
+                        const externalBusyDetails = realExternalShifts
+                          .filter(os => os.categoria === cat)
+                          .map(os => os.descricao_conflito)
+                          .join(' | ')
+
+                        const realConflictDetails = realExternalShifts
+                          .filter(os => os.slots.some((s: string) => currentSlots.includes(s)))
                           .map(os => os.descricao_conflito)
                           .join(' | ')
 
@@ -1688,9 +1695,9 @@ export function ScaleGrid({
                               ${(presenceData[em.servidor_id]?.[cat]?.[day]?.entrada || presenceData[em.servidor_id]?.[cat]?.[day]?.saida || effectiveStatus === 'Chegou') ? 'bg-emerald-50/50 dark:bg-emerald-900/10' : ''}`}
                             title={
                               hasExternalConflict 
-                                ? `⚠️ CONFLITO REAL: ${conflictDetails}` 
+                                ? `⚠️ CONFLITO REAL: ${realConflictDetails}` 
                                 : isBusyElsewhere
-                                  ? `ℹ️ Servidor já escalado em: ${conflictDetails}`
+                                  ? `ℹ️ Servidor já escalado em: ${externalBusyDetails}`
                                   : isFailed 
                                     ? `FALHOU: ${logForDay?.motivo_falha || virtualReason || 'Tempo expirado'}${isDisregarded ? ' (Desconsiderado da carga horária)' : ''}` 
                                     : ''
