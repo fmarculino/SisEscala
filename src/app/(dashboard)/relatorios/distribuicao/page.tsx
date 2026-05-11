@@ -102,7 +102,21 @@ export default async function DistribuicaoPage({ searchParams }: Props) {
           </div>
         </div>
 
-        <ReportActions showExport={false} />
+        <ReportActions 
+          showExport={false} 
+          reportType="distribuicao"
+          title="Distribuição de Plantões"
+          filters={{
+            'Mês/Ano': `${mes}/${ano}`,
+            'Unidade': unidades?.find((u: any) => u.id === unidadeId)?.nome || 'Todas',
+            'Setor': setores?.find((s: any) => s.id === setorId)?.nome || 'Todos'
+          }}
+          reportData={{
+            daysInMonth,
+            sortedTurnos,
+            coverageMap
+          }}
+        />
       </div>
 
       {/* Filters */}

@@ -1,13 +1,44 @@
 'use client'
 
 import { Printer, FileSpreadsheet } from 'lucide-react'
+import { getReportBaseHtml, templates, ReportConfig } from '@/utils/report-templates'
 
 interface Props {
   onExport?: () => void
   showExport?: boolean
+  reportData?: any
+  reportType?: 'consolidado' | 'frequencia' | 'rh' | 'distribuicao'
+  filters?: Record<string, string | number | undefined>
+  title?: string
 }
 
-export function ReportActions({ onExport, showExport = true }: Props) {
+export function ReportActions({ onExport, showExport = true, reportData, reportType, filters, title }: Props) {
+  const handlePrint = () => {
+    if (!reportType || !reportData) {
+      window.print();
+      return;
+    }
+
+    const config: ReportConfig = {
+      title: title || 'Relatório SisEscala',
+      filters: filters || {},
+      generationDate: new Date().toLocaleString('pt-BR'),
+    };
+
+    let content = '';
+    if (reportType === 'consolidado') content = templates.consolidado(reportData);
+    if (reportType === 'rh') content = templates.rh(reportData);
+    if (reportType === 'frequencia') content = templates.frequencia(reportData, config);
+    if (reportType === 'distribuicao') content = templates.distribuicao(reportData);
+
+    const html = getReportBaseHtml(config, content);
+    const win = window.open('', '_blank');
+    if (win) {
+      win.document.write(html);
+      win.document.close();
+    }
+  };
+
   return (
     <div className="flex items-center gap-2">
       {showExport && (
@@ -19,7 +50,7 @@ export function ReportActions({ onExport, showExport = true }: Props) {
         </button>
       )}
       <button 
-        onClick={() => window.print()}
+        onClick={handlePrint}
         className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-indigo-700 shadow-lg shadow-indigo-600/20 transition-all print:hidden"
       >
         <Printer className="h-4 w-4" /> Imprimir

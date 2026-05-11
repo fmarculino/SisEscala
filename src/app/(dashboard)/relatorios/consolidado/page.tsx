@@ -112,7 +112,16 @@ export default async function ConsolidadoPage({ searchParams }: Props) {
           </div>
         </div>
 
-        <ReportActions />
+        <ReportActions 
+          reportData={processedData}
+          reportType="consolidado"
+          title="Consolidado de Horas"
+          filters={{
+            'Mês/Ano': `${mes}/${ano}`,
+            'Unidade': unidades?.find((u: any) => u.id === unidadeId)?.nome || 'Todas',
+            'Setor': setores?.find((s: any) => s.id === setorId)?.nome || 'Todos'
+          }}
+        />
       </div>
 
       {/* Filters */}

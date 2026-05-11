@@ -41,6 +41,191 @@ export default function AuditoriaPage() {
   const [userProfile, setUserProfile] = useState<any>(null)
   const supabase = createClient()
 
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false)
+  const [fullLogs, setFullLogs] = useState<any[]>([])
+
+  const handleGeneratePDF = async () => {
+    setIsGeneratingPDF(true)
+    
+    // Fetch ALL data matching filters
+    let query
+    if (activeTab === 'sobreaviso') {
+      query = supabase
+        .from('logs_sobreaviso')
+        .select('*, servidores!inner(nome), unidades!inner(nome), validador:profiles!validado_por(full_name)')
+      
+      if (filtros.unidadeId) query = query.eq('unidade_id', filtros.unidadeId)
+      if (filtros.setorId) query = query.eq('servidores.setor_id', filtros.setorId)
+      if (filtros.status) {
+        if (filtros.status === 'Falhou') query = query.eq('status', 'Falhou')
+        else if (filtros.status === 'Atendido') query = query.eq('status', 'Chegou')
+        else query = query.eq('status', filtros.status)
+      }
+      if (filtros.dataInicio) query = query.gte('data_hora_acionamento', `${filtros.dataInicio}T00:00:00`)
+      if (filtros.dataFim) query = query.lte('data_hora_acionamento', `${filtros.dataFim}T23:59:59`)
+      if (filtros.busca) query = query.ilike('servidores.nome', `%${filtros.busca}%`)
+    } else {
+      query = supabase
+        .from('logs_sistema')
+        .select('*, profiles!inner(full_name), unidades(nome), setores(nome)')
+      
+      if (filtros.unidadeId) query = query.eq('unidade_id', filtros.unidadeId)
+      if (filtros.setorId) query = query.eq('setor_id', filtros.setorId)
+      if (filtros.dataInicio) query = query.gte('created_at', `${filtros.dataInicio}T00:00:00`)
+      if (filtros.dataFim) query = query.lte('created_at', `${filtros.dataFim}T23:59:59`)
+      if (filtros.busca) {
+        query = query.or(`acao.ilike.%${filtros.busca}%,detalhes->>nome.ilike.%${filtros.busca}%`)
+      }
+    }
+
+    query = applyAccessFilters(query, userProfile)
+    const orderBy = activeTab === 'sobreaviso' ? 'data_hora_acionamento' : 'created_at'
+    
+    const { data } = await query.order(orderBy, { ascending: false })
+    
+    if (data) {
+      const reportTitle = `Relatório de Auditoria - ${activeTab === 'sobreaviso' ? 'Sobreaviso' : 'Sistema'}`
+      const generationDate = new Date().toLocaleString('pt-BR')
+      
+      const unidadeFiltro = filtros.unidadeId ? unidades.find(u => u.id === filtros.unidadeId)?.nome : 'Todas'
+      const setorFiltro = filtros.setorId ? setores.find(s => s.id === filtros.setorId)?.nome : 'Todos'
+      const periodoFiltro = filtros.dataInicio ? `${new Date(filtros.dataInicio).toLocaleDateString('pt-BR')} até ${filtros.dataFim ? new Date(filtros.dataFim).toLocaleDateString('pt-BR') : 'Hoje'}` : 'Todo o período'
+      
+      let tableRows = ''
+      if (activeTab === 'sobreaviso') {
+        tableRows = data.map((log: any) => `
+          <tr class="border-b border-zinc-200">
+            <td class="py-3 px-2 font-bold text-sm">${log.servidores?.nome}</td>
+            <td class="py-3 px-2 text-xs">${log.unidades?.nome}</td>
+            <td class="py-3 px-2 text-xs">${new Date(log.data_hora_acionamento).toLocaleString('pt-BR')}</td>
+            <td class="py-3 px-2 text-xs">${log.data_hora_aceite ? new Date(log.data_hora_aceite).toLocaleString('pt-BR') : '-'}</td>
+            <td class="py-3 px-2 text-xs">${log.data_hora_chegada ? new Date(log.data_hora_chegada).toLocaleString('pt-BR') : '-'}</td>
+            <td class="py-3 px-2 text-xs font-bold uppercase">${getEffectiveStatus(log)}</td>
+          </tr>
+        `).join('')
+      } else {
+        tableRows = data.map((log: any) => `
+          <tr class="border-b border-zinc-200">
+            <td class="py-3 px-2 font-bold uppercase text-[10px]">${log.acao.replace(/_/g, ' ')}</td>
+            <td class="py-3 px-2 text-xs">${log.profiles?.full_name}</td>
+            <td class="py-3 px-2 text-xs">${log.unidades?.nome || '-'} / ${log.setores?.nome || 'Geral'}</td>
+            <td class="py-3 px-2 text-xs">${new Date(log.created_at).toLocaleString('pt-BR')}</td>
+            <td class="py-3 px-2 text-[10px] text-zinc-600 max-w-[300px]">${log.detalhes?.nome || log.detalhes?.servidor || '-'}</td>
+          </tr>
+        `).join('')
+      }
+
+      const reportHtml = `
+        <!DOCTYPE html>
+        <html lang="pt-BR">
+        <head>
+          <meta charset="UTF-8">
+          <title>${reportTitle}</title>
+          <script src="https://cdn.tailwindcss.com"></script>
+          <style>
+            @media print {
+              .no-print { display: none !important; }
+              body { background: white !important; padding: 0 !important; }
+              .container { max-width: none !important; width: 100% !important; box-shadow: none !important; border: none !important; }
+            }
+            body { font-family: 'Inter', sans-serif; background-color: #f4f4f5; }
+            table { page-break-inside: auto; }
+            tr { page-break-inside: avoid; page-break-after: auto; }
+            thead { display: table-header-group; }
+          </style>
+        </head>
+        <body class="p-8">
+          <div class="max-w-6xl mx-auto bg-white shadow-2xl rounded-2xl overflow-hidden border border-zinc-200 container">
+            <div class="bg-zinc-900 p-8 text-white flex justify-between items-center no-print">
+              <div>
+                <h1 class="text-2xl font-black tracking-tight">SIS ESCALA</h1>
+                <p class="text-zinc-400 text-sm uppercase font-bold tracking-widest">Relatório Consolidado</p>
+              </div>
+              <button onclick="window.print()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-bold transition-all shadow-lg flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"></path><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+                Imprimir Relatório
+              </button>
+            </div>
+
+            <div class="p-8">
+              <div class="flex justify-between items-start border-b-2 border-zinc-900 pb-6 mb-8">
+                <div>
+                  <h2 class="text-3xl font-black text-zinc-900 uppercase tracking-tighter">${reportTitle}</h2>
+                  <p class="text-zinc-500 font-medium">Módulo de Auditoria e Gestão de Escalas</p>
+                </div>
+                <div class="text-right">
+                  <p class="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Data de Emissão</p>
+                  <p class="text-lg font-bold text-zinc-900">${generationDate}</p>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-4 gap-6 mb-8 bg-zinc-50 p-6 rounded-2xl border border-zinc-100">
+                <div>
+                  <p class="text-[10px] font-black text-zinc-400 uppercase">Unidade</p>
+                  <p class="font-bold text-zinc-800">${unidadeFiltro}</p>
+                </div>
+                <div>
+                  <p class="text-[10px] font-black text-zinc-400 uppercase">Setor</p>
+                  <p class="font-bold text-zinc-800">${setorFiltro}</p>
+                </div>
+                <div>
+                  <p class="text-[10px] font-black text-zinc-400 uppercase">Período Selecionado</p>
+                  <p class="font-bold text-zinc-800 text-xs">${periodoFiltro}</p>
+                </div>
+                <div>
+                  <p class="text-[10px] font-black text-zinc-400 uppercase">Status</p>
+                  <p class="font-bold text-zinc-800">${filtros.status || 'Todos'}</p>
+                </div>
+              </div>
+
+              <table class="w-full text-left">
+                <thead>
+                  <tr class="bg-zinc-100 border-y-2 border-zinc-900">
+                    ${activeTab === 'sobreaviso' ? `
+                      <th class="py-3 px-2 text-[10px] font-black uppercase">Servidor</th>
+                      <th class="py-3 px-2 text-[10px] font-black uppercase">Unidade</th>
+                      <th class="py-3 px-2 text-[10px] font-black uppercase">Acionamento</th>
+                      <th class="py-3 px-2 text-[10px] font-black uppercase">Aceite</th>
+                      <th class="py-3 px-2 text-[10px] font-black uppercase">Chegada</th>
+                      <th class="py-3 px-2 text-[10px] font-black uppercase">Status</th>
+                    ` : `
+                      <th class="py-3 px-2 text-[10px] font-black uppercase">Ação</th>
+                      <th class="py-3 px-2 text-[10px] font-black uppercase">Usuário</th>
+                      <th class="py-3 px-2 text-[10px] font-black uppercase">Unidade/Setor</th>
+                      <th class="py-3 px-2 text-[10px] font-black uppercase">Data/Hora</th>
+                      <th class="py-3 px-2 text-[10px] font-black uppercase">Detalhes</th>
+                    `}
+                  </tr>
+                </thead>
+                <tbody>
+                  ${tableRows}
+                </tbody>
+              </table>
+
+              <div class="mt-12 pt-6 border-t border-zinc-200 flex justify-between items-center text-[10px] text-zinc-400 uppercase font-bold tracking-widest">
+                <span>SisEscala - Gestão Inteligente de Escalas</span>
+                <span>Total de Registros: ${data.length}</span>
+              </div>
+            </div>
+          </div>
+          <div class="text-center mt-8 text-zinc-400 text-xs no-print">
+            Este relatório foi gerado automaticamente e contém informações sensíveis de auditoria.
+          </div>
+        </body>
+        </html>
+      `
+
+      const win = window.open('', '_blank')
+      if (win) {
+        win.document.write(reportHtml)
+        win.document.close()
+      }
+      setIsGeneratingPDF(false)
+    } else {
+      setIsGeneratingPDF(false)
+    }
+  }
+
   const fetchData = useCallback(async () => {
     if (!userProfile && logs.length === 0) return // Wait for profile
     setLoading(true)
@@ -230,8 +415,8 @@ export default function AuditoriaPage() {
   const totalPages = Math.ceil(totalCount / pageSize)
 
   return (
-    <div className="space-y-8 print:space-y-4">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 print:hidden">
+    <div className="space-y-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-white">Painel de Auditoria</h1>
           <p className="mt-2 text-zinc-600 dark:text-zinc-400">
@@ -240,11 +425,16 @@ export default function AuditoriaPage() {
         </div>
         <div className="flex items-center gap-3">
           <button 
-            onClick={handlePrint}
-            className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg text-sm font-bold hover:bg-zinc-50 transition-colors shadow-sm"
+            onClick={handleGeneratePDF}
+            disabled={isGeneratingPDF}
+            className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg text-sm font-bold hover:bg-zinc-50 transition-colors shadow-sm disabled:opacity-50"
           >
-            <FileDown className="h-4 w-4" />
-            Gerar PDF
+            {isGeneratingPDF ? (
+              <Clock className="h-4 w-4 animate-spin" />
+            ) : (
+              <FileDown className="h-4 w-4" />
+            )}
+            {isGeneratingPDF ? 'Gerando...' : 'Gerar PDF'}
           </button>
           <div className="flex items-center space-x-2 text-sm text-green-600 font-medium bg-green-50 dark:bg-green-900/10 px-3 py-1.5 rounded-full border border-green-100 dark:border-green-900/30">
             <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
@@ -377,8 +567,8 @@ export default function AuditoriaPage() {
       </div>
 
       {/* Lista com Impressão Otimizada */}
-      <div className="grid grid-cols-1 gap-6">
-        <div className="overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900 print:border-none print:shadow-none">
+      <div className="grid grid-cols-1 gap-6 print:hidden">
+        <div className="overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
           <div className="p-6 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50 flex items-center justify-between print:bg-white print:border-zinc-300">
             <h2 className="text-lg font-semibold flex items-center print:text-xl print:font-black">
               <Zap className="mr-2 h-5 w-5 text-orange-500 print:hidden" />

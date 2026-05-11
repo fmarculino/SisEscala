@@ -40,9 +40,8 @@ export async function createServidor(formData: FormData) {
 export async function importServidores(csvText: string) {
   const supabase = await createClient()
   
-  // Simple CSV parser (assuming headers: nome, matricula, cargo, vinculo, unidade_nome)
-  const lines = csvText.split('\n')
-  const headers = lines[0].split(',')
+  // Simple CSV parser (assuming headers: nome, matricula, cargo, vinculo, email, telefone)
+  const lines = csvText.split('\n').filter(line => line.trim() !== '')
   const servers = []
 
   for (let i = 1; i < lines.length; i++) {
@@ -54,6 +53,8 @@ export async function importServidores(csvText: string) {
       matricula: values[1]?.trim(),
       cargo: values[2]?.trim(),
       vinculo: values[3]?.trim() || 'Efetiva',
+      email: values[4]?.trim() || null,
+      telefone: values[5]?.trim() || null,
     })
   }
 

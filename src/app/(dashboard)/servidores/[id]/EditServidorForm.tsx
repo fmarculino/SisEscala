@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { Save, User, Layers } from 'lucide-react'
+import { Save, User, Layers, Eye, EyeOff, MessageCircle } from 'lucide-react'
 import { updateServidor } from '../actions'
 
 interface EditServidorFormProps {
@@ -46,9 +46,21 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos }: Ed
     return [c1, c2, c3].filter(Boolean).join(' / ')
   }, [cargos, nivel1, nivel2, nivel3])
 
+  const [showPin, setShowPin] = useState(false)
+  const [currentPin, setCurrentPin] = useState(servidor.pin_acesso || '')
+  const [currentTelefone, setCurrentTelefone] = useState(servidor.telefone || '')
+
+  const sharePinWhatsApp = () => {
+    if (!currentPin) return
+    const phone = currentTelefone.replace(/\D/g, '')
+    const message = encodeURIComponent(`Olá *${servidor.nome}*, seu PIN de acesso ao Portal do Servidor SisEscala é: *${currentPin}*`)
+    window.open(`https://wa.me/55${phone}?text=${message}`, '_blank')
+  }
+
   const handleSubmit = async (formData: FormData) => {
     setLoading(true)
     formData.set('cargo', cargoFinal)
+    formData.set('pin_acesso', currentPin)
     const result = await updateServidor(id, formData)
     if (result?.error) {
       setError(result.error)
@@ -240,29 +252,19 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos }: Ed
                   id="telefone"
                   name="telefone"
                   type="text"
-                  defaultValue={servidor.telefone ? (() => {
-                    let v = servidor.telefone.replace(/\D/g, "")
+                  value={(() => {
+                    let v = currentTelefone.replace(/\D/g, "")
                     if (v.length > 10) return v.replace(/^(\d{2})(\d{5})(\d{4})/, "($1) $2-$3")
                     if (v.length > 5) return v.replace(/^(\d{2})(\d{4})(\d{0,4})/, "($1) $2-$3")
                     if (v.length > 2) return v.replace(/^(\d{2})(\d{0,5})/, "($1) $2")
                     if (v.length > 0) return v.replace(/^(\d*)/, "($1")
                     return v
-                  })() : ''}
+                  })()}
                   placeholder="(00) 00000-0000"
-                  onInput={(e) => {
-                    let value = e.currentTarget.value.replace(/\D/g, "")
+                  onChange={(e) => {
+                    let value = e.target.value.replace(/\D/g, "")
                     if (value.length > 11) value = value.slice(0, 11)
-                    
-                    if (value.length > 10) {
-                      value = value.replace(/^(\d{2})(\d{5})(\d{4})/, "($1) $2-$3")
-                    } else if (value.length > 6) {
-                      value = value.replace(/^(\d{2})(\d{4})(\d{0,4})/, "($1) $2-$3")
-                    } else if (value.length > 2) {
-                      value = value.replace(/^(\d{2})(\d{0,5})/, "($1) $2")
-                    } else if (value.length > 0) {
-                      value = value.replace(/^(\d*)/, "($1")
-                    }
-                    e.currentTarget.value = value
+                    setCurrentTelefone(value)
                   }}
                   className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800"
                 />
@@ -270,25 +272,43 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos }: Ed
               <div className="sm:col-span-1">
                 <label htmlFor="pin_acesso" className="block text-xs font-medium text-zinc-500 uppercase">PIN de Acesso</label>
                 <div className="mt-1 flex gap-2">
-                  <input
-                    id="pin_acesso"
-                    name="pin_acesso"
-                    type="text"
-                    maxLength={6}
-                    defaultValue={servidor.pin_acesso || ''}
-                    placeholder="Ex: 1234"
-                    className="block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm font-mono dark:border-zinc-700 dark:bg-zinc-800"
-                  />
+                  <div className="relative flex-1">
+                    <input
+                      id="pin_acesso"
+                      type={showPin ? 'text' : 'password'}
+                      maxLength={6}
+                      value={currentPin}
+                      onChange={(e) => setCurrentPin(e.target.value)}
+                      placeholder="Ex: 1234"
+                      className="block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm font-mono dark:border-zinc-700 dark:bg-zinc-800 pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPin(!showPin)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600"
+                    >
+                      {showPin ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
                   <button
                     type="button"
                     onClick={() => {
                       const pin = Math.floor(1000 + Math.random() * 9000).toString()
-                      const input = document.getElementById('pin_acesso') as HTMLInputElement
-                      if (input) input.value = pin
+                      setCurrentPin(pin)
+                      setShowPin(true)
                     }}
-                    className="px-3 py-2 bg-zinc-100 dark:bg-zinc-800 text-xs font-bold rounded-md hover:bg-zinc-200"
+                    className="px-3 py-2 bg-zinc-100 dark:bg-zinc-800 text-xs font-bold rounded-md hover:bg-zinc-200 border border-zinc-200 dark:border-zinc-700"
                   >
                     Gerar PIN
+                  </button>
+                  <button
+                    type="button"
+                    onClick={sharePinWhatsApp}
+                    disabled={!currentPin || !currentTelefone}
+                    className="p-2 bg-green-500 text-white rounded-md hover:bg-green-600 disabled:opacity-50 disabled:bg-zinc-300 transition-colors shadow-sm flex items-center justify-center"
+                    title="Enviar PIN via WhatsApp"
+                  >
+                    <MessageCircle className="h-4 w-4" />
                   </button>
                 </div>
                 <p className="mt-1 text-[10px] text-zinc-500">Este PIN permitirá ao servidor consultar sua escala sem senha.</p>

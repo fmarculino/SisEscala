@@ -2,6 +2,7 @@ import { createClient } from '@/utils/supabase/server'
 import { FileSpreadsheet, Download } from 'lucide-react'
 
 import { applyAccessFilters } from '@/utils/permissions'
+import { ReportActions } from '@/app/(dashboard)/relatorios/_components/ReportActions'
 
 export default async function RelatorioRHPage() {
   const supabase = await createClient()
@@ -43,10 +44,28 @@ export default async function RelatorioRHPage() {
             Resumo de horas e encargos das escalas fechadas.
           </p>
         </div>
-        <button className="inline-flex items-center rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-black">
-          <Download className="mr-2 h-4 w-4" />
-          Exportar CSV
-        </button>
+        <ReportActions 
+          reportType="rh"
+          title="Relatório Consolidado (RH)"
+          filters={{
+            'Status': 'Escalas Fechadas'
+          }}
+          reportData={reportData?.map((item: any) => {
+            let chTotal = 0
+            let sobCount = 0
+            item.escala_diaria.forEach((ed: any) => {
+              chTotal += Number(ed.dicionario_turnos.horas_computadas)
+              if (ed.dicionario_turnos.tipo === 'Sobreaviso') sobCount++
+            })
+            return {
+              servidor: item.servidores?.nome,
+              unidade: item.unidades?.nome,
+              periodo: `${item.mes}/${item.ano}`,
+              chTotal,
+              sobCount
+            }
+          })}
+        />
       </div>
 
       <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm overflow-hidden">

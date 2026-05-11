@@ -101,7 +101,36 @@ export default async function FrequenciaPage({ searchParams }: Props) {
           </div>
         </div>
 
-        {servidorId && <ReportActions showExport={false} />}
+        {servidorId && scaleData && (
+          <ReportActions 
+            showExport={false} 
+            reportType="frequencia"
+            title="Espelho de Frequência Individual"
+            filters={{
+              'Mês/Ano': `${meses[mes-1]} / ${ano}`,
+              'Servidor': scaleData.servidores.nome,
+              'Unidade': scaleData.unidades.nome,
+              'Setor': scaleData.setores.nome
+            }}
+            reportData={{
+              servidor: scaleData.servidores.nome,
+              matricula: scaleData.servidores.matricula,
+              unidade: scaleData.unidades.nome,
+              setor: scaleData.setores.nome,
+              rows: Array.from({ length: daysInMonth }, (_, i) => {
+                const day = i + 1
+                const shifts = scaleData.escala_diaria.filter((ed: any) => ed.dia === day)
+                const date = new Date(ano, mes - 1, day)
+                return {
+                  day: day < 10 ? `0${day}` : day,
+                  isWeekend: date.getDay() === 0 || date.getDay() === 6,
+                  programacao: shifts.map((s: any) => `${s.dicionario_turnos.codigo} (${s.categoria})`).join(', '),
+                  horas: shifts.reduce((acc: number, curr: any) => acc + Number(curr.dicionario_turnos.horas_computadas), 0)
+                }
+              })
+            }}
+          />
+        )}
       </div>
 
       {/* Filters - Hidden on Print */}
