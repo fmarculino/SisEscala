@@ -27,6 +27,12 @@ export default async function RelatoriosPage() {
       icon: PieChart,
       href: '/relatorios/distribuicao'
     },
+    { 
+      title: 'Folha de RH', 
+      desc: 'Exportação simplificada para fechamento de folha.', 
+      icon: Download,
+      href: '/relatorios/rh'
+    },
   ]
 
   return (

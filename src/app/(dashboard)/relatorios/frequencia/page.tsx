@@ -1,7 +1,7 @@
 import { createClient } from '@/utils/supabase/server'
 import { FileText, ArrowLeft, Printer, Search, User, MapPin, Calendar as CalendarIcon } from 'lucide-react'
 import Link from 'next/link'
-import { applyAccessFilters } from '@/utils/permissions'
+import { applyAccessFilters, type UserProfile } from '@/utils/permissions'
 import { ReportFiltersWrapper } from '@/app/(dashboard)/relatorios/_components/ReportFiltersWrapper'
 import { ReportActions } from '@/app/(dashboard)/relatorios/_components/ReportActions'
 import { ServidorSelector } from '@/app/(dashboard)/relatorios/_components/ServidorSelector'
@@ -14,6 +14,14 @@ interface Props {
     setorId?: string
     servidorId?: string
   }>
+}
+
+interface FrequenciaRow {
+  day: string | number;
+  isWeekend: boolean;
+  programacao: string;
+  horas: number;
+  shifts: any[];
 }
 
 export default async function FrequenciaPage({ searchParams }: Props) {
@@ -35,13 +43,13 @@ export default async function FrequenciaPage({ searchParams }: Props) {
 
   const userProfile = profile ? {
     ...profile,
-    permitted_unidades: profile.profile_unidades?.map((pu: any) => pu.unidade_id) || [],
-    permitted_setores: profile.profile_setores?.map((ps: any) => ps.setor_id) || []
-  } : null
+    permitted_unidades: (profile as any).profile_unidades?.map((pu: any) => pu.unidade_id) || [],
+    permitted_setores: (profile as any).profile_setores?.map((ps: any) => ps.setor_id) || []
+  } as UserProfile : null
 
   // Fetch Master Data
-  const { data: unidades } = await applyAccessFilters(supabase.from('unidades').select('id, nome'), userProfile, { bypassSuperAdmin: true })
-  const { data: setores } = await applyAccessFilters(supabase.from('setores').select('id, nome, unidade_id'), userProfile, { bypassSuperAdmin: true })
+  const { data: unidades } = await applyAccessFilters(supabase.from('unidades').select('id, nome').eq('ativo', true), userProfile, { bypassSuperAdmin: true })
+  const { data: setores } = await applyAccessFilters(supabase.from('setores').select('id, nome, unidade_id').eq('ativo', true), userProfile, { bypassSuperAdmin: true })
   
   // Fetch Servidores for selection
   let servQuery = supabase.from('servidores').select('id, nome, matricula, cargo').order('nome')
@@ -51,7 +59,7 @@ export default async function FrequenciaPage({ searchParams }: Props) {
 
   // If a server is selected, fetch their data
   let scaleData: any = null
-  let daysInMonth = new Date(ano, mes, 0).getDate()
+  const daysInMonth = new Date(ano, mes, 0).getDate()
   
   if (servidorId) {
     const { data } = await supabase
@@ -81,6 +89,19 @@ export default async function FrequenciaPage({ searchParams }: Props) {
     'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
     'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
   ]
+
+  const reportRows: FrequenciaRow[] = (servidorId && scaleData) ? Array.from({ length: daysInMonth }, (_, i) => {
+    const day = i + 1
+    const shifts = (scaleData.escala_diaria || []).filter((ed: { dia: number }) => ed.dia === day)
+    const date = new Date(ano, mes - 1, day)
+    return {
+      day: day < 10 ? `0${day}` : day,
+      isWeekend: date.getDay() === 0 || date.getDay() === 6,
+      programacao: shifts.map((s: any) => `${s.dicionario_turnos.codigo} (${s.categoria})`).join(', '),
+      horas: shifts.reduce((acc: number, curr: any) => acc + Number(curr.dicionario_turnos.horas_computadas), 0),
+      shifts: shifts
+    }
+  }) : []
 
   return (
     <div className="p-8 max-w-5xl mx-auto space-y-8 print:p-0 print:max-w-none">
@@ -117,17 +138,7 @@ export default async function FrequenciaPage({ searchParams }: Props) {
               matricula: scaleData.servidores.matricula,
               unidade: scaleData.unidades.nome,
               setor: scaleData.setores.nome,
-              rows: Array.from({ length: daysInMonth }, (_, i) => {
-                const day = i + 1
-                const shifts = scaleData.escala_diaria.filter((ed: any) => ed.dia === day)
-                const date = new Date(ano, mes - 1, day)
-                return {
-                  day: day < 10 ? `0${day}` : day,
-                  isWeekend: date.getDay() === 0 || date.getDay() === 6,
-                  programacao: shifts.map((s: any) => `${s.dicionario_turnos.codigo} (${s.categoria})`).join(', '),
-                  horas: shifts.reduce((acc: number, curr: any) => acc + Number(curr.dicionario_turnos.horas_computadas), 0)
-                }
-              })
+              rows: reportRows
             }}
           />
         )}
@@ -199,35 +210,28 @@ export default async function FrequenciaPage({ searchParams }: Props) {
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {Array.from({ length: daysInMonth }, (_, i) => {
-                const day = i + 1
-                const shifts = scaleData.escala_diaria.filter((ed: any) => ed.dia === day)
-                const date = new Date(ano, mes - 1, day)
-                const isWeekend = date.getDay() === 0 || date.getDay() === 6
-
-                return (
-                  <tr key={day} className={`${isWeekend ? 'bg-zinc-50/50 dark:bg-zinc-800/20' : ''} h-8`}>
-                    <td className="px-4 py-2 border-r border-zinc-200 dark:border-zinc-700 text-center font-bold text-zinc-500">
-                      {day < 10 ? `0${day}` : day}
-                    </td>
-                    <td className="px-4 py-2 border-r border-zinc-200 dark:border-zinc-700">
-                      {shifts.map((s: any, idx: number) => (
-                        <div key={idx} className="flex gap-2">
-                          <span className="font-bold">{s.dicionario_turnos.codigo}</span>
-                          <span className="text-zinc-500">({s.categoria})</span>
-                        </div>
-                      ))}
-                    </td>
-                    <td className="px-4 py-2 border-r border-zinc-200 dark:border-zinc-700 text-center font-bold">
-                      {shifts.reduce((acc: number, curr: any) => acc + Number(curr.dicionario_turnos.horas_computadas), 0)}h
-                    </td>
-                    <td className="px-4 py-2 border-r border-zinc-200 dark:border-zinc-700 italic text-zinc-400 uppercase">
-                      {/* Espaço para anotações manuais */}
-                    </td>
-                    <td className="px-4 py-2 border-b border-zinc-200 dark:border-zinc-700"></td>
-                  </tr>
-                )
-              })}
+              {reportRows.map((row, idx) => (
+                <tr key={idx} className={`${row.isWeekend ? 'bg-zinc-50/50 dark:bg-zinc-800/20' : ''}`}>
+                  <td className="px-4 py-2 border-r border-zinc-200 dark:border-zinc-700 text-center font-bold text-zinc-900 dark:text-white">
+                    {row.day}
+                  </td>
+                  <td className="px-4 py-2 border-r border-zinc-200 dark:border-zinc-700">
+                    {row.shifts.map((s: any, sIdx: number) => (
+                      <div key={sIdx} className="flex gap-2">
+                        <span className="font-bold">{s.dicionario_turnos.codigo}</span>
+                        <span className="text-zinc-500">({s.categoria})</span>
+                      </div>
+                    ))}
+                  </td>
+                  <td className="px-4 py-2 border-r border-zinc-200 dark:border-zinc-700 text-center font-bold">
+                    {row.horas > 0 ? `${row.horas}h` : '--'}
+                  </td>
+                  <td className="px-4 py-2 border-r border-zinc-200 dark:border-zinc-700 italic text-zinc-400 uppercase">
+                    {/* Espaço para anotações manuais */}
+                  </td>
+                  <td className="px-4 py-2 border-b border-zinc-200 dark:border-zinc-700"></td>
+                </tr>
+              ))}
             </tbody>
           </table>
 

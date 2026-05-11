@@ -1,7 +1,7 @@
 import { createClient } from '@/utils/supabase/server'
 import { BarChart3, Download, ArrowLeft, Printer, FileSpreadsheet } from 'lucide-react'
 import Link from 'next/link'
-import { applyAccessFilters } from '@/utils/permissions'
+import { applyAccessFilters, type UserProfile } from '@/utils/permissions'
 import { ReportFiltersWrapper } from '@/app/(dashboard)/relatorios/_components/ReportFiltersWrapper'
 import { ReportActions } from '@/app/(dashboard)/relatorios/_components/ReportActions'
 
@@ -12,6 +12,21 @@ interface Props {
     unidadeId?: string
     setorId?: string
   }>
+}
+
+interface ProcessedConsolidatedData {
+  id: string;
+  servidor: string;
+  matricula: string;
+  cargo: string;
+  vinculo: string;
+  unidade: string;
+  setor: string;
+  regular: number;
+  extra: number;
+  plantao: number;
+  sobreaviso: number;
+  totalGeral: number;
 }
 
 export default async function ConsolidadoPage({ searchParams }: Props) {
@@ -32,13 +47,13 @@ export default async function ConsolidadoPage({ searchParams }: Props) {
 
   const userProfile = profile ? {
     ...profile,
-    permitted_unidades: profile.profile_unidades?.map((pu: any) => pu.unidade_id) || [],
-    permitted_setores: profile.profile_setores?.map((ps: any) => ps.setor_id) || []
-  } : null
+    permitted_unidades: (profile as any).profile_unidades?.map((pu: any) => pu.unidade_id) || [],
+    permitted_setores: (profile as any).profile_setores?.map((ps: any) => ps.setor_id) || []
+  } as UserProfile : null
 
   // Fetch Master Data for filters
-  const { data: unidades } = await applyAccessFilters(supabase.from('unidades').select('id, nome'), userProfile, { bypassSuperAdmin: true })
-  const { data: setores } = await applyAccessFilters(supabase.from('setores').select('id, nome, unidade_id'), userProfile, { bypassSuperAdmin: true })
+  const { data: unidades } = await applyAccessFilters(supabase.from('unidades').select('id, nome').eq('ativo', true), userProfile, { bypassSuperAdmin: true })
+  const { data: setores } = await applyAccessFilters(supabase.from('setores').select('id, nome, unidade_id').eq('ativo', true), userProfile, { bypassSuperAdmin: true })
 
   // Main Query
   let query = supabase
@@ -64,7 +79,7 @@ export default async function ConsolidadoPage({ searchParams }: Props) {
   const { data: reportData } = await query
 
   // Processing Data
-  const processedData = (reportData as any[])?.map((item: any) => {
+  const processedData: ProcessedConsolidatedData[] = (reportData as any[])?.map((item: any) => {
     const totals = {
       regular: 0,
       extra: 0,
@@ -180,11 +195,11 @@ export default async function ConsolidadoPage({ searchParams }: Props) {
               <tfoot>
                 <tr className="bg-zinc-50 dark:bg-zinc-800/50 border-t-2 border-zinc-200 dark:border-zinc-700">
                   <td colSpan={2} className="px-6 py-4 font-black uppercase tracking-widest text-zinc-900 dark:text-white">Totais do Período</td>
-                  <td className="px-6 py-4 text-center font-black text-zinc-900 dark:text-white">{processedData.reduce((acc: number, curr: any) => acc + curr.regular, 0)}h</td>
-                  <td className="px-6 py-4 text-center font-black text-zinc-900 dark:text-white">{processedData.reduce((acc: number, curr: any) => acc + curr.extra, 0)}h</td>
-                  <td className="px-6 py-4 text-center font-black text-zinc-900 dark:text-white">{processedData.reduce((acc: number, curr: any) => acc + curr.plantao, 0)}h</td>
-                  <td className="px-6 py-4 text-center font-black text-zinc-900 dark:text-white">{processedData.reduce((acc: number, curr: any) => acc + curr.sobreaviso, 0)}h</td>
-                  <td className="px-6 py-4 text-center font-black text-white bg-indigo-600">{processedData.reduce((acc: number, curr: any) => acc + curr.totalGeral, 0)}h</td>
+                  <td className="px-6 py-4 text-center font-black text-zinc-900 dark:text-white">{processedData.reduce((acc, curr) => acc + curr.regular, 0)}h</td>
+                  <td className="px-6 py-4 text-center font-black text-zinc-900 dark:text-white">{processedData.reduce((acc, curr) => acc + curr.extra, 0)}h</td>
+                  <td className="px-6 py-4 text-center font-black text-zinc-900 dark:text-white">{processedData.reduce((acc, curr) => acc + curr.plantao, 0)}h</td>
+                  <td className="px-6 py-4 text-center font-black text-zinc-900 dark:text-white">{processedData.reduce((acc, curr) => acc + curr.sobreaviso, 0)}h</td>
+                  <td className="px-6 py-4 text-center font-black text-white bg-indigo-600">{processedData.reduce((acc, curr) => acc + curr.totalGeral, 0)}h</td>
                 </tr>
               </tfoot>
             )}

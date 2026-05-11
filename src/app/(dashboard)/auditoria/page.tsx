@@ -2,11 +2,48 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { ShieldCheck, Zap, Clock, MapPin, UserCheck, AlertCircle, Building2, Filter, FileDown, RotateCcw, ChevronLeft, ChevronRight, Search, LayoutList } from 'lucide-react'
-import { applyAccessFilters } from '@/utils/permissions'
+import { ShieldCheck, Zap, Clock, MapPin, UserCheck, AlertCircle, Building2, Filter, FileDown, RotateCcw, ChevronLeft, ChevronRight, Search, LayoutList, CheckCircle2 } from 'lucide-react'
+import { applyAccessFilters, type UserProfile } from '@/utils/permissions'
+
+interface LogSobreaviso {
+  id: string;
+  data_hora_acionamento: string;
+  data_hora_aceite?: string;
+  data_hora_chegada?: string;
+  data_hora_recusa?: string;
+  status: string;
+  motivo_falha?: string;
+  motivo_acionamento?: string;
+  lat_aceite?: number;
+  long_aceite?: number;
+  lat_chegada?: number;
+  long_chegada?: number;
+  lat_recusa?: number;
+  long_recusa?: number;
+  validacao_manual?: boolean;
+  validado_por?: string;
+  data_hora_validacao?: string;
+  servidores?: { nome: string; matricula?: string; setor_id?: string };
+  unidades?: { nome: string; latitude?: number; longitude?: number };
+  setores?: { nome: string };
+  validador?: { full_name: string };
+  localizacao_chegada?: number; // Added to match usage in code
+}
+
+interface LogSistema {
+  id: string;
+  acao: string;
+  created_at: string;
+  unidade_id?: string;
+  setor_id?: string;
+  detalhes: Record<string, any>;
+  profiles?: { full_name: string };
+  unidades?: { nome: string };
+  setores?: { nome: string };
+}
 
 export default function AuditoriaPage() {
-  const [logs, setLogs] = useState<any[]>([])
+  const [logs, setLogs] = useState<(LogSobreaviso | LogSistema)[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'sobreaviso' | 'sistema'>('sobreaviso')
   
@@ -19,11 +56,14 @@ export default function AuditoriaPage() {
     }
   }, [activeTab])
 
+  interface Unidade { id: string; nome: string; }
+  interface Setor { id: string; nome: string; unidade_id: string; }
+
   const [configs, setConfigs] = useState<Record<string, string>>({})
   
   // Filter states
-  const [unidades, setUnidades] = useState<any[]>([])
-  const [setores, setSetores] = useState<any[]>([])
+  const [unidades, setUnidades] = useState<Unidade[]>([])
+  const [setores, setSetores] = useState<Setor[]>([])
   const [filtros, setFiltros] = useState({
     unidadeId: '',
     setorId: '',
@@ -38,11 +78,10 @@ export default function AuditoriaPage() {
   const [pageSize] = useState(10)
   const [totalCount, setTotalCount] = useState(0)
 
-  const [userProfile, setUserProfile] = useState<any>(null)
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const supabase = createClient()
 
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false)
-  const [fullLogs, setFullLogs] = useState<any[]>([])
 
   const handleGeneratePDF = async () => {
     setIsGeneratingPDF(true)
@@ -93,7 +132,7 @@ export default function AuditoriaPage() {
       
       let tableRows = ''
       if (activeTab === 'sobreaviso') {
-        tableRows = data.map((log: any) => `
+        tableRows = (data as LogSobreaviso[]).map((log) => `
           <tr class="border-b border-zinc-200">
             <td class="py-3 px-2 font-bold text-sm">${log.servidores?.nome}</td>
             <td class="py-3 px-2 text-xs">${log.unidades?.nome}</td>
@@ -104,9 +143,9 @@ export default function AuditoriaPage() {
           </tr>
         `).join('')
       } else {
-        tableRows = data.map((log: any) => `
+        tableRows = (data as LogSistema[]).map((log) => `
           <tr class="border-b border-zinc-200">
-            <td class="py-3 px-2 font-bold uppercase text-[10px]">${log.acao.replace(/_/g, ' ')}</td>
+            <td class="py-3 px-2 font-bold uppercase text-[10px]">${(log.acao || '').replace(/_/g, ' ')}</td>
             <td class="py-3 px-2 text-xs">${log.profiles?.full_name}</td>
             <td class="py-3 px-2 text-xs">${log.unidades?.nome || '-'} / ${log.setores?.nome || 'Geral'}</td>
             <td class="py-3 px-2 text-xs">${new Date(log.created_at).toLocaleString('pt-BR')}</td>
@@ -279,7 +318,7 @@ export default function AuditoriaPage() {
 
     const orderBy = activeTab === 'sobreaviso' ? 'data_hora_acionamento' : 'created_at'
 
-    const { data, count, error } = await query
+    const { data, count } = await query
       .order(orderBy, { ascending: false })
       .range(from, to)
     
@@ -299,11 +338,11 @@ export default function AuditoriaPage() {
           .single()
         
         if (prof) {
-          const profile = {
+          const profile: UserProfile = {
             ...prof,
             permitted_unidades: prof.profile_unidades?.map((pu: any) => pu.unidade_id) || [],
             permitted_setores: prof.profile_setores?.map((ps: any) => ps.setor_id) || []
-          }
+          } as UserProfile
           setUserProfile(profile)
           
           // Fetch initial filter data with scoped filters
@@ -347,7 +386,7 @@ export default function AuditoriaPage() {
     }
   }, [fetchData, supabase, userProfile, activeTab])
 
-  const [selectedLog, setSelectedLog] = useState<any>(null)
+  const [selectedLog, setSelectedLog] = useState<LogSobreaviso | LogSistema | null>(null)
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -360,7 +399,7 @@ export default function AuditoriaPage() {
     }
   }
 
-  const getDetailedStatus = (log: any) => {
+  const getDetailedStatus = (log: LogSobreaviso | any) => {
     if (!log) return { status: null, reason: null }
     
     let status = log.status
@@ -391,25 +430,12 @@ export default function AuditoriaPage() {
     return { status, reason }
   }
 
-  const getEffectiveStatus = (log: any) => {
+  const getEffectiveStatus = (log: LogSobreaviso) => {
     return getDetailedStatus(log).status
-  }
-
-  const getActionColor = (acao: string) => {
-    if (acao.includes('REMOVER') || acao.includes('LIMPAR')) return 'text-red-600 bg-red-50'
-    if (acao.includes('ADICIONAR')) return 'text-green-600 bg-green-50'
-    if (acao.includes('FECHAR')) return 'text-blue-600 bg-blue-50'
-    if (acao === 'LOGIN') return 'text-emerald-600 bg-emerald-50'
-    if (acao === 'LOGOUT') return 'text-orange-600 bg-orange-50'
-    return 'text-zinc-600 bg-zinc-50'
   }
 
   const openInGoogleMaps = (lat: number, long: number) => {
     window.open(`https://www.google.com/maps/search/?api=1&query=${lat},${long}`, '_blank')
-  }
-
-  const handlePrint = () => {
-    window.print()
   }
 
   const totalPages = Math.ceil(totalCount / pageSize)
@@ -587,91 +613,162 @@ export default function AuditoriaPage() {
               </div>
             ) : logs.length > 0 ? (
               activeTab === 'sobreaviso' ? (
-                logs.map((log) => (
+                (logs as LogSobreaviso[]).map((log) => (
                   <div 
                     key={log.id} 
                     onClick={() => setSelectedLog(log)}
-                    className="p-6 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors cursor-pointer border-b border-zinc-100 dark:border-zinc-800 last:border-none print:break-inside-avoid print:border-zinc-300"
+                    className="group hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors cursor-pointer border-b border-zinc-100 dark:border-zinc-800 last:border-none print:break-inside-avoid print:border-zinc-300"
                   >
-                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                      <div className="flex items-start space-x-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 items-center gap-4 p-6">
+                      <div className="flex items-start space-x-4 lg:col-span-5">
                         <div className="mt-1 rounded-full p-2 bg-zinc-100 dark:bg-zinc-800 print:hidden">
                           <UserCheck className="h-5 w-5 text-zinc-600" />
                         </div>
-                        <div>
-                          <h3 className="font-semibold text-zinc-900 dark:text-white print:text-black">
+                        <div className="min-w-0">
+                          <h3 className="font-bold text-zinc-900 dark:text-white print:text-black truncate text-sm">
                             {log.servidores?.nome}
                           </h3>
-                          <p className="text-sm text-zinc-600 dark:text-zinc-400 flex items-center print:text-zinc-700">
-                            <Building2 className="mr-1 h-3 w-3" />
+                          <p className="text-[10px] text-zinc-500 font-medium truncate flex items-center">
+                            <Building2 className="mr-1 h-3 w-3 flex-shrink-0" />
                             {log.unidades?.nome}
                           </p>
                         </div>
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-6">
-                        <div className="text-xs">
-                          <p className="text-zinc-600 dark:text-zinc-400 uppercase tracking-wider font-bold print:text-zinc-600">Acionado</p>
-                          <p className="font-medium">{new Date(log.data_hora_acionamento).toLocaleString('pt-BR')}</p>
+                      <div className="lg:col-span-7 flex flex-wrap items-center justify-end gap-x-8 gap-y-4">
+                        <div className="space-y-1">
+                          <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">
+                            Acionado
+                          </p>
+                          <p className="font-mono text-[11px] text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
+                            {new Date(log.data_hora_acionamento).toLocaleString('pt-BR')}
+                          </p>
                         </div>
 
-                        {log.data_hora_aceite && (
-                          <div className="text-xs">
-                            <p className="text-zinc-600 dark:text-zinc-400 uppercase tracking-wider font-bold print:text-zinc-600">Aceito</p>
-                            <p className="font-medium text-green-600">{new Date(log.data_hora_aceite).toLocaleString('pt-BR')}</p>
-                          </div>
-                        )}
-
-                        <div className={`rounded-full px-3 py-1 text-xs font-bold ${getStatusColor(getEffectiveStatus(log))} print:border print:bg-white`}>
-                          {getEffectiveStatus(log)}
+                        <div className="space-y-1">
+                          <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">
+                            Aceite
+                          </p>
+                          {log.data_hora_aceite ? (
+                            <p className="font-mono text-[11px] text-green-600 dark:text-green-400 whitespace-nowrap">
+                              {new Date(log.data_hora_aceite).toLocaleString('pt-BR')}
+                            </p>
+                          ) : (
+                            <p className="text-[11px] text-zinc-400 italic">Aguardando...</p>
+                          )}
                         </div>
 
-                        {log.validacao_manual && (
-                          <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-[10px] font-bold border border-blue-100 dark:border-blue-800 print:text-blue-800 print:bg-white">
-                            <UserCheck className="h-3 w-3" />
-                            VALIDADO MANUAL
+                        <div className="space-y-1">
+                          <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">
+                            Chegada
+                          </p>
+                          {log.data_hora_chegada ? (
+                            <p className="font-mono text-[11px] text-blue-600 dark:text-blue-400 whitespace-nowrap">
+                              {new Date(log.data_hora_chegada).toLocaleString('pt-BR')}
+                            </p>
+                          ) : (
+                            <p className="text-[11px] text-zinc-400 italic">
+                              {log.data_hora_aceite ? 'Em deslocamento' : '---'}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          <div className="flex flex-col items-end gap-1">
+                            <div className={`rounded-full px-3 py-1 text-[10px] font-black ${getStatusColor(getEffectiveStatus(log))} print:border print:bg-white whitespace-nowrap`}>
+                              {getEffectiveStatus(log)}
+                            </div>
+                            {log.validacao_manual && (
+                              <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-[9px] font-bold border border-blue-100 dark:border-blue-800 print:text-blue-800 print:bg-white whitespace-nowrap">
+                                <ShieldCheck className="h-2.5 w-2.5" />
+                                VALIDADO
+                              </div>
+                            )}
                           </div>
-                        )}
+
+                          <div className="flex items-center gap-1 print:hidden">
+                            {log.lat_aceite && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); openInGoogleMaps(log.lat_aceite!, log.long_aceite!); }}
+                                className="p-1 hover:bg-green-50 dark:hover:bg-green-900/20 text-green-600 rounded transition-colors"
+                                title="Ver local de aceite"
+                              >
+                                <MapPin className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                            {log.lat_chegada && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); openInGoogleMaps(log.lat_chegada!, log.long_chegada!); }}
+                                className="p-1 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-600 rounded transition-colors"
+                                title="Ver local de chegada"
+                              >
+                                <MapPin className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); setSelectedLog(log); }}
+                            className="p-1.5 text-zinc-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition-all print:hidden ml-1"
+                          >
+                            <ChevronRight className="h-5 w-5" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
                 ))
               ) : (
-                logs.map((log) => (
+                (logs as LogSistema[]).map((log) => (
                   <div 
                     key={log.id} 
                     onClick={() => setSelectedLog(log)}
-                    className="p-6 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors cursor-pointer border-b border-zinc-100 dark:border-zinc-800 last:border-none"
+                    className="group hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors cursor-pointer border-b border-zinc-100 dark:border-zinc-800 last:border-none"
                   >
-                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 items-center gap-4 p-6">
                       <div className="flex items-start space-x-4">
-                        <div className={`mt-1 rounded-full p-2 ${log.acao.includes('REMOVER') ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+                        <div className={`mt-1 rounded-full p-2 ${(log.acao || '').includes('REMOVER') ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'}`}>
                           <ShieldCheck className="h-5 w-5" />
                         </div>
-                        <div>
-                          <h3 className="font-bold text-zinc-900 dark:text-white uppercase text-sm">
-                            {log.acao.replace(/_/g, ' ')}
+                        <div className="min-w-0">
+                          <h3 className="font-bold text-zinc-900 dark:text-white uppercase text-sm truncate">
+                            {(log.acao || '').replace(/_/g, ' ')}
                           </h3>
-                          <div className="flex items-center gap-3 mt-1">
-                            <p className="text-xs text-zinc-600 dark:text-zinc-400 flex items-center">
-                              <UserCheck className="mr-1 h-3 w-3" />
-                              {log.profiles?.full_name}
-                            </p>
-                            <p className="text-xs text-zinc-600 dark:text-zinc-400 flex items-center">
-                              <Building2 className="mr-1 h-3 w-3" />
-                              {log.unidades?.nome} / {log.setores?.nome}
-                            </p>
-                          </div>
+                          <p className="text-[10px] text-zinc-500 font-medium truncate">
+                            {log.detalhes?.nome || log.detalhes?.servidor || 'Log de Sistema'}
+                          </p>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-6">
-                        <div className="text-right">
-                          <p className="text-[10px] text-zinc-500 uppercase font-black">Data/Hora</p>
-                          <p className="text-sm font-medium">{new Date(log.created_at).toLocaleString('pt-BR')}</p>
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-1">
+                          <UserCheck className="h-3 w-3" /> Executor
+                        </p>
+                        <p className="font-bold text-zinc-700 dark:text-zinc-300 text-xs truncate">
+                          {log.profiles?.full_name}
+                        </p>
+                      </div>
+
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-1">
+                          <Building2 className="h-3 w-3" /> Unidade / Setor
+                        </p>
+                        <p className="text-xs text-zinc-600 dark:text-zinc-400 truncate">
+                          {log.unidades?.nome || 'Geral'} / {log.setores?.nome || 'Dashboard'}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="space-y-1">
+                          <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-1">
+                            <Clock className="h-3 w-3" /> Registro
+                          </p>
+                          <p className="font-mono text-[11px] text-zinc-600 dark:text-zinc-400">
+                            {new Date(log.created_at).toLocaleString('pt-BR')}
+                          </p>
                         </div>
-                        <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${getActionColor(log.acao)}`}>
-                          ADMIN
+                        <div className="p-2 text-zinc-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition-all">
+                          <ChevronRight className="h-5 w-5" />
                         </div>
                       </div>
                     </div>
@@ -725,65 +822,71 @@ export default function AuditoriaPage() {
             </div>
             
             {activeTab === 'sistema' ? (
-              <div className="p-6 space-y-6">
-                <div className="flex items-center space-x-4">
-                  <div className={`h-12 w-12 rounded-full flex items-center justify-center ${selectedLog.acao.includes('REMOVER') ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
-                    <ShieldCheck className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <p className="text-sm text-zinc-600 dark:text-zinc-400">Ação Realizada</p>
-                    <p className="text-lg font-bold uppercase">{selectedLog.acao.replace(/_/g, ' ')}</p>
-                    <p className="text-sm text-zinc-600 dark:text-zinc-400">Por: {selectedLog.profiles?.full_name}</p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 gap-4">
-                  <div className="bg-zinc-50 dark:bg-zinc-800/50 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800">
-                    <p className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase mb-2">Contexto da Escala</p>
-                    <div className="space-y-2">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-zinc-500">Unidade/Setor:</span>
-                        <span className="font-medium text-right">
-                          {selectedLog.unidades?.nome ? `${selectedLog.unidades.nome} / ${selectedLog.setores?.nome || 'Geral'}` : 'Sistema / Global'}
-                        </span>
+              (() => {
+                const log = selectedLog as LogSistema;
+                return (
+                  <div className="p-6 space-y-6">
+                    <div className="flex items-center space-x-4">
+                      <div className={`h-12 w-12 rounded-full flex items-center justify-center ${(log.acao || '').includes('REMOVER') ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+                        <ShieldCheck className="h-6 w-6" />
                       </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-zinc-500">Período:</span>
-                        <span className="font-medium">
-                          {selectedLog.detalhes?.mes ? `${selectedLog.detalhes.mes}/${selectedLog.detalhes.ano}` : 'N/A (Ação Global)'}
-                        </span>
+                      <div>
+                        <p className="text-sm text-zinc-600 dark:text-zinc-400">Ação Realizada</p>
+                        <p className="text-lg font-bold uppercase">{(log.acao || '').replace(/_/g, ' ')}</p>
+                        <p className="text-sm text-zinc-600 dark:text-zinc-400">Por: {log.profiles?.full_name}</p>
                       </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-zinc-500">Data do Log:</span>
-                        <span className="font-medium">{new Date(selectedLog.created_at).toLocaleString('pt-BR')}</span>
-                      </div>
-                      {selectedLog.detalhes?.ip && (
-                        <div className="flex justify-between text-sm pt-2 border-t border-zinc-100 dark:border-zinc-800">
-                          <span className="text-zinc-500">Endereço IP:</span>
-                          <span className="font-mono font-bold text-blue-600 dark:text-blue-400">{selectedLog.detalhes.ip}</span>
-                        </div>
-                      )}
                     </div>
-                  </div>
 
-                  <div className="bg-zinc-900 p-4 rounded-xl border border-zinc-700 text-zinc-100">
-                    <p className="text-xs font-bold text-zinc-400 uppercase mb-2">Dados do Registro (JSON)</p>
-                    <pre className="text-[10px] font-mono whitespace-pre-wrap overflow-auto max-h-[150px]">
-                      {JSON.stringify(selectedLog.detalhes, null, 2)}
-                    </pre>
-                  </div>
-                </div>
+                    <div className="grid grid-cols-1 gap-4">
+                      <div className="bg-zinc-50 dark:bg-zinc-800/50 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800">
+                        <p className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase mb-2">Contexto da Escala</p>
+                        <div className="space-y-2">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-zinc-500">Unidade/Setor:</span>
+                            <span className="font-medium text-right">
+                              {log.unidades?.nome ? `${log.unidades.nome} / ${log.setores?.nome || 'Geral'}` : 'Sistema / Global'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-zinc-500">Período:</span>
+                            <span className="font-medium">
+                              {log.detalhes?.mes ? `${log.detalhes.mes}/${log.detalhes.ano}` : 'N/A (Ação Global)'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-zinc-500">Data do Log:</span>
+                            <span className="font-medium">{new Date(log.created_at).toLocaleString('pt-BR')}</span>
+                          </div>
+                          {log.detalhes?.ip && (
+                            <div className="flex justify-between text-sm pt-2 border-t border-zinc-100 dark:border-zinc-800">
+                              <span className="text-zinc-500">Endereço IP:</span>
+                              <span className="font-mono font-bold text-blue-600 dark:text-blue-400">{log.detalhes.ip}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
 
-                <button 
-                  onClick={() => setSelectedLog(null)}
-                  className="w-full py-3 bg-zinc-900 dark:bg-white dark:text-zinc-900 text-white font-bold rounded-xl hover:opacity-90 transition-opacity"
-                >
-                  Fechar
-                </button>
-              </div>
+                      <div className="bg-zinc-900 p-4 rounded-xl border border-zinc-700 text-zinc-100">
+                        <p className="text-xs font-bold text-zinc-400 uppercase mb-2">Dados do Registro (JSON)</p>
+                        <pre className="text-[10px] font-mono whitespace-pre-wrap overflow-auto max-h-[150px]">
+                          {JSON.stringify(log.detalhes, null, 2)}
+                        </pre>
+                      </div>
+                    </div>
+
+                    <button 
+                      onClick={() => setSelectedLog(null)}
+                      className="w-full py-3 bg-zinc-900 dark:bg-white dark:text-zinc-900 text-white font-bold rounded-xl hover:opacity-90 transition-opacity"
+                    >
+                      Fechar
+                    </button>
+                  </div>
+                );
+              })()
             ) : (
               (() => {
-                const { status: effectiveStatus, reason: failureReason } = getDetailedStatus(selectedLog)
+                const log = selectedLog as LogSobreaviso;
+                const { status: effectiveStatus, reason: failureReason } = getDetailedStatus(log)
                 return (
                   <div className="p-6 space-y-6">
                     <div className="flex items-center space-x-4">
@@ -792,8 +895,8 @@ export default function AuditoriaPage() {
                       </div>
                       <div>
                         <p className="text-sm text-zinc-600 dark:text-zinc-400">Servidor</p>
-                        <p className="text-lg font-bold">{selectedLog.servidores?.nome}</p>
-                        <p className="text-sm text-zinc-600 dark:text-zinc-400">{selectedLog.unidades?.nome}</p>
+                        <p className="text-lg font-bold">{log.servidores?.nome}</p>
+                        <p className="text-sm text-zinc-600 dark:text-zinc-400">{log.unidades?.nome}</p>
                       </div>
                     </div>
 
@@ -803,19 +906,19 @@ export default function AuditoriaPage() {
                         <div className="space-y-4">
                           <div className="flex justify-between items-center">
                             <span className="text-sm text-zinc-600 dark:text-zinc-400">Acionamento:</span>
-                            <span className="text-sm font-medium">{new Date(selectedLog.data_hora_acionamento).toLocaleString('pt-BR')}</span>
+                            <span className="text-sm font-medium">{new Date(log.data_hora_acionamento).toLocaleString('pt-BR')}</span>
                           </div>
-                          {selectedLog.data_hora_aceite && (
+                          {log.data_hora_aceite && (
                             <div className="flex justify-between items-start">
                               <div>
                                 <span className="text-sm text-zinc-600 dark:text-zinc-400">
-                                  {selectedLog.status === 'Recusado' ? 'Recusa:' : 'Aceite:'}
+                                  {log.status === 'Recusado' ? 'Recusa:' : 'Aceite:'}
                                 </span>
-                                {(selectedLog.lat_aceite || selectedLog.lat_recusa) && (
+                                {(log.lat_aceite || log.lat_recusa) && (
                                   <button 
                                     onClick={() => openInGoogleMaps(
-                                      selectedLog.status === 'Recusado' ? selectedLog.lat_recusa : selectedLog.lat_aceite, 
-                                      selectedLog.status === 'Recusado' ? selectedLog.long_recusa : selectedLog.long_aceite
+                                      log.status === 'Recusado' ? log.lat_recusa! : log.lat_aceite!, 
+                                      log.status === 'Recusado' ? log.long_recusa! : log.long_aceite!
                                     )}
                                     className="ml-2 text-[10px] text-blue-600 hover:underline flex items-center"
                                   >
@@ -823,23 +926,23 @@ export default function AuditoriaPage() {
                                   </button>
                                 )}
                               </div>
-                              <span className={`text-sm font-medium ${selectedLog.status === 'Recusado' ? 'text-red-600' : 'text-green-600'}`}>
-                                {new Date(selectedLog.data_hora_aceite).toLocaleString('pt-BR')}
+                              <span className={`text-sm font-medium ${log.status === 'Recusado' ? 'text-red-600' : 'text-green-600'}`}>
+                                {new Date(log.data_hora_aceite).toLocaleString('pt-BR')}
                               </span>
                             </div>
                           )}
-                          {selectedLog.data_hora_chegada && (
+                          {log.data_hora_chegada && (
                             <div className="flex justify-between items-start">
                               <div>
                                 <span className="text-sm text-zinc-600 dark:text-zinc-400">Chegada:</span>
                                 <button 
-                                  onClick={() => openInGoogleMaps(selectedLog.lat_chegada, selectedLog.long_chegada)}
+                                  onClick={() => openInGoogleMaps(log.lat_chegada!, log.long_chegada!)}
                                   className="ml-2 text-[10px] text-blue-600 hover:underline flex items-center"
                                 >
                                   <MapPin className="h-3 w-3 mr-0.5" /> Ver no Mapa
                                 </button>
                               </div>
-                              <span className="text-sm font-medium text-blue-600">{new Date(selectedLog.data_hora_chegada).toLocaleString('pt-BR')}</span>
+                              <span className="text-sm font-medium text-blue-600">{new Date(log.data_hora_chegada).toLocaleString('pt-BR')}</span>
                             </div>
                           )}
                           {effectiveStatus === 'Falhou' && (
@@ -863,22 +966,22 @@ export default function AuditoriaPage() {
                         </div>
                       )}
 
-                      {selectedLog.motivo_acionamento && (
+                      {log.motivo_acionamento && (
                         <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-100 dark:border-blue-800">
                           <p className="text-xs font-bold text-blue-700 dark:text-blue-400 uppercase mb-1">Motivo do Chamado</p>
-                          <p className="text-sm text-blue-900 dark:text-blue-200 italic">"{selectedLog.motivo_acionamento}"</p>
+                          <p className="text-sm text-blue-900 dark:text-blue-200 italic">"{log.motivo_acionamento}"</p>
                         </div>
                       )}
 
-                      {selectedLog.validacao_manual && (
+                      {log.validacao_manual && (
                         <div className="bg-zinc-900 dark:bg-zinc-800 p-4 rounded-xl border border-zinc-700 dark:border-zinc-600 text-white shadow-lg">
                           <div className="flex items-center gap-2 mb-2">
                             <ShieldCheck className="h-5 w-5 text-green-400" />
                             <p className="text-xs font-bold uppercase tracking-wider text-green-400">Validação Administrativa</p>
                           </div>
                           <div className="space-y-1">
-                            <p className="text-sm font-medium">Aprovado por: <span className="text-zinc-300">{selectedLog.validador?.full_name || selectedLog.validado_por || 'Sistema (Admin)'}</span></p>
-                            <p className="text-[11px] text-zinc-400">Data/Hora: {selectedLog.data_hora_validacao ? new Date(selectedLog.data_hora_validacao).toLocaleString('pt-BR') : 'Agora (Processando...)'}</p>
+                            <p className="text-sm font-medium">Aprovado por: <span className="text-zinc-300">{log.validador?.full_name || log.validado_por || 'Sistema (Admin)'}</span></p>
+                            <p className="text-[11px] text-zinc-400">Data/Hora: {log.data_hora_validacao ? new Date(log.data_hora_validacao).toLocaleString('pt-BR') : 'Agora (Processando...)'}</p>
                           </div>
                         </div>
                       )}

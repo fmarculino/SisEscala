@@ -40,7 +40,11 @@ export async function createServidor(formData: FormData) {
 export async function importServidores(csvText: string) {
   const supabase = await createClient()
   
-  // Simple CSV parser (assuming headers: nome, matricula, cargo, vinculo, email, telefone)
+  // Fetch units and sectors for resolution
+  const { data: unidades } = await supabase.from('unidades').select('id, nome')
+  const { data: setores } = await supabase.from('setores').select('id, nome, unidade_id')
+
+  // CSV parser (expected headers: nome, matricula, cargo, vinculo, email, telefone, unidade, setor)
   const lines = csvText.split('\n').filter(line => line.trim() !== '')
   const servers = []
 
@@ -48,13 +52,26 @@ export async function importServidores(csvText: string) {
     const values = lines[i].split(',')
     if (values.length < 2) continue
 
+    const nome = values[0]?.trim()
+    const matricula = values[1]?.trim()
+    if (!nome || !matricula) continue
+
+    const unidadeNome = values[6]?.trim()
+    const setorNome = values[7]?.trim()
+
+    const unidadeId = unidades?.find(u => u.nome.toLowerCase() === unidadeNome?.toLowerCase())?.id || null
+    const setorId = setores?.find(s => s.nome.toLowerCase() === setorNome?.toLowerCase() && (unidadeId ? s.unidade_id === unidadeId : true))?.id || null
+
     servers.push({
-      nome: values[0]?.trim(),
-      matricula: values[1]?.trim(),
+      nome,
+      matricula,
       cargo: values[2]?.trim(),
       vinculo: values[3]?.trim() || 'Efetiva',
       email: values[4]?.trim() || null,
       telefone: values[5]?.trim() || null,
+      unidade_id: unidadeId,
+      setor_id: setorId,
+      status: 'Ativo'
     })
   }
 

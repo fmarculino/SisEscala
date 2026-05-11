@@ -1,8 +1,22 @@
 import { createClient } from '@/utils/supabase/server'
 import { FileSpreadsheet, Download } from 'lucide-react'
 
-import { applyAccessFilters } from '@/utils/permissions'
+import { applyAccessFilters, type UserProfile } from '@/utils/permissions'
 import { ReportActions } from '@/app/(dashboard)/relatorios/_components/ReportActions'
+
+interface RHReportItem {
+  id: string;
+  servidores: { nome: string; cargo: string };
+  unidades: { nome: string };
+  mes: number;
+  ano: number;
+  escala_diaria: Array<{
+    dicionario_turnos: {
+      horas_computadas: number | string;
+      tipo: string;
+    };
+  }>;
+}
 
 export default async function RelatorioRHPage() {
   const supabase = await createClient()
@@ -15,25 +29,29 @@ export default async function RelatorioRHPage() {
     .eq('id', user?.id)
     .single()
 
-  const userProfile = profile ? {
-    ...profile,
-    permitted_unidades: profile.profile_unidades?.map((pu: any) => pu.unidade_id) || [],
-    permitted_setores: profile.profile_setores?.map((ps: any) => ps.setor_id) || []
-  } : null
-
-  // Fetch consolidated data for closed scales - Filtered
+  // Fetch closed scales data for RH
   let query = supabase
     .from('escala_mensal')
     .select(`
-      id, mes, ano, status,
-      servidores(nome, cargo),
-      unidades(nome),
-      escala_diaria(dia, dicionario_turnos(codigo, horas_computadas, tipo))
+      *,
+      servidores!inner(nome, cargo),
+      unidades!inner(nome),
+      escala_diaria(
+        dicionario_turnos(horas_computadas, tipo)
+      )
     `)
     .eq('status', 'Fechada')
-  
+
+  const userProfile = profile ? {
+    ...profile,
+    permitted_unidades: (profile as any).profile_unidades?.map((pu: any) => pu.unidade_id) || [],
+    permitted_setores: (profile as any).profile_setores?.map((ps: any) => ps.setor_id) || []
+  } as UserProfile : null
+
   query = applyAccessFilters(query, userProfile)
-  const { data: reportData } = await query
+
+  const { data } = await query
+  const reportData = (data || []) as RHReportItem[]
 
   return (
     <div className="space-y-8">
@@ -50,7 +68,7 @@ export default async function RelatorioRHPage() {
           filters={{
             'Status': 'Escalas Fechadas'
           }}
-          reportData={reportData?.map((item: any) => {
+          reportData={reportData.map((item: RHReportItem) => {
             let chTotal = 0
             let sobCount = 0
             item.escala_diaria.forEach((ed: any) => {
@@ -82,11 +100,10 @@ export default async function RelatorioRHPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-            {reportData?.map((item: any) => {
+            {reportData.map((item: RHReportItem) => {
               let chTotal = 0
               let sobCount = 0
-              // Basic calculation logic
-              item.escala_diaria.forEach((ed: any) => {
+              item.escala_diaria.forEach((ed) => {
                 chTotal += Number(ed.dicionario_turnos.horas_computadas)
                 if (ed.dicionario_turnos.tipo === 'Sobreaviso') sobCount++
               })

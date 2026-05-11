@@ -1,7 +1,7 @@
 import { createClient } from '@/utils/supabase/server'
 import { PieChart, ArrowLeft, Printer, AlertTriangle, CheckCircle2, Users } from 'lucide-react'
 import Link from 'next/link'
-import { applyAccessFilters } from '@/utils/permissions'
+import { applyAccessFilters, type UserProfile } from '@/utils/permissions'
 import { ReportFiltersWrapper } from '@/app/(dashboard)/relatorios/_components/ReportFiltersWrapper'
 import { ReportActions } from '@/app/(dashboard)/relatorios/_components/ReportActions'
 
@@ -32,13 +32,13 @@ export default async function DistribuicaoPage({ searchParams }: Props) {
 
   const userProfile = profile ? {
     ...profile,
-    permitted_unidades: profile.profile_unidades?.map((pu: any) => pu.unidade_id) || [],
-    permitted_setores: profile.profile_setores?.map((ps: any) => ps.setor_id) || []
-  } : null
+    permitted_unidades: (profile as any).profile_unidades?.map((pu: any) => pu.unidade_id) || [],
+    permitted_setores: (profile as any).profile_setores?.map((ps: any) => ps.setor_id) || []
+  } as UserProfile : null
 
   // Fetch Master Data
-  const { data: unidades } = await applyAccessFilters(supabase.from('unidades').select('id, nome'), userProfile, { bypassSuperAdmin: true })
-  const { data: setores } = await applyAccessFilters(supabase.from('setores').select('id, nome, unidade_id'), userProfile, { bypassSuperAdmin: true })
+  const { data: unidades } = await applyAccessFilters(supabase.from('unidades').select('id, nome').eq('ativo', true), userProfile, { bypassSuperAdmin: true })
+  const { data: setores } = await applyAccessFilters(supabase.from('setores').select('id, nome, unidade_id').eq('ativo', true), userProfile, { bypassSuperAdmin: true })
 
   // Fetch all Plantão shifts for the period
   let query = supabase
@@ -65,6 +65,15 @@ export default async function DistribuicaoPage({ searchParams }: Props) {
   // Apply access filters manually to the joined table
   query = applyAccessFilters(query, userProfile, { unidadeField: 'escala_mensal.unidade_id', setorField: 'escala_mensal.setor_id' })
   
+  interface DistributionItem {
+    dia: number;
+    dicionario_turnos: {
+      codigo: string;
+      horas_computadas: number | string;
+      tipo: string;
+    };
+  }
+
   const { data: rawData } = await query
 
   // Process data for the grid
@@ -72,7 +81,7 @@ export default async function DistribuicaoPage({ searchParams }: Props) {
   const coverageMap: Record<number, Record<string, number>> = {}
   const uniqueTurnos = new Set<string>()
 
-  ;(rawData as any[])?.forEach((item: any) => {
+  ;(rawData as unknown as DistributionItem[])?.forEach((item) => {
     const dia = item.dia
     const turno = item.dicionario_turnos.codigo
     uniqueTurnos.add(turno)
@@ -160,7 +169,7 @@ export default async function DistribuicaoPage({ searchParams }: Props) {
             <div>
               <div className="text-[10px] font-black uppercase text-zinc-400">Dias com Vagas</div>
               <div className="text-2xl font-black text-zinc-900 dark:text-white">
-                {Array.from({ length: daysInMonth }).filter((_: any, i: number) => !coverageMap[i+1]).length}
+                {Array.from({ length: daysInMonth }).filter((_, i) => !coverageMap[i+1]).length}
               </div>
             </div>
           </div>
@@ -192,7 +201,7 @@ export default async function DistribuicaoPage({ searchParams }: Props) {
             <thead>
               <tr className="bg-zinc-50 dark:bg-zinc-800/50 border-b border-zinc-200 dark:border-zinc-800">
                 <th className="px-4 py-4 text-left font-black uppercase tracking-widest text-zinc-500 text-[10px] sticky left-0 bg-zinc-50 dark:bg-zinc-800/50 z-10">Turno</th>
-                {Array.from({ length: daysInMonth }, (_: any, i: number) => (
+                {Array.from({ length: daysInMonth }, (_, i) => (
                   <th key={i} className="px-2 py-4 font-black text-[10px] text-zinc-500 border-x border-zinc-200/50 dark:border-zinc-700/30">
                     {i + 1}
                   </th>
@@ -200,12 +209,12 @@ export default async function DistribuicaoPage({ searchParams }: Props) {
               </tr>
             </thead>
             <tbody>
-              {sortedTurnos.map((turno: any) => (
+              {sortedTurnos.map((turno) => (
                 <tr key={turno} className="border-b border-zinc-100 dark:border-zinc-800">
                   <td className="px-4 py-3 text-left font-bold text-zinc-900 dark:text-white text-xs sticky left-0 bg-white dark:bg-zinc-900 z-10 border-r border-zinc-200 dark:border-zinc-800">
                     {turno}
                   </td>
-                  {Array.from({ length: daysInMonth }, (_: any, i: number) => {
+                  {Array.from({ length: daysInMonth }, (_, i) => {
                     const dia = i + 1
                     const count = coverageMap[dia]?.[turno] || 0
                     

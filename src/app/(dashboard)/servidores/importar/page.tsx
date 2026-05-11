@@ -44,7 +44,7 @@ export default function ImportarServidoresPage() {
             <div>
               <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-300">Formato Esperado</h3>
               <p className="mt-1 text-sm text-blue-700 dark:text-blue-400">
-                O arquivo CSV deve conter as colunas: <code className="font-bold">nome, matricula, cargo, vinculo, email, telefone</code>
+                O arquivo CSV deve conter as colunas: <code className="font-bold">nome, matricula, cargo, vinculo, email, telefone, unidade, setor</code>
               </p>
             </div>
           </div>
