@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0-Beta] - 2026-05-10
+
+### Added
+- **Gestão Hierárquica de Setores**: 
+    - Implementação de visualização em árvore recursiva na tela de permissões de usuário (`UserManagementClient`).
+    - Sistema de **Seleção em Cascata**: marcar um setor "Pai" agora seleciona automaticamente todos os setores filhos e netos.
+    - Indentação visual e indicadores de subdivisões para melhor navegação em estruturas complexas.
+- **Geolocalização e Unidades**:
+    - Novo componente `GeoLocationPicker` integrado ao cadastro de unidades.
+    - Suporte a busca de endereço via API e captura automática de coordenadas GPS.
+- **Máscaras de Entrada**:
+    - Implementação de máscara de telefone padrão brasileiro `(00) 00000-0000` nos formulários de Servidores (Novo/Editar).
+
+### Fixed
+- **Motor de Cálculo de Carga Horária**:
+    - Refatoração da função `calculateTotals` no `ScaleGrid` para respeitar turnos reduzidos (ex: M4 de 4h, M de 6h).
+    - Implementada regra de teto contratual: a linha Regular agora usa `Math.min(horas_do_turno, horas_da_jornada)`, resolvendo a discrepância onde turnos curtos eram inflados pela jornada do servidor.
+- **Estabilidade Next.js 15**:
+    - Corrigido crash nas `server actions` de login/logout adicionando `await` nas chamadas de `headers()`.
+- **Auditoria**:
+    - Correção na captura de IP e metadados de sessão nos logs de auditoria.
+
 ## [0.3.0-Beta] - 2026-05-10
 
 ### Added
