@@ -746,7 +746,8 @@ export function ScaleGrid({
         }
         
         p_ch += liquidHours
-        if (!(exigirPresenca && isPast && !presence?.entrada)) {
+        const isValidated = (isPast && !exigirPresenca) || presence?.entrada
+        if (isValidated) {
           v_ch += liquidHours
         }
       }
@@ -768,12 +769,13 @@ export function ScaleGrid({
         const horas = Number(t.horas_computadas)
 
         // REGRA: Toda hora extra noturna (qualquer turno com 'N') é 100%
+        const isValidated = (isPast && !exigirPresenca) || presence?.entrada
         if (isNightShift || isWE || isHoliday) {
           p_he100 += horas
-          if (!(exigirPresenca && isPast && !presence?.entrada)) v_he100 += horas
+          if (isValidated) v_he100 += horas
         } else {
           p_he50 += horas
-          if (!(exigirPresenca && isPast && !presence?.entrada)) v_he50 += horas
+          if (isValidated) v_he50 += horas
         }
       }
     })
@@ -799,7 +801,8 @@ export function ScaleGrid({
         }
 
         incrementP()
-        if (!(exigirPresenca && isPast && !presence?.entrada)) {
+        const isValidated = (isPast && !exigirPresenca) || presence?.entrada
+        if (isValidated) {
           incrementV()
         }
       }
@@ -812,12 +815,15 @@ export function ScaleGrid({
       const d = parseInt(day)
       const t = turnos.find(x => x.id === turnoId)
       if (!t) return
+      
+      const isPast = ano < currentYear || (ano === currentYear && mes < currentMonth) || (ano === currentYear && mes === currentMonth && d < currentDay)
+      const presence = presenceData[servidorId]?.['Sobreaviso']?.[d]
 
-      const { status: effectiveStatus } = getStatusForDay(d, em.id, 'Sobreaviso')
       const val = (t.codigo === 'MTN') ? 2 : (t.codigo === 'MT' || t.codigo === 'N' ? 1 : 0)
       
       p_so12 += val
-      if (!(desconsiderarFalha && effectiveStatus === 'Falhou')) {
+      const isValidated = (isPast && !exigirPresenca) || presence?.entrada
+      if (isValidated) {
         v_so12 += val
       }
     })

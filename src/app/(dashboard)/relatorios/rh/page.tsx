@@ -51,6 +51,11 @@ export default async function RelatorioRHPage() {
   const { data: jornadas } = await supabase.from('jornadas').select('*')
   const { data: feriados } = await supabase.from('feriados').select('*')
 
+  const today = new Date()
+  const currentDay = today.getDate()
+  const currentMonth = today.getMonth() + 1
+  const currentYear = today.getFullYear()
+
   const userProfile = profile ? {
     ...profile,
     permitted_unidades: (profile as any).profile_unidades?.map((pu: any) => pu.unidade_id) || [],
@@ -92,6 +97,9 @@ export default async function RelatorioRHPage() {
               const horas = Number(t.horas_computadas || 0)
               const dia = Number(ed.dia)
               const cat = ed.categoria
+
+              const isPast = item.ano < currentYear || (item.ano === currentYear && item.mes < currentMonth) || (item.ano === currentYear && item.mes === currentMonth && dia < currentDay)
+              if (!isPast && (item.mes === currentMonth && item.ano === currentYear)) return
 
               if (cat === 'Regular') {
                 let liquidHours = horas
@@ -159,6 +167,9 @@ export default async function RelatorioRHPage() {
                 const horas = Number(t.horas_computadas || 0)
                 const dia = Number(ed.dia)
                 const cat = ed.categoria
+
+                const isPast = item.ano < currentYear || (item.ano === currentYear && item.mes < currentMonth) || (item.ano === currentYear && item.mes === currentMonth && dia < currentDay)
+                if (!isPast && (item.mes === currentMonth && item.ano === currentYear)) return
 
                 if (cat === 'Regular') {
                   let liquidHours = horas

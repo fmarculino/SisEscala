@@ -57,6 +57,11 @@ export default async function ConsolidadoPage({ searchParams }: Props) {
   const { data: jornadas } = await supabase.from('jornadas').select('*')
   const { data: feriados } = await supabase.from('feriados').select('*')
 
+  const today = new Date()
+  const currentDay = today.getDate()
+  const currentMonth = today.getMonth() + 1
+  const currentYear = today.getFullYear()
+
   // Main Query
   let query = supabase
     .from('escala_mensal')
@@ -100,6 +105,12 @@ export default async function ConsolidadoPage({ searchParams }: Props) {
       const horas = Number(t.horas_computadas || 0)
       const dia = Number(ed.dia)
       const cat = ed.categoria
+
+      const isPast = item.ano < currentYear || (item.ano === currentYear && item.mes < currentMonth) || (item.ano === currentYear && item.mes === currentMonth && dia < currentDay)
+      // For reports, we consider it validated if it's past (since scales are closed) 
+      // or if it was confirmed (though presence check in reports needs more data).
+      // For now, matching ScaleGrid's base logic for closed/validated:
+      if (!isPast && (item.mes === currentMonth && item.ano === currentYear)) return
 
       if (cat === 'Regular') {
         let liquidHours = horas
