@@ -1,35 +1,11 @@
 'use client'
 
 import { LogOut } from 'lucide-react'
-import { createClient } from '@/utils/supabase/client'
-import { useRouter } from 'next/navigation'
+import { logout } from '@/app/login/actions'
 
 export function LogoutButton({ collapsed = false }: { collapsed?: boolean }) {
-  const router = useRouter()
-
   async function handleLogout() {
-    try {
-      const supabase = createClient()
-      
-      // Log logout before signing out
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
-        await supabase.from('logs_sistema').insert({
-          user_id: user.id,
-          acao: 'LOGOUT',
-          detalhes: { info: 'Sessão encerrada pelo usuário' }
-        })
-      }
-
-      await supabase.auth.signOut()
-      
-      // Use window.location.href to force a full page reload and clear all states/caches
-      window.location.href = '/login'
-    } catch (error) {
-      console.error('Erro ao sair:', error)
-      // Fallback
-      window.location.href = '/login'
-    }
+    await logout()
   }
 
   return (

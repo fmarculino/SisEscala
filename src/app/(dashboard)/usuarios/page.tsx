@@ -68,7 +68,7 @@ export default async function UsuariosPage() {
 
   const { data: setores } = await supabase
     .from('setores')
-    .select('id, nome, unidade_id')
+    .select('id, nome, unidade_id, parent_id')
     .order('nome')
 
   return (

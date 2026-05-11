@@ -240,8 +240,30 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos }: Ed
                   id="telefone"
                   name="telefone"
                   type="text"
-                  defaultValue={servidor.telefone || ''}
+                  defaultValue={servidor.telefone ? (() => {
+                    let v = servidor.telefone.replace(/\D/g, "")
+                    if (v.length > 10) return v.replace(/^(\d{2})(\d{5})(\d{4})/, "($1) $2-$3")
+                    if (v.length > 5) return v.replace(/^(\d{2})(\d{4})(\d{0,4})/, "($1) $2-$3")
+                    if (v.length > 2) return v.replace(/^(\d{2})(\d{0,5})/, "($1) $2")
+                    if (v.length > 0) return v.replace(/^(\d*)/, "($1")
+                    return v
+                  })() : ''}
                   placeholder="(00) 00000-0000"
+                  onInput={(e) => {
+                    let value = e.currentTarget.value.replace(/\D/g, "")
+                    if (value.length > 11) value = value.slice(0, 11)
+                    
+                    if (value.length > 10) {
+                      value = value.replace(/^(\d{2})(\d{5})(\d{4})/, "($1) $2-$3")
+                    } else if (value.length > 6) {
+                      value = value.replace(/^(\d{2})(\d{4})(\d{0,4})/, "($1) $2-$3")
+                    } else if (value.length > 2) {
+                      value = value.replace(/^(\d{2})(\d{0,5})/, "($1) $2")
+                    } else if (value.length > 0) {
+                      value = value.replace(/^(\d*)/, "($1")
+                    }
+                    e.currentTarget.value = value
+                  }}
                   className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800"
                 />
               </div>

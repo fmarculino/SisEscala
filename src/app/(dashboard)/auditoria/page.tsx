@@ -553,22 +553,32 @@ export default function AuditoriaPage() {
                     <div className="space-y-2">
                       <div className="flex justify-between text-sm">
                         <span className="text-zinc-500">Unidade/Setor:</span>
-                        <span className="font-medium">{selectedLog.unidades?.nome} / {selectedLog.setores?.nome}</span>
+                        <span className="font-medium text-right">
+                          {selectedLog.unidades?.nome ? `${selectedLog.unidades.nome} / ${selectedLog.setores?.nome || 'Geral'}` : 'Sistema / Global'}
+                        </span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-zinc-500">Período:</span>
-                        <span className="font-medium">{selectedLog.detalhes?.mes}/{selectedLog.detalhes?.ano}</span>
+                        <span className="font-medium">
+                          {selectedLog.detalhes?.mes ? `${selectedLog.detalhes.mes}/${selectedLog.detalhes.ano}` : 'N/A (Ação Global)'}
+                        </span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-zinc-500">Data do Log:</span>
                         <span className="font-medium">{new Date(selectedLog.created_at).toLocaleString('pt-BR')}</span>
                       </div>
+                      {selectedLog.detalhes?.ip && (
+                        <div className="flex justify-between text-sm pt-2 border-t border-zinc-100 dark:border-zinc-800">
+                          <span className="text-zinc-500">Endereço IP:</span>
+                          <span className="font-mono font-bold text-blue-600 dark:text-blue-400">{selectedLog.detalhes.ip}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
                   <div className="bg-zinc-900 p-4 rounded-xl border border-zinc-700 text-zinc-100">
                     <p className="text-xs font-bold text-zinc-400 uppercase mb-2">Dados do Registro (JSON)</p>
-                    <pre className="text-[10px] font-mono whitespace-pre-wrap overflow-auto max-h-[200px]">
+                    <pre className="text-[10px] font-mono whitespace-pre-wrap overflow-auto max-h-[150px]">
                       {JSON.stringify(selectedLog.detalhes, null, 2)}
                     </pre>
                   </div>

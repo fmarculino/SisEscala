@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Users, Plus, Shield, Building2, Pencil, X, Mail, Key, Check, AlertCircle, Loader2, GitBranch, Trash2, Power, PowerOff } from 'lucide-react'
 import { createUser, updateUser, resetPassword, deleteUser, toggleUserStatus } from './actions'
 import { useRouter } from 'next/navigation'
@@ -211,6 +211,87 @@ export default function UserManagementClient({
   const getFilteredSetores = (unidadeId: string | null) => {
     if (!unidadeId) return []
     return setores.filter(s => s.unidade_id === unidadeId)
+  }
+
+  // Organizar setores em estrutura de árvore por unidade
+  const setoresTree = useMemo(() => {
+    const tree: Record<string, any[]> = {}
+    
+    unidades.forEach(u => {
+      const unitSetores = setores.filter(s => s.unidade_id === u.id)
+      const sectorMap: Record<string, any> = {}
+      const rootSectors: any[] = []
+      
+      unitSetores.forEach(s => {
+        sectorMap[s.id] = { ...s, children: [] }
+      })
+      
+      unitSetores.forEach(s => {
+        if (s.parent_id && sectorMap[s.parent_id]) {
+          sectorMap[s.parent_id].children.push(sectorMap[s.id])
+        } else {
+          rootSectors.push(sectorMap[s.id])
+        }
+      })
+      tree[u.id] = rootSectors
+    })
+    return tree
+  }, [setores, unidades])
+
+  const toggleSectorRecursive = (sector: any, checked: boolean) => {
+    let newSelected = [...selectedSetores]
+    
+    const collectIds = (s: any, ids: string[]) => {
+      ids.push(s.id)
+      s.children?.forEach((child: any) => collectIds(child, ids))
+    }
+    
+    const idsToToggle: string[] = []
+    collectIds(sector, idsToToggle)
+    
+    if (checked) {
+      idsToToggle.forEach(id => {
+        if (!newSelected.includes(id)) newSelected.push(id)
+      })
+    } else {
+      newSelected = newSelected.filter(id => !idsToToggle.includes(id))
+    }
+    
+    setSelectedSetores(newSelected)
+  }
+
+  const renderSectorTree = (sectors: any[], level = 0) => {
+    return sectors.map(s => {
+      const hasChildren = s.children && s.children.length > 0
+      const isChecked = selectedSetores.includes(s.id)
+      
+      return (
+        <div key={s.id} className="space-y-1">
+          <label 
+            className={`flex items-center p-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-700 rounded cursor-pointer transition-colors ${isChecked ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}`}
+            style={{ marginLeft: `${level * 1.25}rem` }}
+          >
+            <input 
+              type="checkbox"
+              className="mr-2 h-4 w-4 rounded text-blue-600 border-zinc-300 focus:ring-blue-500"
+              checked={isChecked}
+              onChange={(e) => toggleSectorRecursive(s, e.target.checked)}
+            />
+            <div className="flex flex-col">
+              <span className={`text-[11px] font-bold uppercase tracking-tight ${isChecked ? 'text-blue-700 dark:text-blue-400' : 'text-zinc-700 dark:text-zinc-300'}`}>
+                {s.nome}
+              </span>
+              {hasChildren && (
+                <span className="text-[8px] text-zinc-400 uppercase tracking-widest leading-none">
+                  Contém subdivisões
+                </span>
+              )}
+            </div>
+          </label>
+          {hasChildren && renderSectorTree(s.children, level + 1)}
+        </div>
+      )
+    })
   }
 
   return (
@@ -459,26 +540,25 @@ export default function UserManagementClient({
                 </div>
                 
                 {!acessoTodosSetores && (
-                  <div className="mt-1 max-h-32 overflow-y-auto p-2 border border-zinc-300 dark:border-zinc-700 rounded-md bg-zinc-50 dark:bg-zinc-800/50 space-y-1">
-                    {setores
-                      .filter(s => selectedUnidades.length === 0 || selectedUnidades.includes(s.unidade_id))
-                      .map(s => (
-                        <label key={s.id} className="flex items-center p-1 hover:bg-zinc-100 dark:hover:bg-zinc-700 rounded cursor-pointer text-xs">
-                          <input 
-                            type="checkbox"
-                            className="mr-2 h-3.5 w-3.5 rounded text-blue-600 border-zinc-300"
-                            checked={selectedSetores.includes(s.id)}
-                            onChange={(e) => {
-                              if (e.target.checked) setSelectedSetores([...selectedSetores, s.id])
-                              else setSelectedSetores(selectedSetores.filter(id => id !== s.id))
-                            }}
-                          />
-                          <span className="flex flex-col">
-                            <span>{s.nome}</span>
-                            <span className="text-[10px] text-zinc-400">{unidades.find(u => u.id === s.unidade_id)?.nome}</span>
-                          </span>
-                        </label>
-                      ))}
+                  <div className="mt-1 max-h-64 overflow-y-auto p-3 border border-zinc-300 dark:border-zinc-700 rounded-xl bg-zinc-50 dark:bg-zinc-800/50 space-y-4">
+                    {unidades
+                      .filter(u => selectedUnidades.length === 0 || selectedUnidades.includes(u.id))
+                      .map(u => {
+                        const unitTree = setoresTree[u.id] || []
+                        if (unitTree.length === 0) return null
+                        
+                        return (
+                          <div key={u.id} className="space-y-2 border-b border-zinc-200 dark:border-zinc-800 last:border-0 pb-3">
+                            <div className="flex items-center text-[10px] font-black uppercase text-zinc-400 tracking-widest bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded">
+                              <Building2 className="h-3 w-3 mr-1" />
+                              {u.nome}
+                            </div>
+                            <div className="space-y-1">
+                              {renderSectorTree(unitTree)}
+                            </div>
+                          </div>
+                        )
+                      })}
                   </div>
                 )}
                 <p className="text-[10px] text-zinc-500 italic">
