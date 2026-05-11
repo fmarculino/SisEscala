@@ -46,7 +46,7 @@ interface LogSistema {
 export default function AuditoriaPage() {
   const [logs, setLogs] = useState<(LogSobreaviso | LogSistema)[]>([])
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'sobreaviso' | 'sistema'>('sobreaviso')
+  const [activeTab, setActiveTab] = useState<'sobreaviso' | 'presenca' | 'sistema'>('sobreaviso')
   
   // Clear logs when tab changes to avoid showing stale data from the other tab
   useEffect(() => {
@@ -89,11 +89,17 @@ export default function AuditoriaPage() {
     
     // Fetch ALL data matching filters
     let query
-    if (activeTab === 'sobreaviso') {
+    if (activeTab === 'sobreaviso' || activeTab === 'presenca') {
       query = supabase
         .from('logs_sobreaviso')
-        .select('*, servidores!inner(nome), unidades!inner(nome), validador:profiles!validado_por(full_name)')
+        .select('*, servidores!inner(nome, matricula), unidades!inner(nome), validador:profiles!validado_por(full_name)')
       
+      if (activeTab === 'sobreaviso') {
+        query = query.or('categoria.eq.Sobreaviso,categoria.is.null')
+      } else {
+        query = query.in('categoria', ['Regular', 'Extra', 'Plantão'])
+      }
+
       if (filtros.unidadeId) query = query.eq('unidade_id', filtros.unidadeId)
       if (filtros.setorId) query = query.eq('servidores.setor_id', filtros.setorId)
       if (filtros.status) {
@@ -132,7 +138,7 @@ export default function AuditoriaPage() {
       const periodoFiltro = filtros.dataInicio ? `${new Date(filtros.dataInicio).toLocaleDateString('pt-BR')} até ${filtros.dataFim ? new Date(filtros.dataFim).toLocaleDateString('pt-BR') : 'Hoje'}` : 'Todo o período'
       
       let tableRows = ''
-      if (activeTab === 'sobreaviso') {
+      if (activeTab === 'sobreaviso' || activeTab === 'presenca') {
         tableRows = (data as LogSobreaviso[]).map((log) => {
           const isRegular = log.categoria && log.categoria !== 'Sobreaviso';
           if (isRegular) {
@@ -140,8 +146,11 @@ export default function AuditoriaPage() {
               <tr class="border-b border-zinc-200 bg-blue-50/20">
                 <td class="py-3 px-2 font-bold text-[11px]">${log.servidores?.nome}</td>
                 <td class="py-3 px-2 text-[10px]">${log.unidades?.nome}</td>
-                <td class="py-3 px-2 text-[10px] font-bold text-blue-700">${log.categoria}</td>
-                <td class="py-3 px-2 text-[10px]" colspan="2">Validador: ${log.validador?.full_name || 'Sistema'}</td>
+                <td class="py-3 px-2 text-[10px] font-bold text-blue-700">${log.categoria} (Dia ${log.dia})</td>
+                <td class="py-3 px-2 text-[10px]" colspan="2">
+                  Validador: ${log.validador?.full_name || 'Sistema'} 
+                  <br/><span class="text-zinc-500">${log.motivo_acionamento || ''}</span>
+                </td>
                 <td class="py-3 px-2 text-[10px] font-bold uppercase">${log.status === 'Cancelado' ? 'REVERTIDO' : 'VALIDADO'}</td>
               </tr>
             `;
@@ -235,12 +244,12 @@ export default function AuditoriaPage() {
               <table class="w-full text-left">
                 <thead>
                   <tr class="bg-zinc-100 border-y-2 border-zinc-900">
-                    ${activeTab === 'sobreaviso' ? `
+                    ${(activeTab === 'sobreaviso' || activeTab === 'presenca') ? `
                       <th class="py-3 px-2 text-[10px] font-black uppercase">Servidor</th>
                       <th class="py-3 px-2 text-[10px] font-black uppercase">Unidade</th>
-                      <th class="py-3 px-2 text-[10px] font-black uppercase">Ação / Categoria</th>
-                      <th class="py-3 px-2 text-[10px] font-black uppercase">Aceite / Detalhes</th>
-                      <th class="py-3 px-2 text-[10px] font-black uppercase">Chegada</th>
+                      <th class="py-3 px-2 text-[10px] font-black uppercase">${activeTab === 'presenca' ? 'Categoria / Dia' : 'Acionamento'}</th>
+                      <th class="py-3 px-2 text-[10px] font-black uppercase">${activeTab === 'presenca' ? 'Validador / Detalhes' : 'Aceite'}</th>
+                      <th class="py-3 px-2 text-[10px] font-black uppercase">${activeTab === 'presenca' ? '-' : 'Chegada'}</th>
                       <th class="py-3 px-2 text-[10px] font-black uppercase">Status</th>
                     ` : `
                       <th class="py-3 px-2 text-[10px] font-black uppercase">Ação</th>
@@ -295,11 +304,17 @@ export default function AuditoriaPage() {
     // Base query
     let query
 
-    if (activeTab === 'sobreaviso') {
+    if (activeTab === 'sobreaviso' || activeTab === 'presenca') {
       query = supabase
         .from('logs_sobreaviso')
-        .select('*, servidores!inner(nome), unidades!inner(nome, latitude, longitude), validador:profiles!validado_por(full_name)', { count: 'exact' })
+        .select('*, servidores!inner(nome, matricula), unidades!inner(nome, latitude, longitude), validador:profiles!validado_por(full_name)', { count: 'exact' })
       
+      if (activeTab === 'sobreaviso') {
+        query = query.or('categoria.eq.Sobreaviso,categoria.is.null')
+      } else {
+        query = query.in('categoria', ['Regular', 'Extra', 'Plantão'])
+      }
+
       if (filtros.unidadeId) query = query.eq('unidade_id', filtros.unidadeId)
       if (filtros.setorId) query = query.eq('servidores.setor_id', filtros.setorId)
       if (filtros.status) {
@@ -495,7 +510,18 @@ export default function AuditoriaPage() {
           }`}
         >
           <Zap className="h-4 w-4" />
-          Acionamentos Sobreaviso
+          Sobreaviso
+        </button>
+        <button
+          onClick={() => { setActiveTab('presenca'); setPage(1); }}
+          className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${
+            activeTab === 'presenca' 
+              ? 'bg-white dark:bg-zinc-700 text-blue-600 shadow-sm' 
+              : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'
+          }`}
+        >
+          <CheckCircle2 className="h-4 w-4" />
+          Presença Regular
         </button>
         <button
           onClick={() => { setActiveTab('sistema'); setPage(1); }}
@@ -506,7 +532,7 @@ export default function AuditoriaPage() {
           }`}
         >
           <ShieldCheck className="h-4 w-4" />
-          Ações do Sistema
+          Sistema
         </button>
       </div>
 
@@ -612,8 +638,12 @@ export default function AuditoriaPage() {
         <div className="overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
           <div className="p-6 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50 flex items-center justify-between print:bg-white print:border-zinc-300">
             <h2 className="text-lg font-semibold flex items-center print:text-xl print:font-black">
-              <Zap className="mr-2 h-5 w-5 text-orange-500 print:hidden" />
-              Relatório de Acionamentos
+              {activeTab === 'sobreaviso' ? <Zap className="mr-2 h-5 w-5 text-orange-500 print:hidden" /> : 
+               activeTab === 'presenca' ? <CheckCircle2 className="mr-2 h-5 w-5 text-emerald-500 print:hidden" /> : 
+               <ShieldCheck className="mr-2 h-5 w-5 text-blue-500 print:hidden" />}
+              {activeTab === 'sobreaviso' ? 'Relatório de Acionamentos Sobreaviso' : 
+               activeTab === 'presenca' ? 'Validações de Presença Regular' : 
+               'Histórico de Ações do Sistema'}
             </h2>
             <div className="text-xs text-zinc-500 font-medium">
               Mostrando {logs.length} de {totalCount} registros
@@ -631,11 +661,11 @@ export default function AuditoriaPage() {
                 <Clock className="mx-auto h-12 w-12 opacity-20 mb-4" />
                 <p>Nenhum registro encontrado com os filtros aplicados.</p>
               </div>
-            ) : activeTab === 'sobreaviso' ? (
+            ) : (activeTab === 'sobreaviso' || activeTab === 'presenca') ? (
               (logs as LogSobreaviso[]).map((log) => {
                 const isRegularPresence = log.categoria && log.categoria !== 'Sobreaviso';
                 
-                if (isRegularPresence) {
+                if (isRegularPresence || activeTab === 'presenca') {
                   return (
                     <div 
                       key={log.id} 
@@ -683,7 +713,7 @@ export default function AuditoriaPage() {
                               Categoria / Tipo
                             </p>
                             <p className="font-mono text-[11px] text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
-                              {log.categoria} - {log.motivo_acionamento?.includes('entrada') ? 'ENTRADA' : 'SAÍDA'}
+                              {log.categoria} - {log.motivo_acionamento?.includes('entrada') ? 'ENTRADA' : 'SAÍDA'} (Dia {log.dia})
                             </p>
                           </div>
 

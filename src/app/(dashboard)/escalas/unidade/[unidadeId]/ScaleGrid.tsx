@@ -312,8 +312,12 @@ export function ScaleGrid({
   const daysInMonth = useMemo(() => new Date(ano, mes, 0).getDate(), [mes, ano])
   const daysArray = useMemo(() => Array.from({ length: daysInMonth }, (_, i) => i + 1), [daysInMonth])
 
-  const getStatusForDay = useCallback((day: number, emId: string) => {
-    const logs = logsSobreaviso.filter(l => l.escala_mensal_id === emId && l.dia === day)
+  const getStatusForDay = useCallback((day: number, emId: string, categoria?: string) => {
+    const logs = logsSobreaviso.filter(l => 
+      l.escala_mensal_id === emId && 
+      l.dia === day && 
+      (!categoria || l.categoria === categoria || (categoria === 'Sobreaviso' && !l.categoria))
+    )
     if (logs.length === 0) return { status: null, reason: null, log: null }
 
     for (const log of logs) {
@@ -385,7 +389,7 @@ export function ScaleGrid({
 
         const turnoIdS = gridData[em.servidor_id]?.['Sobreaviso']?.[day]
         if (turnoIdS) {
-          const { status: effectiveStatus } = getStatusForDay(day, em.id)
+          const { status: effectiveStatus } = getStatusForDay(day, em.id, 'Sobreaviso')
           if (!(desconsiderarFalha && effectiveStatus === 'Falhou')) {
             hasS = true
           }
@@ -730,7 +734,7 @@ export function ScaleGrid({
         
         const dateObj = new Date(ano, mes - 1, d)
         const isWE = dateObj.getDay() === 0 || dateObj.getDay() === 6
-        const dateStr = `${ano}-${mes.toString().padStart(2, '0')}-${day.padStart(2, '0')}`
+        const dateStr = `${ano}-${mes.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`
         const isHoliday = feriados.some(f => f.data === dateStr)
         const horas = Number(t.horas_computadas)
 
@@ -781,7 +785,7 @@ export function ScaleGrid({
       const t = turnos.find(x => x.id === turnoId)
       if (!t) return
 
-      const { status: effectiveStatus } = getStatusForDay(d, em.id)
+      const { status: effectiveStatus } = getStatusForDay(d, em.id, 'Sobreaviso')
       const val = (t.codigo === 'MTN') ? 2 : (t.codigo === 'MT' || t.codigo === 'N' ? 1 : 0)
       
       p_so12 += val
@@ -1554,7 +1558,7 @@ export function ScaleGrid({
                         }
 
                         const { status: effectiveStatus, reason: virtualReason, log: logForDay } = cat === 'Sobreaviso' 
-                          ? getStatusForDay(day, em.id) 
+                          ? getStatusForDay(day, em.id, 'Sobreaviso') 
                           : { status: null, reason: null, log: null }
 
                         // Check for REAL external conflicts (different unit/sector)
@@ -1671,9 +1675,10 @@ export function ScaleGrid({
                                 })}
                                 disabled={loading}
                                 className="absolute -top-1 -right-1 hidden group-hover:flex h-3 w-3 items-center justify-center rounded-full bg-orange-500 text-white z-30 hover:bg-orange-600 transition-colors shadow-sm"
-                                title="Acionar Sobreaviso"
                               >
-                                <Zap className="h-2 w-2 fill-current" />
+                                <span title="Acionar Sobreaviso">
+                                  <Zap className="h-2 w-2 fill-current" />
+                                </span>
                               </button>
                             )}
 
