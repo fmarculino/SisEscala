@@ -28,14 +28,18 @@ Abaixo estão os conceitos fundamentais para gestão de escalas em conformidade 
 
 ## 3. Sugestões de Melhorias para o SisEscala
 
-### 🟢 Prioridade Alta (Próxima Versão - 0.6.0)
-1. **Motor de Compliance (Validação Legal)**: 
-   - Implementar aviso visual se uma escala violar as **11 horas de interjornada**.
-   - Validar o **DSR** (pelo menos uma folga a cada 7 dias).
-2. **Templates de Escala**:
-   - Criar botões "Aplicar 12x36" ou "Aplicar 5x2" que preenchem automaticamente o mês para o servidor selecionado.
-3. **Portal de Solicitação de Trocas**:
-   - Permitir que o servidor solicite uma troca de plantão no "Portal do Servidor", gerando uma pendência para aprovação do coordenador.
+### 🟢 Prioridade Alta (Próxima Versão - 0.6.0) — ✅ IMPLEMENTADO
+1. ✅ **Motor de Compliance (Validação Legal)** — *Implementado em v0.6.0*: 
+   - Aviso visual (triângulo âmbar) se uma escala violar as **11 horas de interjornada**.
+   - Validação do **DSR** (alerta quando 7+ dias consecutivos sem folga).
+   - Badge de contagem na toolbar + tooltip com detalhes da violação.
+2. ✅ **Templates de Escala** — *Implementado em v0.6.0*:
+   - Botões "Aplicar 12x36", "5x2" e "6x1" que preenchem automaticamente a grade para o servidor selecionado.
+   - Proteção de integridade: dias com presença confirmada não são sobrescritos.
+3. ✅ **Portal de Solicitação de Trocas** — *Implementado em v0.6.0*:
+   - Servidor solicita troca no Portal com justificativa obrigatória.
+   - Coordenador recebe notificação na grade com botões de aprovar/rejeitar.
+   - Trilha de auditoria completa.
 
 ### 🟡 Prioridade Média (Versão 0.7.0)
 1. **Sistema de Notificações Ativas**:
@@ -52,5 +56,5 @@ Abaixo estão os conceitos fundamentais para gestão de escalas em conformidade 
 
 ---
 **Documentação gerada por:** Antigravity AI (Senior Systems Analyst)
-**Data:** 11/05/2026
+**Data:** 13/05/2026
 **Referência:** Escala.app (Glossário de Escalas 2025)

@@ -197,3 +197,160 @@ export async function logoutPortal() {
   const cookieStore = await cookies()
   cookieStore.delete('portal_servidor_id')
 }
+
+// ============================================================
+// Portal de Solicitação de Trocas — SisEscala v0.6.0
+// ============================================================
+
+export async function createSwapRequest(params: {
+  escalaMensalId: string
+  diaOrigem: number
+  categoriaOrigem: string
+  turnoOrigemId: string
+  justificativa: string
+  destinatarioId?: string
+}) {
+  const supabase = await createAdminClient()
+  const cookieStore = await cookies()
+  const portalServidorId = cookieStore.get('portal_servidor_id')?.value
+
+  if (!portalServidorId) {
+    return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
+  }
+
+  // Validar que a justificativa não está vazia
+  if (!params.justificativa || params.justificativa.trim().length < 5) {
+    return { error: 'A justificativa deve ter pelo menos 5 caracteres.' }
+  }
+
+  // Verificar limite de solicitações pendentes (anti-spam: max 3)
+  const { data: pendentes } = await supabase
+    .from('solicitacoes_troca')
+    .select('id')
+    .eq('solicitante_id', portalServidorId)
+    .eq('status', 'Pendente')
+
+  if (pendentes && pendentes.length >= 3) {
+    return { error: 'Você já possui 3 solicitações pendentes. Aguarde a análise antes de criar novas.' }
+  }
+
+  // Verificar que a escala pertence ao servidor logado
+  const { data: escala } = await supabase
+    .from('escala_mensal')
+    .select('id, status, servidor_id, mes, ano')
+    .eq('id', params.escalaMensalId)
+    .eq('servidor_id', portalServidorId)
+    .single()
+
+  if (!escala) {
+    return { error: 'Escala não encontrada ou não pertence a você.' }
+  }
+
+  if (escala.status === 'Fechada') {
+    return { error: 'Não é possível solicitar troca em uma escala já fechada.' }
+  }
+
+  // Validar que o dia solicitado não é passado
+  const hoje = new Date()
+  const diaEscala = new Date(escala.ano, escala.mes - 1, params.diaOrigem)
+  if (diaEscala <= hoje) {
+    return { error: 'Não é possível solicitar troca para um dia que já passou.' }
+  }
+
+  // Verificar que o dia tem turno atribuído
+  const { data: diaria } = await supabase
+    .from('escala_diaria')
+    .select('id, dicionario_turnos_id')
+    .eq('escala_mensal_id', params.escalaMensalId)
+    .eq('dia', params.diaOrigem)
+    .eq('categoria', params.categoriaOrigem)
+    .single()
+
+  if (!diaria || !diaria.dicionario_turnos_id) {
+    return { error: 'Não há turno atribuído neste dia para solicitar troca.' }
+  }
+
+  // Criar a solicitação
+  const { data: solicitacao, error } = await supabase
+    .from('solicitacoes_troca')
+    .insert({
+      solicitante_id: portalServidorId,
+      escala_mensal_solicitante_id: params.escalaMensalId,
+      dia_origem: params.diaOrigem,
+      categoria_origem: params.categoriaOrigem,
+      turno_origem_id: diaria.dicionario_turnos_id,
+      destinatario_id: params.destinatarioId || null,
+      justificativa: params.justificativa.trim()
+    })
+    .select()
+    .single()
+
+  if (error) {
+    return { error: 'Erro ao criar solicitação: ' + error.message }
+  }
+
+  return { success: true, solicitacao }
+}
+
+export async function getSwapRequests(servidorId?: string) {
+  const supabase = await createAdminClient()
+  const cookieStore = await cookies()
+  const portalServidorId = servidorId || cookieStore.get('portal_servidor_id')?.value
+
+  if (!portalServidorId) {
+    return { error: 'Sessão expirada.' }
+  }
+
+  const { data, error } = await supabase
+    .from('solicitacoes_troca')
+    .select(`
+      *,
+      solicitante:servidores!solicitacoes_troca_solicitante_id_fkey(nome, matricula),
+      destinatario:servidores!solicitacoes_troca_destinatario_id_fkey(nome),
+      turno:dicionario_turnos!solicitacoes_troca_turno_origem_id_fkey(codigo, descricao),
+      escala:escala_mensal!solicitacoes_troca_escala_mensal_solicitante_id_fkey(mes, ano, unidade_id, setor_id)
+    `)
+    .eq('solicitante_id', portalServidorId)
+    .order('created_at', { ascending: false })
+    .limit(20)
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  return { solicitacoes: data || [] }
+}
+
+export async function cancelSwapRequest(solicitacaoId: string) {
+  const supabase = await createAdminClient()
+  const cookieStore = await cookies()
+  const portalServidorId = cookieStore.get('portal_servidor_id')?.value
+
+  if (!portalServidorId) {
+    return { error: 'Sessão expirada.' }
+  }
+
+  // Verificar que a solicitação pertence ao servidor e está pendente
+  const { data: sol } = await supabase
+    .from('solicitacoes_troca')
+    .select('id, solicitante_id, status')
+    .eq('id', solicitacaoId)
+    .eq('solicitante_id', portalServidorId)
+    .eq('status', 'Pendente')
+    .single()
+
+  if (!sol) {
+    return { error: 'Solicitação não encontrada ou não pode ser cancelada.' }
+  }
+
+  const { error } = await supabase
+    .from('solicitacoes_troca')
+    .update({ status: 'Cancelada', updated_at: new Date().toISOString() })
+    .eq('id', solicitacaoId)
+
+  if (error) {
+    return { error: 'Erro ao cancelar: ' + error.message }
+  }
+
+  return { success: true }
+}

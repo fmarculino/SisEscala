@@ -2,6 +2,51 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.0-Beta] - 2026-05-13
+
+### Added
+- **Motor de Compliance Legal** (`complianceEngine.ts`):
+    - Validação automática de **Interjornada** (mínimo 11h de descanso entre turnos consecutivos).
+    - Validação de **DSR** (Descanso Semanal Remunerado): alerta quando servidor trabalha 7+ dias consecutivos sem folga.
+    - Indicadores visuais (triângulo âmbar) diretamente nas células da grade na linha Regular.
+    - Badge de contagem de alertas na toolbar: "⚠️ X alertas de compliance".
+    - Validação **não-bloqueante** (informativa): o coordenador é alertado mas pode salvar normalmente.
+    - Módulo puro, sem dependências de React/Supabase, recalculado via `useMemo` para performance.
+
+- **Templates de Escala** (`scaleTemplates.ts`):
+    - Preenchimento automático da grade com padrões predefinidos: **12×36**, **5×2** e **6×1**.
+    - Modal completo na toolbar (botão "Aplicar Template") com seleção de servidor, modelo, turno, dia de início e opção de começar trabalhando ou folgando.
+    - Escala **5×2** respeita o calendário real (seg-sex trabalha, sáb-dom folga).
+    - **Proteção de integridade**: dias com presença já confirmada NÃO são sobrescritos.
+    - Template preenche apenas a linha **Regular** e não grava no banco — exige "Salvar Previsão" explícito.
+
+- **Portal de Solicitação de Trocas (Expansão e Estabilização)**:
+    - **Suporte Multi-categoria**: Agora permite solicitar trocas para turnos de **Plantão** e **Sobreaviso**, além da linha **Regular** (Excluindo apenas Extra).
+    - **Identidade Visual por Categoria**: Botões e listagens coloridos por tipo (Roxo: Regular, Vermelho: Plantão, Azul: Sobreaviso) para facilitar a identificação.
+    - **Filtro de Dias Futuros**: O portal agora oculta automaticamente dias que já passaram ou o dia atual, permitindo solicitações apenas para datas futuras (a partir de amanhã).
+    - **Auto-Refresh Inteligente**: O portal do servidor agora carrega as solicitações automaticamente ao selecionar a escala, eliminando a necessidade de cliques manuais (botão "Atualizar" removido por redundância).
+    - **Feedback Visual (Toasts)**: Adicionado sistema de notificações no painel do coordenador para confirmar sucesso ou erro ao processar trocas.
+    - **RLS Policy Fix**: Correção crítica nas políticas de segurança da tabela `solicitacoes_troca` para permitir que coordenadores (`authenticated`) aprovem trocas sem falhas silenciosas.
+    - **Server-Side Guard**: Implementada validação de data na server action para impedir solicitações em dias passados via manipulação direta de API.
+
+### Changed
+- Refatoração do `ConsultarEscalaClient` para suportar agrupamento dinâmico de botões por categoria.
+- Otimização do carregamento de dados do portal para maior fluidez.
+
+### Security
+- RLS ativado e corrigido na tabela `solicitacoes_troca`.
+- Validação rigorosa de datas (bloqueio de dias passados) tanto no front quanto no back.
+- Todas as server actions de troca validam sessão antes de operar.
+- Anti-spam: limite de 3 solicitações pendentes por servidor.
+- Rejeição exige motivo obrigatório (mín. 3 caracteres).
+
+### Security
+- RLS ativado na nova tabela `solicitacoes_troca`.
+- Todas as server actions de troca validam sessão antes de operar.
+- Anti-spam: limite de 3 solicitações pendentes por servidor.
+- Rejeição exige motivo obrigatório (mín. 3 caracteres).
+
+
 ## [0.5.0-Beta] - 2026-05-11
 
 ### Added

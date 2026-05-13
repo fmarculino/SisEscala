@@ -5,12 +5,15 @@ import { createClient } from '@/utils/supabase/client'
 import { 
   Save, Loader2, Info, Zap, Lock, Unlock, FileText, Plus, UserPlus, Users, 
   CheckCircle, Trash2, Globe, X, Copy, Check, Clock, Navigation2,
-  ShieldCheck, ShieldAlert
+  ShieldCheck, ShieldAlert, AlertTriangle, LayoutTemplate
 } from 'lucide-react'
 import { ScalePrintView } from '@/components/ScalePrintView'
 import { Modal } from '@/components/ui/Modal'
 import React from 'react'
 import { canEditScale, UserRole } from '@/utils/governance'
+import { runComplianceCheck, getViolationsForCell, type ComplianceViolation } from '@/utils/complianceEngine'
+import { generateTemplate, TEMPLATE_OPTIONS, type TemplateType, countWorkDays } from '@/utils/scaleTemplates'
+import { SwapRequestPanel } from '@/components/SwapRequestPanel'
 
 interface ScaleGridProps {
   unidadeId: string
@@ -150,6 +153,16 @@ export function ScaleGrid({
     isReverting: boolean;
   } | null>(null)
   const [externalOccupancy, setExternalOccupancy] = useState<any[]>([])
+
+  // Template Modal State
+  const [templateModal, setTemplateModal] = useState<{
+    isOpen: boolean
+    servidorId: string
+    templateType: TemplateType
+    turnoId: string
+    startDay: number
+    startWorking: boolean
+  } | null>(null)
 
   const fetchOccupancy = useCallback(async (servidorIds: string[]) => {
     if (servidorIds.length === 0) return
@@ -311,6 +324,19 @@ export function ScaleGrid({
 
   const daysInMonth = useMemo(() => new Date(ano, mes, 0).getDate(), [mes, ano])
   const daysArray = useMemo(() => Array.from({ length: daysInMonth }, (_, i) => i + 1), [daysInMonth])
+
+  // Motor de Compliance: validação de interjornada e DSR
+  const complianceViolations = useMemo(() => {
+    if (!gridData || escalaMensal.length === 0) return [] as ComplianceViolation[]
+    return runComplianceCheck(
+      gridData,
+      turnos,
+      escalaMensal.map(em => em.servidor_id),
+      daysInMonth
+    )
+  }, [gridData, turnos, escalaMensal, daysInMonth])
+
+  const complianceCount = complianceViolations.length
 
   const getStatusForDay = useCallback((day: number, emId: string, categoria?: string) => {
     const logs = logsSobreaviso.filter(l => 
@@ -1489,9 +1515,37 @@ export function ScaleGrid({
               <Globe className="h-4 w-4 mr-2" />
               Servidor Externo
             </button>
+
+            <button
+              onClick={() => {
+                if (escalaMensal.length === 0) {
+                  setAlertModal({ isOpen: true, title: 'Sem Servidores', message: 'Adicione pelo menos um servidor à grade antes de aplicar um template.', type: 'warning' })
+                  return
+                }
+                setTemplateModal({
+                  isOpen: true,
+                  servidorId: escalaMensal[0]?.servidor_id || '',
+                  templateType: '12x36',
+                  turnoId: turnos.find(t => t.codigo === 'MT')?.id || turnos[0]?.id || '',
+                  startDay: 1,
+                  startWorking: true
+                })
+              }}
+              disabled={loading || isClosed}
+              className="inline-flex items-center rounded-md border border-purple-200 text-purple-700 px-3 py-2 text-sm font-medium hover:bg-purple-50 dark:border-purple-800 dark:text-purple-400 transition-colors disabled:opacity-50"
+            >
+              <LayoutTemplate className="h-4 w-4 mr-2" />
+              Aplicar Template
+            </button>
           </div>
           
           <div className="flex items-center space-x-3">
+            {complianceCount > 0 && (
+              <div className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400 text-xs font-bold animate-in fade-in">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                {complianceCount} {complianceCount === 1 ? 'alerta' : 'alertas'} de compliance
+              </div>
+            )}
             <button onClick={() => window.print()} className="inline-flex items-center rounded-md bg-white dark:bg-zinc-800 px-3 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-50">
               <FileText className="mr-2 h-4 w-4" /> Gerar PDF
             </button>
@@ -1512,6 +1566,17 @@ export function ScaleGrid({
             )}
           </div>
         </div>
+      )}
+
+      {/* Painel de Solicitações de Troca */}
+      {!isComum && (
+        <SwapRequestPanel
+          unidadeId={unidadeId}
+          setorId={setorId}
+          mes={mes}
+          ano={ano}
+          isClosed={isClosed}
+        />
       )}
 
       <div className="flex-1 overflow-auto no-print">
@@ -1718,6 +1783,18 @@ export function ScaleGrid({
                               className={`w-full h-full bg-transparent border-none text-center focus:outline-none focus:ring-1 focus:ring-blue-500 font-black p-0 text-[11px] uppercase ${isFailed ? 'text-red-600 dark:text-red-400 line-through' : 'text-zinc-900 dark:text-zinc-100'}`}
                               placeholder="-"
                             />
+                            {/* Indicador de Compliance (Interjornada/DSR) */}
+                            {(() => {
+                              const cellViolations = getViolationsForCell(complianceViolations, em.servidor_id, day)
+                              if (cellViolations.length === 0 || cat !== 'Regular') return null
+                              return (
+                                <div 
+                                  className="absolute top-0 left-0 w-0 h-0 z-20" 
+                                  style={{ borderLeft: '8px solid #f59e0b', borderBottom: '8px solid transparent' }}
+                                  title={`⚠️ ${cellViolations.map(v => v.message).join(' | ')}`}
+                                />
+                              )
+                            })()}
                             {/* Indicador de Ocupação Externa (Bônus) */}
                             {isBusyElsewhere && !hasExternalConflict && (
                               <div className="absolute top-0.5 right-0.5 w-1.5 h-1.5 bg-blue-500 rounded-full opacity-70" />
@@ -2211,6 +2288,165 @@ export function ScaleGrid({
           </div>
         </div>
       )}
+
+      {/* Modal de Template de Escala */}
+      {templateModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-2xl border border-zinc-200 dark:border-zinc-800 w-full max-w-md overflow-hidden">
+            <div className="p-6 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between bg-zinc-50 dark:bg-zinc-900/50">
+              <h2 className="text-xl font-bold flex items-center gap-2 text-zinc-900 dark:text-white">
+                <LayoutTemplate className="h-5 w-5 text-purple-600" />
+                Aplicar Template de Escala
+              </h2>
+              <button onClick={() => setTemplateModal(null)} className="text-zinc-400 hover:text-zinc-600">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Servidor</label>
+                <select
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-purple-500 text-zinc-900 dark:text-white"
+                  value={templateModal.servidorId}
+                  onChange={(e) => setTemplateModal(prev => prev ? { ...prev, servidorId: e.target.value } : null)}
+                >
+                  {escalaMensal.map(em => (
+                    <option key={em.servidor_id} value={em.servidor_id}>{em.servidores?.nome}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Modelo de Escala</label>
+                <select
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-purple-500 text-zinc-900 dark:text-white"
+                  value={templateModal.templateType}
+                  onChange={(e) => setTemplateModal(prev => prev ? { ...prev, templateType: e.target.value as TemplateType } : null)}
+                >
+                  {TEMPLATE_OPTIONS.map(opt => (
+                    <option key={opt.type} value={opt.type}>{opt.label}</option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-zinc-500">
+                  {TEMPLATE_OPTIONS.find(o => o.type === templateModal.templateType)?.description}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Turno a Aplicar</label>
+                <select
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-purple-500 text-zinc-900 dark:text-white"
+                  value={templateModal.turnoId}
+                  onChange={(e) => setTemplateModal(prev => prev ? { ...prev, turnoId: e.target.value } : null)}
+                >
+                  {turnos.filter(t => t.ativo !== false).map(t => (
+                    <option key={t.id} value={t.id}>{t.codigo} — {t.descricao}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Dia de Início</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={daysInMonth}
+                    value={templateModal.startDay}
+                    onChange={(e) => setTemplateModal(prev => prev ? { ...prev, startDay: Math.max(1, Math.min(daysInMonth, parseInt(e.target.value) || 1)) } : null)}
+                    className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-purple-500 text-zinc-900 dark:text-white"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Início</label>
+                  <select
+                    className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-purple-500 text-zinc-900 dark:text-white"
+                    value={templateModal.startWorking ? 'true' : 'false'}
+                    onChange={(e) => setTemplateModal(prev => prev ? { ...prev, startWorking: e.target.value === 'true' } : null)}
+                  >
+                    <option value="true">Trabalhando</option>
+                    <option value="false">Folgando</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 p-3 rounded-lg">
+                <p className="text-[10px] text-purple-700 dark:text-purple-400">
+                  ⚠️ Dias com presença já confirmada <strong>não serão sobrescritos</strong>. O template preenche apenas a linha <strong>Regular</strong>.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-6 bg-zinc-50 dark:bg-zinc-900/50 border-t border-zinc-100 dark:border-zinc-800 flex justify-end gap-3">
+              <button
+                onClick={() => setTemplateModal(null)}
+                className="px-4 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  if (!templateModal) return
+                  const sId = templateModal.servidorId
+                  const em = escalaMensal.find(x => x.servidor_id === sId)
+                  if (!em) return
+
+                  // Coletar dias protegidos (presença confirmada)
+                  const protectedDays = new Set<number>()
+                  for (let d = 1; d <= daysInMonth; d++) {
+                    if (hasPresenceForDay(sId, em.id, 'Regular', d)) {
+                      protectedDays.add(d)
+                    }
+                  }
+
+                  const templateResult = generateTemplate(
+                    {
+                      type: templateModal.templateType,
+                      turnoId: templateModal.turnoId,
+                      startDay: templateModal.startDay,
+                      startWorking: templateModal.startWorking
+                    },
+                    daysInMonth,
+                    mes,
+                    ano,
+                    protectedDays
+                  )
+
+                  // Injetar no gridData apenas na linha Regular
+                  setGridData(prev => ({
+                    ...prev,
+                    [sId]: {
+                      ...prev[sId],
+                      'Regular': { ...templateResult }
+                    }
+                  }))
+
+                  const workDays = countWorkDays(templateResult)
+                  logAction('APLICAR_TEMPLATE', {
+                    servidor_id: sId,
+                    template: templateModal.templateType,
+                    dias_preenchidos: workDays,
+                    dias_protegidos: protectedDays.size
+                  })
+
+                  setTemplateModal(null)
+                  setAlertModal({
+                    isOpen: true,
+                    title: 'Template Aplicado',
+                    message: `Template ${templateModal.templateType} aplicado com sucesso! ${workDays} dias preenchidos${protectedDays.size > 0 ? `, ${protectedDays.size} dias protegidos por presença` : ''}. Lembre-se de salvar a escala.`,
+                    type: 'success'
+                  })
+                }}
+                className="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-bold rounded-lg transition-all shadow-lg shadow-purple-500/20 min-w-[140px]"
+              >
+                Aplicar Template
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modals Extras */}
       <Modal
         isOpen={alertModal.isOpen}
