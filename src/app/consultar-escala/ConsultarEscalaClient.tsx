@@ -424,7 +424,7 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
                        blue: 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/40',
                      }
 
-                     const sections: JSX.Element[] = []
+                     const sections: any[] = []
                      let hasAny = false
 
                      // Só exibir dias futuros (a partir de amanhã)
@@ -436,7 +436,7 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
                      const minDay = isCurrentMonth ? todayDay + 1 : (isFutureMonth ? 1 : daysInMonth + 1)
 
                      for (const cat of SWAP_CATEGORIES) {
-                       const buttons: JSX.Element[] = []
+                       const buttons: any[] = []
                        for (let d = 1; d <= daysInMonth; d++) {
                          if (d < minDay) continue  // Pular dias passados
                          const turnoId = myData?.[cat.key]?.[d]
