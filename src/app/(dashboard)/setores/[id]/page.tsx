@@ -53,6 +53,12 @@ export default async function EditSetorPage({
   parentSectorsQuery = applyAccessFilters(parentSectorsQuery, userProfile)
   const { data: setoresPai } = await parentSectorsQuery
 
+  // Fetch dictionary for normalization suggestions
+  const { data: dicionario } = await supabase
+    .from('dicionario_setores')
+    .select('nome')
+    .order('nome')
+
   if (!setor) {
     return <div>Setor não encontrado</div>
   }
@@ -110,8 +116,14 @@ export default async function EditSetorPage({
                 id="nome"
                 defaultValue={setor.nome}
                 required
+                list="nomes-padronizados"
                 className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500 focus:border-blue-500"
               />
+              <datalist id="nomes-padronizados">
+                {dicionario?.map(d => (
+                  <option key={d.nome} value={d.nome} />
+                ))}
+              </datalist>
             </div>
 
             <div>

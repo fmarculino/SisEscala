@@ -21,9 +21,22 @@ export async function createSetor(formData: FormData) {
   const unidade_id = formData.get('unidade_id') as string
   const parent_id = formData.get('parent_id') as string
 
+  // 1. Garantir que o nome existe no dicionário
+  const { data: dictEntry, error: dictError } = await supabase
+    .from('dicionario_setores')
+    .upsert({ nome }, { onConflict: 'nome' })
+    .select('id')
+    .single()
+
+  if (dictError) {
+    return { error: 'Erro ao processar dicionário de setores: ' + dictError.message }
+  }
+
+  // 2. Inserir o setor vinculado ao dicionário
   const { error } = await supabase.from('setores').insert({
     nome,
     unidade_id,
+    dicionario_setor_id: dictEntry.id,
     parent_id: parent_id || null,
   })
 
@@ -42,11 +55,23 @@ export async function updateSetor(id: string, formData: FormData) {
   const unidade_id = formData.get('unidade_id') as string
   const parent_id = formData.get('parent_id') as string
 
+  // 1. Garantir que o nome existe no dicionário
+  const { data: dictEntry, error: dictError } = await supabase
+    .from('dicionario_setores')
+    .upsert({ nome }, { onConflict: 'nome' })
+    .select('id')
+    .single()
+
+  if (dictError) {
+    return { error: 'Erro ao processar dicionário de setores: ' + dictError.message }
+  }
+
   const { error } = await supabase
     .from('setores')
     .update({
       nome,
       unidade_id,
+      dicionario_setor_id: dictEntry.id,
       parent_id: parent_id || null,
     })
     .eq('id', id)

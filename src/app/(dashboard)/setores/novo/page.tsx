@@ -42,6 +42,12 @@ export default async function NovoSetorPage() {
   allSectorsQuery = applyAccessFilters(allSectorsQuery, userProfile)
   const { data: setoresExistentes } = await allSectorsQuery
 
+  // Fetch dictionary sectors for normalization
+  const { data: dicionario } = await supabase
+    .from('dicionario_setores')
+    .select('id, nome')
+    .order('nome')
+
   return (
     <div className="max-w-2xl mx-auto space-y-8">
       <div className="flex items-center justify-between">
@@ -68,6 +74,7 @@ export default async function NovoSetorPage() {
         <NovoSetorForm 
           unidades={unidades || []} 
           setoresExistentes={setoresExistentes || []} 
+          dicionario={dicionario || []}
         />
       </div>
     </div>

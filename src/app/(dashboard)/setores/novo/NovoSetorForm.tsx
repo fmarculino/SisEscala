@@ -7,18 +7,18 @@ import { createSetor } from '../actions'
 interface NovoSetorFormProps {
   unidades: any[]
   setoresExistentes: any[]
+  dicionario: any[]
 }
 
-export default function NovoSetorForm({ unidades, setoresExistentes }: NovoSetorFormProps) {
+export default function NovoSetorForm({ unidades, setoresExistentes, dicionario }: NovoSetorFormProps) {
   const [selectedUnidade, setSelectedUnidade] = useState('')
   const [nomeSetor, setNomeSetor] = useState('')
   const [loading, setLoading] = useState(false)
 
-  // Nomes sugeridos para padronização
+  // Nomes sugeridos para padronização (vindo do dicionário)
   const nomesPadronizados = useMemo(() => {
-    const nomes = new Set(setoresExistentes.map(s => s.nome))
-    return Array.from(nomes).sort()
-  }, [setoresExistentes])
+    return dicionario.map(d => d.nome)
+  }, [dicionario])
 
   // Filtrar setores pai apenas da unidade selecionada
   const setoresPaiDisponiveis = useMemo(() => {
