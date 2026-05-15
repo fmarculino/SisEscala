@@ -19,28 +19,56 @@ export default function SetoresClient({ userProfile }: SetoresClientProps) {
   const [filterUnidade, setFilterUnidade] = useState('todas')
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({})
 
+  const [viewMode, setViewMode] = useState<'unidade' | 'dicionario'>('unidade')
+  const [dicionario, setDicionario] = useState<any[]>([])
+
   useEffect(() => {
     fetchSetores()
+    fetchDicionario()
   }, [])
+
+  async function fetchDicionario() {
+    const { data } = await supabase
+      .from('dicionario_setores')
+      .select('*, setores(id, unidade_id, unidades(nome))')
+      .order('nome')
+    
+    setDicionario(data || [])
+  }
 
   async function fetchSetores() {
     setLoading(true)
-    
-    let query = supabase
-      .from('setores')
-      .select('*, unidades(id, nome)')
-      .order('nome')
-    
-    query = applyAccessFilters(query, userProfile, { setorField: 'id' })
-    
-    const { data, error } = await query
-    
-    if (error) {
-      console.error('Erro ao carregar setores:', error)
-    } else {
-      setSetores(data || [])
+    try {
+      let query = supabase
+        .from('setores')
+        .select('*, unidades(id, nome), dicionario_setores(nome)')
+      
+      query = applyAccessFilters(query, userProfile, { setorField: 'id' })
+      
+      const { data, error } = await query
+      
+      if (error) {
+        console.error('Erro ao carregar setores:', error)
+      } else if (data) {
+        // Mapear para facilitar o uso no restante do componente
+        const mappedData = data.map(s => {
+          // Handle both object and array return from Supabase for relationships
+          const dictData = Array.isArray(s.dicionario_setores) 
+            ? s.dicionario_setores[0] 
+            : s.dicionario_setores
+            
+          return {
+            ...s,
+            nome: dictData?.nome || 'SETOR SEM NOME'
+          }
+        })
+        setSetores(mappedData)
+      }
+    } catch (err) {
+      console.error('Erro fatal ao carregar setores:', err)
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   const toggleNode = (id: string) => {
@@ -50,8 +78,11 @@ export default function SetoresClient({ userProfile }: SetoresClientProps) {
   // Organizar setores em estrutura de árvore por unidade
   const setoresTree = useMemo(() => {
     const filtered = setores.filter(s => {
-      const matchesSearch = s.nome?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                            s.unidades?.nome?.toLowerCase().includes(searchTerm.toLowerCase())
+      const searchTermLower = searchTerm.toLowerCase()
+      const sectorName = (s.nome || '').toLowerCase()
+      const unitName = (s.unidades?.nome || '').toLowerCase()
+      
+      const matchesSearch = sectorName.includes(searchTermLower) || unitName.includes(searchTermLower)
       const matchesUnidade = filterUnidade === 'todas' || s.unidade_id === filterUnidade
       const matchesAtivo = showInactive ? true : s.ativo !== false
       return matchesSearch && matchesUnidade && matchesAtivo
@@ -122,13 +153,31 @@ export default function SetoresClient({ userProfile }: SetoresClientProps) {
           </div>
           <p className="text-zinc-500 text-sm font-medium italic pl-1">Hierarquia de setores e fluxos administrativos.</p>
         </div>
-        <Link
-          href="/setores/novo"
-          className="inline-flex items-center rounded-2xl bg-zinc-900 dark:bg-white px-8 py-4 text-sm font-black text-white dark:text-zinc-900 shadow-2xl hover:scale-105 active:scale-95 transition-all uppercase tracking-widest"
-        >
-          <Plus className="mr-2 h-5 w-5" />
-          Novo Setor
-        </Link>
+        
+        <div className="flex items-center gap-3">
+          <div className="bg-zinc-100 dark:bg-zinc-800 p-1 rounded-2xl flex items-center">
+            <button 
+              onClick={() => setViewMode('unidade')}
+              className={`px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'unidade' ? 'bg-white dark:bg-zinc-900 shadow-md text-blue-600' : 'text-zinc-500 hover:text-zinc-700'}`}
+            >
+              Por Unidade
+            </button>
+            <button 
+              onClick={() => setViewMode('dicionario')}
+              className={`px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'dicionario' ? 'bg-white dark:bg-zinc-900 shadow-md text-blue-600' : 'text-zinc-500 hover:text-zinc-700'}`}
+            >
+              Dicionário Global
+            </button>
+          </div>
+
+          <Link
+            href="/setores/novo"
+            className="inline-flex items-center rounded-2xl bg-zinc-900 dark:bg-white px-8 py-4 text-sm font-black text-white dark:text-zinc-900 shadow-2xl hover:scale-105 active:scale-95 transition-all uppercase tracking-widest"
+          >
+            <Plus className="mr-2 h-5 w-5" />
+            Novo Setor
+          </Link>
+        </div>
       </div>
 
       {/* Control Panel */}
@@ -176,57 +225,114 @@ export default function SetoresClient({ userProfile }: SetoresClientProps) {
         </div>
       </div>
 
-      {/* Tree Content */}
+      {/* Tree Content / Dictionary Content */}
       <div className="space-y-6">
-        {Object.entries(setoresTree).map(([unidadeId, data]) => (
-          <div key={unidadeId} className="group overflow-hidden rounded-[2.5rem] border-2 border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50 shadow-sm hover:shadow-xl hover:border-blue-500/30 transition-all">
-            {/* Unidade Header */}
-            <div className="bg-white dark:bg-zinc-900 px-8 py-6 border-b-2 border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="h-12 w-12 rounded-2xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-zinc-500 dark:text-zinc-400">
-                  <Building2 className="h-6 w-6" />
-                </div>
-                <div>
-                  <h3 className="text-xl font-black uppercase tracking-tighter text-zinc-900 dark:text-white">
-                    {data.unidade?.nome}
-                  </h3>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
-                      {data.rootSectors.length} setores principais
-                    </span>
+        {viewMode === 'unidade' ? (
+          <>
+            {Object.entries(setoresTree).map(([unidadeId, data]) => (
+              <div key={unidadeId} className="group overflow-hidden rounded-[2.5rem] border-2 border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50 shadow-sm hover:shadow-xl hover:border-blue-500/30 transition-all">
+                {/* Unidade Header */}
+                <div className="bg-white dark:bg-zinc-900 px-8 py-6 border-b-2 border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="h-12 w-12 rounded-2xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-zinc-500 dark:text-zinc-400">
+                      <Building2 className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-black uppercase tracking-tighter text-zinc-900 dark:text-white">
+                        {data.unidade?.nome}
+                      </h3>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
+                          {data.rootSectors.length} setores principais
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Link 
+                      href={`/unidades/${unidadeId}`}
+                      className="text-[10px] font-black uppercase tracking-widest text-blue-600 hover:underline"
+                    >
+                      Ver Unidade
+                    </Link>
                   </div>
                 </div>
-              </div>
-              <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                <Link 
-                  href={`/unidades/${unidadeId}`}
-                  className="text-[10px] font-black uppercase tracking-widest text-blue-600 hover:underline"
-                >
-                  Ver Unidade
-                </Link>
-              </div>
-            </div>
 
-            {/* Tree Nodes */}
-            <div className="p-4 space-y-2">
-              {data.rootSectors.map((sector: any) => (
-                <SectorNode 
-                  key={sector.id} 
-                  sector={sector} 
-                  level={0} 
-                  expandedNodes={expandedNodes} 
-                  toggleNode={toggleNode} 
-                />
-              ))}
-            </div>
-          </div>
-        ))}
+                {/* Tree Nodes */}
+                <div className="p-4 space-y-2">
+                  {data.rootSectors.map((sector: any) => (
+                    <SectorNode 
+                      key={sector.id} 
+                      sector={sector} 
+                      level={0} 
+                      expandedNodes={expandedNodes} 
+                      toggleNode={toggleNode} 
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
 
-        {Object.keys(setoresTree).length === 0 && (
-          <div className="flex flex-col items-center justify-center p-32 text-zinc-500 dark:text-zinc-400 bg-white dark:bg-zinc-900 rounded-[3rem] border-2 border-dashed border-zinc-200 dark:border-zinc-800">
-            <Layers className="h-20 w-20 opacity-5 mb-8" />
-            <p className="text-2xl font-black uppercase tracking-tighter">Nenhum setor encontrado</p>
-            <p className="text-sm mt-2 italic font-medium">Refine sua busca ou verifique as permissões de acesso.</p>
+            {Object.keys(setoresTree).length === 0 && (
+              <div className="flex flex-col items-center justify-center p-32 text-zinc-500 dark:text-zinc-400 bg-white dark:bg-zinc-900 rounded-[3rem] border-2 border-dashed border-zinc-200 dark:border-zinc-800">
+                <Layers className="h-20 w-20 opacity-5 mb-8" />
+                <p className="text-2xl font-black uppercase tracking-tighter">Nenhum setor encontrado</p>
+                <p className="text-sm mt-2 italic font-medium">Refine sua busca ou verifique as permissões de acesso.</p>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="bg-white dark:bg-zinc-900 rounded-[2.5rem] border-2 border-zinc-200 dark:border-zinc-800 overflow-hidden shadow-sm">
+            <div className="px-8 py-6 border-b-2 border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50">
+              <h3 className="text-xl font-black uppercase tracking-tighter text-zinc-900 dark:text-white flex items-center gap-2">
+                <Tag className="h-5 w-5 text-blue-600" />
+                Dicionário Municipal de Setores
+              </h3>
+              <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mt-1">
+                Lista consolidada de nomes únicos utilizados no sistema.
+              </p>
+            </div>
+            
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-zinc-50 dark:bg-zinc-800/50 border-b border-zinc-100 dark:border-zinc-800">
+                    <th className="px-8 py-4 text-[10px] font-black uppercase tracking-widest text-zinc-400">Nome Padronizado</th>
+                    <th className="px-8 py-4 text-[10px] font-black uppercase tracking-widest text-zinc-400">Ocorrências</th>
+                    <th className="px-8 py-4 text-[10px] font-black uppercase tracking-widest text-zinc-400">Unidades</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                  {dicionario.filter(d => d.nome.toLowerCase().includes(searchTerm.toLowerCase())).map(item => (
+                    <tr key={item.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors group">
+                      <td className="px-8 py-5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-black uppercase text-zinc-900 dark:text-white">{item.nome}</span>
+                          <span className="px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-600 rounded-full text-[8px] font-black uppercase tracking-tighter">
+                            Padronizado
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-8 py-5">
+                        <span className="text-sm font-bold text-zinc-500">{item.setores?.length || 0}</span>
+                      </td>
+                      <td className="px-8 py-5">
+                        <div className="flex flex-wrap gap-2">
+                          {item.setores?.map((s: any, idx: number) => (
+                            <span key={idx} className="px-2 py-1 bg-zinc-100 dark:bg-zinc-800 rounded-lg text-[9px] font-bold text-zinc-500 dark:text-zinc-400">
+                              {s.unidades?.nome}
+                            </span>
+                          ))}
+                          {(!item.setores || item.setores.length === 0) && (
+                            <span className="text-[10px] italic text-zinc-400">Nenhuma unidade vinculada</span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>
@@ -264,9 +370,16 @@ function SectorNode({ sector, level, expandedNodes, toggleNode }: any) {
           )}
 
           <div className="flex flex-col">
-            <span className={`text-sm font-black uppercase tracking-tight ${isAtivo ? 'text-zinc-900 dark:text-white' : 'text-zinc-500'}`}>
-              {sector.nome}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className={`text-sm font-black uppercase tracking-tight ${isAtivo ? 'text-zinc-900 dark:text-white' : 'text-zinc-500'}`}>
+                {sector.nome}
+              </span>
+              {sector.dicionario_setor_id && (
+                <div className="flex items-center" title="Setor Padronizado via Dicionário Municipal">
+                  <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
+                </div>
+              )}
+            </div>
             {hasChildren && !isExpanded && (
               <span className="text-[9px] font-bold text-blue-500 uppercase tracking-widest mt-0.5">
                 {sector.children.length} subdivisões ocultas

@@ -98,7 +98,7 @@ export default function EscalasPage() {
     setLoading(true)
     let query = supabase
       .from('escala_mensal')
-      .select('*, servidores(nome), unidades(nome), setores(nome)')
+      .select('*, servidores(nome), unidades(nome), setores(dicionario_setores(nome))')
       .order('ano', { ascending: false })
       .order('mes', { ascending: false })
 
@@ -114,8 +114,22 @@ export default function EscalasPage() {
 
     if (error) {
       console.error('Erro ao carregar escalas:', error)
-    } else {
-      setEscalas(data || [])
+    } else if (data) {
+      const mapped = data.map(e => {
+        // Handle both object and array return from Supabase for sectors
+        const sectorData = Array.isArray(e.setores) ? e.setores[0] : e.setores
+        const dictData = sectorData ? (Array.isArray(sectorData.dicionario_setores) 
+          ? sectorData.dicionario_setores[0] 
+          : sectorData.dicionario_setores) : null
+          
+        return {
+          ...e,
+          setores: sectorData ? {
+            nome: dictData?.nome || 'SETOR SEM NOME'
+          } : null
+        }
+      })
+      setEscalas(mapped)
     }
     setLoading(false)
   }
@@ -172,8 +186,11 @@ export default function EscalasPage() {
 
   // Grouped logic
   const filteredEscalas = escalas.filter(e => {
-    const matchesSearch = e.unidades?.nome?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          e.setores?.nome?.toLowerCase().includes(searchTerm.toLowerCase())
+    const searchTermLower = searchTerm.toLowerCase()
+    const unitName = (e.unidades?.nome || '').toLowerCase()
+    const sectorName = (e.setores?.nome || '').toLowerCase()
+
+    const matchesSearch = unitName.includes(searchTermLower) || sectorName.includes(searchTermLower)
     const matchesUnidade = filterUnidade === 'todas' || e.unidade_id === filterUnidade
     const matchesAtivo = showInactive ? true : e.ativo !== false
     

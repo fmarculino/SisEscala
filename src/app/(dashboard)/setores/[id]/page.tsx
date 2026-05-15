@@ -1,9 +1,10 @@
 import { createClient } from '@/utils/supabase/server'
-import { updateSetor, toggleStatusSetor } from '../actions'
+import { toggleStatusSetor } from '../actions'
 import { StatusToggleButton } from '@/components/ui/StatusToggleButton'
-import { ArrowLeft, Save, Layers } from 'lucide-react'
+import { ArrowLeft, Layers } from 'lucide-react'
 import Link from 'next/link'
 import { applyAccessFilters } from '@/utils/permissions'
+import EditSetorForm from './EditSetorForm'
 
 export default async function EditSetorPage({
   params,
@@ -28,16 +29,24 @@ export default async function EditSetorPage({
     permitted_setores: profile.profile_setores?.map((ps: any) => ps.setor_id) || []
   } : null
 
-  const { data: setor } = await supabase
+  const { data: setorRaw } = await supabase
     .from('setores')
-    .select('*')
+    .select('*, dicionario_setores(nome)')
     .eq('id', id)
     .single()
+
+  const setor = setorRaw ? {
+    ...setorRaw,
+    nome: (Array.isArray(setorRaw.dicionario_setores) 
+      ? setorRaw.dicionario_setores[0]?.nome 
+      : setorRaw.dicionario_setores?.nome) || 'SETOR SEM NOME'
+  } : null
 
   // Fetch Units with access filter
   let unitsQuery = supabase
     .from('unidades')
     .select('id, nome')
+    .eq('ativo', true)
     .order('nome')
   
   unitsQuery = applyAccessFilters(unitsQuery, userProfile, { unidadeField: 'id' })
@@ -46,12 +55,22 @@ export default async function EditSetorPage({
   // Fetch Parent Sectors with access filter
   let parentSectorsQuery = supabase
     .from('setores')
-    .select('id, nome')
+    .select('id, unidade_id, dicionario_setores(nome)')
     .neq('id', id) // Can't be parent of itself
-    .order('nome')
+    .eq('ativo', true)
 
   parentSectorsQuery = applyAccessFilters(parentSectorsQuery, userProfile)
-  const { data: setoresPai } = await parentSectorsQuery
+  const { data: parentSectorsRaw } = await parentSectorsQuery
+  const setoresPai = parentSectorsRaw?.map(s => {
+    const dictData = Array.isArray(s.dicionario_setores) 
+      ? s.dicionario_setores[0] 
+      : s.dicionario_setores
+      
+    return {
+      ...s,
+      nome: dictData?.nome || 'SETOR SEM NOME'
+    }
+  }) || []
 
   // Fetch dictionary for normalization suggestions
   const { data: dicionario } = await supabase
@@ -61,11 +80,6 @@ export default async function EditSetorPage({
 
   if (!setor) {
     return <div>Setor não encontrado</div>
-  }
-
-  const updateWithId = async (formData: FormData) => {
-    'use server'
-    await updateSetor(id, formData)
   }
   
   const isAtivo = setor.ativo !== false
@@ -80,10 +94,10 @@ export default async function EditSetorPage({
       <div className="flex items-center justify-between">
         <Link
           href="/setores"
-          className="flex items-center text-sm text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 transition-colors"
+          className="flex items-center text-sm font-bold uppercase tracking-widest text-zinc-500 hover:text-blue-600 transition-all group"
         >
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Voltar
+          <ArrowLeft className="mr-2 h-4 w-4 group-hover:-translate-x-1 transition-transform" />
+          Voltar para Lista
         </Link>
         
         <StatusToggleButton 
@@ -96,83 +110,23 @@ export default async function EditSetorPage({
         />
       </div>
 
-      <div className="rounded-2xl bg-white p-8 shadow-xl dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
-        <div className="flex items-center space-x-4 mb-6">
-          <div className="rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20 text-blue-600">
-            <Layers className="h-6 w-6" />
+      <div className="rounded-[2.5rem] bg-white p-10 shadow-2xl dark:bg-zinc-900 border border-zinc-200/50 dark:border-zinc-800/50">
+        <div className="flex items-center space-x-5 mb-10">
+          <div className="rounded-2xl bg-blue-600 p-4 text-white shadow-lg shadow-blue-600/30">
+            <Layers className="h-8 w-8" />
           </div>
-          <h1 className="text-2xl font-bold">Configurar Setor: {setor.nome}</h1>
+          <div>
+            <h1 className="text-3xl font-black uppercase tracking-tighter text-zinc-900 dark:text-white">Editar Setor</h1>
+            <p className="text-sm font-medium text-zinc-500 italic">Atualize as configurações e hierarquia do setor.</p>
+          </div>
         </div>
         
-        <form action={updateWithId} className="space-y-6">
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="nome" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                Nome do Setor
-              </label>
-              <input
-                type="text"
-                name="nome"
-                id="nome"
-                defaultValue={setor.nome}
-                required
-                list="nomes-padronizados"
-                autoComplete="off"
-                onInput={(e) => (e.currentTarget.value = e.currentTarget.value.toUpperCase())}
-                className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500 focus:border-blue-500 uppercase font-bold"
-              />
-              <datalist id="nomes-padronizados">
-                {dicionario?.map(d => (
-                  <option key={d.nome} value={d.nome} />
-                ))}
-              </datalist>
-            </div>
-
-            <div>
-              <label htmlFor="unidade_id" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                Unidade de Saúde
-              </label>
-              <select
-                id="unidade_id"
-                name="unidade_id"
-                defaultValue={setor.unidade_id}
-                required
-                className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500 focus:border-blue-500"
-              >
-                {unidades?.map((u) => (
-                  <option key={u.id} value={u.id}>{u.nome}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label htmlFor="parent_id" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                Vincular a um Setor Pai? (Opcional)
-              </label>
-              <select
-                id="parent_id"
-                name="parent_id"
-                defaultValue={setor.parent_id || ''}
-                className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="">Nenhum (Este é um setor principal)</option>
-                {setoresPai?.map((s) => (
-                  <option key={s.id} value={s.id}>{s.nome}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="pt-4">
-            <button
-              type="submit"
-              className="flex w-full justify-center items-center rounded-md bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-blue-700 transition-all"
-            >
-              <Save className="mr-2 h-4 w-4" />
-              Salvar Alterações
-            </button>
-          </div>
-        </form>
+        <EditSetorForm 
+          setor={setor}
+          unidades={unidades || []} 
+          setoresPai={setoresPai || []} 
+          dicionario={dicionario || []}
+        />
       </div>
     </div>
   )

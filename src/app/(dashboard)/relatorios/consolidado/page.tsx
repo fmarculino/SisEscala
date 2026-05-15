@@ -53,7 +53,17 @@ export default async function ConsolidadoPage({ searchParams }: Props) {
 
   // Fetch Master Data for filters
   const { data: unidades } = await applyAccessFilters(supabase.from('unidades').select('id, nome').eq('ativo', true), userProfile, { bypassSuperAdmin: true })
-  const { data: setores } = await applyAccessFilters(supabase.from('setores').select('id, nome, unidade_id').eq('ativo', true), userProfile, { bypassSuperAdmin: true })
+  const { data: setoresRaw } = await applyAccessFilters(supabase.from('setores').select('id, unidade_id, dicionario_setores(nome)').eq('ativo', true), userProfile, { bypassSuperAdmin: true })
+  const setores = (setoresRaw as any[])?.map(s => {
+    const dictData = Array.isArray(s.dicionario_setores) 
+      ? s.dicionario_setores[0] 
+      : s.dicionario_setores
+      
+    return {
+      ...s,
+      nome: dictData?.nome || 'SETOR SEM NOME'
+    }
+  }) || []
   const { data: jornadas } = await supabase.from('jornadas').select('*')
   const { data: feriados } = await supabase.from('feriados').select('*')
 
@@ -69,7 +79,7 @@ export default async function ConsolidadoPage({ searchParams }: Props) {
       id, mes, ano, status, jornada_id,
       servidores(nome, matricula, cargo, vinculo),
       unidades(nome),
-      setores(nome),
+      setores(dicionario_setores(nome)),
       escala_diaria(
         dia,
         categoria,
@@ -138,7 +148,7 @@ export default async function ConsolidadoPage({ searchParams }: Props) {
       cargo: item.servidores?.cargo,
       vinculo: item.servidores?.vinculo,
       unidade: item.unidades?.nome,
-      setor: item.setores?.nome,
+      setor: item.setores?.dicionario_setores?.nome || 'SETOR SEM NOME',
       ...totals,
       totalGeral: totals.regular + totals.extra + totals.plantao + totals.sobreaviso
     }

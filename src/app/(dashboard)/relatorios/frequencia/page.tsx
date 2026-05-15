@@ -49,7 +49,17 @@ export default async function FrequenciaPage({ searchParams }: Props) {
 
   // Fetch Master Data
   const { data: unidades } = await applyAccessFilters(supabase.from('unidades').select('id, nome').eq('ativo', true), userProfile, { bypassSuperAdmin: true })
-  const { data: setores } = await applyAccessFilters(supabase.from('setores').select('id, nome, unidade_id').eq('ativo', true), userProfile, { bypassSuperAdmin: true })
+  const { data: setoresRaw } = await applyAccessFilters(supabase.from('setores').select('id, unidade_id, dicionario_setores(nome)').eq('ativo', true), userProfile, { bypassSuperAdmin: true })
+  const setores = (setoresRaw as any[])?.map(s => {
+    const dictData = Array.isArray(s.dicionario_setores) 
+      ? s.dicionario_setores[0] 
+      : s.dicionario_setores
+      
+    return {
+      ...s,
+      nome: dictData?.nome || 'SETOR SEM NOME'
+    }
+  }) || []
   
   // Fetch Servidores for selection
   let servQuery = supabase.from('servidores').select('id, nome, matricula, cargo').order('nome')
@@ -68,7 +78,7 @@ export default async function FrequenciaPage({ searchParams }: Props) {
         id, status,
         servidores(nome, matricula, cargo, vinculo),
         unidades(nome, endereco),
-        setores(nome),
+        setores(dicionario_setores(nome)),
         jornadas(nome, horas_totais),
         escala_diaria(
           dia,
@@ -82,7 +92,12 @@ export default async function FrequenciaPage({ searchParams }: Props) {
       .eq('status', 'Fechada')
       .single()
     
-    scaleData = data
+    scaleData = data ? {
+      ...data,
+      setores: data.setores ? {
+        nome: (data.setores as any).dicionario_setores?.nome || 'SETOR SEM NOME'
+      } : null
+    } : null
   }
 
   const meses = [

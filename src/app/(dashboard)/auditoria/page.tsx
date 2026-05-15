@@ -115,7 +115,7 @@ export default function AuditoriaPage() {
     } else {
       query = supabase
         .from('logs_sistema')
-        .select('*, profiles!inner(full_name), unidades(nome), setores(nome)')
+        .select('*, profiles!inner(full_name), unidades(nome), setores(dicionario_setores(nome))')
       
       if (filtros.unidadeId) query = query.eq('unidade_id', filtros.unidadeId)
       if (filtros.setorId) query = query.eq('setor_id', filtros.setorId)
@@ -147,7 +147,7 @@ export default function AuditoriaPage() {
             <tr class="border-b border-zinc-100">
               <td class="py-3 px-2 text-[10px] font-bold text-zinc-700">${log.acao}</td>
               <td class="py-3 px-2 text-[10px] font-medium">${log.profiles?.full_name || 'Sistema'}</td>
-              <td class="py-3 px-2 text-[10px]">${log.unidades?.nome || '-'} / ${log.setores?.nome || '-'}</td>
+              <td class="py-3 px-2 text-[10px]">${log.unidades?.nome || '-'} / ${(log.setores as any)?.dicionario_setores?.nome || '-'}</td>
               <td class="py-3 px-2 text-[10px]">${new Date(log.created_at).toLocaleString('pt-BR')}</td>
               <td class="py-3 px-2 text-[10px] text-zinc-500">${JSON.stringify(log.detalhes)}</td>
             </tr>
@@ -356,7 +356,7 @@ export default function AuditoriaPage() {
     } else {
       query = supabase
         .from('logs_sistema')
-        .select('*, profiles!inner(full_name), unidades(nome), setores(nome)', { count: 'exact' })
+        .select('*, profiles!inner(full_name), unidades(nome), setores(dicionario_setores(nome))', { count: 'exact' })
       
       if (filtros.unidadeId) query = query.eq('unidade_id', filtros.unidadeId)
       if (filtros.setorId) query = query.eq('setor_id', filtros.setorId)
@@ -408,12 +408,18 @@ export default function AuditoriaPage() {
           uQuery = applyAccessFilters(uQuery, profile)
           const { data: u } = await uQuery
 
-          let sQuery = supabase.from('setores').select('*').eq('ativo', true).order('nome')
+          let sQuery = supabase.from('setores').select('*, dicionario_setores(nome)').eq('ativo', true)
           sQuery = applyAccessFilters(sQuery, profile)
           const { data: s } = await sQuery
 
           if (u) setUnidades(u)
-          if (s) setSetores(s)
+          if (s) {
+            const mappedSetores = s.map(sec => ({
+              ...sec,
+              nome: (sec as any).dicionario_setores?.nome || 'SETOR SEM NOME'
+            }))
+            setSetores(mappedSetores)
+          }
         }
       }
     }

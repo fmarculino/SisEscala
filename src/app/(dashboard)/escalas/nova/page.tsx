@@ -52,7 +52,7 @@ export default function NovaEscalaPage() {
       if (units) setUnidades(units)
 
       // Fetch Sectors
-      let sectorsQuery = supabase.from('setores').select('id, nome, unidade_id').eq('ativo', true).order('nome')
+      let sectorsQuery = supabase.from('setores').select('id, unidade_id, dicionario_setores(nome)').eq('ativo', true)
       if (!prof.acesso_todos_setores && !isSuperAdmin) {
         if (prof.role === 'coordenador') {
           // Coordenadores SÓ vêem setores vinculados
@@ -76,8 +76,14 @@ export default function NovaEscalaPage() {
           }
         }
       }
-      const { data: sectors } = await sectorsQuery
-      if (sectors) setSetores(sectors)
+      const { data: sectorsRaw } = await sectorsQuery
+      if (sectorsRaw) {
+        const mappedSectors = sectorsRaw.map(s => ({
+          ...s,
+          nome: (s as any).dicionario_setores?.nome || 'SETOR SEM NOME'
+        }))
+        setSetores(mappedSectors)
+      }
 
       // Auto-select if only one option
       if (units && units.length === 1) {

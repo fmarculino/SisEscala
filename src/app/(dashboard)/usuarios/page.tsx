@@ -34,7 +34,7 @@ export default async function UsuariosPage() {
     .select(`
       *,
       profile_unidades(unidade_id, unidades(nome)),
-      profile_setores(setor_id, setores(nome))
+      profile_setores(setor_id, setores(dicionario_setores(nome)))
     `)
     .order('full_name')
 
@@ -54,7 +54,7 @@ export default async function UsuariosPage() {
       permitted_unidades: p?.profile_unidades?.map((pu: any) => pu.unidade_id) || [],
       permitted_setores: p?.profile_setores?.map((ps: any) => ps.setor_id) || [],
       unidades_nomes: p?.profile_unidades?.map((pu: any) => pu.unidades?.nome).filter(Boolean) || [],
-      setores_nomes: p?.profile_setores?.map((ps: any) => ps.setores?.nome).filter(Boolean) || [],
+      setores_nomes: p?.profile_setores?.map((ps: any) => (ps.setores as any)?.dicionario_setores?.nome).filter(Boolean) || [],
       isOrphaned: !p,
       ativo: p ? (p.ativo !== false) : false
     }
@@ -66,10 +66,14 @@ export default async function UsuariosPage() {
     .select('id, nome')
     .order('nome')
 
-  const { data: setores } = await supabase
+  const { data: sectorsRaw } = await supabase
     .from('setores')
-    .select('id, nome, unidade_id, parent_id')
-    .order('nome')
+    .select('id, unidade_id, parent_id, dicionario_setores(nome)')
+  
+  const setores = sectorsRaw?.map(s => ({
+    ...s,
+    nome: (s as any).dicionario_setores?.nome || 'SETOR SEM NOME'
+  })) || []
 
   return (
     <div className="space-y-8">

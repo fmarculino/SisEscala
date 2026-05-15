@@ -48,7 +48,8 @@ export function ScaleGrid({
   configsGlobais,
   userProfile
 }: ScaleGridProps) {
-  const supabase = createClient()
+  // Initialize Supabase client once
+  const [supabase] = useState(() => createClient())
   const [loading, setLoading] = useState(false)
 
   const logAction = useCallback(async (acao: string, detalhes: any = {}) => {
@@ -186,10 +187,14 @@ export function ScaleGrid({
     const fetchData = async () => {
       // Fetch all units and sectors for external server logic
       const { data: units } = await supabase.from('unidades').select('*').eq('ativo', true).order('nome')
-      const { data: sectors } = await supabase.from('setores').select('*').eq('ativo', true).order('nome')
+      const { data: sectorsRaw } = await supabase.from('setores').select('*, dicionario_setores(nome)').eq('ativo', true)
+      const sectors = sectorsRaw?.map(s => ({
+        ...s,
+        nome: (s as any).dicionario_setores?.nome || 'SETOR SEM NOME'
+      })) || []
       const { data: journeys } = await supabase.from('jornadas').select('*').order('nome')
       if (units) setAllUnidades(units)
-      if (sectors) setAllSetores(sectors)
+      setAllSetores(sectors)
       if (journeys) setJornadas(journeys)
     }
     fetchData()
@@ -1713,10 +1718,10 @@ export function ScaleGrid({
                           : { status: null, reason: null, log: null }
 
                         // Check for REAL external conflicts (different unit/sector)
-                        const realExternalShifts = externalOccupancy.filter(o => 
-                          o.servidor_id === em.servidor_id && 
+                        const realExternalShifts = (externalOccupancy || []).filter((o: any) => 
+                          o && o.servidor_id === em.servidor_id && 
                           o.dia === day && 
-                          (o.unidade_id !== unidadeId || o.setor_id !== setorId)
+                          o.escala_mensal_id !== em.id
                         )
                         
                         // Current turno in THIS grid
@@ -1724,17 +1729,19 @@ export function ScaleGrid({
                         const currentSlots = currentTurno?.slots || []
                         
                         // Does it overlap with external? (Time-based conflict)
-                        const hasExternalConflict = realExternalShifts.some(os => 
-                          os.slots.some((s: string) => currentSlots.includes(s))
+                        const hasExternalConflict = realExternalShifts.some((os: any) => 
+                          Array.isArray(os.slots) && os.slots.some((s: string) => currentSlots.includes(s))
                         )
                         
                         // Is the server busy elsewhere IN THIS SPECIFIC CATEGORY?
-                        const isBusyElsewhere = realExternalShifts.some(os => os.categoria === cat)
+                        const isBusyElsewhere = realExternalShifts.some((os: any) => 
+                          os.categoria && cat && os.categoria.toLowerCase().trim() === cat.toLowerCase().trim()
+                        )
                         
                         // Tooltip details
                         const externalBusyDetails = realExternalShifts
-                          .filter(os => os.categoria === cat)
-                          .map(os => os.descricao_conflito)
+                          .filter((os: any) => os.categoria === cat)
+                          .map((os: any) => os.descricao_conflito)
                           .join(' | ')
 
                         const realConflictDetails = realExternalShifts
@@ -1797,7 +1804,10 @@ export function ScaleGrid({
                             })()}
                             {/* Indicador de Ocupação Externa (Bônus) */}
                             {isBusyElsewhere && !hasExternalConflict && (
-                              <div className="absolute top-0.5 right-0.5 w-1.5 h-1.5 bg-blue-500 rounded-full opacity-70" />
+                              <div 
+                                className="absolute top-1 right-1 w-2 h-2 bg-blue-500 rounded-full z-30 shadow-sm border border-white dark:border-zinc-800" 
+                                title={`Trabalha em outro setor: ${realExternalShifts.find(os => os.categoria?.toLowerCase().trim() === cat.toLowerCase().trim())?.descricao_conflito || ''}`}
+                              />
                             )}
                             {isFailed && permitirValidacaoManual && !isClosed && (userProfile?.role === 'admin' || userProfile?.role === 'super_admin') && (
                               <button 

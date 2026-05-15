@@ -46,12 +46,15 @@ export default async function EditServidorPage({
   // Fetch Sectors with access filter
   let sectorsQuery = supabase
     .from('setores')
-    .select('id, nome, unidade_id')
+    .select('id, unidade_id, dicionario_setores(nome)')
     .eq('ativo', true)
-    .order('nome')
 
   sectorsQuery = applyAccessFilters(sectorsQuery, userProfile)
-  const { data: setores } = await sectorsQuery
+  const { data: sectorsRaw } = await sectorsQuery
+  const setores = sectorsRaw?.map(s => ({
+    ...s,
+    nome: s.dicionario_setores?.nome || 'SETOR SEM NOME'
+  })) || []
 
   const { data: cargos } = await supabase
     .from('cargos')

@@ -98,7 +98,7 @@ export async function getServidorEscalas(servidorId: string) {
       mes,
       ano,
       unidades (nome),
-      setores (nome),
+      setores (dicionario_setores(nome)),
       unidade_id,
       setor_id
     `)
@@ -111,7 +111,21 @@ export async function getServidorEscalas(servidorId: string) {
     return { error: error.message }
   }
 
-  return { escalas }
+  const escalasMapped = escalas?.map(e => {
+    const sectorData = Array.isArray(e.setores) ? e.setores[0] : e.setores
+    const dictData = sectorData ? (Array.isArray(sectorData.dicionario_setores) 
+      ? sectorData.dicionario_setores[0] 
+      : sectorData.dicionario_setores) : null
+      
+    return {
+      ...e,
+      setores: sectorData ? {
+        nome: dictData?.nome || 'SETOR SEM NOME'
+      } : null
+    }
+  })
+
+  return { escalas: escalasMapped }
 }
 
 export async function getEscalaDetails(escala: any) {
@@ -173,7 +187,14 @@ export async function getEscalaDetails(escala: any) {
 
     const { turnos, jornadas, feriados } = await getCachedStaticData()
     const { data: unidade } = await supabase.from('unidades').select('*').eq('id', escala.unidade_id).single()
-    const { data: setor } = await supabase.from('setores').select('*').eq('id', escala.setor_id).single()
+    const { data: setorRaw } = await supabase.from('setores').select('*, dicionario_setores(nome)').eq('id', escala.setor_id).single()
+    
+    const sectorData = setorRaw ? { 
+      ...setorRaw, 
+      nome: (Array.isArray(setorRaw.dicionario_setores) 
+        ? setorRaw.dicionario_setores[0]?.nome 
+        : (setorRaw as any).dicionario_setores?.nome) || 'SETOR SEM NOME' 
+    } : null
 
     return {
       data: {
@@ -183,7 +204,7 @@ export async function getEscalaDetails(escala: any) {
         jornadas: jornadas || [],
         feriados: feriados || [],
         unidade,
-        setor,
+        setor: sectorData,
         mes: escala.mes,
         ano: escala.ano
       }

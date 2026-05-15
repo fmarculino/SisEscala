@@ -34,7 +34,6 @@ export async function createSetor(formData: FormData) {
 
   // 2. Inserir o setor vinculado ao dicionário
   const { error } = await supabase.from('setores').insert({
-    nome,
     unidade_id,
     dicionario_setor_id: dictEntry.id,
     parent_id: parent_id || null,
@@ -69,7 +68,6 @@ export async function updateSetor(id: string, formData: FormData) {
   const { error } = await supabase
     .from('setores')
     .update({
-      nome,
       unidade_id,
       dicionario_setor_id: dictEntry.id,
       parent_id: parent_id || null,

@@ -53,11 +53,18 @@ export default async function UnidadeEscalaPage({
     .single()
 
   // 2. Fetch sector info
-  const { data: setorInfo } = await supabase
+  const { data: setorRaw } = await supabase
     .from('setores')
-    .select('*')
+    .select('*, dicionario_setores(nome)')
     .eq('id', setor)
     .single()
+
+  const setorInfo = setorRaw ? {
+    ...setorRaw,
+    nome: (Array.isArray(setorRaw.dicionario_setores) 
+      ? setorRaw.dicionario_setores[0]?.nome 
+      : (setorRaw as any).dicionario_setores?.nome) || 'SETOR SEM NOME'
+  } : null
 
   // 3. Fetch ALL servers for this sector (to allow adding them)
   const { data: todosServidores } = await supabase

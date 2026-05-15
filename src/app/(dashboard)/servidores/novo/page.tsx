@@ -61,10 +61,20 @@ export default function NovoServidorPage() {
       }
 
       // 4. Fetch Sectors with access filter
-      let sectorsQuery = supabase.from('setores').select('id, nome, unidade_id').eq('ativo', true).order('nome')
+      let sectorsQuery = supabase
+        .from('setores')
+        .select('id, unidade_id, dicionario_setores(nome)')
+        .eq('ativo', true)
+
       sectorsQuery = applyAccessFilters(sectorsQuery, userProfile)
-      const { data: sectors } = await sectorsQuery
-      if (sectors) setSetores(sectors)
+      const { data: sectorsRaw } = await sectorsQuery
+      if (sectorsRaw) {
+        const mappedSectors = sectorsRaw.map(s => ({
+          ...s,
+          nome: (s as any).dicionario_setores?.nome || 'SETOR SEM NOME'
+        }))
+        setSetores(mappedSectors)
+      }
 
       const { data: roles } = await supabase.from('cargos').select('*').eq('ativo', true).order('nome')
       if (roles) setCargos(roles)

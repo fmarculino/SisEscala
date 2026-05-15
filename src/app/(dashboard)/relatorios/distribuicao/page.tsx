@@ -38,7 +38,17 @@ export default async function DistribuicaoPage({ searchParams }: Props) {
 
   // Fetch Master Data
   const { data: unidades } = await applyAccessFilters(supabase.from('unidades').select('id, nome').eq('ativo', true), userProfile, { bypassSuperAdmin: true })
-  const { data: setores } = await applyAccessFilters(supabase.from('setores').select('id, nome, unidade_id').eq('ativo', true), userProfile, { bypassSuperAdmin: true })
+  const { data: setoresRaw } = await applyAccessFilters(supabase.from('setores').select('id, unidade_id, dicionario_setores(nome)').eq('ativo', true), userProfile, { bypassSuperAdmin: true })
+  const setores = (setoresRaw as any[])?.map(s => {
+    const dictData = Array.isArray(s.dicionario_setores) 
+      ? s.dicionario_setores[0] 
+      : s.dicionario_setores
+      
+    return {
+      ...s,
+      nome: dictData?.nome || 'SETOR SEM NOME'
+    }
+  }) || []
 
   // Fetch all Plantão shifts for the period
   let query = supabase

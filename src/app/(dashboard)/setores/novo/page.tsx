@@ -35,12 +35,21 @@ export default async function NovoSetorPage() {
   // Fetch ALL sectors for suggestions and parent selection
   let allSectorsQuery = supabase
     .from('setores')
-    .select('id, nome, unidade_id, parent_id')
+    .select('id, unidade_id, parent_id, dicionario_setores(nome)')
     .eq('ativo', true)
-    .order('nome')
 
   allSectorsQuery = applyAccessFilters(allSectorsQuery, userProfile)
-  const { data: setoresExistentes } = await allSectorsQuery
+  const { data: allSectorsRaw } = await allSectorsQuery
+  const setoresExistentes = allSectorsRaw?.map(s => {
+    const dictData = Array.isArray(s.dicionario_setores) 
+      ? s.dicionario_setores[0] 
+      : s.dicionario_setores
+      
+    return {
+      ...s,
+      nome: dictData?.nome || 'SETOR SEM NOME'
+    }
+  }) || []
 
   // Fetch dictionary sectors for normalization
   const { data: dicionario } = await supabase

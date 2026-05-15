@@ -42,7 +42,11 @@ export async function importServidores(csvText: string) {
   
   // Fetch units and sectors for resolution
   const { data: unidades } = await supabase.from('unidades').select('id, nome')
-  const { data: setores } = await supabase.from('setores').select('id, nome, unidade_id')
+  const { data: sectorsRaw } = await supabase.from('setores').select('id, unidade_id, dicionario_setores(nome)')
+  const setores = sectorsRaw?.map(s => ({
+    ...s,
+    nome: (s as any).dicionario_setores?.nome || ''
+  })) || []
 
   // CSV parser (expected headers: nome, matricula, cargo, vinculo, email, telefone, unidade, setor)
   const lines = csvText.split('\n').filter(line => line.trim() !== '')
