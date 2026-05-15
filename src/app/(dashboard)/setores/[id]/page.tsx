@@ -117,7 +117,9 @@ export default async function EditSetorPage({
                 defaultValue={setor.nome}
                 required
                 list="nomes-padronizados"
-                className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500 focus:border-blue-500"
+                autoComplete="off"
+                onInput={(e) => (e.currentTarget.value = e.currentTarget.value.toUpperCase())}
+                className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500 focus:border-blue-500 uppercase font-bold"
               />
               <datalist id="nomes-padronizados">
                 {dicionario?.map(d => (

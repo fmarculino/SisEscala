@@ -77,10 +77,11 @@ export default function NovoSetorForm({ unidades, setoresExistentes, dicionario 
               id="nome"
               required
               list="nomes-padronizados"
+              autoComplete="off"
               value={nomeSetor}
-              onChange={(e) => setNomeSetor(e.target.value)}
-              placeholder="Ex: Pronto Socorro, UTI, Administrativo"
-              className="block w-full pl-11 pr-4 py-3 bg-zinc-50 dark:bg-zinc-800 border-2 border-zinc-200 dark:border-zinc-700 rounded-2xl text-zinc-900 dark:text-white focus:border-blue-500 focus:ring-0 transition-all font-bold placeholder:font-medium placeholder:italic"
+              onChange={(e) => setNomeSetor(e.target.value.toUpperCase())}
+              placeholder="Ex: PRONTO SOCORRO, UTI, ADMINISTRATIVO"
+              className="block w-full pl-11 pr-4 py-3 bg-zinc-50 dark:bg-zinc-800 border-2 border-zinc-200 dark:border-zinc-700 rounded-2xl text-zinc-900 dark:text-white focus:border-blue-500 focus:ring-0 transition-all font-bold placeholder:font-medium placeholder:italic uppercase"
             />
             <datalist id="nomes-padronizados">
               {nomesPadronizados.map(nome => (
@@ -88,11 +89,12 @@ export default function NovoSetorForm({ unidades, setoresExistentes, dicionario 
               ))}
             </datalist>
           </div>
-          {nomesPadronizados.length > 0 && !nomeSetor && (
-            <p className="mt-2 text-[10px] text-zinc-500 font-bold uppercase tracking-tight flex items-center">
-              <Info className="h-3 w-3 mr-1" /> Digite para ver nomes já usados em outras unidades
-            </p>
-          )}
+          <p className="mt-2 text-[10px] text-zinc-500 font-bold uppercase tracking-tight flex items-center">
+            <Info className="h-3 w-3 mr-1" /> 
+            {nomeSetor && !nomesPadronizados.includes(nomeSetor) 
+              ? 'Este é um NOVO nome e será adicionado ao dicionário municipal.' 
+              : 'Selecione um nome padrão acima ou digite um novo.'}
+          </p>
         </div>
 
         {/* Setor Pai - Dependente da Unidade */}
