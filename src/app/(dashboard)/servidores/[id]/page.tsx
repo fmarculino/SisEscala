@@ -51,10 +51,16 @@ export default async function EditServidorPage({
 
   sectorsQuery = applyAccessFilters(sectorsQuery, userProfile)
   const { data: sectorsRaw } = await sectorsQuery
-  const setores = sectorsRaw?.map(s => ({
-    ...s,
-    nome: s.dicionario_setores?.nome || 'SETOR SEM NOME'
-  })) || []
+  const setores = (sectorsRaw as any[])?.map(s => {
+    const dictData = Array.isArray(s.dicionario_setores) 
+      ? s.dicionario_setores[0] 
+      : s.dicionario_setores
+      
+    return {
+      ...s,
+      nome: dictData?.nome || 'SETOR SEM NOME'
+    }
+  }) || []
 
   const { data: cargos } = await supabase
     .from('cargos')

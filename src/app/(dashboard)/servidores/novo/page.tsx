@@ -69,10 +69,16 @@ export default function NovoServidorPage() {
       sectorsQuery = applyAccessFilters(sectorsQuery, userProfile)
       const { data: sectorsRaw } = await sectorsQuery
       if (sectorsRaw) {
-        const mappedSectors = sectorsRaw.map(s => ({
-          ...s,
-          nome: (s as any).dicionario_setores?.nome || 'SETOR SEM NOME'
-        }))
+        const mappedSectors = (sectorsRaw as any[]).map(s => {
+          const dictData = Array.isArray(s.dicionario_setores) 
+            ? s.dicionario_setores[0] 
+            : s.dicionario_setores
+            
+          return {
+            ...s,
+            nome: dictData?.nome || 'SETOR SEM NOME'
+          }
+        })
         setSetores(mappedSectors)
       }
 
