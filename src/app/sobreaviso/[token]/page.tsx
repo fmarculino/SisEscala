@@ -58,10 +58,10 @@ export default function ProfessionalOvercallPage() {
           const diffMinutes = (now - created) / 60000
           if (diffMinutes > limit) {
             currentStatus = 'Falhou'
-            await supabase.from('logs_sobreaviso').update({ 
-              status: 'Falhou', 
-              motivo_falha: 'Tempo limite para aceite excedido.' 
-            }).eq('id', flattenedData.id)
+            await supabase.rpc('mark_sobreaviso_timeout', { 
+              magic_token: token,
+              p_motivo: 'Tempo limite para aceite excedido.' 
+            })
             flattenedData.motivo_falha = 'Tempo limite para aceite excedido.'
           }
         } else if (currentStatus === 'Aceito' && cfg['sobreaviso_tempo_chegada_minutos']) {
@@ -71,10 +71,10 @@ export default function ProfessionalOvercallPage() {
           const diffMinutes = (now - accepted) / 60000
           if (diffMinutes > limit) {
             currentStatus = 'Falhou'
-            await supabase.from('logs_sobreaviso').update({ 
-              status: 'Falhou', 
-              motivo_falha: 'Tempo limite de deslocamento excedido.' 
-            }).eq('id', flattenedData.id)
+            await supabase.rpc('mark_sobreaviso_timeout', { 
+              magic_token: token,
+              p_motivo: 'Tempo limite de deslocamento excedido.' 
+            })
             flattenedData.motivo_falha = 'Tempo limite de deslocamento excedido.'
           }
         }
@@ -114,10 +114,10 @@ export default function ProfessionalOvercallPage() {
           if (status === 'Aceito') {
              // Trigger DB update for failure
              const supabase = createClient()
-             supabase.from('logs_sobreaviso').update({ 
-               status: 'Falhou', 
-               motivo_falha: 'Tempo limite de deslocamento excedido.' 
-             }).eq('id', log.id).then(() => {
+             supabase.rpc('mark_sobreaviso_timeout', { 
+               magic_token: token,
+               p_motivo: 'Tempo limite de deslocamento excedido.' 
+             }).then(() => {
                 setStatus('Falhou')
                 setLog((prev: any) => ({ ...prev, status: 'Falhou', motivo_falha: 'Tempo limite de deslocamento excedido.' }))
              })
@@ -190,20 +190,16 @@ export default function ProfessionalOvercallPage() {
         console.warn('Erro ao obter IP:', e)
       }
 
-      const { error: updateError } = await supabase
-        .from('logs_sobreaviso')
-        .update({
-          status: 'Aceito',
-          data_hora_aceite: new Date().toISOString(),
-          lat_aceite: lat || null,
-          long_aceite: long || null,
-          user_agent: navigator.userAgent,
-          ip_aceite: ip
-        })
-        .eq('token_magic_link', token)
+      const { data: res, error: updateError } = await supabase.rpc('accept_sobreaviso_call', {
+        magic_token: token,
+        p_lat: lat || null,
+        p_long: long || null,
+        p_ip: ip,
+        p_user_agent: navigator.userAgent
+      })
 
-      if (updateError) {
-        setError('Erro ao aceitar: ' + updateError.message)
+      if (updateError || (res && !res.success)) {
+        setError('Erro ao aceitar: ' + (updateError?.message || res?.error))
       } else {
         setStatus('Aceito')
         setLog((prev: any) => ({ ...prev, status: 'Aceito', data_hora_aceite: new Date().toISOString() }))
@@ -275,20 +271,15 @@ export default function ProfessionalOvercallPage() {
         console.warn('Erro ao obter IP na chegada:', e)
       }
 
-      const { error: updateError } = await supabase
-        .from('logs_sobreaviso')
-        .update({
-          status: 'Chegou',
-          data_hora_chegada: now,
-          tipo_validacao_chegada: lat ? 'GPS' : 'Manual',
-          lat_chegada: lat || null,
-          long_chegada: long || null,
-          ip_chegada: ip
-        })
-        .eq('token_magic_link', token)
+      const { data: res, error: updateError } = await supabase.rpc('register_sobreaviso_arrival', {
+        magic_token: token,
+        p_lat: lat || null,
+        p_long: long || null,
+        p_ip: ip
+      })
 
-      if (updateError) {
-        setError('Erro ao registrar chegada: ' + updateError.message)
+      if (updateError || (res && !res.success)) {
+        setError('Erro ao registrar chegada: ' + (updateError?.message || res?.error))
       } else {
         alert('Chegada registrada com sucesso!')
         setStatus('Chegou')
@@ -334,19 +325,15 @@ export default function ProfessionalOvercallPage() {
     
     const performUpdate = async (lat?: number, long?: number) => {
       const supabase = createClient()
-      const { error: updateError } = await supabase
-        .from('logs_sobreaviso')
-        .update({
-          status: 'Recusado',
-          justificativa_recusa: justificativa,
-          data_hora_aceite: new Date().toISOString(),
-          lat_recusa: lat || null,
-          long_recusa: long || null
-        })
-        .eq('token_magic_link', token)
+      const { data: res, error: updateError } = await supabase.rpc('decline_sobreaviso_call', {
+        magic_token: token,
+        p_justificativa: justificativa,
+        p_lat: lat || null,
+        p_long: long || null
+      })
 
-      if (updateError) {
-        setError('Erro ao recusar: ' + updateError.message)
+      if (updateError || (res && !res.success)) {
+        setError('Erro ao recusar: ' + (updateError?.message || res?.error))
       } else {
         setStatus('Recusado')
       }
