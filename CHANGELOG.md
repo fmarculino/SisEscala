@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.0-Beta] - 2026-05-15
+
+### Added
+- **Normalização Estrutural de Setores**: 
+    - Migração completa de nomes de setores para a nova tabela centralizada `dicionario_setores`.
+    - Implementação de relacionamento `1:N` entre dicionário e instâncias de setores, permitindo nomes únicos compartilhados entre diferentes unidades.
+    - Novo fluxo de cadastro de setores com sugestões baseadas no dicionário existente e normalização automática.
+
+### Fixed
+- **Estabilidade e Visibilidade de Dados**:
+    - Refatoração de todas as queries do dashboard (`Escalas`, `Servidores`, `Relatórios`) para utilizar o join com `dicionario_setores`.
+    - Eliminação de crashes de runtime causados pela remoção da coluna `nome` da tabela `setores`.
+    - Implementação de mapeamento defensivo em componentes Client e Server para lidar com retornos polimórficos do Supabase (objeto vs array).
+    - Correção do erro de compilação em `servidores/[id]/page.tsx` relacionado ao acesso de propriedades em tipos relacionais.
+- **Indicadores de Conflito ("Bolinhas Azuis")**:
+    - Hardening da lógica de detecção de conflitos externos no `ScaleGrid.tsx` com proteções contra dados nulos e normalização de strings (case-insensitive).
+    - Verificação de integridade da RPC `fn_get_monthly_occupancy` para garantir visibilidade operacional cross-unit.
+
+### Changed
+- Limpeza técnica: Remoção definitiva da coluna redundante `nome` da tabela `setores` no PostgreSQL.
+- Otimização de queries: Substituição de ordenações manuais por ordenações centralizadas no dicionário.
+
 ## [0.6.0-Beta] - 2026-05-13
 
 ### Added
