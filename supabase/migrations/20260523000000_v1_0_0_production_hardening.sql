@@ -168,7 +168,7 @@ CREATE POLICY "Portal access to public configs" ON public.configuracoes_globais
 
 DROP POLICY IF EXISTS "Permitir atualização apenas para administradores" ON public.configuracoes_globais;
 CREATE POLICY "Permitir atualização apenas para administradores" ON public.configuracoes_globais
-  FOR ALL TO authenticated USING (EXISTS ( SELECT 1 FROM profiles WHERE ((profiles.id = (SELECT uid())) AND (profiles.role = ANY (ARRAY['admin'::user_role, 'super_admin'::user_role])))));
+  FOR ALL TO authenticated USING (EXISTS ( SELECT 1 FROM profiles WHERE ((profiles.id = (SELECT auth.uid())) AND (profiles.role = ANY (ARRAY['admin'::user_role, 'super_admin'::user_role])))));
 
 -- dicionario_setores
 ALTER TABLE public.dicionario_setores ENABLE ROW LEVEL SECURITY;
@@ -195,7 +195,7 @@ CREATE POLICY "Admins can manage shifts" ON public.dicionario_turnos
 ALTER TABLE public.escala_diaria ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Authenticated users can view daily scales" ON public.escala_diaria;
 CREATE POLICY "Authenticated users can view daily scales" ON public.escala_diaria
-  FOR SELECT TO public USING ((( SELECT role() AS role) = 'authenticated'::text));
+  FOR SELECT TO public USING ((( SELECT auth.role() AS role) = 'authenticated'::text));
 
 DROP POLICY IF EXISTS "Super Admins manage all daily scales" ON public.escala_diaria;
 CREATE POLICY "Super Admins manage all daily scales" ON public.escala_diaria
@@ -205,8 +205,8 @@ DROP POLICY IF EXISTS "Admins manage daily scales in their units" ON public.esca
 CREATE POLICY "Admins manage daily scales in their units" ON public.escala_diaria
   FOR ALL TO authenticated USING (
     (( SELECT get_my_role() AS get_my_role) = 'admin'::user_role) AND (
-      (EXISTS ( SELECT 1 FROM profiles p WHERE ((p.id = ( SELECT uid() AS uid)) AND (p.acesso_todas_unidades = true)))) OR 
-      (EXISTS ( SELECT 1 FROM escala_mensal em WHERE ((em.id = escala_diaria.escala_mensal_id) AND (em.unidade_id IN ( SELECT profile_unidades.unidade_id FROM profile_unidades WHERE (profile_unidades.profile_id = ( SELECT uid() AS uid)))))))
+      (EXISTS ( SELECT 1 FROM profiles p WHERE ((p.id = ( SELECT auth.uid() AS uid)) AND (p.acesso_todas_unidades = true)))) OR 
+      (EXISTS ( SELECT 1 FROM escala_mensal em WHERE ((em.id = escala_diaria.escala_mensal_id) AND (em.unidade_id IN ( SELECT profile_unidades.unidade_id FROM profile_unidades WHERE (profile_unidades.profile_id = ( SELECT auth.uid() AS uid)))))))
     )
   );
 
@@ -214,8 +214,8 @@ DROP POLICY IF EXISTS "Coordinators manage daily scales in their sectors" ON pub
 CREATE POLICY "Coordinators manage daily scales in their sectors" ON public.escala_diaria
   FOR ALL TO authenticated USING (
     (( SELECT get_my_role() AS get_my_role) = 'coordenador'::user_role) AND (
-      (EXISTS ( SELECT 1 FROM profiles p WHERE ((p.id = ( SELECT uid() AS uid)) AND (p.acesso_todos_setores = true)))) OR 
-      (EXISTS ( SELECT 1 FROM escala_mensal em WHERE ((em.id = escala_diaria.escala_mensal_id) AND (em.setor_id IN ( SELECT profile_setores.setor_id FROM profile_setores WHERE (profile_setores.profile_id = ( SELECT uid() AS uid)))))))
+      (EXISTS ( SELECT 1 FROM profiles p WHERE ((p.id = ( SELECT auth.uid() AS uid)) AND (p.acesso_todos_setores = true)))) OR 
+      (EXISTS ( SELECT 1 FROM escala_mensal em WHERE ((em.id = escala_diaria.escala_mensal_id) AND (em.setor_id IN ( SELECT profile_setores.setor_id FROM profile_setores WHERE (profile_setores.profile_id = ( SELECT auth.uid() AS uid)))))))
     )
   );
 
@@ -223,7 +223,7 @@ CREATE POLICY "Coordinators manage daily scales in their sectors" ON public.esca
 ALTER TABLE public.escala_mensal ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Authenticated users can view scales" ON public.escala_mensal;
 CREATE POLICY "Authenticated users can view scales" ON public.escala_mensal
-  FOR SELECT TO public USING ((( SELECT role() AS role) = 'authenticated'::text));
+  FOR SELECT TO public USING ((( SELECT auth.role() AS role) = 'authenticated'::text));
 
 DROP POLICY IF EXISTS "Super Admins manage all scales" ON public.escala_mensal;
 CREATE POLICY "Super Admins manage all scales" ON public.escala_mensal
@@ -233,8 +233,8 @@ DROP POLICY IF EXISTS "Admins manage scales in their units" ON public.escala_men
 CREATE POLICY "Admins manage scales in their units" ON public.escala_mensal
   FOR ALL TO authenticated USING (
     (( SELECT get_my_role() AS get_my_role) = 'admin'::user_role) AND (
-      (EXISTS ( SELECT 1 FROM profiles p WHERE ((p.id = ( SELECT uid() AS uid)) AND (p.acesso_todas_unidades = true)))) OR 
-      (unidade_id IN ( SELECT profile_unidades.unidade_id FROM profile_unidades WHERE (profile_unidades.profile_id = ( SELECT uid() AS uid))))
+      (EXISTS ( SELECT 1 FROM profiles p WHERE ((p.id = ( SELECT auth.uid() AS uid)) AND (p.acesso_todas_unidades = true)))) OR 
+      (unidade_id IN ( SELECT profile_unidades.unidade_id FROM profile_unidades WHERE (profile_unidades.profile_id = ( SELECT auth.uid() AS uid))))
     )
   );
 
@@ -242,8 +242,8 @@ DROP POLICY IF EXISTS "Coordinators manage scales in their sectors" ON public.es
 CREATE POLICY "Coordinators manage scales in their sectors" ON public.escala_mensal
   FOR ALL TO authenticated USING (
     (( SELECT get_my_role() AS get_my_role) = 'coordenador'::user_role) AND (
-      (EXISTS ( SELECT 1 FROM profiles p WHERE ((p.id = ( SELECT uid() AS uid)) AND (p.acesso_todos_setores = true)))) OR 
-      (setor_id IN ( SELECT profile_setores.setor_id FROM profile_setores WHERE (profile_setores.profile_id = ( SELECT uid() AS uid))))
+      (EXISTS ( SELECT 1 FROM profiles p WHERE ((p.id = ( SELECT auth.uid() AS uid)) AND (p.acesso_todos_setores = true)))) OR 
+      (setor_id IN ( SELECT profile_setores.setor_id FROM profile_setores WHERE (profile_setores.profile_id = ( SELECT auth.uid() AS uid))))
     )
   );
 
@@ -251,8 +251,8 @@ DROP POLICY IF EXISTS "Scoped access for Escala Mensal" ON public.escala_mensal;
 CREATE POLICY "Scoped access for Escala Mensal" ON public.escala_mensal
   FOR ALL TO authenticated USING (
     ((( SELECT get_my_role() AS get_my_role) = 'super_admin'::user_role) OR 
-     (unidade_id IN ( SELECT profile_unidades.unidade_id FROM profile_unidades WHERE (profile_unidades.profile_id = ( SELECT uid() AS uid)))) OR 
-     (setor_id IN ( SELECT profile_setores.setor_id FROM profile_setores WHERE (profile_setores.profile_id = ( SELECT uid() AS uid)))))
+     (unidade_id IN ( SELECT profile_unidades.unidade_id FROM profile_unidades WHERE (profile_unidades.profile_id = ( SELECT auth.uid() AS uid)))) OR 
+     (setor_id IN ( SELECT profile_setores.setor_id FROM profile_setores WHERE (profile_setores.profile_id = ( SELECT auth.uid() AS uid)))))
   );
 
 -- feriados
@@ -279,19 +279,19 @@ CREATE POLICY "Admins can manage journeys" ON public.jornadas
 ALTER TABLE public.logs_sistema ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Logs inseriveis por qualquer autenticado" ON public.logs_sistema;
 CREATE POLICY "Logs inseriveis por qualquer autenticado" ON public.logs_sistema
-  FOR INSERT TO public WITH CHECK ((( SELECT uid() AS uid) = user_id));
+  FOR INSERT TO public WITH CHECK ((( SELECT auth.uid() AS uid) = user_id));
 
 DROP POLICY IF EXISTS "Logs visiveis por quem tem acesso a unidade" ON public.logs_sistema;
 CREATE POLICY "Logs visiveis por quem tem acesso a unidade" ON public.logs_sistema
   FOR SELECT TO public USING (
-    EXISTS ( SELECT 1 FROM profiles p WHERE ((p.id = ( SELECT uid() AS uid)) AND ((p.role = 'super_admin'::user_role) OR p.acesso_todas_unidades OR (logs_sistema.unidade_id = p.unidade_id) OR (EXISTS ( SELECT 1 FROM profile_unidades pu WHERE ((pu.profile_id = p.id) AND (pu.unidade_id = logs_sistema.unidade_id)))))))
+    EXISTS ( SELECT 1 FROM profiles p WHERE ((p.id = ( SELECT auth.uid() AS uid)) AND ((p.role = 'super_admin'::user_role) OR p.acesso_todas_unidades OR (logs_sistema.unidade_id = p.unidade_id) OR (EXISTS ( SELECT 1 FROM profile_unidades pu WHERE ((pu.profile_id = p.id) AND (pu.unidade_id = logs_sistema.unidade_id)))))))
   );
 
 -- logs_sobreaviso
 ALTER TABLE public.logs_sobreaviso ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Authenticated users can view audit logs" ON public.logs_sobreaviso;
 CREATE POLICY "Authenticated users can view audit logs" ON public.logs_sobreaviso
-  FOR SELECT TO public USING ((( SELECT role() AS role) = 'authenticated'::text));
+  FOR SELECT TO public USING ((( SELECT auth.role() AS role) = 'authenticated'::text));
 
 DROP POLICY IF EXISTS "Super Admins manage all on-call logs" ON public.logs_sobreaviso;
 CREATE POLICY "Super Admins manage all on-call logs" ON public.logs_sobreaviso
@@ -301,8 +301,8 @@ DROP POLICY IF EXISTS "Admins manage on-call logs in their units" ON public.logs
 CREATE POLICY "Admins manage on-call logs in their units" ON public.logs_sobreaviso
   FOR ALL TO authenticated USING (
     (( SELECT get_my_role() AS get_my_role) = 'admin'::user_role) AND (
-      (EXISTS ( SELECT 1 FROM profiles p WHERE ((p.id = ( SELECT uid() AS uid)) AND (p.acesso_todas_unidades = true)))) OR 
-      (unidade_id IN ( SELECT profile_unidades.unidade_id FROM profile_unidades WHERE (profile_unidades.profile_id = ( SELECT uid() AS uid))))
+      (EXISTS ( SELECT 1 FROM profiles p WHERE ((p.id = ( SELECT auth.uid() AS uid)) AND (p.acesso_todas_unidades = true)))) OR 
+      (unidade_id IN ( SELECT profile_unidades.unidade_id FROM profile_unidades WHERE (profile_unidades.profile_id = ( SELECT auth.uid() AS uid))))
     )
   );
 
@@ -310,7 +310,7 @@ DROP POLICY IF EXISTS "Coordinators manage on-call logs in their sectors" ON pub
 CREATE POLICY "Coordinators manage on-call logs in their sectors" ON public.logs_sobreaviso
   FOR ALL TO authenticated USING (
     (( SELECT get_my_role() AS get_my_role) = 'coordenador'::user_role) AND (
-      EXISTS ( SELECT 1 FROM escala_mensal em WHERE ((em.id = logs_sobreaviso.escala_mensal_id) AND ((EXISTS ( SELECT 1 FROM profiles p WHERE ((p.id = ( SELECT uid() AS uid)) AND (p.acesso_todos_setores = true)))) OR (em.setor_id IN ( SELECT profile_setores.setor_id FROM profile_setores WHERE (profile_setores.profile_id = ( SELECT uid() AS uid)))))))
+      EXISTS ( SELECT 1 FROM escala_mensal em WHERE ((em.id = logs_sobreaviso.escala_mensal_id) AND ((EXISTS ( SELECT 1 FROM profiles p WHERE ((p.id = ( SELECT auth.uid() AS uid)) AND (p.acesso_todos_setores = true)))) OR (em.setor_id IN ( SELECT profile_setores.setor_id FROM profile_setores WHERE (profile_setores.profile_id = ( SELECT auth.uid() AS uid)))))))
     )
   );
 
@@ -318,27 +318,27 @@ CREATE POLICY "Coordinators manage on-call logs in their sectors" ON public.logs
 ALTER TABLE public.profile_setores ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Users view own sector access" ON public.profile_setores;
 CREATE POLICY "Users view own sector access" ON public.profile_setores
-  FOR SELECT TO public USING ((profile_id = ( SELECT uid() AS uid)));
+  FOR SELECT TO public USING ((profile_id = ( SELECT auth.uid() AS uid)));
 
 DROP POLICY IF EXISTS "Admins manage sectors access" ON public.profile_setores;
 CREATE POLICY "Admins manage sectors access" ON public.profile_setores
-  FOR ALL TO public USING (EXISTS ( SELECT 1 FROM profiles WHERE ((profiles.id = ( SELECT uid() AS uid)) AND (profiles.role = ANY (ARRAY['super_admin'::user_role, 'admin'::user_role])))));
+  FOR ALL TO public USING (EXISTS ( SELECT 1 FROM profiles WHERE ((profiles.id = ( SELECT auth.uid() AS uid)) AND (profiles.role = ANY (ARRAY['super_admin'::user_role, 'admin'::user_role])))));
 
 -- profile_unidades
 ALTER TABLE public.profile_unidades ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Users view own unit access" ON public.profile_unidades;
 CREATE POLICY "Users view own unit access" ON public.profile_unidades
-  FOR SELECT TO public USING ((profile_id = ( SELECT uid() AS uid)));
+  FOR SELECT TO public USING ((profile_id = ( SELECT auth.uid() AS uid)));
 
 DROP POLICY IF EXISTS "Admins manage units access" ON public.profile_unidades;
 CREATE POLICY "Admins manage units access" ON public.profile_unidades
-  FOR ALL TO public USING (EXISTS ( SELECT 1 FROM profiles WHERE ((profiles.id = ( SELECT uid() AS uid)) AND (profiles.role = ANY (ARRAY['super_admin'::user_role, 'admin'::user_role])))));
+  FOR ALL TO public USING (EXISTS ( SELECT 1 FROM profiles WHERE ((profiles.id = ( SELECT auth.uid() AS uid)) AND (profiles.role = ANY (ARRAY['super_admin'::user_role, 'admin'::user_role])))));
 
 -- profiles
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Users can view own profile" ON public.profiles;
 CREATE POLICY "Users can view own profile" ON public.profiles
-  FOR SELECT TO public USING ((( SELECT uid() AS uid) = id));
+  FOR SELECT TO public USING ((( SELECT auth.uid() AS uid) = id));
 
 DROP POLICY IF EXISTS "Admins can manage all profiles" ON public.profiles;
 CREATE POLICY "Admins can manage all profiles" ON public.profiles
@@ -350,8 +350,8 @@ DROP POLICY IF EXISTS "Users can view relevant servers" ON public.servidores;
 CREATE POLICY "Users can view relevant servers" ON public.servidores
   FOR SELECT TO authenticated USING (
     ((( SELECT get_my_role() AS get_my_role) = 'super_admin'::user_role) OR 
-     (unidade_id IN ( SELECT profile_unidades.unidade_id FROM profile_unidades WHERE (profile_unidades.profile_id = ( SELECT uid() AS uid)))) OR 
-     (setor_id IN ( SELECT profile_setores.setor_id FROM profile_setores WHERE (profile_setores.profile_id = ( SELECT uid() AS uid)))))
+     (unidade_id IN ( SELECT profile_unidades.unidade_id FROM profile_unidades WHERE (profile_unidades.profile_id = ( SELECT auth.uid() AS uid)))) OR 
+     (setor_id IN ( SELECT profile_setores.setor_id FROM profile_setores WHERE (profile_setores.profile_id = ( SELECT auth.uid() AS uid)))))
   );
 
 DROP POLICY IF EXISTS "Admins can manage all servers" ON public.servidores;
@@ -362,8 +362,8 @@ DROP POLICY IF EXISTS "Scoped access for Admins and Coordinators" ON public.serv
 CREATE POLICY "Scoped access for Admins and Coordinators" ON public.servidores
   FOR ALL TO authenticated USING (
     ((( SELECT get_my_role() AS get_my_role) = ANY (ARRAY['admin'::user_role, 'coordenador'::user_role])) AND (
-      (unidade_id IN ( SELECT profile_unidades.unidade_id FROM profile_unidades WHERE (profile_unidades.profile_id = ( SELECT uid() AS uid)))) OR 
-      (setor_id IN ( SELECT profile_setores.setor_id FROM profile_setores WHERE (profile_setores.profile_id = ( SELECT uid() AS uid))))
+      (unidade_id IN ( SELECT profile_unidades.unidade_id FROM profile_unidades WHERE (profile_unidades.profile_id = ( SELECT auth.uid() AS uid)))) OR 
+      (setor_id IN ( SELECT profile_setores.setor_id FROM profile_setores WHERE (profile_setores.profile_id = ( SELECT auth.uid() AS uid))))
     ))
   );
 
@@ -371,14 +371,14 @@ CREATE POLICY "Scoped access for Admins and Coordinators" ON public.servidores
 ALTER TABLE public.setores ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Authenticated users can view sectors" ON public.setores;
 CREATE POLICY "Authenticated users can view sectors" ON public.setores
-  FOR SELECT TO public USING ((( SELECT role() AS role) = 'authenticated'::text));
+  FOR SELECT TO public USING ((( SELECT auth.role() AS role) = 'authenticated'::text));
 
 DROP POLICY IF EXISTS "Scoped access for Setores" ON public.setores;
 CREATE POLICY "Scoped access for Setores" ON public.setores
   FOR ALL TO authenticated USING (
     ((( SELECT get_my_role() AS get_my_role) = 'super_admin'::user_role) OR 
-     (unidade_id IN ( SELECT profile_unidades.unidade_id FROM profile_unidades WHERE (profile_unidades.profile_id = ( SELECT uid() AS uid)))) OR 
-     (id IN ( SELECT profile_setores.setor_id FROM profile_setores WHERE (profile_setores.profile_id = ( SELECT uid() AS uid)))))
+     (unidade_id IN ( SELECT profile_unidades.unidade_id FROM profile_unidades WHERE (profile_unidades.profile_id = ( SELECT auth.uid() AS uid)))) OR 
+     (id IN ( SELECT profile_setores.setor_id FROM profile_setores WHERE (profile_setores.profile_id = ( SELECT auth.uid() AS uid)))))
   );
 
 -- solicitacoes_troca
@@ -388,8 +388,8 @@ CREATE POLICY "Allow read access to swap requests for admins and coordinators" O
   FOR SELECT TO authenticated USING (
     ((( SELECT get_my_role() AS get_my_role) = ANY (ARRAY['super_admin'::user_role, 'admin'::user_role])) OR 
      ((( SELECT get_my_role() AS get_my_role) = 'coordenador'::user_role) AND (
-       (EXISTS ( SELECT 1 FROM (escala_mensal em JOIN profile_unidades pu ON ((em.unidade_id = pu.unidade_id))) WHERE ((em.id = solicitacoes_troca.escala_mensal_solicitante_id) AND (pu.profile_id = ( SELECT uid() AS uid))))) OR 
-       (EXISTS ( SELECT 1 FROM (escala_mensal em JOIN profile_setores ps ON ((em.setor_id = ps.setor_id))) WHERE ((em.id = solicitacoes_troca.escala_mensal_solicitante_id) AND (ps.profile_id = ( SELECT uid() AS uid)))))
+       (EXISTS ( SELECT 1 FROM (escala_mensal em JOIN profile_unidades pu ON ((em.unidade_id = pu.unidade_id))) WHERE ((em.id = solicitacoes_troca.escala_mensal_solicitante_id) AND (pu.profile_id = ( SELECT auth.uid() AS uid))))) OR 
+       (EXISTS ( SELECT 1 FROM (escala_mensal em JOIN profile_setores ps ON ((em.setor_id = ps.setor_id))) WHERE ((em.id = solicitacoes_troca.escala_mensal_solicitante_id) AND (ps.profile_id = ( SELECT auth.uid() AS uid)))))
      )))
   );
 
@@ -404,15 +404,13 @@ CREATE POLICY "Allow update access to swap requests for admins and coordinator" 
   FOR UPDATE TO authenticated USING (
     ((( SELECT get_my_role() AS get_my_role) = ANY (ARRAY['super_admin'::user_role, 'admin'::user_role])) OR 
      ((( SELECT get_my_role() AS get_my_role) = 'coordenador'::user_role) AND (
-       (EXISTS ( SELECT 1 FROM (escala_mensal em JOIN profile_unidades pu ON ((em.unidade_id = pu.unidade_id))) WHERE ((em.id = solicitacoes_troca.escala_mensal_solicitante_id) AND (pu.profile_id = ( SELECT uid() AS uid))))) OR 
-       (EXISTS ( SELECT 1 FROM (escala_mensal em JOIN profile_setores ps ON ((em.setor_id = ps.setor_id))) WHERE ((em.id = solicitacoes_troca.escala_mensal_solicitante_id) AND (ps.profile_id = ( SELECT uid() AS uid)))))
+       (EXISTS ( SELECT 1 FROM (escala_mensal em JOIN profile_unidades pu ON ((em.unidade_id = pu.unidade_id))) WHERE ((em.id = solicitacoes_troca.escala_mensal_solicitante_id) AND (pu.profile_id = ( SELECT auth.uid() AS uid))))) OR 
+       (EXISTS ( SELECT 1 FROM (escala_mensal em JOIN profile_setores ps ON ((em.setor_id = ps.setor_id))) WHERE ((em.id = solicitacoes_troca.escala_mensal_solicitante_id) AND (ps.profile_id = ( SELECT auth.uid() AS uid)))))
      )))
   );
 
--- spatial_ref_sys (Required read-only for public if RLS activated)
-ALTER TABLE public.spatial_ref_sys ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Allow public read access to spatial_ref_sys" ON public.spatial_ref_sys;
-CREATE POLICY "Allow public read access to spatial_ref_sys" ON public.spatial_ref_sys FOR SELECT TO public USING (true);
+-- spatial_ref_sys (Enabling RLS is skipped on cloud instances as the postgres role is not the owner)
+
 
 -- unidades
 ALTER TABLE public.unidades ENABLE ROW LEVEL SECURITY;
