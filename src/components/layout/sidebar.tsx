@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import packageJson from '../../../package.json'
 import Link from 'next/link'
 import { 
   LayoutDashboard, Users, Building2, Clock, ShieldCheck, 
@@ -236,7 +237,7 @@ export function Sidebar({ user }: { user?: any }) {
         {!isCollapsed && (
           <div className="pt-2 text-center">
             <p className="text-[8px] font-bold text-zinc-400 dark:text-zinc-600 uppercase tracking-tighter">Sobre o Sistema</p>
-            <p className="text-[8px] text-zinc-500 dark:text-zinc-700">Versão 0.8.1-beta</p>
+            <p className="text-[8px] text-zinc-500 dark:text-zinc-700">Versão {packageJson.version}</p>
           </div>
         )}
       </div>

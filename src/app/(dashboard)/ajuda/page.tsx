@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
+import packageJson from '../../../../package.json'
 import { 
   BookOpen, 
   HelpCircle, 
@@ -272,7 +273,7 @@ export default function HelpPage() {
               <div className="flex items-center gap-4">
                 <button className="hover:text-blue-600 transition-colors">Esta página foi útil?</button>
                 <span>|</span>
-                <p>Versão v0.0.3-RC2</p>
+                <p>Versão v{packageJson.version}</p>
               </div>
             </div>
           </div>
