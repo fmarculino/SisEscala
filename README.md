@@ -1,6 +1,6 @@
 # SisEscala 📅
 
-[![Version](https://img.shields.io/badge/version-0.6.0--Beta-blue.svg)](https://github.com/fmarculino/SisEscala)
+[![Version](https://img.shields.io/badge/version-1.0.0-green.svg)](https://github.com/fmarculino/SisEscala)
 [![Next.js](https://img.shields.io/badge/framework-Next.js%2015-black.svg)](https://nextjs.org/)
 [![Supabase](https://img.shields.io/badge/backend-Supabase-green.svg)](https://supabase.com/)
 [![Tailwind CSS](https://img.shields.io/badge/styling-Tailwind%20CSS-38B2AC.svg)](https://tailwindcss.com/)
@@ -91,6 +91,15 @@ O SisEscala utiliza uma hierarquia de acesso rigorosa via **Row Level Security (
 - **Admin**: Gerencia unidades e setores específicos vinculados ao seu perfil.
 - **Coordenador**: Elabora escalas, aprova trocas e valida a presença dos servidores.
 - **Servidor**: Acesso restrito ao Portal do Servidor para consulta e solicitações de troca.
+
+---
+
+## 📦 Versionamento e Ciclo de Releases
+
+A partir do lançamento da versão **V1.0.0**, o SisEscala adota uma política estrita de versionamento semântico para ambientes de produção e homologação:
+- **Versão Estável**: Indicada por `vX.Y.Z` (ex: `v1.0.0`, `v1.1.0`). Considerada pronta e testada para uso real em produção.
+- **Ciclo de Homologação (RC)**: Modificações, melhorias e correções incrementais passarão por homologação usando sufixos `RC` (Release Candidate) antes de serem consolidadas como estáveis (ex: `v1.0.1RC`, `v1.0.1RC-1`, `v1.0.1RC-2`).
+- **Nomenclatura**: A designação `Beta` deixa de ser utilizada no escopo de produção.
 
 ---
 

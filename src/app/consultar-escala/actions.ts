@@ -54,7 +54,13 @@ export async function validatePin(servidorId: string, pin: string) {
     return { error: 'Você ainda não possui um PIN cadastrado. Solicite ao seu coordenador.' }
   }
 
-  if (servidor.pin_acesso !== pin) {
+  // Validar o PIN de forma segura usando bcrypt no PostgreSQL
+  const { data: isPinValid, error: rpcError } = await supabase.rpc('verify_pin', {
+    p_servidor_id: servidorId,
+    p_pin: pin
+  })
+
+  if (rpcError || !isPinValid) {
     // Incrementar tentativas falhas
     await supabase
       .from('servidores')
@@ -149,8 +155,7 @@ export async function getEscalaDetails(escala: any) {
 
     // Se o servidor não tiver nenhuma escala nessa unidade, bloqueamos por segurança (IDOR prevention)
     if (!vinculo || vinculo.length === 0) {
-      // Nota: Em sistemas de prefeitura, às vezes um servidor vê a escala do setor todo.
-      // Permitimos se ele estiver autenticado no portal, mas registramos o acesso.
+      return { error: 'Acesso negado. Você não possui escalas ativas vinculadas a esta unidade.' }
     }
 
     const { data: escalaMensalRecords } = await supabase

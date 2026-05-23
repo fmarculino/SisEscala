@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.0] - 2026-05-23
+
+### Added
+- **Criptografia de PINs de Acesso**: Criptografia de PINs baseada em trigger no PostgreSQL (`pgcrypto` com `bcrypt`) ao criar/atualizar servidores. Migração segura de PINs legados para hashes criptográficos.
+- **Validação de GPS no Servidor**: O cálculo de distância do geofencing de sobreaviso (`ST_Distance`) agora é executado de forma inviolável no servidor (PostgreSQL) usando a extensão PostGIS, rejeitando registros fora do raio permitido da unidade de saúde.
+- **Proteção IDOR em Detalhes de Escala**: Validação rigorosa na Server Action `getEscalaDetails` para impedir que um servidor visualize escalas de unidades às quais ele não possui vínculos ativos.
+
+### Fixed
+- **Otimização Crítica de Desempenho RLS**: Reescrita e reestruturação de todas as políticas de Row Level Security (RLS) envolvendo chamadas de funções como `auth.uid()`, `uid()` e `get_my_role()`, encapsulando-as em subconsultas `(SELECT ...)` para evitar reavaliações linha por linha. Redução de 63 para 0 alertas no Supabase Security Advisor.
+- **Normalização de Políticas com Acentos**: Resolução de duplicidade de políticas antigas geradas por conflitos de UTF-8 (`usuários` e `inserção`).
+
+### Changed
+- **Lançamento Estável V1.0.0**: Transição do sistema de versão Beta para Estável de Produção.
+- **Controle de Versão**: Adoção do padrão de versionamento semântico de produção (ex: melhorias futuras em ciclos de homologação `v1.0.1RC`, `RC1`, `RC2`, etc. até a liberação estável).
+- **Limpeza do Ambiente**: Exclusão de arquivos SQL e scripts temporários (`scratch/*`) e garantia de que o diretório `scratch/` é ignorado no git.
+
 ## [0.7.0-Beta] - 2026-05-15
 
 ### Added
