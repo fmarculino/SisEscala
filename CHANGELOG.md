@@ -1,18 +1,6 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
-## [0.7.1-Beta] - 2026-05-22
-
-### Added
-- **Documentação de Migração**:
-  - Plano de implementação, lista de tarefas e relatório final da migração de banco de dados para a VPS, localizados na pasta [docs/migracao/](file:///c:/Users/DMAC-LAB/SisEscala/docs/migracao).
-- **Scripts de Migração**:
-  - Script utilitário [generate_dump.js](file:///c:/Users/DMAC-LAB/SisEscala/scratch/generate_dump.js) para automação de exportação/limpeza de dados pós-exportação de tabelas e esquemas.
-
-### Changed
-- **Migração do Banco de Dados**:
-  - Migração do banco de dados relacional e schema de autenticação do Supabase legado para a nova infraestrutura Supabase VPS dedicada.
-  - Correção de compatibilidade no GoTrue da VPS: conversão automática de tokens nulos (`NULL` em colunas como `confirmation_token`, `recovery_token`, etc. na tabela `auth.users`) por strings vazias (`''`), contornando a restrição e solucionando erros de login do serviço de autenticação.
 
 ## [1.0.0] - 2026-05-23
 
@@ -29,6 +17,19 @@ All notable changes to this project will be documented in this file.
 - **Lançamento Estável V1.0.0**: Transição do sistema de versão Beta para Estável de Produção.
 - **Controle de Versão**: Adoção do padrão de versionamento semântico de produção (ex: melhorias futuras em ciclos de homologação `v1.0.1RC`, `RC1`, `RC2`, etc. até a liberação estável).
 - **Limpeza do Ambiente**: Exclusão de arquivos SQL e scripts temporários (`scratch/*`) e garantia de que o diretório `scratch/` é ignorado no git.
+
+## [0.7.1-Beta] - 2026-05-22
+
+### Added
+- **Documentação de Migração**:
+  - Plano de implementação, lista de tarefas e relatório final da migração de banco de dados para a VPS, localizados na pasta [docs/migracao/](file:///c:/Users/DMAC-LAB/SisEscala/docs/migracao).
+- **Scripts de Migração**:
+  - Script utilitário [generate_dump.js](file:///c:/Users/DMAC-LAB/SisEscala/scratch/generate_dump.js) para automação de exportação/limpeza de dados pós-exportação de tabelas e esquemas.
+
+### Changed
+- **Migração do Banco de Dados**:
+  - Migração do banco de dados relacional e schema de autenticação do Supabase legado para a nova infraestrutura Supabase VPS dedicada.
+  - Correção de compatibilidade no GoTrue da VPS: conversão automática de tokens nulos (`NULL` em colunas como `confirmation_token`, `recovery_token`, etc. na tabela `auth.users`) por strings vazias (`''`), contornando a restrição e solucionando erros de login do serviço de autenticação.
 
 ## [0.7.0-Beta] - 2026-05-15
 
