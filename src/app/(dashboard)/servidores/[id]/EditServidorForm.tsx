@@ -47,7 +47,11 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos }: Ed
   }, [cargos, nivel1, nivel2, nivel3])
 
   const [showPin, setShowPin] = useState(false)
-  const [currentPin, setCurrentPin] = useState(servidor.pin_acesso || '')
+  const [currentPin, setCurrentPin] = useState(
+    servidor.pin_acesso && (servidor.pin_acesso.startsWith('$2a$') || servidor.pin_acesso.startsWith('$2b$'))
+      ? '****'
+      : (servidor.pin_acesso || '')
+  )
   const [currentTelefone, setCurrentTelefone] = useState(servidor.telefone || '')
 
   const sharePinWhatsApp = () => {
@@ -304,7 +308,7 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos }: Ed
                   <button
                     type="button"
                     onClick={sharePinWhatsApp}
-                    disabled={!currentPin || !currentTelefone}
+                    disabled={!currentPin || currentPin === '****' || !currentTelefone}
                     className="p-2 bg-green-500 text-white rounded-md hover:bg-green-600 disabled:opacity-50 disabled:bg-zinc-300 transition-colors shadow-sm flex items-center justify-center"
                     title="Enviar PIN via WhatsApp"
                   >

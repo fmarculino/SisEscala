@@ -17,7 +17,7 @@ CREATE OR REPLACE FUNCTION public.verify_pin(p_servidor_id uuid, p_pin text)
  RETURNS boolean
  LANGUAGE plpgsql
  SECURITY DEFINER
- SET search_path TO 'public'
+ SET search_path TO 'public', 'extensions'
 AS $function$
 DECLARE
   v_hash text;
@@ -115,7 +115,7 @@ CREATE OR REPLACE FUNCTION public.hash_servidor_pin()
  RETURNS trigger
  LANGUAGE plpgsql
  SECURITY DEFINER
- SET search_path TO 'public'
+ SET search_path TO 'public', 'extensions'
 AS $function$
 BEGIN
   IF NEW.pin_acesso IS NOT NULL AND (TG_OP = 'INSERT' OR NEW.pin_acesso IS DISTINCT FROM OLD.pin_acesso) THEN

@@ -102,19 +102,24 @@ export async function updateServidor(id: string, formData: FormData) {
   const telefone = formData.get('telefone') as string
   const pin_acesso = formData.get('pin_acesso') as string
 
+  const updateData: any = {
+    nome,
+    matricula,
+    cargo,
+    vinculo,
+    unidade_id: unidade_id || null,
+    setor_id: setor_id || null,
+    email: email || null,
+    telefone: telefone || null,
+  }
+
+  if (pin_acesso !== '****') {
+    updateData.pin_acesso = pin_acesso || null
+  }
+
   const { error } = await supabase
     .from('servidores')
-    .update({
-      nome,
-      matricula,
-      cargo,
-      vinculo,
-      unidade_id: unidade_id || null,
-      setor_id: setor_id || null,
-      email: email || null,
-      telefone: telefone || null,
-      pin_acesso: pin_acesso || null,
-    })
+    .update(updateData)
     .eq('id', id)
 
   if (error) {
