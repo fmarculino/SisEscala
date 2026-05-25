@@ -20,21 +20,46 @@ export function applyAccessFilters(
   profile: UserProfile | null,
   options: { 
     unidadeField?: string, 
-    setorField?: string,
+    setorField?: string | null,
     bypassSuperAdmin?: boolean 
   } = {}
 ) {
   if (!profile) return query
   
+  // Detectar o nome da tabela a partir da URL da query para mapear os campos automaticamente
+  let tableName = ''
+  if (query && query.url) {
+    const urlStr = typeof query.url === 'string' ? query.url : (query.url.pathname || query.url.href || String(query.url))
+    const match = urlStr.match(/\/rest\/v1\/([^?\/]+)/)
+    if (match) {
+      tableName = match[1]
+    }
+  }
+
+  // Mapeamento automático inteligente caso os campos não sejam fornecidos
+  const detectedUnidadeField = tableName === 'unidades' ? 'id' : 'unidade_id'
+  const detectedSetorField = tableName === 'unidades' ? null : (tableName === 'setores' ? 'id' : 'setor_id')
+
   const { 
-    unidadeField = 'unidade_id', 
-    setorField = 'setor_id',
+    unidadeField = detectedUnidadeField, 
+    setorField = detectedSetorField,
     bypassSuperAdmin = true 
   } = options
 
   // Super Admin tem acesso irrestrito
   if (bypassSuperAdmin && profile.role === 'super_admin') {
     return query
+  }
+
+  // Se setorField não estiver definido ou for nulo (ex: consultas na tabela de unidades)
+  if (!setorField) {
+    if (profile.role === 'super_admin' || profile.acesso_todas_unidades) {
+      return query
+    }
+    if (profile.permitted_unidades.length > 0) {
+      return query.in(unidadeField, profile.permitted_unidades)
+    }
+    return query.eq('id', '00000000-0000-0000-0000-000000000000')
   }
 
   // 1. Caso: Acesso a todas as unidades (Admin/SuperAdmin geralmente)

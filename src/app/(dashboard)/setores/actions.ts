@@ -97,3 +97,5 @@ export async function toggleStatusSetor(id: string, currentStatus: boolean) {
   revalidatePath('/setores')
   redirect('/setores')
 }
+
+

@@ -907,7 +907,7 @@ BEGIN
     NEW.updated_at = NOW();
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
@@ -916,7 +916,7 @@ BEGIN
     VALUES (NEW.id, NEW.raw_user_meta_data->>'full_name', 'servidor');
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 CREATE OR REPLACE FUNCTION public.get_my_role()
 RETURNS public.user_role AS $$
@@ -1146,7 +1146,7 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN
     RETURN jsonb_build_object('success', false, 'message', 'Erro interno: ' || SQLERRM);
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 CREATE OR REPLACE FUNCTION public.fn_reverter_presenca_manual(p_escala_mensal_id uuid, p_dia integer, p_categoria public.escala_categoria, p_tipo text, p_validador_id uuid)
 RETURNS jsonb AS $$
@@ -1336,7 +1336,7 @@ BEGIN
 
   RETURN jsonb_build_object('success', true);
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 CREATE OR REPLACE FUNCTION public.register_sobreaviso_arrival(magic_token uuid, p_lat double precision, p_long double precision, p_ip text)
 RETURNS jsonb AS $$
@@ -1368,7 +1368,7 @@ BEGIN
 
   RETURN jsonb_build_object('success', true);
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 CREATE OR REPLACE FUNCTION public.decline_sobreaviso_call(magic_token uuid, p_justificativa text, p_lat double precision, p_long double precision)
 RETURNS jsonb AS $$
@@ -1399,7 +1399,7 @@ BEGIN
 
   RETURN jsonb_build_object('success', true);
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 CREATE OR REPLACE FUNCTION public.mark_sobreaviso_timeout(magic_token uuid, p_motivo text)
 RETURNS jsonb AS $$
@@ -1413,7 +1413,7 @@ BEGIN
 
   RETURN jsonb_build_object('success', true);
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 CREATE OR REPLACE FUNCTION public.sync_setor_name_compatibility()
 RETURNS trigger AS $$
@@ -1625,6 +1625,7 @@ CREATE POLICY "Permitir inserção para autenticados" ON public.dicionario_setor
 CREATE POLICY "Authenticated users can view sectors" ON public.setores FOR SELECT USING (auth.role() = 'authenticated'::text);
 CREATE POLICY "Scoped access for Setores" ON public.setores FOR ALL TO authenticated USING (
   (get_my_role() = 'super_admin'::user_role) OR 
+  (EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND (p.acesso_todas_unidades = true OR p.acesso_todos_setores = true))) OR
   (unidade_id IN (SELECT profile_unidades.unidade_id FROM public.profile_unidades WHERE profile_unidades.profile_id = auth.uid())) OR 
   (id IN (SELECT profile_setores.setor_id FROM public.profile_setores WHERE profile_setores.profile_id = auth.uid()))
 );
@@ -1638,14 +1639,16 @@ CREATE POLICY "Admins can manage journeys" ON public.jornadas FOR ALL USING (get
 
 CREATE POLICY "Users can view relevant servers" ON public.servidores FOR SELECT TO authenticated USING (
   (get_my_role() = 'super_admin'::user_role) OR 
+  (EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND (p.acesso_todas_unidades = true OR p.acesso_todos_setores = true))) OR
   (unidade_id IN (SELECT profile_unidades.unidade_id FROM public.profile_unidades WHERE profile_unidades.profile_id = auth.uid())) OR 
   (setor_id IN (SELECT profile_setores.setor_id FROM public.profile_setores WHERE profile_setores.profile_id = auth.uid()))
 );
 CREATE POLICY "Admins can manage all servers" ON public.servidores FOR ALL TO authenticated USING (get_my_role() = 'super_admin'::user_role);
 CREATE POLICY "Scoped access for Admins and Coordinators" ON public.servidores FOR ALL TO authenticated USING (
   (get_my_role() = ANY (ARRAY['admin'::user_role, 'coordenador'::user_role])) AND 
-  ((unidade_id IN (SELECT profile_unidades.unidade_id FROM public.profile_unidades WHERE profile_unidades.profile_id = auth.uid()))) OR 
-  (setor_id IN (SELECT profile_setores.setor_id FROM public.profile_setores WHERE profile_setores.profile_id = auth.uid()))
+  ((EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND (p.acesso_todas_unidades = true OR p.acesso_todos_setores = true))) OR
+   (unidade_id IN (SELECT profile_unidades.unidade_id FROM public.profile_unidades WHERE profile_unidades.profile_id = auth.uid())) OR 
+   (setor_id IN (SELECT profile_setores.setor_id FROM public.profile_setores WHERE profile_setores.profile_id = auth.uid())))
 );
 
 CREATE POLICY "Admins manage units access" ON public.profile_unidades FOR ALL USING (

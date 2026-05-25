@@ -350,6 +350,7 @@ DROP POLICY IF EXISTS "Users can view relevant servers" ON public.servidores;
 CREATE POLICY "Users can view relevant servers" ON public.servidores
   FOR SELECT TO authenticated USING (
     ((( SELECT get_my_role() AS get_my_role) = 'super_admin'::user_role) OR 
+     (EXISTS ( SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND (p.acesso_todas_unidades = true OR p.acesso_todos_setores = true))) OR
      (unidade_id IN ( SELECT profile_unidades.unidade_id FROM profile_unidades WHERE (profile_unidades.profile_id = ( SELECT auth.uid() AS uid)))) OR 
      (setor_id IN ( SELECT profile_setores.setor_id FROM profile_setores WHERE (profile_setores.profile_id = ( SELECT auth.uid() AS uid)))))
   );
@@ -362,6 +363,7 @@ DROP POLICY IF EXISTS "Scoped access for Admins and Coordinators" ON public.serv
 CREATE POLICY "Scoped access for Admins and Coordinators" ON public.servidores
   FOR ALL TO authenticated USING (
     ((( SELECT get_my_role() AS get_my_role) = ANY (ARRAY['admin'::user_role, 'coordenador'::user_role])) AND (
+      (EXISTS ( SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND (p.acesso_todas_unidades = true OR p.acesso_todos_setores = true))) OR
       (unidade_id IN ( SELECT profile_unidades.unidade_id FROM profile_unidades WHERE (profile_unidades.profile_id = ( SELECT auth.uid() AS uid)))) OR 
       (setor_id IN ( SELECT profile_setores.setor_id FROM profile_setores WHERE (profile_setores.profile_id = ( SELECT auth.uid() AS uid))))
     ))
@@ -377,6 +379,7 @@ DROP POLICY IF EXISTS "Scoped access for Setores" ON public.setores;
 CREATE POLICY "Scoped access for Setores" ON public.setores
   FOR ALL TO authenticated USING (
     ((( SELECT get_my_role() AS get_my_role) = 'super_admin'::user_role) OR 
+     (EXISTS ( SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND (p.acesso_todas_unidades = true OR p.acesso_todos_setores = true))) OR
      (unidade_id IN ( SELECT profile_unidades.unidade_id FROM profile_unidades WHERE (profile_unidades.profile_id = ( SELECT auth.uid() AS uid)))) OR 
      (id IN ( SELECT profile_setores.setor_id FROM profile_setores WHERE (profile_setores.profile_id = ( SELECT auth.uid() AS uid)))))
   );

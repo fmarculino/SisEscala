@@ -486,7 +486,7 @@ BEGIN
     NEW.updated_at = NOW();
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
@@ -495,7 +495,7 @@ BEGIN
     VALUES (NEW.id, NEW.raw_user_meta_data->>'full_name', 'servidor');
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 CREATE OR REPLACE FUNCTION public.get_my_role()
 RETURNS public.user_role AS $$
@@ -725,7 +725,7 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN
     RETURN jsonb_build_object('success', false, 'message', 'Erro interno: ' || SQLERRM);
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 CREATE OR REPLACE FUNCTION public.fn_reverter_presenca_manual(p_escala_mensal_id uuid, p_dia integer, p_categoria public.escala_categoria, p_tipo text, p_validador_id uuid)
 RETURNS jsonb AS $$
@@ -915,7 +915,7 @@ BEGIN
 
   RETURN jsonb_build_object('success', true);
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 CREATE OR REPLACE FUNCTION public.register_sobreaviso_arrival(magic_token uuid, p_lat double precision, p_long double precision, p_ip text)
 RETURNS jsonb AS $$
@@ -947,7 +947,7 @@ BEGIN
 
   RETURN jsonb_build_object('success', true);
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 CREATE OR REPLACE FUNCTION public.decline_sobreaviso_call(magic_token uuid, p_justificativa text, p_lat double precision, p_long double precision)
 RETURNS jsonb AS $$
@@ -978,7 +978,7 @@ BEGIN
 
   RETURN jsonb_build_object('success', true);
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 CREATE OR REPLACE FUNCTION public.mark_sobreaviso_timeout(magic_token uuid, p_motivo text)
 RETURNS jsonb AS $$
@@ -992,7 +992,7 @@ BEGIN
 
   RETURN jsonb_build_object('success', true);
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 CREATE OR REPLACE FUNCTION public.sync_setor_name_compatibility()
 RETURNS trigger AS $$
