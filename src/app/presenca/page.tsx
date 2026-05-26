@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { CheckCircle, Loader2, UserCheck, ShieldCheck, XCircle, ArrowLeft, LogOut, CheckSquare } from 'lucide-react'
+import { CheckCircle, Loader2, UserCheck, ShieldCheck, XCircle, ArrowLeft, LogOut, CheckSquare, Eye, EyeOff } from 'lucide-react'
 import Link from 'next/link'
 
 export default function PresencaTerminalPage() {
@@ -10,6 +10,8 @@ export default function PresencaTerminalPage() {
   const [supervisor, setSupervisor] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [authError, setAuthError] = useState<string | null>(null)
+  const [showSupervisorPassword, setShowSupervisorPassword] = useState(false)
+  const matriculaInputRef = useRef<HTMLInputElement>(null)
   
   // Terminal states
   const [matricula, setMatricula] = useState('')
@@ -87,16 +89,33 @@ export default function PresencaTerminalPage() {
 
       if (data.success) {
         setStatus({ type: 'success', message: data.message })
-        // Clear server data after success
+        // Clear inputs immediately
         setMatricula('')
         setPin('')
-        // Auto clear success message after 5 seconds
-        setTimeout(() => setStatus({ type: 'idle', message: '' }), 5000)
+        // Auto clear success message after 3 seconds
+        setTimeout(() => {
+          setStatus({ type: 'idle', message: '' })
+          matriculaInputRef.current?.focus()
+        }, 3000)
       } else {
         setStatus({ type: 'error', message: data.message })
+        // Auto clear inputs and error message after 3 seconds for the next user
+        setTimeout(() => {
+          setStatus({ type: 'idle', message: '' })
+          setMatricula('')
+          setPin('')
+          matriculaInputRef.current?.focus()
+        }, 3000)
       }
     } catch (err: any) {
       setStatus({ type: 'error', message: err.message })
+      // Auto clear inputs and error message on exception after 3 seconds
+      setTimeout(() => {
+        setStatus({ type: 'idle', message: '' })
+        setMatricula('')
+        setPin('')
+        matriculaInputRef.current?.focus()
+      }, 3000)
     } finally {
       setLoading(false)
     }
@@ -141,13 +160,22 @@ export default function PresencaTerminalPage() {
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-black text-zinc-400 uppercase tracking-widest ml-1">Senha</label>
-                <input 
-                  name="password"
-                  type="password"
-                  required
-                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                  placeholder="••••••••"
-                />
+                <div className="relative">
+                  <input 
+                    name="password"
+                    type={showSupervisorPassword ? 'text' : 'password'}
+                    required
+                    className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl pl-4 pr-10 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                    placeholder="••••••••"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowSupervisorPassword(!showSupervisorPassword)}
+                    className="absolute inset-y-0 right-0 flex items-center pr-3 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                  >
+                    {showSupervisorPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -227,13 +255,17 @@ export default function PresencaTerminalPage() {
               </div>
             )}
 
-            <form onSubmit={handleConfirm} className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <form onSubmit={handleConfirm} className="grid grid-cols-1 md:grid-cols-2 gap-6" autoComplete="off">
               <div className="space-y-2">
                 <label className="text-xs font-black text-zinc-400 uppercase tracking-widest ml-1">Matrícula</label>
                 <input 
                   type="text"
+                  ref={matriculaInputRef}
+                  name="confirmacao_matricula"
+                  id="confirmacao_matricula"
                   required
                   autoFocus
+                  autoComplete="one-time-code"
                   className="w-full bg-zinc-50 dark:bg-zinc-800 border-2 border-zinc-200 dark:border-zinc-700 rounded-2xl px-6 py-5 text-2xl font-black text-center focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-zinc-300"
                   placeholder="000000"
                   value={matricula}
@@ -244,8 +276,11 @@ export default function PresencaTerminalPage() {
                 <label className="text-xs font-black text-zinc-400 uppercase tracking-widest ml-1">PIN Individual</label>
                 <input 
                   type="password"
+                  name="confirmacao_pin"
+                  id="confirmacao_pin"
                   required
                   maxLength={4}
+                  autoComplete="new-password"
                   className="w-full bg-zinc-50 dark:bg-zinc-800 border-2 border-zinc-200 dark:border-zinc-700 rounded-2xl px-6 py-5 text-2xl font-black text-center focus:ring-4 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all placeholder:text-zinc-300 tracking-[1em]"
                   placeholder="••••"
                   value={pin}

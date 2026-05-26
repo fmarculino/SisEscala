@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { validatePin, getServidorEscalas, logoutPortal, findServidorByMatricula, getEscalaDetails, createSwapRequest, getSwapRequests, cancelSwapRequest } from './actions'
 import { createClient } from '@/utils/supabase/client'
-import { Loader2, Calendar, FileText, LogOut, Search, Lock, User, ArrowRightLeft, X } from 'lucide-react'
+import { Loader2, Calendar, FileText, LogOut, Search, Lock, User, ArrowRightLeft, X, Eye, EyeOff } from 'lucide-react'
 import { ScalePrintView } from '@/components/ScalePrintView'
 import { PortalScaleGrid } from '@/app/consultar-escala/PortalScaleGrid'
 
@@ -47,6 +47,7 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
   const [isMatriculaValid, setIsMatriculaValid] = useState(false)
   const [tempServidorId, setTempServidorId] = useState<string | null>(null)
   const [pin, setPin] = useState('')
+  const [showPin, setShowPin] = useState(false)
   const [isPinValid, setIsPinValid] = useState(false)
   const [servidorNome, setServidorNome] = useState('')
   const [verifying, setVerifying] = useState(false)
@@ -243,14 +244,21 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
                         <input
                           id="pin"
                           name="pin"
-                          type="password"
+                          type={showPin ? 'text' : 'password'}
                           inputMode="numeric"
                           required
                           value={pin}
                           onChange={(e) => setPin(e.target.value)}
-                          className="block w-full pl-10 pr-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-white sm:text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono tracking-[1em] text-center"
+                          className="block w-full pl-10 pr-10 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-white sm:text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono tracking-[1em] text-center"
                           placeholder="••••"
                         />
+                        <button
+                          type="button"
+                          onClick={() => setShowPin(!showPin)}
+                          className="absolute inset-y-0 right-0 flex items-center pr-3 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                        >
+                          {showPin ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
                       </div>
                       <button
                         type="button"

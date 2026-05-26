@@ -1,7 +1,7 @@
 import { createClient } from '@/utils/supabase/server'
-import { User, Mail, Lock, Shield } from 'lucide-react'
-import { updateProfile } from './actions'
+import { User, Shield } from 'lucide-react'
 import { getRoleLabel } from '@/utils/roles'
+import PerfilForm from './PerfilForm'
 
 export default async function PerfilPage() {
   const supabase = await createClient()
@@ -39,78 +39,10 @@ export default async function PerfilPage() {
         </div>
 
         <div className="p-6">
-          <form action={async (formData) => {
-            'use server'
-            await updateProfile(formData)
-          }} className="space-y-6">
-            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-              <div>
-                <label htmlFor="full_name" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                  Nome Completo
-                </label>
-                <div className="mt-1 relative rounded-md shadow-sm">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <User className="h-4 w-4 text-zinc-400" />
-                  </div>
-                  <input
-                    type="text"
-                    name="full_name"
-                    id="full_name"
-                    defaultValue={profile?.full_name || ''}
-                    className="block w-full pl-10 rounded-md border border-zinc-300 bg-zinc-50 py-2 px-3 text-zinc-900 focus:border-blue-500 focus:outline-none focus:ring-blue-500 sm:text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label htmlFor="email" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                  Email
-                </label>
-                <div className="mt-1 relative rounded-md shadow-sm">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Mail className="h-4 w-4 text-zinc-400" />
-                  </div>
-                  <input
-                    type="email"
-                    name="email"
-                    id="email"
-                    defaultValue={user.email || ''}
-                    className="block w-full pl-10 rounded-md border border-zinc-300 bg-zinc-50 py-2 px-3 text-zinc-900 focus:border-blue-500 focus:outline-none focus:ring-blue-500 sm:text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
-                  />
-                </div>
-                <p className="mt-1 text-xs text-zinc-500">Obrigatório verificar caso seja alterado.</p>
-              </div>
-
-              <div>
-                <label htmlFor="password" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                  Nova Senha (opcional)
-                </label>
-                <div className="mt-1 relative rounded-md shadow-sm">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Lock className="h-4 w-4 text-zinc-400" />
-                  </div>
-                  <input
-                    type="password"
-                    name="password"
-                    id="password"
-                    minLength={6}
-                    placeholder="••••••••"
-                    className="block w-full pl-10 rounded-md border border-zinc-300 bg-zinc-50 py-2 px-3 text-zinc-900 focus:border-blue-500 focus:outline-none focus:ring-blue-500 sm:text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
-                  />
-                </div>
-                <p className="mt-1 text-xs text-zinc-500">Deixe em branco para manter a atual.</p>
-              </div>
-            </div>
-
-            <div className="flex justify-end pt-4 border-t border-zinc-200 dark:border-zinc-800">
-              <button
-                type="submit"
-                className="inline-flex justify-center rounded-md border border-transparent bg-blue-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
-              >
-                Salvar Alterações
-              </button>
-            </div>
-          </form>
+          <PerfilForm 
+            initialFullName={profile?.full_name || ''} 
+            initialEmail={user.email || ''} 
+          />
         </div>
       </div>
     </div>
