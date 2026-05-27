@@ -63,7 +63,7 @@ BEGIN
   END IF;
 
   -- 2. Verificar se exige localização nas configurações globais
-  SELECT COALESCE(valor::boolean, true) INTO v_exigir_localizacao
+  SELECT COALESCE((valor#>>'{}')::boolean, true) INTO v_exigir_localizacao
   FROM public.configuracoes_globais
   WHERE chave = 'sobreaviso_exigir_localizacao';
 
