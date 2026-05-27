@@ -2107,8 +2107,8 @@ export function ScaleGrid({
 
       {/* Actual Print View Hidden component */}
       <ScalePrintView 
-        unidade={escalaMensal[0]?.unidades}
-        setor={escalaMensal[0]?.setores}
+        unidade={allUnidades.find(u => u.id === unidadeId)}
+        setor={allSetores.find(s => s.id === setorId)}
         mes={mes}
         ano={ano}
         escalaMensal={escalaMensal}
