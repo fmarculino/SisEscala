@@ -1531,7 +1531,8 @@ export function ScaleGrid({
   }, [isComum, linkedServidorId, escalaMensal])
 
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-xl overflow-hidden">
+    <>
+      <div className="flex flex-col h-full bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-xl overflow-hidden print:hidden">
       {isInactive && (
         <div className="bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800 px-4 py-2 flex items-center gap-2 text-amber-700 dark:text-amber-500 text-xs font-bold uppercase tracking-tight">
           <Lock className="h-4 w-4" />
@@ -2237,6 +2238,8 @@ export function ScaleGrid({
         </datalist>
       </div>
 
+      </div> {/* Closes the main print:hidden container */}
+
       {/* Actual Print View Hidden component */}
       <ScalePrintView 
         unidade={allUnidades.find(u => u.id === unidadeId)}
@@ -2248,6 +2251,8 @@ export function ScaleGrid({
         turnos={turnos}
         jornadas={jornadas}
         shiftTotals={shiftTotals}
+        servidoresEventos={servidoresEventos}
+        permitirPlantaoExtra={configs['permitir_plantao_extra_durante_eventos'] === 'true'}
       />
       {/* Modal de Acionamento de Sobreaviso */}
       {triggerModal && (
@@ -2682,6 +2687,6 @@ export function ScaleGrid({
           </div>
         </Modal>
       )}
-    </div>
+    </>
   )
 }

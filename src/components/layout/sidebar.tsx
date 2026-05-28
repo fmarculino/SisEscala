@@ -142,7 +142,7 @@ export function Sidebar({ user }: { user?: any }) {
   const userRoleLabel = getRoleLabel(userRole)
 
   return (
-    <div className={`flex h-screen flex-col bg-white dark:bg-zinc-950 text-zinc-600 dark:text-zinc-400 border-r border-zinc-200 dark:border-zinc-800 transition-all duration-300 ${isCollapsed ? 'w-20' : 'w-64'}`}>
+    <div className={`flex h-screen flex-col bg-white dark:bg-zinc-950 text-zinc-600 dark:text-zinc-400 border-r border-zinc-200 dark:border-zinc-800 transition-all duration-300 print:hidden ${isCollapsed ? 'w-20' : 'w-64'}`}>
       <div className="flex h-16 items-center justify-between px-4 border-b border-zinc-200 dark:border-zinc-800/50">
         {!isCollapsed && (
           <div className="flex items-center gap-2">

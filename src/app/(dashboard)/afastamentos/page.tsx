@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { 
   Plus, Calendar as CalendarIcon, Loader2, Trash2, 
-  Search, AlertTriangle, Building2, Layers, Users, Tag, Info 
+  Search, AlertTriangle, Building2, Layers, Users, Tag, Info, Edit2
 } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { applyAccessFilters } from '@/utils/permissions'
@@ -31,8 +31,11 @@ interface ServidorEvento {
   data_fim: string
   observacao: string | null
   servidores: {
+    id: string
     nome: string
     matricula: string | null
+    unidade_id: string
+    setor_id: string
     unidades: { nome: string } | null
     setores: { dicionario_setores: { nome: string } } | null
   } | null
@@ -50,6 +53,7 @@ export default function AfastamentosPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   // Filters and Form selections
   const [selectedUnidade, setSelectedUnidade] = useState('')
@@ -156,8 +160,11 @@ export default function AfastamentosPage() {
         .select(`
           *,
           servidores (
+            id,
             nome,
             matricula,
+            unidade_id,
+            setor_id,
             unidades (nome),
             setores (
               dicionario_setores (nome)
@@ -377,53 +384,157 @@ export default function AfastamentosPage() {
     }
   }
 
-  // Delete event
-  const handleDeleteAfastamento = (id: string) => {
-    const item = afastamentos.find(a => a.id === id)
-    if (!item) return
+  const startEditing = (a: ServidorEvento) => {
+    setEditingId(a.id)
+    setSelectedUnidade(a.servidores?.unidade_id || '')
+    setSelectedSetor(a.servidores?.setor_id || '')
+    setSelectedServidor(a.servidor_id)
+    setSelectedTipo(a.tipo_evento_id)
+    setStartDate(a.data_inicio)
+    setEndDate(a.data_fim)
+    setObservacao(a.observacao || '')
+  }
 
-    setConfirmModal({
-      isOpen: true,
-      title: 'Excluir Afastamento',
-      message: `Deseja realmente excluir o afastamento (${item.tipos_eventos?.nome}) de ${item.servidores?.nome}? O servidor poderá voltar a ser alocado nos dias correspondentes.`,
-      type: 'danger',
-      onConfirm: async () => {
-        setSaving(true)
-        try {
-          const { error } = await supabase
-            .from('servidores_eventos')
-            .delete()
-            .eq('id', id)
+  const cancelEditing = () => {
+    setEditingId(null)
+    setSelectedUnidade('')
+    setSelectedSetor('')
+    setSelectedServidor('')
+    setSelectedTipo('')
+    setStartDate('')
+    setEndDate('')
+    setObservacao('')
+  }
 
-          if (error) throw error
+  const executeUpdate = async (id: string, userId?: string) => {
+    setSaving(true)
+    try {
+      const { error } = await supabase
+        .from('servidores_eventos')
+        .update({
+          servidor_id: selectedServidor,
+          tipo_evento_id: selectedTipo,
+          data_inicio: startDate,
+          data_fim: endDate,
+          observacao: observacao || null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
 
-          logAction('REMOVER_AFASTAMENTO', {
-            afastamento_id: id,
-            servidor_nome: item.servidores?.nome,
-            tipo_afastamento: item.tipos_eventos?.nome
+      if (error) throw error
+
+      const serverName = servidores.find(s => s.id === selectedServidor)?.nome || 'Servidor'
+      const typeName = tiposEventos.find(t => t.id === selectedTipo)?.nome || 'Afastamento'
+
+      logAction('EDITAR_AFASTAMENTO', {
+        afastamento_id: id,
+        servidor_id: selectedServidor,
+        servidor_nome: serverName,
+        tipo_afastamento: typeName,
+        data_inicio: startDate,
+        data_fim: endDate
+      })
+
+      cancelEditing()
+      await fetchAfastamentos()
+
+      setAlertModal({
+        isOpen: true,
+        title: 'Atualizado com Sucesso',
+        message: `O afastamento de ${serverName} foi atualizado. As escalas vigentes e planejadas foram atualizadas automaticamente.`,
+        type: 'success'
+      })
+
+    } catch (error: any) {
+      setAlertModal({
+        isOpen: true,
+        title: 'Erro ao Atualizar',
+        message: error.message,
+        type: 'danger'
+      })
+    } finally {
+      setSaving(false)
+      setConfirmModal(null)
+    }
+  }
+
+  const handleUpdateAfastamento = async () => {
+    if (!editingId) return
+    if (!selectedServidor || !selectedTipo || !startDate || !endDate) {
+      setAlertModal({
+        isOpen: true,
+        title: 'Campos Obrigatórios',
+        message: 'Por favor, preencha todos os campos do formulário.',
+        type: 'warning'
+      })
+      return
+    }
+
+    const start = new Date(startDate + 'T00:00:00')
+    const end = new Date(endDate + 'T00:00:00')
+
+    if (end < start) {
+      setAlertModal({
+        isOpen: true,
+        title: 'Período Inválido',
+        message: 'A data de término não pode ser anterior à data de início.',
+        type: 'warning'
+      })
+      return
+    }
+
+    setSaving(true)
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      // 1. Validar conflito de presenças já confirmadas
+      const { data: monthlyScales } = await supabase
+        .from('escala_mensal')
+        .select('id, mes, ano')
+        .eq('servidor_id', selectedServidor)
+
+      if (monthlyScales && monthlyScales.length > 0) {
+        const ids = monthlyScales.map(m => m.id)
+        const { data: dailies } = await supabase
+          .from('escala_diaria')
+          .select('id, dia, escala_mensal_id, presenca_entrada_em, presenca_saida_em')
+          .in('escala_mensal_id', ids)
+          .or('presenca_entrada_em.not.is.null,presenca_saida_em.not.is.null')
+
+        if (dailies && dailies.length > 0) {
+          const hasPresenceConflict = dailies.some(d => {
+            const mScale = monthlyScales.find(m => m.id === d.escala_mensal_id)
+            if (!mScale) return false
+            const dayDate = new Date(mScale.ano, mScale.mes - 1, d.dia)
+            return dayDate >= start && dayDate <= end
           })
 
-          await fetchAfastamentos()
-          
-          setAlertModal({
-            isOpen: true,
-            title: 'Excluído com Sucesso',
-            message: 'O afastamento foi excluído e os dias correspondentes foram liberados para alocação.',
-            type: 'success'
-          })
-        } catch (error: any) {
-          setAlertModal({
-            isOpen: true,
-            title: 'Erro ao Excluir',
-            message: error.message,
-            type: 'danger'
-          })
-        } finally {
-          setSaving(false)
-          setConfirmModal(null)
+          if (hasPresenceConflict) {
+            setSaving(false)
+            setConfirmModal({
+              isOpen: true,
+              title: 'Presença Confirmada Detectada',
+              message: 'O servidor possui registros de presença confirmados neste período. Se prosseguir, estes registros de presença serão mantidos, mas novos turnos serão bloqueados e turnos planejados não confirmados serão removidos. Deseja continuar?',
+              type: 'warning',
+              onConfirm: () => executeUpdate(editingId, user?.id)
+            })
+            return
+          }
         }
       }
-    })
+
+      await executeUpdate(editingId, user?.id)
+
+    } catch (error: any) {
+      setAlertModal({
+        isOpen: true,
+        title: 'Erro de Validação',
+        message: error.message,
+        type: 'danger'
+      })
+      setSaving(false)
+    }
   }
 
   // Filter list of absences based on UI search/filters
@@ -452,8 +563,16 @@ export default function AfastamentosPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Form panel */}
         <div className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm h-fit">
-          <h2 className="text-sm font-black uppercase tracking-widest mb-6 flex items-center text-red-600">
-            <Plus className="mr-2 h-5 w-5" /> Registrar Afastamento
+          <h2 className={`text-sm font-black uppercase tracking-widest mb-6 flex items-center ${editingId ? 'text-amber-600' : 'text-red-600'}`}>
+            {editingId ? (
+              <>
+                <Edit2 className="mr-2 h-5 w-5" /> Editar Afastamento
+              </>
+            ) : (
+              <>
+                <Plus className="mr-2 h-5 w-5" /> Registrar Afastamento
+              </>
+            )}
           </h2>
           
           <div className="space-y-5">
@@ -554,13 +673,32 @@ export default function AfastamentosPage() {
               />
             </div>
 
-            <button
-              onClick={handleAddAfastamento}
-              disabled={saving || !selectedServidor || !selectedTipo || !startDate || !endDate}
-              className="w-full bg-red-600 hover:bg-red-700 text-white font-black uppercase tracking-widest py-3 rounded-xl transition-all flex items-center justify-center disabled:opacity-50 shadow-lg shadow-red-600/20"
-            >
-              {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Confirmar Afastamento'}
-            </button>
+            {editingId ? (
+              <div className="flex gap-2">
+                <button
+                  onClick={handleUpdateAfastamento}
+                  disabled={saving || !selectedServidor || !selectedTipo || !startDate || !endDate}
+                  className="flex-1 bg-amber-600 hover:bg-amber-700 text-white font-black uppercase tracking-widest py-3 rounded-xl transition-all flex items-center justify-center disabled:opacity-50 shadow-lg shadow-amber-600/20 cursor-pointer"
+                >
+                  {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Salvar'}
+                </button>
+                <button
+                  onClick={cancelEditing}
+                  disabled={saving}
+                  className="bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-black uppercase tracking-widest px-4 py-3 rounded-xl transition-all flex items-center justify-center disabled:opacity-50 cursor-pointer"
+                >
+                  Cancelar
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={handleAddAfastamento}
+                disabled={saving || !selectedServidor || !selectedTipo || !startDate || !endDate}
+                className="w-full bg-red-600 hover:bg-red-700 text-white font-black uppercase tracking-widest py-3 rounded-xl transition-all flex items-center justify-center disabled:opacity-50 shadow-lg shadow-red-600/20 cursor-pointer"
+              >
+                {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Confirmar Afastamento'}
+              </button>
+            )}
           </div>
         </div>
 
@@ -624,7 +762,14 @@ export default function AfastamentosPage() {
                     </tr>
                   ) : (
                     filteredAfastamentos.map(a => (
-                      <tr key={a.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
+                      <tr 
+                        key={a.id} 
+                        className={`transition-colors ${
+                          editingId === a.id 
+                            ? 'bg-amber-50/40 dark:bg-amber-950/10 border-l-4 border-l-amber-500' 
+                            : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/30'
+                        }`}
+                      >
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-2.5">
                             <div className="w-8 h-8 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-zinc-500 font-bold shrink-0">
@@ -677,14 +822,22 @@ export default function AfastamentosPage() {
                           </div>
                         </td>
 
-                        <td className="px-6 py-4 text-center">
-                          <button
-                            onClick={() => handleDeleteAfastamento(a.id)}
-                            className="p-2 text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-all"
-                            title="Excluir afastamento"
-                          >
-                            <Trash2 className="h-5 w-5" />
-                          </button>
+                        <td className="px-6 py-4 text-center whitespace-nowrap">
+                          <div className="flex justify-center items-center gap-2">
+                            {editingId === a.id ? (
+                              <span className="text-[10px] font-black uppercase text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-2 py-1 rounded-md">
+                                Editando
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => startEditing(a)}
+                                className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-all cursor-pointer"
+                                title="Editar afastamento"
+                              >
+                                <Edit2 className="h-4 w-4" />
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))

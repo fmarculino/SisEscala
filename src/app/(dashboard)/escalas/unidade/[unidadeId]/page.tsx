@@ -119,7 +119,7 @@ export default async function UnidadeEscalaPage({
 
   return (
     <div className="h-full flex flex-col space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between print:hidden">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white">
             Grade de Escala: {unidade?.nome}

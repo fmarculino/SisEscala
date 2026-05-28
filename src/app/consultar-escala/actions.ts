@@ -179,21 +179,34 @@ export async function getEscalaDetails(escala: any) {
     // Otimização: Cache de dados estáticos que não mudam frequentemente
     const getCachedStaticData = unstable_cache(
       async () => {
-        const [t, j, f] = await Promise.all([
+        const [t, j, f, c] = await Promise.all([
           supabase.from('dicionario_turnos').select('*').eq('ativo', true),
           supabase.from('jornadas').select('*').eq('ativo', true),
-          supabase.from('feriados').select('*')
+          supabase.from('feriados').select('*'),
+          supabase.from('configuracoes_globais').select('*')
         ])
-        return { turnos: t.data, jornadas: j.data, feriados: f.data }
+        return { turnos: t.data, jornadas: j.data, feriados: f.data, configsGlobais: c.data }
       },
       ['static-escala-data'],
       { revalidate: 3600 } // Cache por 1 hora
     )
 
-    const { turnos, jornadas, feriados } = await getCachedStaticData()
+    const { turnos, jornadas, feriados, configsGlobais } = await getCachedStaticData()
     const { data: unidade } = await supabase.from('unidades').select('*').eq('id', escala.unidade_id).single()
     const { data: setorRaw } = await supabase.from('setores').select('*, dicionario_setores(nome)').eq('id', escala.setor_id).single()
     
+    // Fetch event details for the servers in the monthly scale
+    const serverIds = escalaMensalRecords.map(em => em.servidor_id)
+    const startStr = `${escala.ano}-${escala.mes.toString().padStart(2, '0')}-01`
+    const daysInMonth = new Date(escala.ano, escala.mes, 0).getDate()
+    const endStr = `${escala.ano}-${escala.mes.toString().padStart(2, '0')}-${daysInMonth}`
+
+    const { data: servidoresEventos } = await supabase
+      .from('servidores_eventos')
+      .select('*, tipos_eventos(*)')
+      .in('servidor_id', serverIds)
+      .or(`data_inicio.lte.${endStr},data_fim.gte.${startStr}`)
+
     const sectorData = setorRaw ? { 
       ...setorRaw, 
       nome: (Array.isArray(setorRaw.dicionario_setores) 
@@ -211,7 +224,9 @@ export async function getEscalaDetails(escala: any) {
         unidade,
         setor: sectorData,
         mes: escala.mes,
-        ano: escala.ano
+        ano: escala.ano,
+        servidoresEventos: servidoresEventos || [],
+        configsGlobais: configsGlobais || []
       }
     }
   } catch (err: any) {

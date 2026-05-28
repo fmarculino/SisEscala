@@ -10,12 +10,23 @@ interface PortalScaleGridProps {
     feriados: any[]
     mes: number
     ano: number
+    servidoresEventos?: any[]
+    configsGlobais?: any[]
   }
   servidorId: string
 }
 
 export function PortalScaleGrid({ data, servidorId }: PortalScaleGridProps) {
-  const { escalaMensal, escalaDiaria, turnos, feriados = [], mes, ano } = data
+  const { 
+    escalaMensal, 
+    escalaDiaria, 
+    turnos, 
+    feriados = [], 
+    mes, 
+    ano,
+    servidoresEventos = [],
+    configsGlobais = []
+  } = data
 
   const daysInMonth = new Date(ano, mes, 0).getDate()
   const daysArray = Array.from({ length: daysInMonth }, (_, i) => i + 1)
@@ -32,6 +43,25 @@ export function PortalScaleGrid({ data, servidorId }: PortalScaleGridProps) {
     })
     return grid
   }, [escalaMensal, escalaDiaria])
+
+  const getActiveEventForDay = (sId: string, day: number) => {
+    const dateStr = `${ano}-${mes.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`
+    return servidoresEventos.find((se: any) => 
+      se.servidor_id === sId && 
+      dateStr >= se.data_inicio && 
+      dateStr <= se.data_fim
+    )
+  }
+
+  const configs = useMemo(() => {
+    const obj: Record<string, string> = {}
+    configsGlobais.forEach((c: any) => {
+      obj[c.chave] = c.valor?.toString() || ''
+    })
+    return obj
+  }, [configsGlobais])
+
+  const permitirPlantaoExtra = configs['permitir_plantao_extra_durante_eventos'] === 'true'
 
   const getTurnoCode = (sId: string, cat: string, day: number) => {
     const tId = gridData[sId]?.[cat]?.[day]
@@ -103,15 +133,43 @@ export function PortalScaleGrid({ data, servidorId }: PortalScaleGridProps) {
                         const feriado = feriados.find(f => f.data === dateStr)
                         const isHoliday = !!feriado
 
+                        const activeEvent = getActiveEventForDay(em.servidor_id, day)
+                        const isCellBlockedByEvent = activeEvent && (cat === 'Regular' || !permitirPlantaoExtra)
+
+                        if (isCellBlockedByEvent) {
+                          const eventAbbr = activeEvent.tipos_eventos?.nome.substring(0, 3).toUpperCase() || ''
+                          return (
+                            <td 
+                              key={day} 
+                              className="p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black text-white"
+                              style={{ backgroundColor: activeEvent.tipos_eventos?.cor || '#EF4444' }}
+                            >
+                              {eventAbbr}
+                            </td>
+                          )
+                        }
+
                         return (
                           <td 
                             key={day} 
                             title={isHoliday ? `🎉 Feriado: ${feriado?.descricao}` : ''}
-                            className={`p-1 border border-zinc-200 dark:border-zinc-700 text-center font-bold 
+                            className={`p-1 border border-zinc-200 dark:border-zinc-700 text-center font-bold relative
                               ${isHoliday ? 'bg-red-50 dark:bg-red-900/10' : isWE ? 'bg-zinc-50 dark:bg-zinc-800/50' : isMe ? 'bg-blue-50/30 dark:bg-blue-900/5' : ''}
                               ${isMe ? 'text-blue-600 dark:text-blue-400 ring-1 ring-inset ring-blue-500/20' : ''}`}
                           >
+                            {activeEvent && (
+                              <div 
+                                className="absolute inset-0 pointer-events-none opacity-20"
+                                style={{ backgroundColor: activeEvent.tipos_eventos?.cor || '#EF4444' }}
+                              />
+                            )}
                             {getTurnoCode(em.servidor_id, cat, day)}
+                            {activeEvent && (
+                              <div 
+                                className="absolute top-0.5 left-0.5 w-1 h-1 rounded-full"
+                                style={{ backgroundColor: activeEvent.tipos_eventos?.cor || '#EF4444' }}
+                              />
+                            )}
                           </td>
                         )
                       })}

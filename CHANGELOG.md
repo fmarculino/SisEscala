@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.0] - 2026-05-28
+
+### Added
+- **Portal de Impressão de Escala por React Portal**: Refatoração completa da visualização de impressão (`ScalePrintView`) utilizando React Portals (`createPortal`), renderizando o componente diretamente em `document.body` e aplicando a regra CSS `body > *:not(.print-view-portal) { display: none !important; }` no escopo `@media print`. Isso oculta 100% da árvore do Next.js (headers, menus, sidebars) e elimina espaços em branco no topo, corrigindo o erro onde a escala começava no meio da página.
+- **Mapeamento de Eventos no Portal do Servidor**: Carregamento automático de afastamentos e eventos (`servidores_eventos`) do banco na Server Action de escala e exibição correspondente na grade interativa do portal do servidor (e.g. exibição de tags `LIC` para licenças, etc.).
+- **Destaque Visual ao Editar Afastamentos**: Destaque com borda âmbar suave nas linhas da tabela de afastamentos ao iniciar a edição para fornecer feedback visual imediato ao usuário.
+
+### Changed
+- **Edição em Substituição à Exclusão em Afastamentos e Eventos**: Remoção definitiva da opção de exclusão (lixeira) nas telas "Tipos de Afastamento" e "Gestão de Afastamentos" para garantir segurança jurídica do histórico. Ambas as telas agora possuem fluxo de edição dinâmico no painel lateral esquerdo com botões "Salvar" e "Cancelar" e controle de status instantâneo por clique direto na tabela.
+- **Aumento da Capacidade de Impressão por Página**: Ampliação do limite de servidores por página impressa de 6 para 7 (`serversPerPage`), otimizando o preenchimento de espaço vertical em orientação paisagem.
+- **Alinhamento do Rodapé de Totais**: Adicionado `colSpan={2}` na célula inicial de totais por turno (`SERVIDORES POR TURNO`) da visualização de impressão, alinhando perfeitamente as colunas de estatísticas com a tabela de grade.
+
 ## [1.0.0] - 2026-05-23
 
 ### Added
