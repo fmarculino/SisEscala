@@ -5,7 +5,8 @@ import { createClient } from '@/utils/supabase/client'
 import { 
   Save, Loader2, Info, Zap, Lock, Unlock, FileText, Plus, UserPlus, Users, 
   CheckCircle, Trash2, Globe, X, Copy, Check, Clock, Navigation2,
-  ShieldCheck, ShieldAlert, AlertTriangle, LayoutTemplate
+  ShieldCheck, ShieldAlert, AlertTriangle, LayoutTemplate,
+  ChevronLeft, ChevronRight
 } from 'lucide-react'
 import { ScalePrintView } from '@/components/ScalePrintView'
 import { Modal } from '@/components/ui/Modal'
@@ -51,6 +52,22 @@ export function ScaleGrid({
   // Initialize Supabase client once
   const [supabase] = useState(() => createClient())
   const [loading, setLoading] = useState(false)
+  const [isTotalsCollapsed, setIsTotalsCollapsed] = useState(false)
+
+  useEffect(() => {
+    const saved = localStorage.getItem('scale-totals-collapsed')
+    if (saved !== null) {
+      setIsTotalsCollapsed(saved === 'true')
+    }
+  }, [])
+
+  const toggleTotals = useCallback(() => {
+    setIsTotalsCollapsed(prev => {
+      const newVal = !prev
+      localStorage.setItem('scale-totals-collapsed', String(newVal))
+      return newVal
+    })
+  }, [])
 
   const logAction = useCallback(async (acao: string, detalhes: any = {}) => {
     try {
@@ -1608,14 +1625,34 @@ export function ScaleGrid({
                   </th>
                 )
               })}
-              <th className="sticky right-[296px] z-30 p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-blue-50 dark:bg-blue-900 text-blue-900 dark:text-blue-100">CH</th>
-              <th className="sticky right-[258px] z-30 p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-indigo-50 dark:bg-indigo-900 text-indigo-900 dark:text-indigo-100">HE100</th>
-              <th className="sticky right-[220px] z-30 p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-indigo-50 dark:bg-indigo-900 text-indigo-900 dark:text-indigo-100">HE50</th>
-              <th className="sticky right-[182px] z-30 p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-orange-50 dark:bg-orange-900 text-orange-900 dark:text-orange-100">PL12</th>
-              <th className="sticky right-[144px] z-30 p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-orange-50 dark:bg-orange-900 text-orange-900 dark:text-orange-100">PL6</th>
-              <th className="sticky right-[106px] z-30 p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-orange-50 dark:bg-orange-900 text-orange-900 dark:text-orange-100">PL4</th>
-              <th className="sticky right-[68px] z-30 p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-emerald-50 dark:bg-emerald-900 text-emerald-900 dark:text-blue-100">SO12</th>
-              <th className="sticky right-0 z-30 p-1 border border-zinc-200 dark:border-zinc-700 w-[68px] bg-amber-400 text-black font-black uppercase leading-tight text-[8px] whitespace-nowrap">TOTAL<br/>H/MÊS</th>
+              {!isTotalsCollapsed && (
+                <>
+                  <th className="sticky right-[296px] z-30 p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-blue-50 dark:bg-blue-900 text-blue-900 dark:text-blue-100">CH</th>
+                  <th className="sticky right-[258px] z-30 p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-indigo-50 dark:bg-indigo-900 text-indigo-900 dark:text-indigo-100">HE100</th>
+                  <th className="sticky right-[220px] z-30 p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-indigo-50 dark:bg-indigo-900 text-indigo-900 dark:text-indigo-100">HE50</th>
+                  <th className="sticky right-[182px] z-30 p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-orange-50 dark:bg-orange-900 text-orange-900 dark:text-orange-100">PL12</th>
+                  <th className="sticky right-[144px] z-30 p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-orange-50 dark:bg-orange-900 text-orange-900 dark:text-orange-100">PL6</th>
+                  <th className="sticky right-[106px] z-30 p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-orange-50 dark:bg-orange-900 text-orange-900 dark:text-orange-100">PL4</th>
+                  <th className="sticky right-[68px] z-30 p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-emerald-50 dark:bg-emerald-900 text-emerald-900 dark:text-blue-100">SO12</th>
+                </>
+              )}
+              <th className="sticky right-0 z-30 p-1 border border-zinc-200 dark:border-zinc-700 w-[68px] bg-amber-400 text-black font-black uppercase leading-tight text-[8px] whitespace-nowrap relative select-none">
+                <button
+                  type="button"
+                  onClick={toggleTotals}
+                  className="absolute -left-2.5 top-1/2 -translate-y-1/2 flex items-center justify-center w-5 h-5 rounded-full bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-300 dark:border-zinc-650 shadow-md hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-all hover:scale-105 active:scale-95 cursor-pointer z-50"
+                  title={isTotalsCollapsed ? "Expandir resumo de horas" : "Recolher resumo de horas"}
+                >
+                  {isTotalsCollapsed ? (
+                    <ChevronLeft className="h-3 w-3 stroke-[2.5]" />
+                  ) : (
+                    <ChevronRight className="h-3 w-3 stroke-[2.5]" />
+                  )}
+                </button>
+                <div className="pl-1">
+                  TOTAL<br/>H/MÊS
+                </div>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -1934,97 +1971,101 @@ export function ScaleGrid({
                       })}
                       {catIdx === 0 && (
                         <>
-                          {/* CH */}
-                          <td rowSpan={4} className="sticky right-[296px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-blue-50 dark:bg-blue-900 text-blue-900 dark:text-blue-100">
-                            <div className="flex flex-col h-full divide-y divide-blue-200 dark:divide-blue-800">
-                              <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
-                                <span className="text-[6px] uppercase leading-none">Plan</span>
-                                <span className="text-[10px] leading-tight">{totals.p_ch}</span>
-                              </div>
-                              <div className="flex-1 flex flex-col justify-center p-1 bg-blue-100/50 dark:bg-blue-800/30">
-                                <span className="text-[6px] uppercase leading-none">Val</span>
-                                <span className="text-[10px] leading-tight">{totals.chTotal}</span>
-                              </div>
-                            </div>
-                          </td>
-                          {/* HE100 */}
-                          <td rowSpan={4} className="sticky right-[258px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-indigo-50 dark:bg-indigo-900 text-indigo-900 dark:text-indigo-100">
-                            <div className="flex flex-col h-full divide-y divide-indigo-200 dark:divide-indigo-800">
-                              <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
-                                <span className="text-[6px] uppercase leading-none">Plan</span>
-                                <span className="text-[10px] leading-tight">{totals.p_he100}</span>
-                              </div>
-                              <div className="flex-1 flex flex-col justify-center p-1 bg-indigo-100/50 dark:bg-indigo-800/30">
-                                <span className="text-[6px] uppercase leading-none">Val</span>
-                                <span className="text-[10px] leading-tight">{totals.he100}</span>
-                              </div>
-                            </div>
-                          </td>
-                          {/* HE50 */}
-                          <td rowSpan={4} className="sticky right-[220px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-indigo-50 dark:bg-indigo-900 text-indigo-900 dark:text-indigo-100">
-                            <div className="flex flex-col h-full divide-y divide-indigo-200 dark:divide-indigo-800">
-                              <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
-                                <span className="text-[6px] uppercase leading-none">Plan</span>
-                                <span className="text-[10px] leading-tight">{totals.p_he50}</span>
-                              </div>
-                              <div className="flex-1 flex flex-col justify-center p-1 bg-indigo-100/50 dark:bg-indigo-800/30">
-                                <span className="text-[6px] uppercase leading-none">Val</span>
-                                <span className="text-[10px] leading-tight">{totals.he50}</span>
-                              </div>
-                            </div>
-                          </td>
-                          {/* PL12 */}
-                          <td rowSpan={4} className="sticky right-[182px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-orange-50 dark:bg-orange-900 text-orange-900 dark:text-orange-100">
-                            <div className="flex flex-col h-full divide-y divide-orange-200 dark:divide-orange-800">
-                              <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
-                                <span className="text-[6px] uppercase leading-none">Plan</span>
-                                <span className="text-[10px] leading-tight">{totals.p_pl12}</span>
-                              </div>
-                              <div className="flex-1 flex flex-col justify-center p-1 bg-orange-100/50 dark:bg-orange-800/30">
-                                <span className="text-[6px] uppercase leading-none">Val</span>
-                                <span className="text-[10px] leading-tight">{totals.pl12}</span>
-                              </div>
-                            </div>
-                          </td>
-                          {/* PL6 */}
-                          <td rowSpan={4} className="sticky right-[144px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-orange-50 dark:bg-orange-900 text-orange-900 dark:text-orange-100">
-                            <div className="flex flex-col h-full divide-y divide-orange-200 dark:divide-orange-800">
-                              <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
-                                <span className="text-[6px] uppercase leading-none">Plan</span>
-                                <span className="text-[10px] leading-tight">{totals.p_pl6}</span>
-                              </div>
-                              <div className="flex-1 flex flex-col justify-center p-1 bg-orange-100/50 dark:bg-orange-800/30">
-                                <span className="text-[6px] uppercase leading-none">Val</span>
-                                <span className="text-[10px] leading-tight">{totals.pl6}</span>
-                              </div>
-                            </div>
-                          </td>
-                          {/* PL4 */}
-                          <td rowSpan={4} className="sticky right-[106px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-orange-50 dark:bg-orange-900 text-orange-900 dark:text-orange-100">
-                            <div className="flex flex-col h-full divide-y divide-orange-200 dark:divide-orange-800">
-                              <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
-                                <span className="text-[6px] uppercase leading-none">Plan</span>
-                                <span className="text-[10px] leading-tight">{totals.p_pl4}</span>
-                              </div>
-                              <div className="flex-1 flex flex-col justify-center p-1 bg-orange-100/50 dark:bg-orange-800/30">
-                                <span className="text-[6px] uppercase leading-none">Val</span>
-                                <span className="text-[10px] leading-tight">{totals.pl4}</span>
-                              </div>
-                            </div>
-                          </td>
-                          {/* SO12 */}
-                          <td rowSpan={4} className="sticky right-[68px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-emerald-50 dark:bg-emerald-900 text-emerald-900 dark:text-emerald-100">
-                            <div className="flex flex-col h-full divide-y divide-emerald-200 dark:divide-emerald-800">
-                              <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
-                                <span className="text-[6px] uppercase leading-none">Plan</span>
-                                <span className="text-[10px] leading-tight">{totals.p_so12}</span>
-                              </div>
-                              <div className="flex-1 flex flex-col justify-center p-1 bg-emerald-100/50 dark:bg-emerald-800/30">
-                                <span className="text-[6px] uppercase leading-none">Val</span>
-                                <span className="text-[10px] leading-tight">{totals.so12}</span>
-                              </div>
-                            </div>
-                          </td>
+                          {!isTotalsCollapsed && (
+                            <>
+                              {/* CH */}
+                              <td rowSpan={4} className="sticky right-[296px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-blue-50 dark:bg-blue-900 text-blue-900 dark:text-blue-100">
+                                <div className="flex flex-col h-full divide-y divide-blue-200 dark:divide-blue-800">
+                                  <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
+                                    <span className="text-[6px] uppercase leading-none">Plan</span>
+                                    <span className="text-[10px] leading-tight">{totals.p_ch}</span>
+                                  </div>
+                                  <div className="flex-1 flex flex-col justify-center p-1 bg-blue-100/50 dark:bg-blue-800/30">
+                                    <span className="text-[6px] uppercase leading-none">Val</span>
+                                    <span className="text-[10px] leading-tight">{totals.chTotal}</span>
+                                  </div>
+                                </div>
+                              </td>
+                              {/* HE100 */}
+                              <td rowSpan={4} className="sticky right-[258px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-indigo-50 dark:bg-indigo-900 text-indigo-900 dark:text-indigo-100">
+                                <div className="flex flex-col h-full divide-y divide-indigo-200 dark:divide-indigo-800">
+                                  <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
+                                    <span className="text-[6px] uppercase leading-none">Plan</span>
+                                    <span className="text-[10px] leading-tight">{totals.p_he100}</span>
+                                  </div>
+                                  <div className="flex-1 flex flex-col justify-center p-1 bg-indigo-100/50 dark:bg-indigo-800/30">
+                                    <span className="text-[6px] uppercase leading-none">Val</span>
+                                    <span className="text-[10px] leading-tight">{totals.he100}</span>
+                                  </div>
+                                </div>
+                              </td>
+                              {/* HE50 */}
+                              <td rowSpan={4} className="sticky right-[220px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-indigo-50 dark:bg-indigo-900 text-indigo-900 dark:text-indigo-100">
+                                <div className="flex flex-col h-full divide-y divide-indigo-200 dark:divide-indigo-800">
+                                  <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
+                                    <span className="text-[6px] uppercase leading-none">Plan</span>
+                                    <span className="text-[10px] leading-tight">{totals.p_he50}</span>
+                                  </div>
+                                  <div className="flex-1 flex flex-col justify-center p-1 bg-indigo-100/50 dark:bg-indigo-800/30">
+                                    <span className="text-[6px] uppercase leading-none">Val</span>
+                                    <span className="text-[10px] leading-tight">{totals.he50}</span>
+                                  </div>
+                                </div>
+                              </td>
+                              {/* PL12 */}
+                              <td rowSpan={4} className="sticky right-[182px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-orange-50 dark:bg-orange-900 text-orange-900 dark:text-orange-100">
+                                <div className="flex flex-col h-full divide-y divide-orange-200 dark:divide-orange-800">
+                                  <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
+                                    <span className="text-[6px] uppercase leading-none">Plan</span>
+                                    <span className="text-[10px] leading-tight">{totals.p_pl12}</span>
+                                  </div>
+                                  <div className="flex-1 flex flex-col justify-center p-1 bg-orange-100/50 dark:bg-orange-800/30">
+                                    <span className="text-[6px] uppercase leading-none">Val</span>
+                                    <span className="text-[10px] leading-tight">{totals.pl12}</span>
+                                  </div>
+                                </div>
+                              </td>
+                              {/* PL6 */}
+                              <td rowSpan={4} className="sticky right-[144px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-orange-50 dark:bg-orange-900 text-orange-900 dark:text-orange-100">
+                                <div className="flex flex-col h-full divide-y divide-orange-200 dark:divide-orange-800">
+                                  <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
+                                    <span className="text-[6px] uppercase leading-none">Plan</span>
+                                    <span className="text-[10px] leading-tight">{totals.p_pl6}</span>
+                                  </div>
+                                  <div className="flex-1 flex flex-col justify-center p-1 bg-orange-100/50 dark:bg-orange-800/30">
+                                    <span className="text-[6px] uppercase leading-none">Val</span>
+                                    <span className="text-[10px] leading-tight">{totals.pl6}</span>
+                                  </div>
+                                </div>
+                              </td>
+                              {/* PL4 */}
+                              <td rowSpan={4} className="sticky right-[106px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-orange-50 dark:bg-orange-900 text-orange-900 dark:text-orange-100">
+                                <div className="flex flex-col h-full divide-y divide-orange-200 dark:divide-orange-800">
+                                  <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
+                                    <span className="text-[6px] uppercase leading-none">Plan</span>
+                                    <span className="text-[10px] leading-tight">{totals.p_pl4}</span>
+                                  </div>
+                                  <div className="flex-1 flex flex-col justify-center p-1 bg-orange-100/50 dark:bg-orange-800/30">
+                                    <span className="text-[6px] uppercase leading-none">Val</span>
+                                    <span className="text-[10px] leading-tight">{totals.pl4}</span>
+                                  </div>
+                                </div>
+                              </td>
+                              {/* SO12 */}
+                              <td rowSpan={4} className="sticky right-[68px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-emerald-50 dark:bg-emerald-900 text-emerald-900 dark:text-emerald-100">
+                                <div className="flex flex-col h-full divide-y divide-emerald-200 dark:divide-emerald-800">
+                                  <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
+                                    <span className="text-[6px] uppercase leading-none">Plan</span>
+                                    <span className="text-[10px] leading-tight">{totals.p_so12}</span>
+                                  </div>
+                                  <div className="flex-1 flex flex-col justify-center p-1 bg-emerald-100/50 dark:bg-emerald-800/30">
+                                    <span className="text-[6px] uppercase leading-none">Val</span>
+                                    <span className="text-[10px] leading-tight">{totals.so12}</span>
+                                  </div>
+                                </div>
+                              </td>
+                            </>
+                          )}
 
                           <td rowSpan={4} className="sticky right-0 z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-amber-400 text-black">
                             <div className="flex flex-col h-full divide-y divide-black/10">
@@ -2059,7 +2100,7 @@ export function ScaleGrid({
                   {shiftTotals.M[day] || ''}
                 </td>
               ))}
-              <td colSpan={8} rowSpan={4} className="bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600"></td>
+              <td colSpan={isTotalsCollapsed ? 1 : 8} rowSpan={4} className="bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600"></td>
             </tr>
             <tr>
               <td className="sticky left-[180px] z-10 bg-white dark:bg-zinc-900 p-1 border border-zinc-300 dark:border-zinc-600 uppercase text-[10px] text-center font-bold text-zinc-800 dark:text-zinc-200">
