@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0] - 2026-05-28
+
+### Added
+- **Turnos de Horas Extras Virtuais**: Cadastro de códigos de hora extra (`1`, `1.5`, `2` para diurno/50%; `1N`, `1.5N`, `2N` para noturno/100%) em `dicionario_turnos` com slots vazios (`{}`) e tipo `'Extra'`. Isso permite o lançamento de horas adicionais sem gerar falsos positivos de conflitos/sobreposições com a escala normal do servidor (como o turno `MT`).
+- **Preenchimento e Sugestões Inteligentes por Linha**: Adicionada a `<datalist id="turnos-extra-list">` no componente `ScaleGrid.tsx`, filtrando e exibindo exclusivamente os códigos de horas extras na linha de `EXTRAS` para simplificar a digitação do coordenador.
+- **Validação de Governança e Limite de 2h**:
+  - Validação no `handleCellChange` que restringe o lançamento apenas de turnos do tipo `Extra` na linha `EXTRAS` e turnos do tipo `Sobreaviso` na linha `SOBREAVISO`.
+  - Bloqueio rígido que impede o lançamento de horas extras superiores ao limite legal de 2 horas diárias por servidor.
+- **Opção 'Extra' no Cadastro de Turnos**: Integrada a opção de tipo `'Extra'` nos formulários de criação e edição do painel administrativo do dicionário de turnos.
+
+### Changed
+- **Lógica Otimizada de Frequência (Check-in/Check-out)**: 
+  - Ajuste na RPC `fn_confirmar_presenca` para calcular dinamicamente o expediente total do servidor somando a jornada mensal regular (ex: 9h corridas para a jornada 07h-16h) com as horas extras do dia (ex: +2h de extras), definindo o horário final exato de saída do servidor (ex: 18h).
+  - A confirmação de presença (check-in/check-out) no terminal físico agora grava o registro simultaneamente nas linhas `Regular` e `Extra` de forma síncrona, validando os totalizadores em uma única operação.
+
 ## [1.1.0] - 2026-05-28
 
 ### Added

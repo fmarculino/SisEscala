@@ -87,6 +87,7 @@ export default async function EditTurnoPage({
                 <option value="Normal">Normal</option>
                 <option value="Plantão">Plantão</option>
                 <option value="Sobreaviso">Sobreaviso</option>
+                <option value="Extra">Extra</option>
               </select>
             </div>
 

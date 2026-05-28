@@ -732,6 +732,41 @@ export function ScaleGrid({
     // Validação de Conflito Interno (Checa mudanças não salvas na grade atual)
     try {
       const currentTurno = turnos.find(t => t.id === turnoId)
+      
+      // Valitações de Governança para Horas Extras e Sobreavisos
+      if (categoria === 'Extra' && currentTurno) {
+        if (currentTurno.tipo !== 'Extra') {
+          setAlertModal({
+            isOpen: true,
+            title: '⚠️ Turno Inválido',
+            message: 'Apenas turnos do tipo Extra podem ser inseridos na linha de Extras.',
+            type: 'warning'
+          })
+          return
+        }
+        if (Number(currentTurno.horas_computadas) > 2) {
+          setAlertModal({
+            isOpen: true,
+            title: '⚠️ Limite Legal Excedido',
+            message: 'O limite legal permitido para horas extras é de no máximo 2 horas diárias por servidor.',
+            type: 'warning'
+          })
+          return
+        }
+      }
+
+      if (categoria === 'Sobreaviso' && currentTurno) {
+        if (currentTurno.tipo !== 'Sobreaviso') {
+          setAlertModal({
+            isOpen: true,
+            title: '⚠️ Turno Inválido',
+            message: 'Apenas turnos do tipo Sobreaviso podem ser inseridos na linha de Sobreaviso.',
+            type: 'warning'
+          })
+          return
+        }
+      }
+
       const currentSlots = currentTurno?.slots || []
       const serverRows = gridData[servidorId] || {}
       
@@ -1895,7 +1930,7 @@ export function ScaleGrid({
                                   />
                                 )}
                                 <input
-                                  list={cat === 'Sobreaviso' ? "turnos-sobreaviso-list" : "turnos-list"}
+                                  list={cat === 'Sobreaviso' ? "turnos-sobreaviso-list" : (cat === 'Extra' ? "turnos-extra-list" : "turnos-list")}
                                   value={turno?.codigo || ''}
                                   disabled={isClosed && userProfile?.role !== 'admin' && userProfile?.role !== 'super_admin'}
                                   onChange={(e) => {
@@ -2233,6 +2268,12 @@ export function ScaleGrid({
 
         <datalist id="turnos-sobreaviso-list">
           {turnos.filter(t => t.ativo !== false && (t.codigo === 'MT' || t.codigo === 'N' || t.codigo === 'MTN')).map(t => (
+            <option key={t.id} value={t.codigo}>{t.descricao}</option>
+          ))}
+        </datalist>
+
+        <datalist id="turnos-extra-list">
+          {turnos.filter(t => t.ativo !== false && t.tipo === 'Extra').map(t => (
             <option key={t.id} value={t.codigo}>{t.descricao}</option>
           ))}
         </datalist>
