@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { Save, Loader2, Settings, Clock, Shield, Bell, Database, Zap, Lock, CheckSquare } from 'lucide-react'
+import { Save, Loader2, Settings, Clock, Shield, Bell, Database, Zap, Lock, CheckSquare, Calendar } from 'lucide-react'
 
 export default function ConfigPage() {
   const supabase = createClient()
@@ -185,7 +185,7 @@ export default function ConfigPage() {
                   <input 
                     type="number" 
                     className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold transition-all pr-12"
-                    value={getConfig('sobreaviso_tempo_aceite_minutos')?.valor || ''}
+                    value={getConfig('sobreaviso_tempo_accite_minutos')?.valor || getConfig('sobreaviso_tempo_aceite_minutos')?.valor || ''}
                     onChange={(e) => updateConfig('sobreaviso_tempo_aceite_minutos', e.target.value)}
                   />
                   <div className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-zinc-400 uppercase">min</div>
@@ -284,6 +284,38 @@ export default function ConfigPage() {
                   <option value="America/Rio_Branco">Acre (GMT-5)</option>
                   <option value="UTC">UTC (Universal)</option>
                 </select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Gestão de Afastamentos e Eventos */}
+        <div className="bg-white dark:bg-zinc-900 rounded-[2rem] border border-zinc-200 dark:border-zinc-800 p-8 shadow-sm hover:shadow-md transition-shadow">
+          <div className="space-y-8">
+            <div className="flex items-center gap-4">
+              <div className="p-4 bg-red-100 dark:bg-red-900/30 rounded-2xl text-red-600">
+                <Calendar className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-zinc-900 dark:text-white uppercase tracking-tight">Afastamentos e Eventos</h3>
+                <p className="text-sm text-zinc-500 leading-relaxed">Gerencie as regras de conciliação entre escalas de serviço e afastamentos (férias, atestados, licenças).</p>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="space-y-2">
+                <label className="text-xs font-black text-zinc-400 uppercase tracking-widest block">Flexibilização de Escalas</label>
+                <select 
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-red-500 outline-none font-bold transition-all"
+                  value={getConfig('permitir_plantao_extra_durante_eventos')?.valor || 'false'}
+                  onChange={(e) => updateConfig('permitir_plantao_extra_durante_eventos', e.target.value)}
+                >
+                  <option value="false">Bloquear Totalmente (Recomendado)</option>
+                  <option value="true">Permitir Plantão, Extra e Sobreaviso (Flexível)</option>
+                </select>
+                <p className="text-[11px] text-zinc-400 leading-normal mt-1">
+                  Se desativado, o servidor não poderá ser escalado para NENHUM turno nos dias de afastamento. Se ativado, permite escalas de plantão, extras e sobreaviso, mas impede a carga horária regular.
+                </p>
               </div>
             </div>
           </div>

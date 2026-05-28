@@ -37,6 +37,7 @@ const menuGroups: MenuGroup[] = [
     icon: Activity,
     items: [
       { name: 'Escalas', href: '/escalas', icon: Calendar },
+      { name: 'Afastamentos', href: '/afastamentos', icon: CalendarDays },
     ]
   },
   {
@@ -50,6 +51,7 @@ const menuGroups: MenuGroup[] = [
       { name: 'Feriados', href: '/feriados', icon: CalendarDays },
       { name: 'Jornadas', href: '/jornadas', icon: Clock },
       { name: 'Dicionário de Turnos', href: '/turnos', icon: Clock },
+      { name: 'Tipos de Afastamento', href: '/tipos-eventos', icon: Layers },
     ]
   },
   {

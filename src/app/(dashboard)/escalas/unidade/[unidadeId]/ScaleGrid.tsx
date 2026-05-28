@@ -53,6 +53,40 @@ export function ScaleGrid({
   const [supabase] = useState(() => createClient())
   const [loading, setLoading] = useState(false)
   const [isTotalsCollapsed, setIsTotalsCollapsed] = useState(false)
+  const [servidoresEventos, setServidoresEventos] = useState<any[]>([])
+
+  const fetchServidoresEventos = useCallback(async () => {
+    if (escalaMensalInicial.length === 0) return
+    const servantIds = escalaMensalInicial.map(em => em.servidor_id)
+    const lastDay = new Date(ano, mes, 0).getDate()
+    const startRange = `${ano}-${mes.toString().padStart(2, '0')}-01`
+    const endRange = `${ano}-${mes.toString().padStart(2, '0')}-${lastDay}`
+
+    const { data, error } = await supabase
+      .from('servidores_eventos')
+      .select('*, tipos_eventos(*)')
+      .in('servidor_id', servantIds)
+      .or(`data_inicio.lte.${endRange},data_fim.gte.${startRange}`)
+
+    if (error) {
+      console.error('Erro ao buscar eventos dos servidores:', error)
+    } else {
+      setServidoresEventos(data || [])
+    }
+  }, [supabase, escalaMensalInicial, mes, ano])
+
+  useEffect(() => {
+    fetchServidoresEventos()
+  }, [escalaMensalInicial, fetchServidoresEventos])
+
+  const getActiveEventForDay = useCallback((servidorId: string, day: number) => {
+    const dateStr = `${ano}-${mes.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`
+    return servidoresEventos.find(se => 
+      se.servidor_id === servidorId && 
+      dateStr >= se.data_inicio && 
+      dateStr <= se.data_fim
+    )
+  }, [servidoresEventos, mes, ano])
 
   useEffect(() => {
     const saved = localStorage.getItem('scale-totals-collapsed')
@@ -677,6 +711,24 @@ export function ScaleGrid({
       return
     }
 
+    // Validação de Afastamento / Evento
+    const activeEvent = getActiveEventForDay(servidorId, day)
+    if (activeEvent && turnoId) {
+      const permitirPlantaoExtra = configs['permitir_plantao_extra_durante_eventos'] === 'true'
+      const isRegular = categoria === 'Regular'
+      const isBlocked = isRegular || !permitirPlantaoExtra
+      
+      if (isBlocked) {
+        setAlertModal({
+          isOpen: true,
+          title: '⚠️ Servidor Afastado',
+          message: `Este servidor está afastado (${activeEvent.tipos_eventos?.nome || 'Afastamento'}) no dia ${day} e não pode ser escalado nesta linha.`,
+          type: 'warning'
+        })
+        return
+      }
+    }
+
     // Validação de Conflito Interno (Checa mudanças não salvas na grade atual)
     try {
       const currentTurno = turnos.find(t => t.id === turnoId)
@@ -717,7 +769,8 @@ export function ScaleGrid({
         p_dia: day,
         p_mes: mes,
         p_ano: ano,
-        p_turno_id: turnoId
+        p_turno_id: turnoId,
+        p_categoria: categoria
       })
 
       if (error) throw error
@@ -1795,41 +1848,76 @@ export function ScaleGrid({
                         }
                         const isDisregarded = isFailed && desconsiderarFalha
 
+                        const activeEvent = getActiveEventForDay(em.servidor_id, day)
+                        const permitirPlantaoExtra = configs['permitir_plantao_extra_durante_eventos'] === 'true'
+                        const isRegular = cat === 'Regular'
+                        const isCellBlockedByEvent = activeEvent && (isRegular || !permitirPlantaoExtra)
+                        const eventAbbr = activeEvent ? activeEvent.tipos_eventos?.nome.substring(0, 3).toUpperCase() : ''
+
                         return (
                           <td 
                             key={day} 
                             className={`p-0 border border-zinc-200 dark:border-zinc-700 text-center relative 
-                              ${isHoliday ? 'bg-red-50 dark:bg-red-900/10' : isWE ? 'bg-zinc-50 dark:bg-zinc-800/50' : ''} 
+                              ${isCellBlockedByEvent ? '' : (isHoliday ? 'bg-red-50 dark:bg-red-900/10' : isWE ? 'bg-zinc-50 dark:bg-zinc-800/50' : '')} 
                               ${isFailed ? 'bg-red-100 dark:bg-red-900/30' : ''} 
                               ${hasExternalConflict ? 'ring-1 ring-inset ring-red-500' : ''}
                               ${(presenceData[em.servidor_id]?.[cat]?.[day]?.entrada || presenceData[em.servidor_id]?.[cat]?.[day]?.saida || effectiveStatus === 'Chegou') ? 'bg-emerald-50/50 dark:bg-emerald-900/10' : ''}`}
                             title={
-                              hasExternalConflict 
-                                ? `⚠️ CONFLITO REAL: ${realConflictDetails}` 
-                                : isBusyElsewhere
-                                  ? `ℹ️ Servidor já escalado em: ${externalBusyDetails}`
-                                  : isFailed 
-                                    ? `FALHOU: ${logForDay?.motivo_falha || virtualReason || 'Tempo expirado'}${isDisregarded ? ' (Desconsiderado da carga horária)' : ''}` 
-                                    : isHoliday
-                                      ? `🎉 Feriado: ${feriado?.descricao}`
-                                      : ''
+                              isCellBlockedByEvent 
+                                ? `⚠️ BLOQUEADO: Servidor em afastamento (${activeEvent.tipos_eventos?.nome})${activeEvent.observacao ? ` - ${activeEvent.observacao}` : ''}`
+                                : hasExternalConflict 
+                                  ? `⚠️ CONFLITO REAL: ${realConflictDetails}` 
+                                  : isBusyElsewhere
+                                    ? `ℹ️ Servidor já escalado em: ${externalBusyDetails}`
+                                    : isFailed 
+                                      ? `FALHOU: ${logForDay?.motivo_falha || virtualReason || 'Tempo expirado'}${isDisregarded ? ' (Desconsiderado da carga horária)' : ''}` 
+                                      : isHoliday
+                                        ? `🎉 Feriado: ${feriado?.descricao}`
+                                        : activeEvent
+                                          ? `ℹ️ Servidor em afastamento (${activeEvent.tipos_eventos?.nome}) - Alocação permitida por governança`
+                                          : ''
                             }
                           >
-                            <input
-                              list={cat === 'Sobreaviso' ? "turnos-sobreaviso-list" : "turnos-list"}
-                              value={turno?.codigo || ''}
-                              disabled={isClosed && userProfile?.role !== 'admin' && userProfile?.role !== 'super_admin'}
-                              onChange={(e) => {
-                                const val = e.target.value.toUpperCase()
-                                if (cat === 'Sobreaviso' && val !== '' && val !== 'MT' && val !== 'N' && val !== 'MTN') {
-                                  return
-                                }
-                                const t = turnos.find(x => x.codigo === val)
-                                handleCellChange(em.servidor_id, cat, day, t?.id || '')
-                              }}
-                              className={`w-full h-full bg-transparent border-none text-center focus:outline-none focus:ring-1 focus:ring-blue-500 font-black p-0 text-[11px] uppercase ${isFailed ? 'text-red-600 dark:text-red-400 line-through' : 'text-zinc-900 dark:text-zinc-100'}`}
-                              placeholder="-"
-                            />
+                            {isCellBlockedByEvent ? (
+                              <div 
+                                className="w-full h-full flex items-center justify-center text-[9px] font-black text-white cursor-not-allowed select-none px-0.5 py-2"
+                                style={{ backgroundColor: activeEvent.tipos_eventos?.cor || '#EF4444' }}
+                              >
+                                {eventAbbr}
+                              </div>
+                            ) : (
+                              <div className="relative w-full h-full">
+                                {activeEvent && (
+                                  <div 
+                                    className="absolute inset-0 pointer-events-none opacity-20"
+                                    style={{ backgroundColor: activeEvent.tipos_eventos?.cor || '#EF4444' }}
+                                  />
+                                )}
+                                <input
+                                  list={cat === 'Sobreaviso' ? "turnos-sobreaviso-list" : "turnos-list"}
+                                  value={turno?.codigo || ''}
+                                  disabled={isClosed && userProfile?.role !== 'admin' && userProfile?.role !== 'super_admin'}
+                                  onChange={(e) => {
+                                    const val = e.target.value.toUpperCase()
+                                    if (cat === 'Sobreaviso' && val !== '' && val !== 'MT' && val !== 'N' && val !== 'MTN') {
+                                      return
+                                    }
+                                    const t = turnos.find(x => x.codigo === val)
+                                    handleCellChange(em.servidor_id, cat, day, t?.id || '')
+                                  }}
+                                  className={`w-full h-full bg-transparent border-none text-center focus:outline-none focus:ring-1 focus:ring-blue-500 font-black p-0 text-[11px] uppercase ${isFailed ? 'text-red-600 dark:text-red-400 line-through' : 'text-zinc-900 dark:text-zinc-100'}`}
+                                  placeholder="-"
+                                />
+                                {activeEvent && (
+                                  <div 
+                                    className="absolute top-0.5 left-0.5 w-1.5 h-1.5 rounded-full"
+                                    style={{ backgroundColor: activeEvent.tipos_eventos?.cor || '#EF4444' }}
+                                    title={`Afastamento: ${activeEvent.tipos_eventos?.nome}`}
+                                  />
+                                )}
+                              </div>
+                            )}
+
                             {/* Indicador de Compliance (Interjornada/DSR) */}
                             {(() => {
                               const cellViolations = getViolationsForCell(complianceViolations, em.servidor_id, day)

@@ -108,6 +108,71 @@ export interface Database {
           status: string
         }
       }
+      tipos_eventos: {
+        Row: {
+          id: string
+          nome: string
+          cor: string
+          descricao: string | null
+          ativo: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          nome: string
+          cor?: string
+          descricao?: string | null
+          ativo?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          nome?: string
+          cor?: string
+          descricao?: string | null
+          ativo?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      servidores_eventos: {
+        Row: {
+          id: string
+          servidor_id: string
+          tipo_evento_id: string
+          data_inicio: string
+          data_fim: string
+          observacao: string | null
+          criado_por: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          servidor_id: string
+          tipo_evento_id: string
+          data_inicio: string
+          data_fim: string
+          observacao?: string | null
+          criado_por?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          servidor_id?: string
+          tipo_evento_id?: string
+          data_inicio?: string
+          data_fim?: string
+          observacao?: string | null
+          criado_por?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
     }
   }
 }
+
