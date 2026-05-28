@@ -1,6 +1,6 @@
 # SisEscala 📅
 
-[![Version](https://img.shields.io/badge/version-1.1.0-green.svg)](https://github.com/fmarculino/SisEscala)
+[![Version](https://img.shields.io/badge/version-1.2.0-green.svg)](https://github.com/fmarculino/SisEscala)
 [![Next.js](https://img.shields.io/badge/framework-Next.js%2015-black.svg)](https://nextjs.org/)
 [![Supabase](https://img.shields.io/badge/backend-Supabase-green.svg)](https://supabase.com/)
 [![Tailwind CSS](https://img.shields.io/badge/styling-Tailwind%20CSS-38B2AC.svg)](https://tailwindcss.com/)
@@ -17,6 +17,8 @@ O sistema foca em **governança, segurança jurídica e eficiência operacional*
 - **Multi-categoria**: Suporte nativo para turnos **Regulares**, **Extras**, **Plantões** e **Sobreaviso**.
 - **Templates Dinâmicos**: Aplicação rápida de padrões de escala (**12x36**, **5x2**, **6x1**) com um clique.
 - **Detecção de Conflitos**: Motor de validação global que impede que um servidor seja escalado em dois locais ao mesmo tempo.
+- **Horas Extras Virtuais**: Lançamento de horas extras numéricas (1h, 2h, etc.) sem geração de falsos positivos de conflito com a escala regular do servidor (como o turno normal MT).
+- **Validação de Governança**: Restrição rígida por linha na grade de escala (Extra apenas na linha EXTRAS, Sobreaviso na linha SOBREAVISO) e bloqueio automático de horas extras diárias acima do limite legal de 2 horas.
 
 ### ⚖️ Compliance Legal (Motor de Regras)
 - **Validação de Interjornada**: Alerta automático para períodos de descanso inferiores a 11 horas.
@@ -30,6 +32,7 @@ O sistema foca em **governança, segurança jurídica e eficiência operacional*
 
 ### 🕒 Controle de Presença (Ponto Digital)
 - **Check-in/Check-out**: Registro de entrada e saída via PIN com geolocalização (GPS).
+- **Frequência Inteligente para Horas Extras**: Registro unificado de check-in e check-out que calcula dinamicamente o fim do expediente somando a jornada regular do dia com as horas extras lançadas, gravando a presença em ambos os lançamentos (Regular e Extra) em uma única batida de ponto no terminal.
 - **Janela de Tolerância**: Bloqueio de batidas fora do horário permitido para evitar fraudes.
 - **Auditoria Forense**: Trilha de auditoria detalhada para todas as batidas e ajustes manuais.
 
