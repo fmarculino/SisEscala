@@ -43,7 +43,7 @@ export function ScaleGrid({
   turnos,
   escalaMensalInicial,
   escalaDiariaInicial,
-  feriados,
+  feriados = [],
   diasInativacao,
   logsSobreavisoInicial,
   configsGlobais,
@@ -1725,7 +1725,8 @@ export function ScaleGrid({
                         const d = new Date(ano, mes - 1, day)
                         const isWE = d.getDay() === 0 || d.getDay() === 6
                         const dateStr = `${ano}-${mes.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`
-                        const isHoliday = feriados.some(f => f.data === dateStr)
+                        const feriado = feriados.find(f => f.data === dateStr)
+                        const isHoliday = !!feriado
                         
                         let isTriggerAllowed = false
                         if (cat === 'Sobreaviso' && turno) {
@@ -1809,7 +1810,9 @@ export function ScaleGrid({
                                   ? `ℹ️ Servidor já escalado em: ${externalBusyDetails}`
                                   : isFailed 
                                     ? `FALHOU: ${logForDay?.motivo_falha || virtualReason || 'Tempo expirado'}${isDisregarded ? ' (Desconsiderado da carga horária)' : ''}` 
-                                    : ''
+                                    : isHoliday
+                                      ? `🎉 Feriado: ${feriado?.descricao}`
+                                      : ''
                             }
                           >
                             <input

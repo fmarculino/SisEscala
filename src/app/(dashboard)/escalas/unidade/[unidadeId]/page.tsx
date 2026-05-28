@@ -97,11 +97,12 @@ export default async function UnidadeEscalaPage({
     .in('escala_mensal_id', escalaMensalIds)
 
   // 7. Fetch holidays for the period
+  const lastDay = new Date(parseInt(ano), parseInt(mes), 0).getDate()
   const { data: feriados } = await supabase
     .from('feriados')
     .select('*')
     .gte('data', `${ano}-${mes.toString().padStart(2, '0')}-01`)
-    .lte('data', `${ano}-${mes.toString().padStart(2, '0')}-31`)
+    .lte('data', `${ano}-${mes.toString().padStart(2, '0')}-${lastDay.toString().padStart(2, '0')}`)
 
   // 8. Fetch global config for auto-inactivation and sobreaviso rules
   const { data: configsGlobais } = await supabase

@@ -15,7 +15,7 @@ interface PortalScaleGridProps {
 }
 
 export function PortalScaleGrid({ data, servidorId }: PortalScaleGridProps) {
-  const { escalaMensal, escalaDiaria, turnos, feriados, mes, ano } = data
+  const { escalaMensal, escalaDiaria, turnos, feriados = [], mes, ano } = data
 
   const daysInMonth = new Date(ano, mes, 0).getDate()
   const daysArray = Array.from({ length: daysInMonth }, (_, i) => i + 1)
@@ -52,7 +52,8 @@ export function PortalScaleGrid({ data, servidorId }: PortalScaleGridProps) {
                 const d = getDayOfWeek(day)
                 const isWE = d === 0 || d === 6
                 const dateStr = `${ano}-${mes.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`
-                const isHoliday = feriados.some(f => f.data === dateStr)
+                const feriado = feriados.find(f => f.data === dateStr)
+                const isHoliday = !!feriado
 
                 return (
                   <th
@@ -60,6 +61,7 @@ export function PortalScaleGrid({ data, servidorId }: PortalScaleGridProps) {
                     className={`p-1 border border-zinc-200 dark:border-zinc-700 min-w-[32px] text-center ${
                       isHoliday ? 'bg-red-100 dark:bg-red-900/30 text-red-600' : isWE ? 'bg-zinc-200 dark:bg-zinc-700' : ''
                     }`}
+                    title={feriado?.descricao}
                   >
                     {day}
                     <div className="text-[7px] opacity-50">{['D', 'S', 'T', 'Q', 'Q', 'S', 'S'][d]}</div>
@@ -94,16 +96,25 @@ export function PortalScaleGrid({ data, servidorId }: PortalScaleGridProps) {
                       <td className="p-1 border border-zinc-200 dark:border-zinc-700 uppercase font-medium text-zinc-500">
                         {cat}
                       </td>
-                      {daysArray.map(day => (
-                        <td 
-                          key={day} 
-                          className={`p-1 border border-zinc-200 dark:border-zinc-700 text-center font-bold ${
-                            isMe ? 'text-blue-600 dark:text-blue-400 bg-blue-50/30 dark:bg-blue-900/5' : ''
-                          }`}
-                        >
-                          {getTurnoCode(em.servidor_id, cat, day)}
-                        </td>
-                      ))}
+                      {daysArray.map(day => {
+                        const d = getDayOfWeek(day)
+                        const isWE = d === 0 || d === 6
+                        const dateStr = `${ano}-${mes.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`
+                        const feriado = feriados.find(f => f.data === dateStr)
+                        const isHoliday = !!feriado
+
+                        return (
+                          <td 
+                            key={day} 
+                            title={isHoliday ? `🎉 Feriado: ${feriado?.descricao}` : ''}
+                            className={`p-1 border border-zinc-200 dark:border-zinc-700 text-center font-bold 
+                              ${isHoliday ? 'bg-red-50 dark:bg-red-900/10' : isWE ? 'bg-zinc-50 dark:bg-zinc-800/50' : isMe ? 'bg-blue-50/30 dark:bg-blue-900/5' : ''}
+                              ${isMe ? 'text-blue-600 dark:text-blue-400 ring-1 ring-inset ring-blue-500/20' : ''}`}
+                          >
+                            {getTurnoCode(em.servidor_id, cat, day)}
+                          </td>
+                        )
+                      })}
                     </tr>
                   ))}
                 </React.Fragment>
