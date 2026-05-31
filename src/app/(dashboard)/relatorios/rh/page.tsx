@@ -1,5 +1,6 @@
 import { createClient } from '@/utils/supabase/server'
 import { FileSpreadsheet, Download } from 'lucide-react'
+import { AcessoNegado } from '@/components/AcessoNegado'
 
 import { applyAccessFilters, type UserProfile } from '@/utils/permissions'
 import { ReportActions } from '@/app/(dashboard)/relatorios/_components/ReportActions'
@@ -32,6 +33,10 @@ export default async function RelatorioRHPage() {
     .select('*, profile_unidades(unidade_id), profile_setores(setor_id)')
     .eq('id', user?.id)
     .single()
+
+  if (profile?.role === 'coordenador') {
+    return <AcessoNegado />
+  }
 
   // Fetch closed scales data for RH
   let query = supabase

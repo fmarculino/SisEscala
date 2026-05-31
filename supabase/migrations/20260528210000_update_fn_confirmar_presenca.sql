@@ -5,6 +5,8 @@ CREATE OR REPLACE FUNCTION public.fn_confirmar_presenca(p_matricula text, p_pin_
 RETURNS jsonb AS $$
 DECLARE
     v_servidor_id UUID;
+    v_servidor_unidade_id UUID;
+    v_servidor_setor_id UUID;
     v_regular_id UUID;
     v_extra_id UUID;
     v_escala_mensal_id UUID;
@@ -64,8 +66,9 @@ BEGIN
     v_mes_ontem := extract(month from v_date_ontem)::integer;
     v_ano_ontem := extract(year from v_date_ontem)::integer;
 
-    -- Validate servant credentials
-    SELECT s.id INTO v_servidor_id
+    -- Validate servant credentials and fetch their unit/sector
+    SELECT s.id, s.unidade_id, s.setor_id 
+    INTO v_servidor_id, v_servidor_unidade_id, v_servidor_setor_id
     FROM public.servidores s
     WHERE s.matricula = p_matricula
       AND s.pin_acesso = p_pin_servidor;
@@ -73,6 +76,54 @@ BEGIN
     IF v_servidor_id IS NULL THEN
         RETURN jsonb_build_object('success', false, 'message', 'Matrícula ou PIN inválidos.');
     END IF;
+
+    -- Validate coordinator permissions for this servant
+    DECLARE
+        v_coord_role TEXT;
+        v_coord_todas_unidades BOOLEAN;
+        v_coord_todos_setores BOOLEAN;
+        v_has_unit_access BOOLEAN := false;
+        v_has_sector_access BOOLEAN := false;
+    BEGIN
+        SELECT role::text, acesso_todas_unidades, acesso_todos_setores
+        INTO v_coord_role, v_coord_todas_unidades, v_coord_todos_setores
+        FROM public.profiles
+        WHERE id = p_coordenador_id;
+
+        IF v_coord_role = 'super_admin' THEN
+            v_has_unit_access := true;
+            v_has_sector_access := true;
+        ELSE
+            -- Check unit access
+            IF v_coord_todas_unidades THEN
+                v_has_unit_access := true;
+            ELSE
+                SELECT EXISTS (
+                    SELECT 1 FROM public.profile_unidades 
+                    WHERE profile_id = p_coordenador_id AND unidade_id = v_servidor_unidade_id
+                ) INTO v_has_unit_access;
+            END IF;
+
+            -- Check sector access
+            IF v_coord_todos_setores AND v_has_unit_access THEN
+                v_has_sector_access := true;
+            ELSIF v_coord_role = 'admin' AND v_has_unit_access THEN
+                v_has_sector_access := true;
+            ELSE
+                SELECT EXISTS (
+                    SELECT 1 FROM public.profile_setores 
+                    WHERE profile_id = p_coordenador_id AND setor_id = v_servidor_setor_id
+                ) INTO v_has_sector_access;
+            END IF;
+        END IF;
+
+        IF NOT v_has_sector_access THEN
+            RETURN jsonb_build_object(
+                'success', false, 
+                'message', 'Registro não permitido: Este servidor não pertence a uma unidade ou setor sob sua responsabilidade.'
+            );
+        END IF;
+    END;
 
     -- 1. Fetch Regular (or Plantão) record for today
     SELECT ed.id, em.id, em.unidade_id, ed.presenca_entrada_em, ed.presenca_saida_em, dt.horas_computadas, dt.slots, j.horas_totais

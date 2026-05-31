@@ -1,5 +1,6 @@
 import { createClient } from '@/utils/supabase/server'
 import { ScaleGrid } from './ScaleGrid'
+import { hasUnitAccess, hasSectorAccess } from '@/utils/permissions'
 
 export default async function UnidadeEscalaPage({
   params,
@@ -18,19 +19,25 @@ export default async function UnidadeEscalaPage({
     return <div>Não autenticado</div>
   }
 
-  const { data: profile } = await supabase
+  const { data: profileRaw } = await supabase
     .from('profiles')
-    .select('*')
+    .select('*, profile_unidades(unidade_id), profile_setores(setor_id)')
     .eq('id', user.id)
     .single()
 
+  const profile = profileRaw ? {
+    ...profileRaw,
+    permitted_unidades: profileRaw.profile_unidades?.map((pu: any) => pu.unidade_id) || [],
+    permitted_setores: profileRaw.profile_setores?.map((ps: any) => ps.setor_id) || []
+  } : null
+
   // Permission Check
   if (profile?.role === 'coordenador') {
-    if (profile.unidade_id !== unidadeId) {
-      return <div>Acesso negado: Unidade não permitida.</div>
+    if (!hasUnitAccess(profile, unidadeId)) {
+      return <div className="p-8 text-center text-red-600 font-bold">Acesso negado: Unidade não permitida.</div>
     }
-    if (profile.setor_id && profile.setor_id !== setor) {
-      return <div>Acesso negado: Setor não permitido.</div>
+    if (!hasSectorAccess(profile, setor, unidadeId)) {
+      return <div className="p-8 text-center text-red-600 font-bold">Acesso negado: Setor não permitido.</div>
     }
   } else if (profile?.role === 'comum' || profile?.role === 'servidor') {
     // Check if the user is in the scale being viewed

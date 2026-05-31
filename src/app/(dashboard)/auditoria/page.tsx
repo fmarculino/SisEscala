@@ -504,6 +504,18 @@ export default function AuditoriaPage() {
 
   const totalPages = Math.ceil(totalCount / pageSize)
 
+  if (userProfile?.role === 'coordenador') {
+    return (
+      <div className="flex h-[50vh] items-center justify-center">
+        <div className="text-center space-y-4 max-w-md p-8 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
+          <AlertCircle className="mx-auto h-12 w-12 text-red-500" />
+          <h2 className="text-xl font-bold uppercase tracking-tight text-zinc-900 dark:text-white">Acesso Negado</h2>
+          <p className="text-zinc-500 text-sm">Você não tem permissão para acessar o Painel de Auditoria.</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-8">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">

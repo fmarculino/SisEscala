@@ -1,6 +1,7 @@
 import { createClient } from '@/utils/supabase/server'
 import { BarChart3, Download, ArrowLeft, Printer, FileSpreadsheet } from 'lucide-react'
 import Link from 'next/link'
+import { AcessoNegado } from '@/components/AcessoNegado'
 import { applyAccessFilters, type UserProfile } from '@/utils/permissions'
 import { ReportFiltersWrapper } from '@/app/(dashboard)/relatorios/_components/ReportFiltersWrapper'
 import { ReportActions } from '@/app/(dashboard)/relatorios/_components/ReportActions'
@@ -44,6 +45,10 @@ export default async function ConsolidadoPage({ searchParams }: Props) {
     .select('*, profile_unidades(unidade_id), profile_setores(setor_id)')
     .eq('id', user?.id)
     .single()
+
+  if (profile?.role === 'coordenador') {
+    return <AcessoNegado />
+  }
 
   const userProfile = profile ? {
     ...profile,

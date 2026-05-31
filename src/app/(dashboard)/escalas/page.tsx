@@ -201,8 +201,8 @@ export default function EscalasPage() {
     } else if (profile?.role === 'admin') {
       rolePermitted = hasSectorAccess(profile, e.setor_id, e.unidade_id)
     } else if (profile?.role === 'coordenador') {
-      // Regra restrita: Coordenador só vê se estiver vinculado ao setor
-      rolePermitted = profile.permitted_setores?.includes(e.setor_id)
+      // Regra restrita: Coordenador só vê se estiver vinculado ao setor ou se tiver acesso total aos setores da sua unidade
+      rolePermitted = hasSectorAccess(profile, e.setor_id, e.unidade_id)
     } else if (profile?.role === 'comum' || profile?.role === 'servidor') {
       rolePermitted = e.servidor_id === linkedServidorId
     }

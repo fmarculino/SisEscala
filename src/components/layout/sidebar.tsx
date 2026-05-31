@@ -124,10 +124,8 @@ export function Sidebar({ user }: { user?: any }) {
       }
       
       if (isCoord) {
-        // Coordenador não vê Cadastros nem Sistema
-        if (group.title === 'CADASTROS' || group.title === 'SISTEMA') return false
-        // Ocultar Relatórios de Auditoria & Gestão
-        if (item.name === 'Relatórios') return false
+        // Coordenador não vê Cadastros, Sistema nem Auditoria & Gestão
+        if (group.title === 'CADASTROS' || group.title === 'SISTEMA' || group.title === 'AUDITORIA & GESTÃO') return false
         return true
       }
 

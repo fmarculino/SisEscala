@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.1] - 2026-05-31
+
+### Added
+- **Restrição de Auditoria & Gestão**: Ocultação completa do grupo de menus `AUDITORIA & GESTÃO` no menu lateral para coordenadores. Proteção adicional de rotas em nível de página nas rotas `/auditoria` e `/relatorios` (e todas as suas subrotas `/rh`, `/frequencia`, `/consolidado`, `/distribuicao`), retornando a tela de `Acesso Negado` caso sejam acessadas diretamente.
+
+### Fixed
+- **Correção de Permissões de Coordenadores**: Ajuste na lógica das funções de permissão (`applyAccessFilters` e `hasSectorAccess`) para permitir que usuários com perfil `coordenador` que possuem `acesso_todos_setores = true` (como o Fernando Marculino) herdem corretamente todos os setores das suas unidades vinculadas.
+- **Grade de Escala (Muitos-para-Muitos)**: Refatoração da página de detalhe/grade de escala (`/escalas/unidade/[unidadeId]`) para carregar e validar as permissões a partir das tabelas relacionais `profile_unidades` e `profile_setores`, eliminando a dependência de colunas legadas `profile.unidade_id` e `profile.setor_id` (que ficavam nulas).
+- **Gestão de Afastamentos**: Restrição na listagem e na edição de afastamentos (`/afastamentos`) para garantir que coordenadores só vejam e editem ausências de servidores vinculados a unidades/setores que eles gerenciam.
+- **Validação de Setores no Registro de Frequência**: Atualização do script de migração da função de banco de dados `fn_confirmar_presenca` (em `supabase/migrations/20260528210000_update_fn_confirmar_presenca.sql`). O terminal de presença agora rejeita batidas de ponto de servidores cujas unidades/setores não estejam na lista de responsabilidades do coordenador ativo.
+
 ## [1.2.0] - 2026-05-28
 
 ### Added

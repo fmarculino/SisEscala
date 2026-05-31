@@ -7,7 +7,7 @@ import {
   Search, AlertTriangle, Building2, Layers, Users, Tag, Info, Edit2
 } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
-import { applyAccessFilters } from '@/utils/permissions'
+import { applyAccessFilters, hasSectorAccess } from '@/utils/permissions'
 
 interface Servidor {
   id: string
@@ -537,8 +537,14 @@ export default function AfastamentosPage() {
     }
   }
 
-  // Filter list of absences based on UI search/filters
+  // Filter list of absences based on UI search/filters and permissions
   const filteredAfastamentos = afastamentos.filter(a => {
+    // Verificar acesso do usuário logado (segurança adicional)
+    if (profile && profile.role !== 'super_admin') {
+      const hasAccess = hasSectorAccess(profile, a.servidores?.setor_id || '', a.servidores?.unidade_id)
+      if (!hasAccess) return false
+    }
+
     const term = searchTerm.toLowerCase()
     const nameMatches = (a.servidores?.nome || '').toLowerCase().includes(term)
     const matMatches = (a.servidores?.matricula || '').toLowerCase().includes(term)
@@ -548,7 +554,17 @@ export default function AfastamentosPage() {
   })
 
   // Get list of unique units in the database (for filter dropdown)
-  const uniqueUnits = Array.from(new Set(afastamentos.map(a => a.servidores?.unidades?.nome).filter(Boolean)))
+  const uniqueUnits = Array.from(new Set(
+    afastamentos
+      .filter(a => {
+        if (profile && profile.role !== 'super_admin') {
+          return hasSectorAccess(profile, a.servidores?.setor_id || '', a.servidores?.unidade_id)
+        }
+        return true
+      })
+      .map(a => a.servidores?.unidades?.nome)
+      .filter(Boolean)
+  ))
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto pb-24">
