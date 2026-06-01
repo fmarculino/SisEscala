@@ -280,7 +280,7 @@ export default function AfastamentosPage() {
     try {
       const { data: { user } } = await supabase.auth.getUser()
       
-      // 1. Validar conflito de presenças já confirmadas
+      // 1. Validar se o servidor possui alguma escala prevista no período
       const { data: monthlyScales } = await supabase
         .from('escala_mensal')
         .select('id, mes, ano')
@@ -290,26 +290,24 @@ export default function AfastamentosPage() {
         const ids = monthlyScales.map(m => m.id)
         const { data: dailies } = await supabase
           .from('escala_diaria')
-          .select('id, dia, escala_mensal_id, presenca_entrada_em, presenca_saida_em')
+          .select('id, dia, escala_mensal_id')
           .in('escala_mensal_id', ids)
-          .or('presenca_entrada_em.not.is.null,presenca_saida_em.not.is.null')
 
         if (dailies && dailies.length > 0) {
-          const hasPresenceConflict = dailies.some(d => {
+          const hasScaleConflict = dailies.some(d => {
             const mScale = monthlyScales.find(m => m.id === d.escala_mensal_id)
             if (!mScale) return false
             const dayDate = new Date(mScale.ano, mScale.mes - 1, d.dia)
             return dayDate >= start && dayDate <= end
           })
 
-          if (hasPresenceConflict) {
+          if (hasScaleConflict) {
             setSaving(false)
-            setConfirmModal({
+            setAlertModal({
               isOpen: true,
-              title: 'Presença Confirmada Detectada',
-              message: 'O servidor possui registros de presença confirmados neste período. Se prosseguir, estes registros de presença serão mantidos, mas novos turnos serão bloqueados e turnos planejados não confirmados serão removidos. Deseja continuar?',
-              type: 'warning',
-              onConfirm: () => executeInsertion(user?.id)
+              title: '⚠️ Conflito de Escala Detectado',
+              message: 'Não é permitido cadastrar o afastamento neste período pois o servidor possui escala prevista ou confirmada na grade. O coordenador deve primeiro remover a previsão da escala na grade da unidade.',
+              type: 'warning'
             })
             return
           }
@@ -488,7 +486,7 @@ export default function AfastamentosPage() {
     try {
       const { data: { user } } = await supabase.auth.getUser()
       
-      // 1. Validar conflito de presenças já confirmadas
+      // 1. Validar se o servidor possui alguma escala prevista no período
       const { data: monthlyScales } = await supabase
         .from('escala_mensal')
         .select('id, mes, ano')
@@ -498,26 +496,24 @@ export default function AfastamentosPage() {
         const ids = monthlyScales.map(m => m.id)
         const { data: dailies } = await supabase
           .from('escala_diaria')
-          .select('id, dia, escala_mensal_id, presenca_entrada_em, presenca_saida_em')
+          .select('id, dia, escala_mensal_id')
           .in('escala_mensal_id', ids)
-          .or('presenca_entrada_em.not.is.null,presenca_saida_em.not.is.null')
 
         if (dailies && dailies.length > 0) {
-          const hasPresenceConflict = dailies.some(d => {
+          const hasScaleConflict = dailies.some(d => {
             const mScale = monthlyScales.find(m => m.id === d.escala_mensal_id)
             if (!mScale) return false
             const dayDate = new Date(mScale.ano, mScale.mes - 1, d.dia)
             return dayDate >= start && dayDate <= end
           })
 
-          if (hasPresenceConflict) {
+          if (hasScaleConflict) {
             setSaving(false)
-            setConfirmModal({
+            setAlertModal({
               isOpen: true,
-              title: 'Presença Confirmada Detectada',
-              message: 'O servidor possui registros de presença confirmados neste período. Se prosseguir, estes registros de presença serão mantidos, mas novos turnos serão bloqueados e turnos planejados não confirmados serão removidos. Deseja continuar?',
-              type: 'warning',
-              onConfirm: () => executeUpdate(editingId, user?.id)
+              title: '⚠️ Conflito de Escala Detectado',
+              message: 'Não é permitido alterar o afastamento para este período pois o servidor possui escala prevista ou confirmada na grade. O coordenador deve primeiro remover a previsão da escala na grade da unidade.',
+              type: 'warning'
             })
             return
           }
