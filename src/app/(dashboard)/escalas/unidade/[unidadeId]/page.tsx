@@ -139,6 +139,7 @@ export default async function UnidadeEscalaPage({
       </div>
 
       <ScaleGrid
+        key={`${unidadeId}-${setor}-${mes}-${ano}`}
         unidadeId={unidadeId}
         setorId={setor}
         mes={parseInt(mes)}

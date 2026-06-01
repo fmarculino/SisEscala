@@ -87,8 +87,14 @@ export default function PresencaTerminalPage() {
 
       if (error) throw error
 
-      if (data.success) {
-        setStatus({ type: 'success', message: data.message })
+      // PostgREST might return the scalar jsonb result as an array or a flat object
+      const resultObj = Array.isArray(data) ? data[0] : data
+
+      if (resultObj && resultObj.success) {
+        setStatus({ 
+          type: 'success', 
+          message: resultObj.message || 'Presença confirmada com sucesso!' 
+        })
         // Clear inputs immediately
         setMatricula('')
         setPin('')
@@ -98,7 +104,10 @@ export default function PresencaTerminalPage() {
           matriculaInputRef.current?.focus()
         }, 3000)
       } else {
-        setStatus({ type: 'error', message: data.message })
+        setStatus({ 
+          type: 'error', 
+          message: (resultObj && resultObj.message) || 'Erro na validação: Verifique os dados inseridos ou a janela de horário.' 
+        })
         // Auto clear inputs and error message after 3 seconds for the next user
         setTimeout(() => {
           setStatus({ type: 'idle', message: '' })
@@ -108,7 +117,10 @@ export default function PresencaTerminalPage() {
         }, 3000)
       }
     } catch (err: any) {
-      setStatus({ type: 'error', message: err.message })
+      setStatus({ 
+        type: 'error', 
+        message: err?.message || 'Ocorreu um erro de rede ou de comunicação com o servidor.' 
+      })
       // Auto clear inputs and error message on exception after 3 seconds
       setTimeout(() => {
         setStatus({ type: 'idle', message: '' })
