@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.2] - 2026-06-01
+
+### Added
+- **Validação Cruzada de Escalas e Afastamentos (Banco de Dados)**:
+  - Adicionada trigger `trigger_prevent_event_during_shift` na tabela `servidores_eventos` que impede o cadastro ou alteração de férias/afastamento se o servidor possuir escala prevista ou confirmada (`escala_diaria`) no mesmo período.
+  - Adicionada trigger `trigger_prevent_shift_during_event` na tabela `escala_diaria` que impede o lançamento ou alteração de escalas em datas em que o servidor possua afastamento ativo (respeitando as regras globais de governança).
+
+### Fixed
+- **Validação Preventiva de Afastamento na UI**: Refatoração das funções `handleAddAfastamento` e `handleUpdateAfastamento` na tela de Gestão de Afastamentos (`/afastamentos`). O sistema agora impede preventivamente o cadastro/alteração caso exista qualquer escala agendada para o período e exibe um alerta orientando a remoção prévia na grade.
+- **Resolução de Inconsistência de Carga Horária (Caso Raimundo da Cruz Ferreira)**: Exclusão de registro de escala e logs de ponto incoerentes para o dia 01/06/2026, eliminando a sobreposição visual de "Férias" com cômputo de horas trabalhadas na escala do servidor.
+
 ## [1.2.1] - 2026-05-31
 
 ### Added
