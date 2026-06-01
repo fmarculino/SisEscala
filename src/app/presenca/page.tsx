@@ -12,6 +12,7 @@ export default function PresencaTerminalPage() {
   const [authError, setAuthError] = useState<string | null>(null)
   const [showSupervisorPassword, setShowSupervisorPassword] = useState(false)
   const matriculaInputRef = useRef<HTMLInputElement>(null)
+  const pinInputRef = useRef<HTMLInputElement>(null)
   
   // Terminal states
   const [matricula, setMatricula] = useState('')
@@ -282,12 +283,19 @@ export default function PresencaTerminalPage() {
                   placeholder="000000"
                   value={matricula}
                   onChange={(e) => setMatricula(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      pinInputRef.current?.focus()
+                    }
+                  }}
                 />
               </div>
               <div className="space-y-2">
                 <label className="text-xs font-black text-zinc-400 uppercase tracking-widest ml-1">PIN Individual</label>
                 <input 
                   type="password"
+                  ref={pinInputRef}
                   name="confirmacao_pin"
                   id="confirmacao_pin"
                   required
