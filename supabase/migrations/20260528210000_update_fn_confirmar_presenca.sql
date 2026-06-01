@@ -143,10 +143,12 @@ BEGIN
             v_end_ontem INTEGER;
             v_fim_ontem_minutos INTEGER;
             v_cat_ontem TEXT;
+            v_jornada_nome_ontem TEXT;
+            v_turno_codigo_ontem TEXT;
         BEGIN
             -- Check if there are any unfinished scale records from yesterday
-            SELECT em.id, em.unidade_id, ed.presenca_entrada_em, ed.presenca_saida_em, dt.slots, dt.horas_computadas, j.horas_totais, ed.categoria::text
-            INTO v_mensal_ontem, v_unid_ontem, v_ent_ontem, v_sai_ontem, dt_slots_ontem, dt_horas_ontem, v_jornada_ontem, v_cat_ontem
+            SELECT em.id, em.unidade_id, ed.presenca_entrada_em, ed.presenca_saida_em, dt.slots, dt.horas_computadas, j.horas_totais, ed.categoria::text, j.nome, dt.codigo
+            INTO v_mensal_ontem, v_unid_ontem, v_ent_ontem, v_sai_ontem, dt_slots_ontem, dt_horas_ontem, v_jornada_ontem, v_cat_ontem, v_jornada_nome_ontem, v_turno_codigo_ontem
             FROM public.escala_diaria ed
             JOIN public.escala_mensal em ON ed.escala_mensal_id = em.id
             JOIN public.dicionario_turnos dt ON ed.dicionario_turnos_id = dt.id
@@ -161,16 +163,41 @@ BEGIN
             LIMIT 1;
 
             IF v_mensal_ontem IS NOT NULL THEN
-                v_start_ontem := CASE 
-                    WHEN dt_slots_ontem[1] ~ '^[0-9]+$' THEN dt_slots_ontem[1]::integer
-                    WHEN dt_slots_ontem[1] = 'M' THEN 7
-                    WHEN dt_slots_ontem[1] = 'T' THEN 13
-                    WHEN dt_slots_ontem[1] = 'N' THEN 19
-                    ELSE 7
+                DECLARE
+                    v_jornada_parsed BOOLEAN := false;
+                    v_jornada_start INTEGER;
+                    v_jornada_end INTEGER;
+                BEGIN
+                    IF v_jornada_nome_ontem IS NOT NULL THEN
+                        v_jornada_start := substring(v_jornada_nome_ontem from '^([0-9]+)')::integer;
+                        v_jornada_end := substring(v_jornada_nome_ontem from '(?:ÀS|AS|as|às)\s*([0-9]+)')::integer;
+                        
+                        IF v_jornada_start IS NOT NULL AND v_jornada_end IS NOT NULL THEN
+                            v_jornada_parsed := true;
+                            v_start_ontem := v_jornada_start;
+                            
+                            IF v_jornada_end < v_jornada_start THEN
+                                v_end_ontem := v_jornada_end + 24;
+                            ELSE
+                                v_end_ontem := v_jornada_end;
+                            END IF;
+                        END IF;
+                    END IF;
+
+                    IF NOT v_jornada_parsed THEN
+                        v_start_ontem := CASE 
+                            WHEN v_turno_codigo_ontem = 'T4' THEN 14
+                            WHEN dt_slots_ontem[1] ~ '^[0-9]+$' THEN dt_slots_ontem[1]::integer
+                            WHEN dt_slots_ontem[1] = 'M' THEN 7
+                            WHEN dt_slots_ontem[1] = 'T' THEN 13
+                            WHEN dt_slots_ontem[1] = 'N' THEN 19
+                            ELSE 7
+                        END;
+                        
+                        v_duration_ontem := CASE WHEN v_jornada_ontem IS NOT NULL AND v_jornada_ontem > 0 THEN v_jornada_ontem ELSE COALESCE(dt_horas_ontem, 0) END;
+                        v_end_ontem := v_start_ontem + v_duration_ontem;
+                    END IF;
                 END;
-                
-                v_duration_ontem := CASE WHEN v_jornada_ontem IS NOT NULL AND v_jornada_ontem > 0 THEN v_jornada_ontem ELSE COALESCE(dt_horas_ontem, 0) END;
-                v_end_ontem := v_start_ontem + v_duration_ontem;
                 
                 -- Check if the yesterday's shift ended after midnight
                 IF v_end_ontem > 24 THEN
@@ -216,7 +243,7 @@ BEGIN
         v_completed_shifts_count INTEGER := 0;
     BEGIN
         FOR r IN 
-            SELECT ed.id as escala_diaria_id, em.id as escala_mensal_id, em.unidade_id, ed.presenca_entrada_em, ed.presenca_saida_em, dt.horas_computadas, dt.slots, j.horas_totais, ed.categoria
+            SELECT ed.id as escala_diaria_id, em.id as escala_mensal_id, em.unidade_id, ed.presenca_entrada_em, ed.presenca_saida_em, dt.horas_computadas, dt.slots, j.horas_totais, dt.codigo as turno_codigo, j.nome as jornada_nome, j.intervalo_minutos as jornada_intervalo, ed.categoria
             FROM public.escala_diaria ed
             JOIN public.escala_mensal em ON ed.escala_mensal_id = em.id
             JOIN public.dicionario_turnos dt ON ed.dicionario_turnos_id = dt.id
@@ -234,25 +261,56 @@ BEGIN
                 CONTINUE;
             END IF;
 
-            -- Calculate start hour
-            IF r.slots IS NOT NULL AND array_length(r.slots, 1) > 0 THEN
-                v_start_hour := CASE 
-                    WHEN r.slots[1] ~ '^[0-9]+$' THEN r.slots[1]::integer
-                    WHEN r.slots[1] = 'M' THEN 7
-                    WHEN r.slots[1] = 'T' THEN 13
-                    WHEN r.slots[1] = 'N' THEN 19
-                    ELSE 7
-                END;
-            ELSE
-                v_start_hour := 7;
-            END IF;
+            -- Calculate start and end hour dynamically based on journey name if available
+            DECLARE
+                v_jornada_parsed BOOLEAN := false;
+                v_jornada_start INTEGER;
+                v_jornada_end INTEGER;
+            BEGIN
+                IF r.jornada_nome IS NOT NULL THEN
+                    v_jornada_start := substring(r.jornada_nome from '^([0-9]+)')::integer;
+                    v_jornada_end := substring(r.jornada_nome from '(?:ÀS|AS|as|às)\s*([0-9]+)')::integer;
+                    
+                    IF v_jornada_start IS NOT NULL AND v_jornada_end IS NOT NULL THEN
+                        v_jornada_parsed := true;
+                        v_start_hour := v_jornada_start;
+                        
+                        -- If end hour is less than start hour, it crosses midnight (e.g. 19H ÀS 07H)
+                        IF v_jornada_end < v_jornada_start THEN
+                            v_fim_turno_minutos := (v_jornada_end + 24) * 60;
+                        ELSE
+                            v_fim_turno_minutos := v_jornada_end * 60;
+                        END IF;
+                    END IF;
+                END IF;
 
-            v_inicio_turno_minutos := v_start_hour * 60;
-            
-            v_regular_duracao_minutos := (CASE 
-                WHEN r.horas_totais IS NOT NULL AND r.horas_totais > 0 THEN r.horas_totais 
-                ELSE COALESCE(r.horas_computadas, 0) 
-            END * 60)::integer;
+                IF NOT v_jornada_parsed THEN
+                    -- Fallback to original logic based on dictionary slots
+                    IF r.slots IS NOT NULL AND array_length(r.slots, 1) > 0 THEN
+                        v_start_hour := CASE 
+                            WHEN r.turno_codigo = 'T4' THEN 14 -- Special rule for T4
+                            WHEN r.slots[1] ~ '^[0-9]+$' THEN r.slots[1]::integer
+                            WHEN r.slots[1] = 'M' THEN 7
+                            WHEN r.slots[1] = 'T' THEN 13
+                            WHEN r.slots[1] = 'N' THEN 19
+                            ELSE 7
+                        END;
+                    ELSE
+                        v_start_hour := 7;
+                    END IF;
+
+                    v_inicio_turno_minutos := v_start_hour * 60;
+                    
+                    v_regular_duracao_minutos := (CASE 
+                        WHEN r.horas_totais IS NOT NULL AND r.horas_totais > 0 THEN r.horas_totais 
+                        ELSE COALESCE(r.horas_computadas, 0) 
+                    END * 60)::integer;
+                    
+                    v_fim_turno_minutos := v_inicio_turno_minutos + v_regular_duracao_minutos;
+                ELSE
+                    v_inicio_turno_minutos := v_start_hour * 60;
+                END IF;
+            END;
             
             -- Check for associated Extra shift today
             SELECT ed.id, dt.horas_computadas, ed.presenca_entrada_em, ed.presenca_saida_em
@@ -266,11 +324,8 @@ BEGIN
 
             IF v_extra_id IS NOT NULL THEN
                 v_extra_duracao_minutos := (COALESCE(v_extra_duration, 0) * 60)::integer;
-            ELSE
-                v_extra_duracao_minutos := 0;
+                v_fim_turno_minutos := v_fim_turno_minutos + v_extra_duracao_minutos;
             END IF;
-            
-            v_fim_turno_minutos := v_inicio_turno_minutos + v_regular_duracao_minutos + v_extra_duracao_minutos;
 
             -- Check windows
             IF r.presenca_entrada_em IS NULL THEN
