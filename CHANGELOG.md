@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.3] - 2026-06-02
+
+### Added
+- **Suporte a Blocos de Trabalho Contíguos no Terminal de Presença**:
+  - A função de banco de dados `fn_confirmar_presenca` foi refatorada para identificar e mesclar automaticamente turnos contíguos ou sobrepostos de um mesmo servidor em um único "Bloco Lógico de Trabalho".
+  - **Cenário resolvido**: Servidor com horário regular `T` (13h–19h) que possui um plantão extra `M` (07h–13h) agora consegue registrar a entrada às 07h e a saída às 19h em uma única passagem pelo terminal, marcando ambas as categorias simultaneamente.
+  - A janela de tolerância de ponto (+/- 30 min padrão) é aplicada ao **início do primeiro turno** e ao **fim do último turno** do bloco mesclado.
+  - A lógica de mesclagem cross-midnight (plantão de ontem que termina hoje) foi preservada e estendida para o novo algoritmo.
+
+### Fixed
+- **Sobreposição de Funções no PostgreSQL (Function Overloading)**: A adição do parâmetro opcional `p_momento_simulado` à `fn_confirmar_presenca` gerava uma sobrecarga de função no Postgres, mantendo a versão antiga de 3 parâmetros ativa. Adicionado `DROP FUNCTION IF EXISTS public.fn_confirmar_presenca(text, text, uuid)` na migration para garantir que apenas a versão atualizada (4 parâmetros, com default `NULL`) permaneça ativa.
+- **Compatibilidade Total**: Chamadas existentes com 3 parâmetros continuam funcionando sem alteração via valor padrão do parâmetro `p_momento_simulado = NULL`.
+
 ## [1.2.2] - 2026-06-01
 
 ### Added
