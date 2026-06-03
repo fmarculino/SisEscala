@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.4] - 2026-06-03
+
+### Added
+- **Seleção de Servidor Externo para Coordenadores/Admins**: 
+  - Criação da função de banco de dados `get_external_servers_for_scale` (RPC com `SECURITY DEFINER`) para buscar servidores ativos de setores externos bypassing RLS de forma segura.
+  - Atualização da política de RLS `Users can view relevant servers` na tabela `public.servidores` para permitir leitura de dados dos servidores quando estiverem escalados em escalas vinculadas às permissões do usuário logado.
+- **Restrição Dinâmica de Acionamento de Sobreaviso**:
+  - Implementada restrição horária de acionamento em tempo real no arquivo `ScaleGrid.tsx` baseando-se no prefixo do código do turno (ex: noturnos `N...` ativos das 19h às 07h; vespertinos `T...` das 13h às 19h; matutinos `M...` das 07h às 13h; diurnos `D...`/`MT` das 07h às 19h; 24h `MTN` das 07h às 07h). Isso impede acionamento de profissionais fora do período de sua escala.
+
+### Fixed
+- **Inconsistência na Seleção e Cálculo de Turnos de Sobreaviso**:
+  - Corrigida filtragem do datalist `turnos-sobreaviso-list` para listar dinamicamente apenas turnos do tipo `Sobreaviso` (mostrando assim `D12` e `N12` no dropdown, em vez de plantões comuns que causavam erro de validação).
+  - Atualizada validação de digitação de caracteres nas células para suportar prefixos de turnos de sobreaviso.
+  - Correção na soma de horas de sobreaviso planejadas e validadas (no grid e nos relatórios consolidado e de RH) para ler dinamicamente o campo `horas_computadas` de cada turno, evitando que novos turnos como `D12` e `N12` somassem 0 horas.
+
 ## [1.2.3] - 2026-06-02
 
 ### Added
