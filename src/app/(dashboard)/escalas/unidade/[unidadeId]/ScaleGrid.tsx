@@ -1823,17 +1823,26 @@ export function ScaleGrid({
                           let endHour = 16 // Padrão para MT: 07h às 16h
                           let endDayOffset = 0
                       
-                          if (turno.codigo === 'N' || turno.codigo === 'N12') {
+                          const code = turno.codigo || ''
+                          if (code.startsWith('MTN')) {
+                            startHour = 7
+                            endHour = 7
+                            endDayOffset = 1
+                          } else if (code.startsWith('N')) {
                             startHour = 19
                             endHour = 7
                             endDayOffset = 1
-                          } else if (turno.codigo === 'MTN') {
-                            startHour = 7
-                            endHour = 7
-                            endDayOffset = 1
-                          } else if (turno.codigo === 'D12') {
-                            startHour = 7
+                          } else if (code.startsWith('T')) {
+                            startHour = 13
                             endHour = 19
+                            endDayOffset = 0
+                          } else if (code.startsWith('M') && !code.startsWith('MT')) {
+                            startHour = 7
+                            endHour = 13
+                            endDayOffset = 0
+                          } else if (code.startsWith('D') || code.startsWith('MT')) {
+                            startHour = 7
+                            endHour = (code === 'MT') ? 16 : 19
                             endDayOffset = 0
                           }
                       
