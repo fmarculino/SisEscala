@@ -956,7 +956,10 @@ export function ScaleGrid({
       const presence = (pServ?.['Sobreaviso'] || pServ?.['sobreaviso'])?.[d]
 
       const code = t.codigo?.toUpperCase().trim() || ''
-      const horas = (code === 'MTN') ? 24 : (code === 'MT' || code === 'N' ? 12 : 0)
+      let horas = Number(t.horas_computadas) || 0
+      if (horas === 0) {
+        horas = (code === 'MTN') ? 24 : (code === 'MT' || code === 'N' ? 12 : 0)
+      }
       const periods = horas / 12
       
       p_so12 += periods
@@ -1820,7 +1823,7 @@ export function ScaleGrid({
                           let endHour = 16 // Padrão para MT: 07h às 16h
                           let endDayOffset = 0
                       
-                          if (turno.codigo === 'N') {
+                          if (turno.codigo === 'N' || turno.codigo === 'N12') {
                             startHour = 19
                             endHour = 7
                             endDayOffset = 1
@@ -1828,6 +1831,10 @@ export function ScaleGrid({
                             startHour = 7
                             endHour = 7
                             endDayOffset = 1
+                          } else if (turno.codigo === 'D12') {
+                            startHour = 7
+                            endHour = 19
+                            endDayOffset = 0
                           }
                       
                           const start = new Date(ano, mes - 1, day, startHour, 0, 0)
@@ -1931,8 +1938,9 @@ export function ScaleGrid({
                                   disabled={isClosed && userProfile?.role !== 'admin' && userProfile?.role !== 'super_admin'}
                                   onChange={(e) => {
                                     const val = e.target.value.toUpperCase()
-                                    if (cat === 'Sobreaviso' && val !== '' && val !== 'MT' && val !== 'N' && val !== 'MTN') {
-                                      return
+                                    if (cat === 'Sobreaviso' && val !== '') {
+                                      const hasMatch = turnos.some(x => x.tipo === 'Sobreaviso' && x.codigo.startsWith(val))
+                                      if (!hasMatch) return
                                     }
                                     const t = turnos.find(x => x.codigo === val)
                                     handleCellChange(em.servidor_id, cat, day, t?.id || '')
@@ -2263,7 +2271,7 @@ export function ScaleGrid({
         </datalist>
 
         <datalist id="turnos-sobreaviso-list">
-          {turnos.filter(t => t.ativo !== false && (t.codigo === 'MT' || t.codigo === 'N' || t.codigo === 'MTN')).map(t => (
+          {turnos.filter(t => t.ativo !== false && t.tipo === 'Sobreaviso').map(t => (
             <option key={t.id} value={t.codigo}>{t.descricao}</option>
           ))}
         </datalist>

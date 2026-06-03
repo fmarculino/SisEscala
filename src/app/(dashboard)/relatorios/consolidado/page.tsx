@@ -140,8 +140,10 @@ export default async function ConsolidadoPage({ searchParams }: Props) {
       } else if (cat === 'Plantão') {
         totals.plantao += horas
       } else if (cat === 'Sobreaviso') {
-        // Calculation: MTN=24h, MT/N=12h
-        const val = (t.codigo === 'MTN') ? 24 : (t.codigo === 'MT' || t.codigo === 'N' ? 12 : 0)
+        let val = Number(t.horas_computadas) || 0
+        if (val === 0) {
+          val = (t.codigo === 'MTN') ? 24 : (t.codigo === 'MT' || t.codigo === 'N' ? 12 : 0)
+        }
         totals.sobreaviso += val
       }
     })

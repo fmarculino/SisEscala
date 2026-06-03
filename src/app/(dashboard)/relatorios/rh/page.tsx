@@ -128,7 +128,10 @@ export default async function RelatorioRHPage() {
                 plTotal += horas
               } else if (cat === 'Sobreaviso') {
                 const code = t.codigo?.toUpperCase() || ''
-                const val = (code === 'MTN') ? 2 : (code === 'MT' || code === 'N' ? 1 : 0)
+                let val = Math.round(Number(t.horas_computadas || 0) / 12)
+                if (val === 0) {
+                  val = (code === 'MTN') ? 2 : (code === 'MT' || code === 'N' ? 1 : 0)
+                }
                 sobCount += val
               }
             })
@@ -208,7 +211,10 @@ export default async function RelatorioRHPage() {
                     plTotal += horas
                   } else if (cat === 'Sobreaviso') {
                     const code = t.codigo?.toUpperCase() || ''
-                    const val = (code === 'MTN') ? 2 : (code === 'MT' || code === 'N' ? 1 : 0)
+                    let val = Math.round(Number(t.horas_computadas || 0) / 12)
+                    if (val === 0) {
+                      val = (code === 'MTN') ? 2 : (code === 'MT' || code === 'N' ? 1 : 0)
+                    }
                     sobCount += val
                   }
                 })
