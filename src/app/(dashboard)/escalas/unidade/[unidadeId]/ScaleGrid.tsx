@@ -265,11 +265,7 @@ export function ScaleGrid({
     const fetchExtServers = async () => {
       if (externalData.setorId) {
         const { data } = await supabase
-          .from('servidores')
-          .select('*')
-          .eq('setor_id', externalData.setorId)
-          .eq('status', 'Ativo')
-          .order('nome')
+          .rpc('get_external_servers_for_scale', { p_setor_id: externalData.setorId })
         setExternalServers(data || [])
         setExternalData(prev => ({ ...prev, servidorId: '' }))
       }
