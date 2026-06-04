@@ -1239,3 +1239,13 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
   }
 }
 
+export async function checkFolhaPontoHabilitada() {
+  const supabase = await createAdminClient()
+  const { data } = await supabase
+    .from('configuracoes_globais')
+    .select('valor')
+    .eq('chave', 'folha_ponto_habilitada')
+    .single()
+  return data?.valor === true || data?.valor?.toString() === 'true'
+}
+

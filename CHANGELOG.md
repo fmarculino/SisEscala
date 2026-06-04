@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.9] - 2026-06-04
+
+### Fixed
+- **Exibição da Aba Folha de Ponto no Portal do Servidor**:
+  - Corrigido o bug onde a aba "Folha de Ponto" não era exibida no Portal do Servidor. O problema ocorria porque a verificação se o módulo estava ativo consultava a tabela `configuracoes_globais` diretamente no cliente Supabase (em modo anônimo), o que falhava devido às políticas de RLS que restringem consultas de configurações a usuários autenticados.
+  - Implementada a Server Action `checkFolhaPontoHabilitada` que consulta a configuração no backend de forma segura usando o `createAdminClient` e retorna o status para o portal.
+
 ## [1.2.8] - 2026-06-04
 
 ### Fixed

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { validatePin, getServidorEscalas, logoutPortal, findServidorByMatricula, getEscalaDetails, createSwapRequest, getSwapRequests, cancelSwapRequest, getFolhaPontoServidor, salvarFolhaPontoServidor, verificarDivergenciaEscalaServidor, sincronizarFolhaPontoServidor, gerarFolhaPontoServidor } from './actions'
+import { validatePin, getServidorEscalas, logoutPortal, findServidorByMatricula, getEscalaDetails, createSwapRequest, getSwapRequests, cancelSwapRequest, getFolhaPontoServidor, salvarFolhaPontoServidor, verificarDivergenciaEscalaServidor, sincronizarFolhaPontoServidor, gerarFolhaPontoServidor, checkFolhaPontoHabilitada } from './actions'
 import { FolhaPontoEditor } from '@/app/(dashboard)/folha-ponto/[id]/FolhaPontoEditor'
 import { createClient } from '@/utils/supabase/client'
 import { Loader2, Calendar, FileText, LogOut, Search, Lock, User, ArrowRightLeft, X, Eye, EyeOff, Printer } from 'lucide-react'
@@ -32,17 +32,15 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
   // Check database configuration
   useEffect(() => {
     async function checkConfig() {
-      const { data } = await supabase
-        .from('configuracoes_globais')
-        .select('valor')
-        .eq('chave', 'folha_ponto_habilitada')
-        .single()
-      if (data) {
-        setFolhaHabilitada(data.valor === true)
+      try {
+        const enabled = await checkFolhaPontoHabilitada()
+        setFolhaHabilitada(enabled)
+      } catch (err) {
+        console.error('Erro ao verificar config da folha:', err)
       }
     }
     checkConfig()
-  }, [supabase])
+  }, [])
 
   // Load folha action
   async function handleViewFolha() {
