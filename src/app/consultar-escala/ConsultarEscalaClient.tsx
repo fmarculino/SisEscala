@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { validatePin, getServidorEscalas, logoutPortal, findServidorByMatricula, getEscalaDetails, createSwapRequest, getSwapRequests, cancelSwapRequest, getFolhaPontoServidor } from './actions'
+import { validatePin, getServidorEscalas, logoutPortal, findServidorByMatricula, getEscalaDetails, createSwapRequest, getSwapRequests, cancelSwapRequest, getFolhaPontoServidor, salvarFolhaPontoServidor, verificarDivergenciaEscalaServidor, sincronizarFolhaPontoServidor, gerarFolhaPontoServidor } from './actions'
+import { FolhaPontoEditor } from '@/app/(dashboard)/folha-ponto/[id]/FolhaPontoEditor'
 import { createClient } from '@/utils/supabase/client'
 import { Loader2, Calendar, FileText, LogOut, Search, Lock, User, ArrowRightLeft, X, Eye, EyeOff, Printer } from 'lucide-react'
 import { ScalePrintView } from '@/components/ScalePrintView'
@@ -25,6 +26,7 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
   const [viewMode, setViewMode] = useState<'escala' | 'folha'>('escala')
   const [folhaData, setFolhaData] = useState<any | null>(null)
   const [loadingFolha, setLoadingFolha] = useState(false)
+  const [generatingPortalFolha, setGeneratingPortalFolha] = useState(false)
   const supabase = createClient()
 
   // Check database configuration
@@ -59,6 +61,29 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
       setError('Erro ao carregar folha de ponto: ' + err.message)
     } finally {
       setLoadingFolha(false)
+    }
+  }
+
+  async function handleGerarFolhaServidor() {
+    if (!selectedEscala || !servidor) return
+    setGeneratingPortalFolha(true)
+    setError(null)
+    try {
+      const myEM = fullEscalaData?.escalaMensal.find((em: any) => em.servidor_id === servidor.id)
+      const scaleStatus = myEM?.status || 'Em Andamento'
+      const forcarRascunho = scaleStatus === 'Em Andamento'
+
+      const res = await gerarFolhaPontoServidor(servidor.id, selectedEscala.mes, selectedEscala.ano, forcarRascunho)
+      if (res.error) {
+        setError(res.error)
+      } else {
+        // Reload folha
+        await handleViewFolha()
+      }
+    } catch (err: any) {
+      setError('Erro ao gerar folha de ponto: ' + err.message)
+    } finally {
+      setGeneratingPortalFolha(false)
     }
   }
 
@@ -384,9 +409,9 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
 
   return (
     <>
-    <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 space-y-6 print:hidden">
+    <div className={`max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 space-y-6 print:p-0 print:m-0 print:max-w-none ${viewMode === 'escala' ? 'print:hidden' : ''}`}>
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white dark:bg-zinc-900 p-6 rounded-2xl shadow-sm border border-zinc-200 dark:border-zinc-800">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white dark:bg-zinc-900 p-6 rounded-2xl shadow-sm border border-zinc-200 dark:border-zinc-800 print:hidden">
         <div>
           <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Olá, {servidor.nome}</h1>
           <p className="text-sm text-zinc-500 dark:text-zinc-400">Portal do Servidor - Consulta de Escalas</p>
@@ -400,9 +425,9 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 print:block print:w-full">
         {/* Scales List */}
-        <div className="lg:col-span-1 space-y-4">
+        <div className="lg:col-span-1 space-y-4 print:hidden">
           <h3 className="text-sm font-bold uppercase tracking-wider text-zinc-500 flex items-center gap-2">
             <FileText className="h-4 w-4" />
             Minhas Escalas
@@ -438,52 +463,54 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
         </div>
 
         {/* Scale View */}
-        <div className="lg:col-span-3">
+        <div className="lg:col-span-3 print:w-full print:block print:p-0">
           {loadingEscala ? (
-            <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800">
+<div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800">
               <Loader2 className="h-10 w-10 animate-spin text-blue-600 mb-4" />
               <p className="text-zinc-500">Carregando detalhes da escala...</p>
             </div>
           ) : fullEscalaData ? (
              <div className="space-y-4">
-                <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center bg-white dark:bg-zinc-900 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 gap-4">
-                   {folhaHabilitada ? (
-                     <div className="flex bg-zinc-100 dark:bg-zinc-800 p-1 rounded-xl w-fit">
-                       <button
-                         onClick={() => setViewMode('escala')}
-                         className={`px-4 py-2 text-xs font-black uppercase rounded-lg transition-all ${
-                           viewMode === 'escala'
-                             ? 'bg-white dark:bg-zinc-900 text-blue-600 shadow-sm'
-                             : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300'
-                         }`}
+                <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center bg-white dark:bg-zinc-900 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 gap-4 print:hidden">
+                     {folhaHabilitada ? (
+                       <div className="flex bg-zinc-100 dark:bg-zinc-800 p-1 rounded-xl w-fit">
+                         <button
+                           onClick={() => setViewMode('escala')}
+                           className={`px-4 py-2 text-xs font-black uppercase rounded-lg transition-all ${
+                             viewMode === 'escala'
+                               ? 'bg-white dark:bg-zinc-900 text-blue-600 shadow-sm'
+                               : 'text-zinc-500 hover:text-zinc-850 dark:hover:text-zinc-300'
+                           }`}
+                         >
+                           📅 Escala
+                         </button>
+                         <button
+                           onClick={handleViewFolha}
+                           className={`px-4 py-2 text-xs font-black uppercase rounded-lg transition-all ${
+                             viewMode === 'folha'
+                               ? 'bg-white dark:bg-zinc-900 text-blue-600 shadow-sm'
+                               : 'text-zinc-500 hover:text-zinc-850 dark:hover:text-zinc-300'
+                           }`}
+                         >
+                           📄 Folha de Ponto
+                         </button>
+                       </div>
+                     ) : (
+                       <div className="flex items-center gap-2">
+                         <span className="w-3 h-3 rounded-full bg-green-500 animate-pulse"></span>
+                         <span className="text-sm font-bold uppercase text-zinc-900 dark:text-white">Escala Liberada para Consulta</span>
+                       </div>
+                     )}
+                     
+                     {viewMode === 'escala' && (
+                       <button 
+                         onClick={() => window.print()}
+                         className="flex items-center justify-center gap-2 bg-zinc-900 dark:bg-white text-white dark:text-black px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider hover:opacity-90 transition-all shadow-md"
                        >
-                         📅 Escala
+                         <Printer className="h-4 w-4" /> Imprimir Escala
                        </button>
-                       <button
-                         onClick={handleViewFolha}
-                         className={`px-4 py-2 text-xs font-black uppercase rounded-lg transition-all ${
-                           viewMode === 'folha'
-                             ? 'bg-white dark:bg-zinc-900 text-blue-600 shadow-sm'
-                             : 'text-zinc-500 hover:text-zinc-850 dark:hover:text-zinc-300'
-                         }`}
-                       >
-                         📄 Folha de Ponto
-                       </button>
-                     </div>
-                   ) : (
-                     <div className="flex items-center gap-2">
-                       <span className="w-3 h-3 rounded-full bg-green-500 animate-pulse"></span>
-                       <span className="text-sm font-bold uppercase text-zinc-900 dark:text-white">Escala Liberada para Consulta</span>
-                     </div>
-                   )}
-                   
-                   <button 
-                     onClick={() => window.print()}
-                     className="flex items-center justify-center gap-2 bg-zinc-900 dark:bg-white text-white dark:text-black px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider hover:opacity-90 transition-all shadow-md"
-                   >
-                     <Printer className="h-4 w-4" /> Imprimir {viewMode === 'escala' ? 'Escala' : 'Folha'}
-                   </button>
-                </div>
+                     )}
+                  </div>
                 
                 {viewMode === 'escala' && (
                   <>
@@ -606,192 +633,60 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
                    </div>
                  )}
                </div>
-                  </>
-                )}
+              </>
+            )}
 
-                {viewMode === 'folha' && (
-                  <div className="space-y-6">
-                    {loadingFolha ? (
-                      <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800">
-                        <Loader2 className="h-10 w-10 animate-spin text-blue-600 mb-4" />
-                        <p className="text-zinc-500 font-bold uppercase tracking-wider text-xs">Carregando folha de ponto...</p>
-                      </div>
-                    ) : !folhaData ? (
-                      <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-zinc-900 rounded-2xl border border-dashed border-zinc-300 dark:border-zinc-700">
-                        <FileText className="h-12 w-12 text-zinc-300 mb-4 font-normal" />
-                        <p className="text-zinc-500 font-black uppercase tracking-tight text-sm">Folha não gerada</p>
-                        <p className="text-xs text-zinc-400 mt-1">Sua folha de ponto para este período ainda não foi gerada ou revisada pela coordenação.</p>
-                      </div>
-                    ) : (
-                      <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-xl overflow-hidden print-full-width">
-                        {/* Document Header */}
-                        <div className="p-8 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 print:bg-white print:border-zinc-300 print:p-4">
-                          <div className="flex flex-col sm:flex-row justify-between items-start gap-4 mb-6">
-                            <div className="flex items-center gap-4">
-                              {(folhaData.escala?.setores?.logo_url || folhaData.escala?.unidades?.logo_url) && (
-                                <div className="h-12 w-24 border border-zinc-200 dark:border-zinc-800 rounded-lg p-1 bg-white flex items-center justify-center">
-                                  <img 
-                                    src={folhaData.escala.setores.logo_url || folhaData.escala.unidades.logo_url} 
-                                    alt="Logo municipal" 
-                                    className="max-h-full max-w-full object-contain"
-                                  />
-                                </div>
-                              )}
-                              <div className="space-y-0.5">
-                                <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-600 print:text-black">Prefeitura Municipal</h2>
-                                <h3 className="text-lg font-black text-zinc-900 dark:text-white uppercase print:text-black tracking-tight">Folha de Ponto Mensal</h3>
-                                <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider print:text-zinc-500">Espelho Oficial de Frequência Individual</p>
-                              </div>
-                            </div>
-                            <div className="text-left sm:text-right">
-                              <div className="text-[9px] font-black uppercase text-zinc-400">Competência</div>
-                              <div className="text-lg font-bold text-zinc-900 dark:text-white uppercase print:text-black">
-                                {mesExtenso} / {folhaData.ano}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-xs print:grid-cols-4 print:gap-4 print:text-[8px]">
-                            <div>
-                              <div className="text-[9px] font-black uppercase text-zinc-400 mb-0.5">Servidor</div>
-                              <div className="font-bold text-zinc-900 dark:text-white uppercase">{folhaData.servidores.nome}</div>
-                              <div className="text-[10px] text-zinc-500 font-bold">Matrícula: {folhaData.servidores.matricula || '---'}</div>
-                            </div>
-                            <div>
-                              <div className="text-[9px] font-black uppercase text-zinc-400 mb-0.5">Cargo / Vínculo</div>
-                              <div className="font-bold text-zinc-900 dark:text-white uppercase">{folhaData.servidores.cargo || '---'}</div>
-                              <div className="text-[10px] text-zinc-500">{folhaData.servidores.vinculo || '---'}</div>
-                            </div>
-                            <div>
-                              <div className="text-[9px] font-black uppercase text-zinc-400 mb-0.5">Unidade</div>
-                              <div className="font-bold text-zinc-900 dark:text-white uppercase">{folhaData.escala.unidades.nome}</div>
-                              <div className="text-[10px] text-zinc-500 truncate">{folhaData.escala.unidades.endereco || '---'}</div>
-                            </div>
-                            <div>
-                              <div className="text-[9px] font-black uppercase text-zinc-400 mb-0.5">Setor / Jornada</div>
-                              <div className="font-bold text-zinc-900 dark:text-white uppercase">{folhaData.escala.setores.nome}</div>
-                              <div className="text-[10px] text-zinc-500">{folhaData.escala.jornadas?.nome || 'Não Vinculada'}</div>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Mirror Table */}
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-xs text-left border-collapse print:text-[8px]">
-                            <thead>
-                              <tr className="bg-zinc-100 dark:bg-zinc-800 text-zinc-500 font-black uppercase tracking-widest border-b border-zinc-200 dark:border-zinc-700">
-                                <th className="px-3 py-2 text-center w-12 border-r border-zinc-200 dark:border-zinc-700">Dia</th>
-                                <th className="px-2 py-2 text-center w-12 border-r border-zinc-200 dark:border-zinc-700">Sem</th>
-                                <th className="px-3 py-2 text-center w-20 border-r border-zinc-200 dark:border-zinc-700">Entrada</th>
-                                <th className="px-3 py-2 text-center w-20 border-r border-zinc-200 dark:border-zinc-700">Saída Int.</th>
-                                <th className="px-3 py-2 text-center w-20 border-r border-zinc-200 dark:border-zinc-700">Retorno Int.</th>
-                                <th className="px-3 py-2 text-center w-20 border-r border-zinc-200 dark:border-zinc-700">Saída</th>
-                                <th className="px-3 py-2 text-center w-20 border-r border-zinc-200 dark:border-zinc-700">Extra</th>
-                                <th className="px-4 py-2 border-r border-zinc-200 dark:border-zinc-700">Observações / Justificativas</th>
-                                <th className="px-3 py-2 text-center w-24">Visto</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-                              {(folhaData.registros || []).map((r: any) => {
-                                const isWorkDay = !!r.turno_codigo
-                                const isWeekend = r.dia_semana === 'Sáb' || r.dia_semana === 'Dom'
-                                const isOffDay = r.feriado || r.afastamento || !isWorkDay
-
-                                return (
-                                  <tr 
-                                    key={r.dia} 
-                                    className={`
-                                      ${isOffDay ? 'bg-zinc-50/50 dark:bg-zinc-800/10' : ''}
-                                      ${isWeekend && !isOffDay ? 'bg-zinc-50/30 dark:bg-zinc-850/5' : ''}
-                                    `}
-                                  >
-                                    <td className="px-3 py-2 border-r border-zinc-200 dark:border-zinc-700 text-center font-black text-zinc-900 dark:text-zinc-200">
-                                      {String(r.dia).padStart(2, '0')}
-                                    </td>
-                                    <td className="px-2 py-2 border-r border-zinc-200 dark:border-zinc-700 text-center font-bold text-zinc-500">
-                                      {r.dia_semana}
-                                    </td>
-                                    <td className="px-3 py-2 border-r border-zinc-200 dark:border-zinc-700 text-center font-bold text-zinc-800 dark:text-zinc-300 font-mono">
-                                      {isWorkDay && !r.afastamento && !r.feriado ? r.entrada : '-'}
-                                    </td>
-                                    <td className="px-3 py-2 border-r border-zinc-200 dark:border-zinc-700 text-center font-bold text-zinc-800 dark:text-zinc-300 font-mono">
-                                      {isWorkDay && r.saida_intervalo && !r.afastamento && !r.feriado ? r.saida_intervalo : '-'}
-                                    </td>
-                                    <td className="px-3 py-2 border-r border-zinc-200 dark:border-zinc-700 text-center font-bold text-zinc-800 dark:text-zinc-300 font-mono">
-                                      {isWorkDay && r.retorno_intervalo && !r.afastamento && !r.feriado ? r.retorno_intervalo : '-'}
-                                    </td>
-                                    <td className="px-3 py-2 border-r border-zinc-200 dark:border-zinc-700 text-center font-bold text-zinc-800 dark:text-zinc-300 font-mono">
-                                      {isWorkDay && !r.afastamento && !r.feriado ? r.saida : '-'}
-                                    </td>
-                                    <td className="px-3 py-2 border-r border-zinc-200 dark:border-zinc-700 text-center font-mono">
-                                      {isWorkDay && r.hora_extra_minutos && r.hora_extra_minutos > 0 ? (
-                                        <span className="font-bold text-blue-600 dark:text-blue-400">
-                                          {formatMinutesToTimeStr(r.hora_extra_minutos)}
-                                        </span>
-                                      ) : (
-                                        <span className="text-zinc-300 dark:text-zinc-700">-</span>
-                                      )}
-                                    </td>
-                                    <td className="px-4 py-2 border-r border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 font-semibold uppercase">
-                                      {r.observacao}
-                                    </td>
-                                    <td className="px-2 py-2 text-center text-zinc-300 print-cell-border"></td>
-                                  </tr>
-                                )
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-
-                        {/* Document Footer */}
-                        <div className="p-8 border-t border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 print:bg-white print:border-zinc-300 print:p-4">
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 mb-10 text-center print:mb-6">
-                            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl print:border-zinc-300 print:p-2">
-                              <div className="text-[9px] font-black uppercase text-zinc-400 mb-1">Horas Normais</div>
-                              <div className="text-2xl font-black text-zinc-900 dark:text-white print:text-lg">
-                                {folhaData.total_horas_normais}h
-                              </div>
-                            </div>
-                            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl print:border-zinc-300 print:p-2">
-                              <div className="text-[9px] font-black uppercase text-zinc-400 mb-1">Horas Extra (50%)</div>
-                              <div className="text-2xl font-black text-blue-600 dark:text-blue-400 print:text-lg">
-                                {folhaData.total_horas_extras_50}h
-                              </div>
-                            </div>
-                            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl print:border-zinc-300 print:p-2">
-                              <div className="text-[9px] font-black uppercase text-zinc-400 mb-1">Horas Extra (100%)</div>
-                              <div className="text-2xl font-black text-violet-600 dark:text-violet-400 print:text-lg">
-                                {folhaData.total_horas_extras_100}h
-                              </div>
-                            </div>
-                            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl print:border-zinc-300 print:p-2">
-                              <div className="text-[9px] font-black uppercase text-zinc-400 mb-1">Total Faltas</div>
-                              <div className="text-2xl font-black text-red-500 print:text-lg">
-                                {folhaData.total_faltas}
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Signatures */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-12 mt-12 px-6 print:grid-cols-2 print:gap-10 print:mt-10 print:px-0">
-                            <div className="text-center space-y-2">
-                              <div className="w-full border-t border-zinc-400 dark:border-zinc-700 pt-3">
-                                <div className="text-[10px] font-black uppercase text-zinc-900 dark:text-white print:text-[8px]">{folhaData.servidores.nome}</div>
-                                <div className="text-[8px] text-zinc-400 dark:text-zinc-500 font-bold uppercase tracking-widest mt-0.5">Assinatura do Servidor</div>
-                              </div>
-                            </div>
-                            <div className="text-center space-y-2">
-                              <div className="w-full border-t border-zinc-400 dark:border-zinc-700 pt-3">
-                                <div className="text-[10px] font-black uppercase text-zinc-900 dark:text-white print:text-[8px]">Chefia Imediata / Coordenação</div>
-                                <div className="text-[8px] text-zinc-400 dark:text-zinc-500 font-bold uppercase tracking-widest mt-0.5">Carimbo e Assinatura</div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
+            {viewMode === 'folha' && (
+              <div className="space-y-6">
+                {loadingFolha ? (
+                  <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800">
+                    <Loader2 className="h-10 w-10 animate-spin text-blue-600 mb-4" />
+                    <p className="text-zinc-500 font-bold uppercase tracking-wider text-xs">Carregando folha de ponto...</p>
                   </div>
+                ) : !folhaData ? (
+                  <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-zinc-900 rounded-2xl border border-dashed border-zinc-300 dark:border-zinc-700">
+                    <FileText className="h-12 w-12 text-zinc-300 mb-4 font-normal" />
+                    <p className="text-zinc-500 font-black uppercase tracking-tight text-sm">Folha não gerada</p>
+                    <p className="text-xs text-zinc-400 mt-1 mb-6">Sua folha de ponto para este período ainda não foi gerada.</p>
+                    
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => setViewMode('escala')}
+                        className="px-4 py-2 bg-zinc-150 dark:bg-zinc-800 hover:bg-zinc-200 text-zinc-700 dark:text-zinc-300 rounded-lg text-xs font-bold uppercase"
+                      >
+                        Voltar
+                      </button>
+                      <button
+                        onClick={handleGerarFolhaServidor}
+                        disabled={generatingPortalFolha}
+                        className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md shadow-blue-500/20 disabled:opacity-50"
+                      >
+                        {generatingPortalFolha ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <FileText className="h-4 w-4" />
+                        )}
+                        {(() => {
+                          const myEM = fullEscalaData?.escalaMensal.find((em: any) => em.servidor_id === servidor.id)
+                          return myEM?.status === 'Em Andamento' ? 'Gerar Rascunho da Folha' : 'Gerar Folha de Ponto'
+                        })()}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <FolhaPontoEditor 
+                    folha={folhaData}
+                    profile={null}
+                    isPortal={true}
+                    onBack={() => setViewMode('escala')}
+                    saveAction={salvarFolhaPontoServidor}
+                    verifyDivergenceAction={verificarDivergenciaEscalaServidor}
+                    syncAction={sincronizarFolhaPontoServidor}
+                    regenerateAction={gerarFolhaPontoServidor}
+                  />
                 )}
+              </div>
+            )}
              </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-zinc-900 rounded-2xl border border-dashed border-zinc-300 dark:border-zinc-700">

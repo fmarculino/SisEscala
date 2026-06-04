@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.7] - 2026-06-04
+
+### Added
+- **Edição da Folha de Ponto pelo Servidor**:
+  - Implementação de novas Server Actions seguras (`salvarFolhaPontoServidor`, `verificarDivergenciaEscalaServidor`, `sincronizarFolhaPontoServidor` e `gerarFolhaPontoServidor`) que validam a posse da folha de ponto usando o cookie HttpOnly seguro `portal_servidor_id`.
+  - Reutilização do componente `FolhaPontoEditor` no Portal do Servidor em modo editável, desabilitando apenas os botões de revisão/fechamento de controle de status que são restritos a Coordenadores/Admins.
+  - Implementação do botão para o próprio servidor gerar sua folha de ponto (Rascunho ou Definitiva) diretamente do Portal.
+  - Ajustes de responsividade e otimização das classes CSS Print no Portal do Servidor para imprimir a folha de ponto em formato oficial limpo, ocultando cabeçalhos e navegação do portal.
+
 ## [1.2.6] - 2026-06-04
 
 ### Added

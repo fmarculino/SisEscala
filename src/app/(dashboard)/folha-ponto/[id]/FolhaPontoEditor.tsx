@@ -20,10 +20,33 @@ function formatMinutesToTimeStr(totalMinutes: number): string {
 interface FolhaPontoEditorProps {
   folha: any
   profile: any
+  isPortal?: boolean
+  onBack?: () => void
+  saveAction?: (folhaId: string, registros: any[], status?: string) => Promise<{ success?: boolean; error?: string }>
+  verifyDivergenceAction?: (folhaId: string) => Promise<{ divergent: boolean; affectedDays?: number[]; error?: string }>
+  syncAction?: (folhaId: string) => Promise<{ success?: boolean; error?: string }>
+  regenerateAction?: (servidorId: string, mes: number, ano: number, isRascunho: boolean) => Promise<{ success?: boolean; error?: string }>
 }
 
-export function FolhaPontoEditor({ folha, profile }: FolhaPontoEditorProps) {
+export function FolhaPontoEditor({ 
+  folha, 
+  profile,
+  isPortal = false,
+  onBack,
+  saveAction,
+  verifyDivergenceAction,
+  syncAction,
+  regenerateAction
+}: FolhaPontoEditorProps) {
   const router = useRouter()
+
+  const executeSave = saveAction || salvarFolhaPonto
+  const executeVerify = verifyDivergenceAction || verificarDivergenciaEscala
+  const executeSync = syncAction || sincronizarFolhaPonto
+  const executeRegenerate = (servId: string, m: number, a: number, rasc: boolean) => {
+    if (regenerateAction) return regenerateAction(servId, m, a, rasc)
+    return gerarFolhaPonto(servId, m, a, rasc)
+  }
   
   // Local state for table records
   const [registros, setRegistros] = useState<any[]>(folha.registros || [])
@@ -98,7 +121,7 @@ export function FolhaPontoEditor({ folha, profile }: FolhaPontoEditorProps) {
   useEffect(() => {
     async function checkDivergenca() {
       setLoadingDivergencia(true)
-      const res = await verificarDivergenciaEscala(folha.id)
+      const res = await executeVerify(folha.id)
       setLoadingDivergencia(false)
       if (res && res.divergent) {
         setDivergenceInfo({
@@ -200,7 +223,7 @@ export function FolhaPontoEditor({ folha, profile }: FolhaPontoEditorProps) {
   const handleSave = async (newStatus?: string) => {
     setSaving(true)
     const targetStatus = newStatus || status
-    const res = await salvarFolhaPonto(folha.id, registros, targetStatus)
+    const res = await executeSave(folha.id, registros, targetStatus)
     setSaving(false)
     if (res.error) {
       setAlertModal({
@@ -224,7 +247,7 @@ export function FolhaPontoEditor({ folha, profile }: FolhaPontoEditorProps) {
   // Sync scale after a scale modification
   const handleSync = async () => {
     setSyncing(true)
-    const res = await sincronizarFolhaPonto(folha.id)
+    const res = await executeSync(folha.id)
     setSyncing(false)
     if (res.error) {
       setAlertModal({
@@ -258,7 +281,7 @@ export function FolhaPontoEditor({ folha, profile }: FolhaPontoEditorProps) {
         setConfirmModal(null)
         setRegenerating(true)
         const isRascunho = status === 'Rascunho'
-        const res = await gerarFolhaPonto(servidor.id, folha.mes, folha.ano, isRascunho)
+        const res = await executeRegenerate(servidor.id, folha.mes, folha.ano, isRascunho)
         setRegenerating(false)
         if (res.error) {
           setAlertModal({
@@ -387,9 +410,18 @@ export function FolhaPontoEditor({ folha, profile }: FolhaPontoEditorProps) {
       {/* Header - Hidden on Print */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 print:hidden">
         <div className="flex items-center gap-4">
-          <Link href="/folha-ponto" className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full transition-colors">
-            <ArrowLeft className="h-5 w-5 text-zinc-500" />
-          </Link>
+          {isPortal ? (
+            <button 
+              onClick={onBack}
+              className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full transition-colors print:hidden"
+            >
+              <ArrowLeft className="h-5 w-5 text-zinc-500" />
+            </button>
+          ) : (
+            <Link href="/folha-ponto" className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full transition-colors">
+              <ArrowLeft className="h-5 w-5 text-zinc-500" />
+            </Link>
+          )}
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-blue-600 rounded-lg text-white shadow-lg shadow-blue-600/20">
               <FileText className="h-5 w-5" />
@@ -442,7 +474,7 @@ export function FolhaPontoEditor({ folha, profile }: FolhaPontoEditorProps) {
           </button>
 
           {/* Fechar/Revisar */}
-          {status === 'Rascunho' && (
+          {!isPortal && status === 'Rascunho' && (
             <button 
               onClick={() => handleSave('Gerada')}
               disabled={saving}
@@ -452,7 +484,7 @@ export function FolhaPontoEditor({ folha, profile }: FolhaPontoEditorProps) {
               Finalizar
             </button>
           )}
-          {status === 'Gerada' && (
+          {!isPortal && status === 'Gerada' && (
             <button 
               onClick={() => handleSave('Revisada')}
               disabled={saving}

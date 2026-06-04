@@ -2,7 +2,8 @@
 
 import { createClient, createAdminClient } from '@/utils/supabase/server'
 import { cookies } from 'next/headers'
-import { unstable_cache } from 'next/cache'
+import { unstable_cache, revalidatePath } from 'next/cache'
+
 
 export async function findServidorByMatricula(matricula: string) {
   const supabase = await createAdminClient()
@@ -451,3 +452,788 @@ export async function getFolhaPontoServidor(servidorId: string, mes: number, ano
     }
   }
 }
+
+// ============================================================
+// Portal do Servidor - Folha de Ponto (Phase 8 Additions)
+// ============================================================
+
+// Helpers for calculations
+function parseJornadaNome(nome: string): { startHour: number; startMin: number; endHour: number; endMin: number } {
+  const defaultVal = { startHour: 8, startMin: 0, endHour: 17, endMin: 0 }
+  if (!nome) return defaultVal
+
+  const match = nome.match(/(\d{1,2})(?:[hH:](\d{2})?)?\s*(?:às|as|to|-|a)\s*(\d{1,2})(?:[hH:](\d{2})?)?/i)
+  if (!match) return defaultVal
+
+  const startHour = parseInt(match[1], 10)
+  const startMin = match[2] ? parseInt(match[2], 10) : 0
+  const endHour = parseInt(match[3], 10)
+  const endMin = match[4] ? parseInt(match[4], 10) : 0
+
+  return { startHour, startMin, endHour, endMin }
+}
+
+function getDeterministicOffset(seedStr: string, maxOffset: number = 15): number {
+  let hash = 0
+  for (let i = 0; i < seedStr.length; i++) {
+    hash = seedStr.charCodeAt(i) + ((hash << 5) - hash)
+  }
+  const absOffset = (Math.abs(hash) % (maxOffset - 1)) + 1
+  const sign = hash % 2 === 0 ? 1 : -1
+  return sign * absOffset
+}
+
+function formatMinutesToTimeStr(totalMinutes: number): string {
+  const h = Math.floor(totalMinutes / 60) % 24
+  const m = totalMinutes % 60
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+}
+
+function generateFingerprint(records: any[]): string {
+  const simplified = records.map(r => ({
+    dia: r.dia,
+    turno: r.dicionario_turnos_id,
+    cat: r.categoria
+  }))
+  const str = JSON.stringify(simplified)
+  let hash = 0
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash)
+  }
+  return Math.abs(hash).toString(16)
+}
+
+function getTurnoCodigo(dicionarioTurnos: any): string | null {
+  if (!dicionarioTurnos) return null
+  if (Array.isArray(dicionarioTurnos)) {
+    return dicionarioTurnos[0]?.codigo || null
+  }
+  return dicionarioTurnos.codigo || null
+}
+
+function getAfastamentoNome(tiposEventos: any): string | null {
+  if (!tiposEventos) return null
+  if (Array.isArray(tiposEventos)) {
+    return tiposEventos[0]?.nome || null
+  }
+  return tiposEventos.nome || null
+}
+
+// Server Action: Save employee's timesheet from the portal
+export async function salvarFolhaPontoServidor(folhaId: string, registros: any[]) {
+  try {
+    const supabase = await createAdminClient()
+    const cookieStore = await cookies()
+    const portalServidorId = cookieStore.get('portal_servidor_id')?.value
+
+    if (!portalServidorId) {
+      return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
+    }
+
+    // Fetch existing sheet
+    const { data: folha, error: fetchError } = await supabase
+      .from('folha_ponto')
+      .select('id, escala_mensal_id, mes, ano, status, servidor_id')
+      .eq('id', folhaId)
+      .single()
+
+    if (fetchError || !folha) throw new Error('Folha de ponto não encontrada')
+
+    if (folha.servidor_id !== portalServidorId) {
+      return { error: 'Acesso negado.' }
+    }
+
+    if (folha.status === 'Revisada') {
+      return { error: 'Esta folha de ponto já foi revisada e fechada pela coordenação e não pode ser editada.' }
+    }
+
+    // Fetch scale
+    const { data: escala } = await supabase
+      .from('escala_mensal')
+      .select('unidade_id, setor_id, status, jornada_id, jornadas(horas_totais, nome, intervalo_minutos)')
+      .eq('id', folha.escala_mensal_id)
+      .single()
+
+    if (!escala) throw new Error('Escala vinculada não encontrada')
+
+    const jornadaDetails = escala.jornadas ? (escala.jornadas as any) : null
+    const horasNormaisDiarias = jornadaDetails?.horas_totais ?? 8
+
+    // Fetch holidays
+    const startDate = `${folha.ano}-${String(folha.mes).padStart(2, '0')}-01`
+    const daysInMonth = new Date(folha.ano, folha.mes, 0).getDate()
+    const endDate = `${folha.ano}-${String(folha.mes).padStart(2, '0')}-${daysInMonth}`
+    const { data: feriados } = await supabase
+      .from('feriados')
+      .select('data')
+      .gte('data', startDate)
+      .lte('data', endDate)
+    const feriadosSet = new Set(feriados?.map(f => f.data) || [])
+
+    let totalHorasNormais = 0
+    let totalExtra50 = 0
+    let totalExtra100 = 0
+    let totalFaltas = 0
+
+    registros.forEach(r => {
+      if (r.turno_codigo) {
+        totalHorasNormais += horasNormaisDiarias
+      }
+      
+      const isFalta = r.observacao && r.observacao.toUpperCase().includes('FALTA')
+      if (isFalta) {
+        totalFaltas++
+      }
+
+      if (r.hora_extra_minutos && r.hora_extra_minutos > 0) {
+        const dateObj = new Date(folha.ano, folha.mes - 1, r.dia)
+        const dateStr = `${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(r.dia).padStart(2, '0')}`
+        const isSunday = dateObj.getDay() === 0
+        const isHoliday = feriadosSet.has(dateStr)
+
+        if (isSunday || isHoliday) {
+          totalExtra100 += r.hora_extra_minutos
+        } else {
+          if (r.hora_extra_tipo === '100%') {
+            totalExtra100 += r.hora_extra_minutos
+          } else {
+            totalExtra50 += r.hora_extra_minutos
+          }
+        }
+      }
+    })
+
+    const updatePayload: any = {
+      registros,
+      total_horas_normais: parseFloat(totalHorasNormais.toFixed(2)),
+      total_horas_extras_50: parseFloat((totalExtra50 / 60).toFixed(2)),
+      total_horas_extras_100: parseFloat((totalExtra100 / 60).toFixed(2)),
+      total_faltas: totalFaltas,
+      ultima_edicao_em: new Date().toISOString()
+    }
+
+    const { error: updateError } = await supabase
+      .from('folha_ponto')
+      .update(updatePayload)
+      .eq('id', folhaId)
+
+    if (updateError) throw updateError
+
+    return { success: true }
+  } catch (error: any) {
+    console.error('Erro ao salvar folha pelo servidor:', error)
+    return { error: error.message }
+  }
+}
+
+// Server Action: Check scale divergence from the portal
+export async function verificarDivergenciaEscalaServidor(folhaId: string) {
+  try {
+    const supabase = await createAdminClient()
+    const cookieStore = await cookies()
+    const portalServidorId = cookieStore.get('portal_servidor_id')?.value
+
+    if (!portalServidorId) {
+      return { divergent: false }
+    }
+
+    const { data: folha } = await supabase
+      .from('folha_ponto')
+      .select('escala_mensal_id, escala_fingerprint, registros, servidor_id')
+      .eq('id', folhaId)
+      .single()
+
+    if (!folha || folha.servidor_id !== portalServidorId) return { divergent: false }
+
+    const { data: escalaDiaria } = await supabase
+      .from('escala_diaria')
+      .select('dia, dicionario_turnos_id, categoria')
+      .eq('escala_mensal_id', folha.escala_mensal_id)
+      .eq('categoria', 'Regular')
+
+    const currentFingerprint = generateFingerprint(escalaDiaria || [])
+    const divergent = currentFingerprint !== folha.escala_fingerprint
+
+    const affectedDays: number[] = []
+    if (divergent) {
+      const records = folha.registros as any[]
+      const currentShifts = escalaDiaria || []
+
+      for (let day = 1; day <= 31; day++) {
+        const record = records.find(r => r.dia === day)
+        const currentShift = currentShifts.find(s => s.dia === day)
+
+        const hadShift = record && record.turno_codigo !== null
+        const hasShift = !!currentShift
+
+        const changed = (hadShift !== hasShift) || (hadShift && record.turno_codigo !== currentShift?.dicionario_turnos_id)
+        if (changed) {
+          affectedDays.push(day)
+        }
+      }
+    }
+
+    return {
+      divergent,
+      currentFingerprint,
+      savedFingerprint: folha.escala_fingerprint,
+      affectedDays
+    }
+  } catch (error) {
+    console.error('Erro ao verificar divergência pelo servidor:', error)
+    return { divergent: false }
+  }
+}
+
+// Server Action: Sync sheet with escala from the portal
+export async function sincronizarFolhaPontoServidor(folhaId: string) {
+  try {
+    const supabase = await createAdminClient()
+    const cookieStore = await cookies()
+    const portalServidorId = cookieStore.get('portal_servidor_id')?.value
+
+    if (!portalServidorId) {
+      return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
+    }
+
+    const { data: folha, error: folhaError } = await supabase
+      .from('folha_ponto')
+      .select('*')
+      .eq('id', folhaId)
+      .single()
+
+    if (folhaError || !folha) throw new Error('Folha de ponto não encontrada')
+
+    if (folha.servidor_id !== portalServidorId) {
+      return { error: 'Acesso negado.' }
+    }
+
+    if (folha.status === 'Revisada') {
+      return { error: 'Esta folha de ponto já foi revisada e fechada pela coordenação e não pode ser sincronizada.' }
+    }
+
+    const { data: escala, error: escError } = await supabase
+      .from('escala_mensal')
+      .select('id, status, jornada_id, jornadas(nome, intervalo_minutos, horas_totais), unidade_id, setor_id')
+      .eq('id', folha.escala_mensal_id)
+      .single()
+
+    if (escError || !escala) throw new Error('Escala vinculada não encontrada')
+
+    const { data: escalaDiaria } = await supabase
+      .from('escala_diaria')
+      .select('id, dia, dicionario_turnos_id, presenca_entrada_em, presenca_saida_em, presenca_confirmada, dicionario_turnos(codigo, slots)')
+      .eq('escala_mensal_id', escala.id)
+      .eq('categoria', 'Regular')
+
+    const currentShifts = escalaDiaria || []
+    const fingerprint = generateFingerprint(currentShifts)
+
+    const startDate = `${folha.ano}-${String(folha.mes).padStart(2, '0')}-01`
+    const daysInMonth = new Date(folha.ano, folha.mes, 0).getDate()
+    const endDate = `${folha.ano}-${String(folha.mes).padStart(2, '0')}-${daysInMonth}`
+    const { data: feriados } = await supabase
+      .from('feriados')
+      .select('data, descricao')
+      .gte('data', startDate)
+      .lte('data', endDate)
+
+    const feriadosSet = new Set(feriados?.map(f => f.data) || [])
+
+    const { data: afastamentos } = await supabase
+      .from('servidores_eventos')
+      .select('data_inicio, data_fim, observacao, tipos_eventos(nome)')
+      .eq('servidor_id', folha.servidor_id)
+      .or(`data_inicio.lte.${endDate},data_fim.gte.${startDate}`)
+
+    const jornadaDetails = escala.jornadas ? (escala.jornadas as any) : null
+    const { startHour, startMin, endHour, endMin } = parseJornadaNome(jornadaDetails?.nome || '')
+    const intervaloMinutos = jornadaDetails?.intervalo_minutos ?? 60
+    const horasNormaisDiarias = jornadaDetails?.horas_totais ?? 8
+
+    const { data: configVar } = await supabase
+      .from('configuracoes_globais')
+      .select('valor')
+      .eq('chave', 'folha_ponto_variacao_minutos')
+      .single()
+    const maxVar = configVar?.valor ? parseInt(configVar.valor as string, 10) : 15
+
+    const registrosExistentes = folha.registros as any[]
+    const registrosAtualizados: any[] = []
+
+    let totalHorasNormais = 0
+    let totalExtra50 = 0
+    let totalExtra100 = 0
+    let totalFaltas = 0
+
+    const weekDaysShort = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dateObj = new Date(folha.ano, folha.mes - 1, day)
+      const dayOfWeekStr = weekDaysShort[dateObj.getDay()]
+      const dateStr = `${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+
+      const currentShift = currentShifts.find(s => s.dia === day)
+      const registroExistente = registrosExistentes.find(r => r.dia === day)
+
+      const hadShift = registroExistente && registroExistente.turno_codigo !== null
+      const hasShift = !!currentShift
+
+      const scaleChangedForDay = (hadShift !== hasShift) || (hadShift && registroExistente.turno_codigo !== getTurnoCodigo(currentShift?.dicionario_turnos))
+
+      const afastamento = afastamentos?.find(af => dateStr >= af.data_inicio && dateStr <= af.data_fim)
+      const feriadoInfo = feriados?.find(f => f.data === dateStr)
+
+      const hasManualEdits = registroExistente && (
+        registroExistente.origem_entrada === 'manual' ||
+        registroExistente.origem_saida_intervalo === 'manual' ||
+        registroExistente.origem_retorno_intervalo === 'manual' ||
+        registroExistente.origem_saida === 'manual' ||
+        registroExistente.observacao.includes('FALTA') ||
+        registroExistente.observacao.includes('MANUAL')
+      )
+
+      if (hasManualEdits && !scaleChangedForDay) {
+        registrosAtualizados.push(registroExistente)
+        
+        if (registroExistente.turno_codigo) {
+          totalHorasNormais += horasNormaisDiarias
+        }
+        if (registroExistente.observacao.includes('FALTA')) {
+          totalFaltas++
+        }
+        
+        if (registroExistente.hora_extra_minutos) {
+          const isSunday = dateObj.getDay() === 0
+          const isHoliday = !!feriadoInfo
+          if (isSunday || isHoliday) {
+            totalExtra100 += registroExistente.hora_extra_minutos
+          } else {
+            totalExtra50 += registroExistente.hora_extra_minutos
+          }
+        }
+        continue
+      }
+
+      let registro: any = {
+        dia: day,
+        dia_semana: dayOfWeekStr,
+        turno_codigo: getTurnoCodigo(currentShift?.dicionario_turnos),
+        entrada: '',
+        saida_intervalo: '',
+        retorno_intervalo: '',
+        saida: '',
+        hora_extra_minutos: 0,
+        hora_extra_tipo: null,
+        observacao: '',
+        origem_entrada: null,
+        origem_saida_intervalo: null,
+        origem_retorno_intervalo: null,
+        origem_saida: null,
+        feriado: !!feriadoInfo,
+        afastamento: afastamento ? (getAfastamentoNome(afastamento.tipos_eventos) || afastamento.observacao || 'Afastado') : null
+      }
+
+      if (registro.afastamento) {
+        registro.observacao = registro.afastamento.toUpperCase()
+      } else if (registro.feriado) {
+        registro.observacao = `FERIADO: ${feriadoInfo?.descricao}`.toUpperCase()
+      } else if (!currentShift) {
+        if (dateObj.getDay() === 0) {
+          registro.observacao = 'DOMINGO'
+        } else if (dateObj.getDay() === 6) {
+          registro.observacao = 'SÁBADO'
+        } else {
+          registro.observacao = 'FOLGA'
+        }
+      } else {
+        totalHorasNormais += horasNormaisDiarias
+
+        const hasRealEntrada = !!currentShift.presenca_entrada_em
+        const hasRealSaida = !!currentShift.presenca_saida_em
+
+        const officialEntradaMin = startHour * 60 + startMin
+        let officialSaidaMin = endHour * 60 + endMin
+        let totalBrutoMin = officialSaidaMin - officialEntradaMin
+        if (totalBrutoMin < 0) totalBrutoMin += 24 * 60
+        
+        const halfJornadaMin = Math.floor(totalBrutoMin / 2)
+        const officialSaidaIntervaloMin = (officialEntradaMin + halfJornadaMin) % (24 * 60)
+        const officialRetornoIntervaloMin = (officialSaidaIntervaloMin + intervaloMinutos) % (24 * 60)
+
+        const seedBase = `${folha.servidor_id}-${folha.mes}-${folha.ano}-${day}`
+
+        if (hasRealEntrada) {
+          const d = new Date(currentShift.presenca_entrada_em)
+          registro.entrada = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+          registro.origem_entrada = 'real'
+        } else {
+          const offset = getDeterministicOffset(`${seedBase}-entrada`, maxVar)
+          const genMin = (officialEntradaMin + offset + 24 * 60) % (24 * 60)
+          registro.entrada = formatMinutesToTimeStr(genMin)
+          registro.origem_entrada = 'ficticio'
+        }
+
+        if (hasRealSaida) {
+          const d = new Date(currentShift.presenca_saida_em)
+          registro.saida = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+          registro.origem_saida = 'real'
+        } else {
+          const offset = getDeterministicOffset(`${seedBase}-saida`, maxVar)
+          const genMin = (officialSaidaMin + offset + 24 * 60) % (24 * 60)
+          registro.saida = formatMinutesToTimeStr(genMin)
+          registro.origem_saida = 'ficticio'
+        }
+
+        if (intervaloMinutos > 0) {
+          const outOffset = getDeterministicOffset(`${seedBase}-lunchout`, maxVar)
+          const genOutMin = (officialSaidaIntervaloMin + outOffset + 24 * 60) % (24 * 60)
+          registro.saida_intervalo = formatMinutesToTimeStr(genOutMin)
+          registro.origem_saida_intervalo = 'ficticio'
+
+          const returnOffset = getDeterministicOffset(`${seedBase}-lunchreturn`, maxVar)
+          const genReturnMin = (genOutMin + intervaloMinutos + returnOffset + 24 * 60) % (24 * 60)
+          registro.retorno_intervalo = formatMinutesToTimeStr(genReturnMin)
+          registro.origem_retorno_intervalo = 'ficticio'
+        }
+
+        if (hasRealSaida && currentShift.presenca_saida_em) {
+          const realExit = new Date(currentShift.presenca_saida_em)
+          
+          const scheduledEntrance = new Date(folha.ano, folha.mes - 1, day, startHour, startMin, 0, 0)
+          const scheduledExit = new Date(folha.ano, folha.mes - 1, day, endHour, endMin, 0, 0)
+          if (scheduledExit <= scheduledEntrance) {
+            scheduledExit.setDate(scheduledExit.getDate() + 1)
+          }
+
+          if (realExit > scheduledExit) {
+            let extra50Min = 0
+            let extra100Min = 0
+            
+            const current = new Date(scheduledExit.getTime())
+            const end = new Date(realExit.getTime())
+            
+            while (current < end) {
+              const curHour = current.getHours()
+              const curDayOfWeek = current.getDay()
+              const curDateStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`
+              const isSunday = curDayOfWeek === 0
+              const isHoliday = feriadosSet.has(curDateStr)
+              const isNight = curHour >= 22 || curHour < 5
+
+              if (isSunday || isHoliday || isNight) {
+                extra100Min++
+              } else {
+                extra50Min++
+              }
+              
+              current.setMinutes(current.getMinutes() + 1)
+            }
+
+            registro.hora_extra_minutos = extra50Min + extra100Min
+            totalExtra50 += extra50Min
+            totalExtra100 += extra100Min
+          }
+        }
+      }
+
+      registrosAtualizados.push(registro)
+    }
+
+    // Save updated folha
+    const { error: saveError } = await supabase
+      .from('folha_ponto')
+      .update({
+        registros: registrosAtualizados,
+        escala_fingerprint: fingerprint,
+        total_horas_normais: parseFloat(totalHorasNormais.toFixed(2)),
+        total_horas_extras_50: parseFloat((totalExtra50 / 60).toFixed(2)),
+        total_horas_extras_100: parseFloat((totalExtra100 / 60).toFixed(2)),
+        total_faltas: totalFaltas,
+        ultima_edicao_em: new Date().toISOString()
+      })
+      .eq('id', folhaId)
+
+    if (saveError) throw saveError
+
+    return { success: true }
+  } catch (error: any) {
+    console.error('Erro na sincronização de folha pelo servidor:', error)
+    return { error: error.message }
+  }
+}
+
+// Server Action: Generate or regenerate employee's timesheet from the portal
+export async function gerarFolhaPontoServidor(servidorId: string, mes: number, ano: number, forcarRascunho: boolean = false) {
+  try {
+    const supabase = await createAdminClient()
+    const cookieStore = await cookies()
+    const portalServidorId = cookieStore.get('portal_servidor_id')?.value
+
+    if (!portalServidorId) {
+      return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
+    }
+
+    if (servidorId !== portalServidorId) {
+      return { error: 'Acesso negado.' }
+    }
+
+    // Check if the sheet already exists and is closed (Revisada)
+    const { data: existingFolha } = await supabase
+      .from('folha_ponto')
+      .select('status')
+      .eq('servidor_id', servidorId)
+      .eq('mes', mes)
+      .eq('ano', ano)
+      .maybeSingle()
+
+    if (existingFolha && existingFolha.status === 'Revisada') {
+      return { error: 'Esta folha de ponto já foi revisada e fechada pela coordenação e não pode ser regenerada.' }
+    }
+
+    // Fetch server lotação details
+    const { data: servidor, error: servError } = await supabase
+      .from('servidores')
+      .select('id, unidade_id, setor_id, nome, matricula')
+      .eq('id', servidorId)
+      .single()
+
+    if (servError || !servidor) throw new Error('Servidor não encontrado')
+
+    // Fetch the active lotação escala_mensal
+    const { data: escala, error: escError } = await supabase
+      .from('escala_mensal')
+      .select('id, status, jornada_id, jornadas(nome, intervalo_minutos, horas_totais)')
+      .eq('servidor_id', servidorId)
+      .eq('unidade_id', servidor.unidade_id)
+      .eq('setor_id', servidor.setor_id)
+      .eq('mes', mes)
+      .eq('ano', ano)
+      .eq('ativo', true)
+      .maybeSingle()
+
+    if (escError) throw escError
+    if (!escala) {
+      return { error: 'Servidor não possui escala regular criada neste setor para o mês selecionado.' }
+    }
+
+    // Check status requirement
+    if (escala.status === 'Em Andamento' && !forcarRascunho) {
+      return { error: 'A escala está Em Andamento. A folha deve ser gerada como Rascunho.' }
+    }
+
+    // Fetch config for tolerance
+    const { data: configVar } = await supabase
+      .from('configuracoes_globais')
+      .select('valor')
+      .eq('chave', 'folha_ponto_variacao_minutos')
+      .single()
+    const maxVar = configVar?.valor ? parseInt(configVar.valor as string, 10) : 15
+
+    // Fetch regular shifts from escala_diaria
+    const { data: escalaDiaria, error: diError } = await supabase
+      .from('escala_diaria')
+      .select('id, dia, dicionario_turnos_id, presenca_entrada_em, presenca_saida_em, presenca_confirmada, dicionario_turnos(codigo, slots)')
+      .eq('escala_mensal_id', escala.id)
+      .eq('categoria', 'Regular')
+
+    if (diError) throw diError
+
+    const currentShifts = escalaDiaria || []
+    const fingerprint = generateFingerprint(currentShifts)
+
+    // Fetch holidays
+    const startDate = `${ano}-${String(mes).padStart(2, '0')}-01`
+    const daysInMonth = new Date(ano, mes, 0).getDate()
+    const endDate = `${ano}-${String(mes).padStart(2, '0')}-${daysInMonth}`
+    
+    const { data: feriados } = await supabase
+      .from('feriados')
+      .select('data, descricao')
+      .gte('data', startDate)
+      .lte('data', endDate)
+
+    const feriadosSet = new Set(feriados?.map(f => f.data) || [])
+
+    // Fetch absences (afastamentos)
+    const { data: afastamentos } = await supabase
+      .from('servidores_eventos')
+      .select('data_inicio, data_fim, observacao, tipos_eventos(nome)')
+      .eq('servidor_id', servidorId)
+      .or(`data_inicio.lte.${endDate},data_fim.gte.${startDate}`)
+
+    const jornadaDetails = escala.jornadas ? (escala.jornadas as any) : null
+    const { startHour, startMin, endHour, endMin } = parseJornadaNome(jornadaDetails?.nome || '')
+    const intervaloMinutos = jornadaDetails?.intervalo_minutos ?? 60
+    const horasNormaisDiarias = jornadaDetails?.horas_totais ?? 8
+
+    const registros: any[] = []
+    let totalHorasNormais = 0
+    let totalExtra50 = 0
+    let totalExtra100 = 0
+    let totalFaltas = 0
+
+    const weekDaysShort = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dateObj = new Date(ano, mes - 1, day)
+      const dayOfWeekStr = weekDaysShort[dateObj.getDay()]
+      const dateStr = `${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+
+      const afastamento = afastamentos?.find(af => dateStr >= af.data_inicio && dateStr <= af.data_fim)
+      const feriadoInfo = feriados?.find(f => f.data === dateStr)
+      const shift = escalaDiaria?.find(ed => ed.dia === day)
+
+      let registro: any = {
+        dia: day,
+        dia_semana: dayOfWeekStr,
+        turno_codigo: getTurnoCodigo(shift?.dicionario_turnos),
+        entrada: '',
+        saida_intervalo: '',
+        retorno_intervalo: '',
+        saida: '',
+        hora_extra_minutos: 0,
+        hora_extra_tipo: null,
+        observacao: '',
+        origem_entrada: null,
+        origem_saida_intervalo: null,
+        origem_retorno_intervalo: null,
+        origem_saida: null,
+        feriado: !!feriadoInfo,
+        afastamento: afastamento ? (getAfastamentoNome(afastamento.tipos_eventos) || afastamento.observacao || 'Afastado') : null
+      }
+
+      if (registro.afastamento) {
+        registro.observacao = registro.afastamento.toUpperCase()
+      } else if (registro.feriado) {
+        registro.observacao = `FERIADO: ${feriadoInfo?.descricao}`.toUpperCase()
+      } else if (!shift) {
+        if (dateObj.getDay() === 0) {
+          registro.observacao = 'DOMINGO'
+        } else if (dateObj.getDay() === 6) {
+          registro.observacao = 'SÁBADO'
+        } else {
+          registro.observacao = 'FOLGA'
+        }
+      } else {
+        totalHorasNormais += horasNormaisDiarias
+
+        const hasRealEntrada = !!shift.presenca_entrada_em
+        const hasRealSaida = !!shift.presenca_saida_em
+
+        const officialEntradaMin = startHour * 60 + startMin
+        let officialSaidaMin = endHour * 60 + endMin
+        let totalBrutoMin = officialSaidaMin - officialEntradaMin
+        if (totalBrutoMin < 0) totalBrutoMin += 24 * 60
+        
+        const halfJornadaMin = Math.floor(totalBrutoMin / 2)
+        const officialSaidaIntervaloMin = (officialEntradaMin + halfJornadaMin) % (24 * 60)
+        const officialRetornoIntervaloMin = (officialSaidaIntervaloMin + intervaloMinutos) % (24 * 60)
+
+        const seedBase = `${servidorId}-${mes}-${ano}-${day}`
+
+        if (hasRealEntrada) {
+          const d = new Date(shift.presenca_entrada_em)
+          registro.entrada = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+          registro.origem_entrada = 'real'
+        } else {
+          const offset = getDeterministicOffset(`${seedBase}-entrada`, maxVar)
+          const genMin = (officialEntradaMin + offset + 24 * 60) % (24 * 60)
+          registro.entrada = formatMinutesToTimeStr(genMin)
+          registro.origem_entrada = 'ficticio'
+        }
+
+        if (hasRealSaida) {
+          const d = new Date(shift.presenca_saida_em)
+          registro.saida = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+          registro.origem_saida = 'real'
+        } else {
+          const offset = getDeterministicOffset(`${seedBase}-saida`, maxVar)
+          const genMin = (officialSaidaMin + offset + 24 * 60) % (24 * 60)
+          registro.saida = formatMinutesToTimeStr(genMin)
+          registro.origem_saida = 'ficticio'
+        }
+
+        if (intervaloMinutos > 0) {
+          const outOffset = getDeterministicOffset(`${seedBase}-lunchout`, maxVar)
+          const genOutMin = (officialSaidaIntervaloMin + outOffset + 24 * 60) % (24 * 60)
+          registro.saida_intervalo = formatMinutesToTimeStr(genOutMin)
+          registro.origem_saida_intervalo = 'ficticio'
+
+          const returnOffset = getDeterministicOffset(`${seedBase}-lunchreturn`, maxVar)
+          const genReturnMin = (genOutMin + intervaloMinutos + returnOffset + 24 * 60) % (24 * 60)
+          registro.retorno_intervalo = formatMinutesToTimeStr(genReturnMin)
+          registro.origem_retorno_intervalo = 'ficticio'
+        }
+
+        if (hasRealSaida && shift.presenca_saida_em) {
+          const realExit = new Date(shift.presenca_saida_em)
+          
+          const scheduledEntrance = new Date(ano, mes - 1, day, startHour, startMin, 0, 0)
+          const scheduledExit = new Date(ano, mes - 1, day, endHour, endMin, 0, 0)
+          if (scheduledExit <= scheduledEntrance) {
+            scheduledExit.setDate(scheduledExit.getDate() + 1)
+          }
+
+          if (realExit > scheduledExit) {
+            let extra50Min = 0
+            let extra100Min = 0
+            
+            const current = new Date(scheduledExit.getTime())
+            const end = new Date(realExit.getTime())
+            
+            while (current < end) {
+              const curHour = current.getHours()
+              const curDayOfWeek = current.getDay()
+              const curDateStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`
+              const isSunday = curDayOfWeek === 0
+              const isHoliday = feriadosSet.has(curDateStr)
+              const isNight = curHour >= 22 || curHour < 5
+
+              if (isSunday || isHoliday || isNight) {
+                extra100Min++
+              } else {
+                extra50Min++
+              }
+              
+              current.setMinutes(current.getMinutes() + 1)
+            }
+
+            registro.hora_extra_minutos = extra50Min + extra100Min
+            totalExtra50 += extra50Min
+            totalExtra100 += extra100Min
+          }
+        }
+      }
+
+      registros.push(registro)
+    }
+
+    const { error: upsertError } = await supabase
+      .from('folha_ponto')
+      .upsert({
+        escala_mensal_id: escala.id,
+        servidor_id: servidorId,
+        mes,
+        ano,
+        status: forcarRascunho ? 'Rascunho' : 'Gerada',
+        registros,
+        escala_fingerprint: fingerprint,
+        total_horas_normais: parseFloat(totalHorasNormais.toFixed(2)),
+        total_horas_extras_50: parseFloat((totalExtra50 / 60).toFixed(2)),
+        total_horas_extras_100: parseFloat((totalExtra100 / 60).toFixed(2)),
+        total_faltas: totalFaltas,
+        ultima_edicao_em: new Date().toISOString()
+      }, {
+        onConflict: 'servidor_id,mes,ano'
+      })
+
+    if (upsertError) throw upsertError
+
+    return { success: true }
+  } catch (error: any) {
+    console.error('Erro ao gerar folha pelo servidor:', error)
+    return { error: error.message }
+  }
+}
+
