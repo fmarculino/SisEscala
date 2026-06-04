@@ -229,6 +229,12 @@ export async function gerarFolhaPonto(servidorId: string, mes: number, ano: numb
 
     if (diError) throw diError
 
+    // Fetch manual validation logs
+    const { data: logs } = await supabase
+      .from('logs_sobreaviso')
+      .select('dia, categoria, validacao_manual, motivo_acionamento')
+      .eq('escala_mensal_id', escala.id)
+
     // Fetch holidays
     const startDate = `${ano}-${String(mes).padStart(2, '0')}-01`
     const daysInMonth = new Date(ano, mes, 0).getDate()
@@ -312,9 +318,23 @@ export async function gerarFolhaPonto(servidorId: string, mes: number, ano: numb
         // Work day!
         totalHorasNormais += horasNormaisDiarias
 
+        // Check if entry/exit was validated manually by a coordinator
+        const isManualEntrada = logs?.some(log => 
+          log.dia === day && 
+          log.categoria === 'Regular' && 
+          log.validacao_manual === true && 
+          log.motivo_acionamento?.toLowerCase().includes('entrada')
+        )
+        const isManualSaida = logs?.some(log => 
+          log.dia === day && 
+          log.categoria === 'Regular' && 
+          log.validacao_manual === true && 
+          log.motivo_acionamento?.toLowerCase().includes('saida')
+        )
+
         // Check if there was presence confirmada but actually no checkin/checkout timestamps
-        const hasRealEntrada = !!shift.presenca_entrada_em
-        const hasRealSaida = !!shift.presenca_saida_em
+        const hasRealEntrada = !!shift.presenca_entrada_em && !isManualEntrada
+        const hasRealSaida = !!shift.presenca_saida_em && !isManualSaida
 
         // Calculate official time markers (in minutes from midnight)
         const officialEntradaMin = startHour * 60 + startMin
@@ -532,6 +552,12 @@ export async function sincronizarFolhaPonto(folhaId: string) {
       .eq('escala_mensal_id', escala.id)
       .eq('categoria', 'Regular')
 
+    // Fetch manual validation logs
+    const { data: logs } = await supabase
+      .from('logs_sobreaviso')
+      .select('dia, categoria, validacao_manual, motivo_acionamento')
+      .eq('escala_mensal_id', escala.id)
+
     const currentShifts = escalaDiaria || []
     const fingerprint = generateFingerprint(currentShifts)
 
@@ -669,8 +695,21 @@ export async function sincronizarFolhaPonto(folhaId: string) {
       } else {
         totalHorasNormais += horasNormaisDiarias
 
-        const hasRealEntrada = !!currentShift.presenca_entrada_em
-        const hasRealSaida = !!currentShift.presenca_saida_em
+        const isManualEntrada = logs?.some(log => 
+          log.dia === day && 
+          log.categoria === 'Regular' && 
+          log.validacao_manual === true && 
+          log.motivo_acionamento?.toLowerCase().includes('entrada')
+        )
+        const isManualSaida = logs?.some(log => 
+          log.dia === day && 
+          log.categoria === 'Regular' && 
+          log.validacao_manual === true && 
+          log.motivo_acionamento?.toLowerCase().includes('saida')
+        )
+
+        const hasRealEntrada = !!currentShift.presenca_entrada_em && !isManualEntrada
+        const hasRealSaida = !!currentShift.presenca_saida_em && !isManualSaida
 
         const officialEntradaMin = startHour * 60 + startMin
         let officialSaidaMin = endHour * 60 + endMin

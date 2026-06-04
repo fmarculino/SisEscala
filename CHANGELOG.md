@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2026-06-04
+
+### Changed
+- **Desconsiderar Validação Manual do Coordenador na Folha de Ponto**:
+  - Quando a entrada ou saída regular é validada manualmente pelo coordenador/administrador (registrado em `logs_sobreaviso` com `validacao_manual = true`), o sistema agora desconsidera esse registro manual e trata a marcação como fictícia/ausente na folha de ponto (variação determinística).
+  - A lógica foi aplicada globalmente no motor de geração e sincronização tanto nas Server Actions administrativas (`src/app/(dashboard)/folha-ponto/actions.ts`) quanto nas do Portal do Servidor (`src/app/consultar-escala/actions.ts`), garantindo consistência total do espelho de ponto em ambas as visualizações.
+
 ## [1.2.9] - 2026-06-04
 
 ### Fixed
