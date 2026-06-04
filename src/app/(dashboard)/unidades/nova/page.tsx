@@ -60,6 +60,22 @@ export default function NovaUnidadePage() {
             />
           </div>
 
+          <div>
+            <label htmlFor="logo" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              Logotipo da Unidade
+            </label>
+            <input
+              id="logo"
+              name="logo"
+              type="file"
+              accept="image/png, image/jpeg, image/svg+xml"
+              className="mt-1 block w-full text-sm text-zinc-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+            />
+            <p className="mt-1 text-[10px] text-zinc-500">
+              Recomendado: PNG com fundo transparente. Resolução máxima sugerida: 400x120px (máx. 1MB).
+            </p>
+          </div>
+
           <GeoLocationPicker />
         </div>
 

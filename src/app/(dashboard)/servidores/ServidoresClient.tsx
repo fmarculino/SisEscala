@@ -416,7 +416,14 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-zinc-600 dark:text-zinc-400 font-medium">
-                    {servidor.matricula || '---'}
+                    <div className="flex items-center gap-2">
+                      <span>{servidor.matricula || '---'}</span>
+                      {servidor.matricula && /^T\d{7}$/.test(servidor.matricula) && (
+                        <span className="inline-flex items-center rounded-md bg-amber-50 px-2 py-0.5 text-[9px] font-bold text-amber-800 border border-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-900/30">
+                          Temporária
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-zinc-600 dark:text-zinc-400">
                     {servidor.cargo || '---'}

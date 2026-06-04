@@ -124,6 +124,39 @@ export default function EditSetorForm({ setor, unidades, setoresPai, dicionario 
             </select>
           </div>
         </div>
+
+        {/* Logotipo do Setor */}
+        <div>
+          <label htmlFor="logo" className="block text-sm font-black uppercase tracking-widest text-zinc-500 dark:text-zinc-400 mb-2">
+            Logotipo do Setor <span className="text-[10px] font-medium opacity-50 lowercase tracking-normal">(opcional)</span>
+          </label>
+          
+          {setor.logo_url && (
+            <div className="mt-2 mb-3 flex items-center gap-4 animate-in fade-in">
+              <div className="h-16 w-32 border-2 border-zinc-200 dark:border-zinc-700 rounded-2xl overflow-hidden bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] dark:bg-[radial-gradient(#3f3f46_1px,transparent_1px)] bg-[size:10px_10px] bg-zinc-50 dark:bg-zinc-900 flex items-center justify-center p-2 shadow-inner">
+                <img 
+                  src={setor.logo_url} 
+                  alt="Logo atual" 
+                  className="max-h-full max-w-full object-contain"
+                />
+              </div>
+              <span className="text-xs text-zinc-500 font-bold uppercase tracking-tight">Logotipo atual cadastrado. Envie um novo para substituir.</span>
+            </div>
+          )}
+
+          <div className="relative group">
+            <input
+              id="logo"
+              name="logo"
+              type="file"
+              accept="image/png, image/jpeg, image/svg+xml"
+              className="block w-full text-sm text-zinc-500 file:mr-4 file:py-3 file:px-6 file:rounded-2xl file:border-2 file:border-dashed file:border-zinc-200 dark:file:border-zinc-700 file:text-sm file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-zinc-800 dark:file:text-zinc-300 file:transition-all cursor-pointer"
+            />
+          </div>
+          <p className="mt-2 text-[10px] text-zinc-500 font-bold uppercase tracking-tight">
+            Recomendado: PNG com fundo transparente. Resolução máxima sugerida: 400x120px (máx. 1MB).
+          </p>
+        </div>
       </div>
 
       <div className="pt-6">

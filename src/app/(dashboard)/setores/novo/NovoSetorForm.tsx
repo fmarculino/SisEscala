@@ -157,6 +157,24 @@ export default function NovoSetorForm({ unidades, setoresExistentes, dicionario 
             </p>
           )}
         </div>
+        {/* Logotipo do Setor */}
+        <div>
+          <label htmlFor="logo" className="block text-sm font-black uppercase tracking-widest text-zinc-500 dark:text-zinc-400 mb-2">
+            Logotipo do Setor <span className="text-[10px] font-medium opacity-50 lowercase tracking-normal">(opcional)</span>
+          </label>
+          <div className="relative group">
+            <input
+              id="logo"
+              name="logo"
+              type="file"
+              accept="image/png, image/jpeg, image/svg+xml"
+              className="block w-full text-sm text-zinc-500 file:mr-4 file:py-3 file:px-6 file:rounded-2xl file:border-2 file:border-dashed file:border-zinc-200 dark:file:border-zinc-700 file:text-sm file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-zinc-800 dark:file:text-zinc-300 file:transition-all cursor-pointer"
+            />
+          </div>
+          <p className="mt-2 text-[10px] text-zinc-500 font-bold uppercase tracking-tight">
+            Recomendado: PNG com fundo transparente. Resolução máxima sugerida: 400x120px (máx. 1MB).
+          </p>
+        </div>
       </div>
 
       <div className="pt-6">

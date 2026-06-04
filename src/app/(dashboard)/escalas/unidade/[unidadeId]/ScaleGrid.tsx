@@ -1586,27 +1586,40 @@ export function ScaleGrid({
         <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 flex justify-between items-center bg-zinc-50 dark:bg-zinc-800/50">
           <div className="flex items-center space-x-4">
             <select 
-              onChange={(e) => handleAddServer(e.target.value)}
+              onChange={(e) => {
+                const val = e.target.value
+                if (val === 'all') {
+                  handleAddAll()
+                } else if (val === 'external') {
+                  setIsExternalModalOpen(true)
+                } else if (val) {
+                  handleAddServer(val)
+                }
+              }}
               value=""
               disabled={loading || isClosed}
-              className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none"
+              className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
             >
               <option value="">+ Adicionar Servidor...</option>
-              {todosServidoresSetor
-                .filter(s => !escalaMensal.some(em => em.servidor_id === s.id))
-                .map(s => (
-                  <option key={s.id} value={s.id}>{s.nome}</option>
-                ))
-              }
+              
+              <optgroup label="Ações Rápidas">
+                <option value="all" disabled={todosServidoresSetor.length === escalaMensal.length}>
+                  👥 Adicionar Todos do Setor
+                </option>
+                <option value="external">
+                  🌍 Servidor Externo...
+                </option>
+              </optgroup>
+
+              <optgroup label="Servidores do Setor">
+                {todosServidoresSetor
+                  .filter(s => !escalaMensal.some(em => em.servidor_id === s.id))
+                  .map(s => (
+                    <option key={s.id} value={s.id}>{s.nome}</option>
+                  ))
+                }
+              </optgroup>
             </select>
-            <button 
-              onClick={handleAddAll}
-              disabled={loading || isClosed || (todosServidoresSetor.length === escalaMensal.length)}
-              className="inline-flex items-center rounded-md bg-blue-50 dark:bg-blue-900/20 text-blue-600 px-3 py-2 text-sm font-medium border border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors disabled:opacity-50"
-            >
-              {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Users className="mr-2 h-4 w-4" />}
-              Adicionar Todos
-            </button>
             
             <button
               onClick={handleClearScale}
@@ -1615,15 +1628,6 @@ export function ScaleGrid({
             >
               <Trash2 className="h-4 w-4 mr-2" />
               Limpar Escala
-            </button>
-
-            <button
-              onClick={() => setIsExternalModalOpen(true)}
-              disabled={loading || isClosed}
-              className="inline-flex items-center rounded-md border border-blue-200 text-blue-700 px-3 py-2 text-sm font-medium hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 transition-colors disabled:opacity-50"
-            >
-              <Globe className="h-4 w-4 mr-2" />
-              Servidor Externo
             </button>
 
             <button

@@ -13,12 +13,41 @@ export async function createUnidade(formData: FormData) {
   const longitude = formData.get('longitude') ? parseFloat(formData.get('longitude') as string) : null
   const raio_geofence = formData.get('raio_geofence') ? parseInt(formData.get('raio_geofence') as string) : 100
 
+  const id = crypto.randomUUID()
+  const logoFile = formData.get('logo') as File | null
+  let logo_url = null
+
+  if (logoFile && logoFile.size > 0) {
+    const fileExt = logoFile.name.split('.').pop()
+    const fileName = `unidade_${id}.${fileExt}`
+    const buffer = Buffer.from(await logoFile.arrayBuffer())
+
+    const { error: uploadError } = await supabase.storage
+      .from('logos')
+      .upload(fileName, buffer, {
+        contentType: logoFile.type,
+        upsert: true
+      })
+
+    if (uploadError) {
+      return { error: 'Erro ao fazer upload do logo: ' + uploadError.message }
+    }
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('logos')
+      .getPublicUrl(fileName)
+
+    logo_url = publicUrl
+  }
+
   const { error } = await supabase.from('unidades').insert({
+    id,
     nome,
     endereco,
     latitude,
     longitude,
-    raio_geofence
+    raio_geofence,
+    logo_url
   })
 
   if (error) {
@@ -38,15 +67,41 @@ export async function updateUnidade(id: string, formData: FormData) {
   const longitude = formData.get('longitude') ? parseFloat(formData.get('longitude') as string) : null
   const raio_geofence = formData.get('raio_geofence') ? parseInt(formData.get('raio_geofence') as string) : 100
 
+  const updateData: any = {
+    nome,
+    endereco,
+    latitude,
+    longitude,
+    raio_geofence
+  }
+
+  const logoFile = formData.get('logo') as File | null
+  if (logoFile && logoFile.size > 0) {
+    const fileExt = logoFile.name.split('.').pop()
+    const fileName = `unidade_${id}.${fileExt}`
+    const buffer = Buffer.from(await logoFile.arrayBuffer())
+
+    const { error: uploadError } = await supabase.storage
+      .from('logos')
+      .upload(fileName, buffer, {
+        contentType: logoFile.type,
+        upsert: true
+      })
+
+    if (uploadError) {
+      return { error: 'Erro ao fazer upload do logo: ' + uploadError.message }
+    }
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('logos')
+      .getPublicUrl(fileName)
+
+    updateData.logo_url = publicUrl
+  }
+
   const { error } = await supabase
     .from('unidades')
-    .update({
-      nome,
-      endereco,
-      latitude,
-      longitude,
-      raio_geofence
-    })
+    .update(updateData)
     .eq('id', id)
 
   if (error) {

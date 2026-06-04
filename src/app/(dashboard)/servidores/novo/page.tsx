@@ -167,9 +167,12 @@ export default function NovoServidorPage() {
               id="matricula"
               name="matricula"
               type="text"
-              required
+              placeholder="Ex: 987654"
               className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white sm:text-sm font-mono"
             />
+            <p className="mt-1 text-[10px] text-zinc-500 leading-normal">
+              Deixe em branco para gerar uma matrícula temporária automática (ex: T2600001).
+            </p>
           </div>
 
           <div className="sm:col-span-6 space-y-4 pt-2">

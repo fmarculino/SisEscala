@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { Clock, Plus, Edit2, Info, Search, Filter, Eye, EyeOff, Loader2 } from 'lucide-react'
+import { Clock, Plus, Edit2, Info, Search, Filter, Eye, EyeOff, Loader2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
 import Link from 'next/link'
 
 interface Turno {
@@ -19,12 +19,19 @@ export default function TurnosPage() {
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [showInactive, setShowInactive] = useState(false)
+  const [selectedTipo, setSelectedTipo] = useState('')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
   
   const supabase = createClient()
 
   useEffect(() => {
     fetchTurnos()
   }, [])
+
+  useEffect(() => {
+    setPage(1)
+  }, [searchTerm, showInactive, selectedTipo])
 
   async function fetchTurnos() {
     try {
@@ -48,9 +55,14 @@ export default function TurnosPage() {
       t.descricao.toLowerCase().includes(searchTerm.toLowerCase())
     
     const matchesStatus = showInactive || t.ativo !== false
+    const matchesTipo = !selectedTipo || t.tipo === selectedTipo
     
-    return matchesSearch && matchesStatus
+    return matchesSearch && matchesStatus && matchesTipo
   })
+
+  const totalCount = filteredTurnos.length
+  const totalPages = Math.ceil(totalCount / pageSize)
+  const paginatedTurnos = filteredTurnos.slice((page - 1) * pageSize, page * pageSize)
 
   return (
     <div className="space-y-8">
@@ -87,6 +99,18 @@ export default function TurnosPage() {
             className="w-full pl-11 pr-4 py-3 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm font-medium"
           />
         </div>
+
+        <select
+          value={selectedTipo}
+          onChange={(e) => setSelectedTipo(e.target.value)}
+          className="px-4 py-3 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-xs font-bold uppercase tracking-widest cursor-pointer text-zinc-700 dark:text-zinc-300"
+        >
+          <option value="">Todos os Tipos</option>
+          <option value="Normal">Normal</option>
+          <option value="Plantão">Plantão</option>
+          <option value="Sobreaviso">Sobreaviso</option>
+          <option value="Extra">Extra</option>
+        </select>
         
         <button
           onClick={() => setShowInactive(!showInactive)}
@@ -121,7 +145,7 @@ export default function TurnosPage() {
                   <Loader2 className="h-10 w-10 animate-spin mx-auto text-blue-500 opacity-50" />
                 </td>
               </tr>
-            ) : filteredTurnos.length === 0 ? (
+            ) : paginatedTurnos.length === 0 ? (
               <tr>
                 <td colSpan={6} className="px-6 py-20 text-center">
                   <Clock className="h-12 w-12 mx-auto text-zinc-200 dark:text-zinc-800 mb-4" />
@@ -129,7 +153,7 @@ export default function TurnosPage() {
                 </td>
               </tr>
             ) : (
-              filteredTurnos.map((turno) => (
+              paginatedTurnos.map((turno) => (
                 <tr 
                   key={turno.id} 
                   className={`group transition-all ${
@@ -181,6 +205,69 @@ export default function TurnosPage() {
             )}
           </tbody>
         </table>
+
+        {/* Paginação */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-6 bg-zinc-50/50 dark:bg-zinc-800/20 border-t border-zinc-100 dark:border-zinc-800/80 print:hidden select-none">
+          <div className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">
+            Mostrando <span className="text-zinc-800 dark:text-zinc-200">{totalCount === 0 ? 0 : (page - 1) * pageSize + 1}</span> - <span className="text-zinc-800 dark:text-zinc-200">{Math.min(page * pageSize, totalCount)}</span> de <span className="text-zinc-800 dark:text-zinc-200">{totalCount}</span> registros
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">Exibir</span>
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value))
+                setPage(1)
+              }}
+              className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-full px-3 py-1.5 text-xs font-bold text-blue-600 dark:text-blue-400 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer shadow-sm hover:border-zinc-300 dark:hover:border-zinc-600 transition-colors"
+            >
+              <option value={20}>20</option>
+              <option value={30}>30</option>
+              <option value={50}>50</option>
+            </select>
+          </div>
+
+          <div className="flex items-center gap-1">
+            <button 
+              onClick={() => setPage(1)}
+              disabled={page === 1}
+              className="p-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-full hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-40 disabled:hover:bg-white dark:disabled:hover:bg-zinc-900 transition-all shadow-sm"
+              title="Primeira página"
+            >
+              <ChevronsLeft className="h-4 w-4 text-zinc-500 dark:text-zinc-400" />
+            </button>
+            <button 
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="p-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-full hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-40 disabled:hover:bg-white dark:disabled:hover:bg-zinc-900 transition-all shadow-sm"
+              title="Página anterior"
+            >
+              <ChevronLeft className="h-4 w-4 text-zinc-500 dark:text-zinc-400" />
+            </button>
+            
+            <div className="bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200 dark:border-zinc-700 rounded-full px-4 py-1.5 text-xs font-bold text-zinc-700 dark:text-zinc-300 min-w-[70px] text-center shadow-sm">
+              {page} <span className="text-zinc-400 dark:text-zinc-500 text-[10px] font-normal mx-1">DE</span> {totalPages || 1}
+            </div>
+
+            <button 
+              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages || totalPages === 0}
+              className="p-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-full hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-40 disabled:hover:bg-white dark:disabled:hover:bg-zinc-900 transition-all shadow-sm"
+              title="Próxima página"
+            >
+              <ChevronRight className="h-4 w-4 text-zinc-500 dark:text-zinc-400" />
+            </button>
+            <button 
+              onClick={() => setPage(totalPages)}
+              disabled={page >= totalPages || totalPages === 0}
+              className="p-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-full hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-40 disabled:hover:bg-white dark:disabled:hover:bg-zinc-900 transition-all shadow-sm"
+              title="Última página"
+            >
+              <ChevronsRight className="h-4 w-4 text-zinc-500 dark:text-zinc-400" />
+            </button>
+          </div>
+        </div>
       </div>
       
       {/* Tip Section */}

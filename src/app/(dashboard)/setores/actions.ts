@@ -32,11 +32,40 @@ export async function createSetor(formData: FormData) {
     return { error: 'Erro ao processar dicionário de setores: ' + dictError.message }
   }
 
+  const id = crypto.randomUUID()
+  const logoFile = formData.get('logo') as File | null
+  let logo_url = null
+
+  if (logoFile && logoFile.size > 0) {
+    const fileExt = logoFile.name.split('.').pop()
+    const fileName = `setor_${id}.${fileExt}`
+    const buffer = Buffer.from(await logoFile.arrayBuffer())
+
+    const { error: uploadError } = await supabase.storage
+      .from('logos')
+      .upload(fileName, buffer, {
+        contentType: logoFile.type,
+        upsert: true
+      })
+
+    if (uploadError) {
+      return { error: 'Erro ao fazer upload do logo: ' + uploadError.message }
+    }
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('logos')
+      .getPublicUrl(fileName)
+
+    logo_url = publicUrl
+  }
+
   // 2. Inserir o setor vinculado ao dicionário
   const { error } = await supabase.from('setores').insert({
+    id,
     unidade_id,
     dicionario_setor_id: dictEntry.id,
     parent_id: parent_id || null,
+    logo_url
   })
 
   if (error) {
@@ -65,13 +94,39 @@ export async function updateSetor(id: string, formData: FormData) {
     return { error: 'Erro ao processar dicionário de setores: ' + dictError.message }
   }
 
+  const updateData: any = {
+    unidade_id,
+    dicionario_setor_id: dictEntry.id,
+    parent_id: parent_id || null,
+  }
+
+  const logoFile = formData.get('logo') as File | null
+  if (logoFile && logoFile.size > 0) {
+    const fileExt = logoFile.name.split('.').pop()
+    const fileName = `setor_${id}.${fileExt}`
+    const buffer = Buffer.from(await logoFile.arrayBuffer())
+
+    const { error: uploadError } = await supabase.storage
+      .from('logos')
+      .upload(fileName, buffer, {
+        contentType: logoFile.type,
+        upsert: true
+      })
+
+    if (uploadError) {
+      return { error: 'Erro ao fazer upload do logo: ' + uploadError.message }
+    }
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('logos')
+      .getPublicUrl(fileName)
+
+    updateData.logo_url = publicUrl
+  }
+
   const { error } = await supabase
     .from('setores')
-    .update({
-      unidade_id,
-      dicionario_setor_id: dictEntry.id,
-      parent_id: parent_id || null,
-    })
+    .update(updateData)
     .eq('id', id)
 
   if (error) {

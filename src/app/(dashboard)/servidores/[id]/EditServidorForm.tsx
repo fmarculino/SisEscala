@@ -17,6 +17,8 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos }: Ed
   const [error, setError] = useState<string | null>(null)
   const [selectedUnidade, setSelectedUnidade] = useState(servidor.unidade_id || '')
 
+  const isTemporary = servidor.matricula ? /^T\d{7}$/.test(servidor.matricula) : false
+
   // Parsing existing cargo string (Level 1 / Level 2 / Level 3)
   const existingCargoParts = servidor.cargo ? servidor.cargo.split(' / ') : []
   
@@ -82,6 +84,14 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos }: Ed
       </div>
       
       <form action={handleSubmit} className="space-y-6">
+        {isTemporary && (
+          <div className="p-4 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-900/30 rounded-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
+            <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse flex-shrink-0" />
+            <div className="text-xs text-amber-800 dark:text-amber-300 font-medium">
+              Este servidor possui uma <strong>Matrícula Temporária</strong>. Lembre-se de atualizá-la para a matrícula definitiva assim que gerada pela folha de pagamento.
+            </div>
+          </div>
+        )}
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-6">
           <div className="sm:col-span-4">
             <label htmlFor="nome" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
@@ -106,9 +116,17 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos }: Ed
               name="matricula"
               id="matricula"
               defaultValue={servidor.matricula}
-              required
-              className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm font-mono focus:ring-blue-500 focus:border-blue-500"
+              className={`mt-1 block w-full rounded-md border px-3 py-2 sm:text-sm font-mono focus:ring-blue-500 focus:border-blue-500 ${
+                isTemporary
+                  ? 'bg-amber-50 border-amber-300 text-amber-900 dark:bg-amber-900/10 dark:border-amber-900/30 dark:text-amber-300'
+                  : 'bg-zinc-50 border-zinc-300 text-zinc-900 dark:bg-zinc-800 dark:text-white'
+              }`}
             />
+            {isTemporary && (
+              <p className="mt-1 text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+                Matrícula temporária. Altere para a definitiva assim que gerada.
+              </p>
+            )}
           </div>
 
           <div className="sm:col-span-6 space-y-4 pt-2">

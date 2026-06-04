@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.5] - 2026-06-04
+
+### Added
+- **Upload de Logotipo para Unidades e Setores**:
+  - Nova coluna `logo_url` adicionada nas tabelas `unidades` e `setores`.
+  - Configuração do bucket público de armazenamento de logos (`logos`) no Supabase Storage com políticas de RLS adequadas.
+  - Implementação de lógica de upload otimizada no backend (Server Actions de Unidades e Setores) com salvamento sob caminhos determinísticos (`unidade_ID.ext` e `setor_ID.ext`).
+  - Atualização dos formulários de cadastro e edição no frontend, incluindo um campo para upload e um contêiner de pré-visualização quadriculada (checkerboard grid) para preservar a visualização de transparências (PNG/SVG).
+- **Matrícula Temporária Automática**:
+  - Suporte ao cadastro de novos servidores sem matrícula definitiva (deixando o campo em branco). O backend gera automaticamente um código temporário sequencial e único no formato `TYYNNNNN` (ex: `T2600001`).
+  - Adicionado banner de alerta e destaque em tom âmbar/amarelo na tela de edição do servidor temporário para alertar sobre a regularização pendente.
+  - Adicionada etiqueta visual (badge) de matrícula `Temporária` na listagem de servidores.
+- **Filtros e Paginação no Dicionário de Turnos**:
+  - Implementado filtro por tipo/categoria de turno na listagem de turnos.
+  - Adicionado controle de paginação (limite de itens por página e navegação) no padrão estético do sistema.
+- **Consolidação de Botões na Grade de Escala**:
+  - Unificação dos controles horizontais na barra de ferramentas do grid de escala: os botões de adicionar todos os servidores e abrir modal de servidor externo foram agrupados dentro do menu suspenso principal `+ Adicionar Servidor...`.
+
 ## [1.2.4] - 2026-06-03
 
 ### Added

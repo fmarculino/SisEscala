@@ -17,9 +17,51 @@ export async function createServidor(formData: FormData) {
   const telefone = formData.get('telefone') as string
   const pin_acesso = formData.get('pin_acesso') as string
 
+  let matriculaFinal = matricula?.trim() || ''
+
+  if (!matriculaFinal) {
+    const yearSuffix = new Date().getFullYear().toString().slice(-2)
+    const prefix = `T${yearSuffix}`
+    
+    const { data, error: fetchError } = await supabase
+      .from('servidores')
+      .select('matricula')
+      .like('matricula', `${prefix}%`)
+      .order('matricula', { ascending: false })
+      .limit(1)
+
+    if (fetchError) {
+      return { error: `Erro ao gerar matrícula temporária: ${fetchError.message}` }
+    }
+
+    let nextSeq = 1
+    if (data && data.length > 0 && data[0].matricula) {
+      const currentSeqStr = data[0].matricula.slice(prefix.length)
+      const currentSeq = parseInt(currentSeqStr, 10)
+      if (!isNaN(currentSeq)) {
+        nextSeq = currentSeq + 1
+      }
+    }
+    matriculaFinal = `${prefix}${String(nextSeq).padStart(5, '0')}`
+  } else {
+    // Validar unicidade de matrícula definitiva
+    const { data: existing, error: checkError } = await supabase
+      .from('servidores')
+      .select('id')
+      .eq('matricula', matriculaFinal)
+      .maybeSingle()
+
+    if (checkError) {
+      return { error: `Erro ao validar matrícula: ${checkError.message}` }
+    }
+    if (existing) {
+      return { error: 'Esta matrícula já está cadastrada para outro servidor.' }
+    }
+  }
+
   const { error } = await supabase.from('servidores').insert({
     nome,
-    matricula,
+    matricula: matriculaFinal,
     cargo,
     vinculo,
     unidade_id: unidade_id || null,
@@ -48,6 +90,25 @@ export async function importServidores(csvText: string) {
     nome: (s as any).dicionario_setores?.nome || ''
   })) || []
 
+  // Obter o sequencial máximo da matrícula temporária atual para evitar colisões
+  const yearSuffix = new Date().getFullYear().toString().slice(-2)
+  const prefix = `T${yearSuffix}`
+  const { data: lastRecord } = await supabase
+    .from('servidores')
+    .select('matricula')
+    .like('matricula', `${prefix}%`)
+    .order('matricula', { ascending: false })
+    .limit(1)
+
+  let nextSeq = 1
+  if (lastRecord && lastRecord.length > 0 && lastRecord[0].matricula) {
+    const currentSeqStr = lastRecord[0].matricula.slice(prefix.length)
+    const currentSeq = parseInt(currentSeqStr, 10)
+    if (!isNaN(currentSeq)) {
+      nextSeq = currentSeq + 1
+    }
+  }
+
   // CSV parser (expected headers: nome, matricula, cargo, vinculo, email, telefone, unidade, setor)
   const lines = csvText.split('\n').filter(line => line.trim() !== '')
   const servers = []
@@ -57,8 +118,15 @@ export async function importServidores(csvText: string) {
     if (values.length < 2) continue
 
     const nome = values[0]?.trim()
-    const matricula = values[1]?.trim()
-    if (!nome || !matricula) continue
+    let matricula = values[1]?.trim() || ''
+
+    if (!nome) continue
+
+    // Se a matrícula for nula/vazia, gerar código temporário sequencial
+    if (!matricula) {
+      matricula = `${prefix}${String(nextSeq).padStart(5, '0')}`
+      nextSeq++
+    }
 
     const unidadeNome = values[6]?.trim()
     const setorNome = values[7]?.trim()
@@ -102,9 +170,52 @@ export async function updateServidor(id: string, formData: FormData) {
   const telefone = formData.get('telefone') as string
   const pin_acesso = formData.get('pin_acesso') as string
 
+  let matriculaFinal = matricula?.trim() || ''
+
+  if (!matriculaFinal) {
+    const yearSuffix = new Date().getFullYear().toString().slice(-2)
+    const prefix = `T${yearSuffix}`
+    
+    const { data, error: fetchError } = await supabase
+      .from('servidores')
+      .select('matricula')
+      .like('matricula', `${prefix}%`)
+      .order('matricula', { ascending: false })
+      .limit(1)
+
+    if (fetchError) {
+      return { error: `Erro ao gerar matrícula temporária: ${fetchError.message}` }
+    }
+
+    let nextSeq = 1
+    if (data && data.length > 0 && data[0].matricula) {
+      const currentSeqStr = data[0].matricula.slice(prefix.length)
+      const currentSeq = parseInt(currentSeqStr, 10)
+      if (!isNaN(currentSeq)) {
+        nextSeq = currentSeq + 1
+      }
+    }
+    matriculaFinal = `${prefix}${String(nextSeq).padStart(5, '0')}`
+  } else {
+    // Validar unicidade da matrícula (ignorando o registro do próprio servidor atual)
+    const { data: existing, error: checkError } = await supabase
+      .from('servidores')
+      .select('id')
+      .eq('matricula', matriculaFinal)
+      .neq('id', id)
+      .maybeSingle()
+
+    if (checkError) {
+      return { error: `Erro ao validar matrícula: ${checkError.message}` }
+    }
+    if (existing) {
+      return { error: 'Esta matrícula já está cadastrada para outro servidor.' }
+    }
+  }
+
   const updateData: any = {
     nome,
-    matricula,
+    matricula: matriculaFinal,
     cargo,
     vinculo,
     unidade_id: unidade_id || null,
