@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.1] - 2026-06-04
+
+### Fixed
+- **Respeito Estrito à Janela de Variação de Horários Fictícios**:
+  - Corrigido o bug em que o horário fictício de retorno do intervalo (almoço) acumulava a variação da saída do intervalo com a variação do próprio retorno. Isso fazia com que a variação total em relação ao horário oficial alvo chegasse a quase 30 minutos (violando o limite de variação configurado de 15 minutos).
+  - O motor foi ajustado em todas as Server Actions administrativas e do portal para basear a geração do retorno diretamente do horário oficial alvo (`officialRetornoIntervaloMin`), mantendo todas as marcações individuais rigorosamente dentro do limite da janela definida.
+
 ## [1.3.0] - 2026-06-04
 
 ### Changed

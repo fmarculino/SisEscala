@@ -386,7 +386,7 @@ export async function gerarFolhaPonto(servidorId: string, mes: number, ano: numb
 
           // Lunch return
           const returnOffset = getDeterministicOffset(`${seedBase}-lunchreturn`, maxVar)
-          const genReturnMin = (genOutMin + intervaloMinutos + returnOffset + 24 * 60) % (24 * 60)
+          const genReturnMin = (officialRetornoIntervaloMin + returnOffset + 24 * 60) % (24 * 60)
           registro.retorno_intervalo = formatMinutesToTimeStr(genReturnMin)
           registro.origem_retorno_intervalo = 'ficticio'
         }
@@ -751,7 +751,7 @@ export async function sincronizarFolhaPonto(folhaId: string) {
           registro.origem_saida_intervalo = 'ficticio'
 
           const returnOffset = getDeterministicOffset(`${seedBase}-lunchreturn`, maxVar)
-          const genReturnMin = (genOutMin + intervaloMinutos + returnOffset + 24 * 60) % (24 * 60)
+          const genReturnMin = (officialRetornoIntervaloMin + returnOffset + 24 * 60) % (24 * 60)
           registro.retorno_intervalo = formatMinutesToTimeStr(genReturnMin)
           registro.origem_retorno_intervalo = 'ficticio'
         }
