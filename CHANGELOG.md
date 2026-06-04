@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.6] - 2026-06-04
+
+### Added
+- **Módulo de Folha de Ponto (Timesheet)**:
+  - Criação da tabela `folha_ponto` no banco de dados e ativação de políticas de segurança RLS para Coordenadores, Admins e Super Admins.
+  - Implementação de opções dinâmicas de ativação e tolerância na página de configurações globais de Governança.
+  - Adicionado item "Folha de Ponto" condicional ao menu lateral.
+  - Painel administrativo para visualização e filtros de servidores por setor e mês, permitindo a geração em lote/individual.
+  - Motor de geração de horários com base nos turnos regulares da escala, utilizando geração de horários fictícios com variação aleatória determinística (seed-based, entre -14 e +14 minutos, nunca terminando em :00), e respeitando folgas, feriados e afastamentos cadastrados.
+  - Sincronização automática com preservação de edições manuais em caso de alteração da escala original usando fingerprints.
+  - Editor interativo e estético de folha de ponto com cores por origem do registro (verde = real/presença confirmada, azul = fictício, amarelo = editado manualmente).
+  - Cálculo de horas extras integrado com distinção de percentuais diurnos/noturnos/feriados/domingos (50% e 100%).
+  - Disponibilização da visualização de folha de ponto em modo somente leitura no Portal do Servidor.
+  - Estilização de impressão profissional CSS Print otimizada para folhas de ponto no formato A4 oficial.
+
 ## [1.2.5] - 2026-06-04
 
 ### Added

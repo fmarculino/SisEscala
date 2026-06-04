@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import packageJson from '../../../package.json'
 import Link from 'next/link'
+import { createClient } from '@/utils/supabase/client'
 import { 
   LayoutDashboard, Users, Building2, Clock, ShieldCheck, 
   Calendar, Layers, Shield, User, Briefcase, CalendarDays, 
@@ -38,6 +39,7 @@ const menuGroups: MenuGroup[] = [
     items: [
       { name: 'Escalas', href: '/escalas', icon: Calendar },
       { name: 'Afastamentos', href: '/afastamentos', icon: CalendarDays },
+      { name: 'Folha de Ponto', href: '/folha-ponto', icon: FileText },
     ]
   },
   {
@@ -95,6 +97,22 @@ export function Sidebar({ user }: { user?: any }) {
     'AUDITORIA & GESTÃO': false,
     'SISTEMA': false,
   })
+  const [folhaPontoHabilitada, setFolhaPontoHabilitada] = useState(false)
+  const supabase = createClient()
+
+  useEffect(() => {
+    async function checkConfig() {
+      const { data, error } = await supabase
+        .from('configuracoes_globais')
+        .select('valor')
+        .eq('chave', 'folha_ponto_habilitada')
+        .single()
+      if (data && !error) {
+        setFolhaPontoHabilitada(data.valor === true)
+      }
+    }
+    checkConfig()
+  }, [supabase])
 
   const toggleGroup = (title: string) => {
     setExpandedGroups(prev => ({
@@ -112,6 +130,8 @@ export function Sidebar({ user }: { user?: any }) {
   const filteredGroups = menuGroups.map(group => {
     // Filter items within group
     const filteredItems = group.items.filter(item => {
+      if (item.name === 'Folha de Ponto' && !folhaPontoHabilitada) return false
+
       if (isSuperAdmin) return true
       
       if (isAdmin) {

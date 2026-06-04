@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { Save, Loader2, Settings, Clock, Shield, Bell, Database, Zap, Lock, CheckSquare, Calendar } from 'lucide-react'
+import { Save, Loader2, Settings, Clock, Shield, Bell, Database, Zap, Lock, CheckSquare, Calendar, FileText } from 'lucide-react'
 
 export default function ConfigPage() {
   const supabase = createClient()
@@ -315,6 +315,55 @@ export default function ConfigPage() {
                 </select>
                 <p className="text-[11px] text-zinc-400 leading-normal mt-1">
                   Se desativado, o servidor não poderá ser escalado para NENHUM turno nos dias de afastamento. Se ativado, permite escalas de plantão, extras e sobreaviso, mas impede a carga horária regular.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Folha de Ponto */}
+        <div className="bg-white dark:bg-zinc-900 rounded-[2rem] border border-zinc-200 dark:border-zinc-800 p-8 shadow-sm hover:shadow-md transition-shadow">
+          <div className="space-y-8">
+            <div className="flex items-center gap-4">
+              <div className="p-4 bg-blue-100 dark:bg-blue-900/30 rounded-2xl text-blue-600">
+                <FileText className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-zinc-900 dark:text-white uppercase tracking-tight">Folha de Ponto</h3>
+                <p className="text-sm text-zinc-500 leading-relaxed">Parâmetros para geração, tolerância e preenchimento das folhas de ponto dos servidores.</p>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="space-y-2">
+                <label className="text-xs font-black text-zinc-400 uppercase tracking-widest block">Módulo Folha de Ponto</label>
+                <select 
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold transition-all"
+                  value={getConfig('folha_ponto_habilitada')?.valor !== undefined ? String(getConfig('folha_ponto_habilitada')?.valor) : 'false'}
+                  onChange={(e) => updateConfig('folha_ponto_habilitada', e.target.value === 'true')}
+                >
+                  <option value="true">Habilitado</option>
+                  <option value="false">Desabilitado</option>
+                </select>
+                <p className="text-[11px] text-zinc-400 leading-normal mt-1">
+                  Ativa o menu e permite que coordenadores gerem as folhas de ponto a partir da escala regular dos servidores.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-black text-zinc-400 uppercase tracking-widest block">Janela de Variação de Horários Fictícios</label>
+                <div className="relative">
+                  <input 
+                    type="number" 
+                    min="1" max="60"
+                    className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold transition-all pr-12"
+                    value={getConfig('folha_ponto_variacao_minutos')?.valor !== undefined ? String(getConfig('folha_ponto_variacao_minutos')?.valor) : '15'}
+                    onChange={(e) => updateConfig('folha_ponto_variacao_minutos', parseInt(e.target.value) || 15)}
+                  />
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-zinc-400 uppercase">min</div>
+                </div>
+                <p className="text-[11px] text-zinc-400 leading-normal mt-1">
+                  Variação máxima (ex: 15min) adicionada ou subtraída dos horários oficiais ao preencher de forma fictícia os horários sem presença real.
                 </p>
               </div>
             </div>

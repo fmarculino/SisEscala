@@ -395,3 +395,59 @@ export async function cancelSwapRequest(solicitacaoId: string) {
 
   return { success: true }
 }
+
+export async function getFolhaPontoServidor(servidorId: string, mes: number, ano: number) {
+  const supabase = await createAdminClient()
+  const cookieStore = await cookies()
+  const portalServidorId = cookieStore.get('portal_servidor_id')?.value
+
+  if (!portalServidorId) {
+    return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
+  }
+
+  if (portalServidorId !== servidorId) {
+    return { error: 'Acesso negado.' }
+  }
+
+  const { data: folha, error } = await supabase
+    .from('folha_ponto')
+    .select('*, servidores(*)')
+    .eq('servidor_id', servidorId)
+    .eq('mes', mes)
+    .eq('ano', ano)
+    .maybeSingle()
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  if (!folha) {
+    return { folha: null }
+  }
+
+  const { data: escala } = await supabase
+    .from('escala_mensal')
+    .select('*, unidades(*), setores(*, dicionario_setores(nome)), jornadas(*)')
+    .eq('id', folha.escala_mensal_id)
+    .single()
+
+  const sectorData = escala ? (Array.isArray(escala.setores) ? escala.setores[0] : escala.setores) : null
+  const dictData = sectorData ? (Array.isArray(sectorData.dicionario_setores) 
+    ? sectorData.dicionario_setores[0] 
+    : sectorData.dicionario_setores) : null
+
+  const resolvedSetor = sectorData ? {
+    ...sectorData,
+    nome: dictData?.nome || 'SETOR SEM NOME'
+  } : null
+
+  return {
+    folha: {
+      ...folha,
+      escala: escala ? {
+        ...escala,
+        setores: resolvedSetor
+      } : null
+    }
+  }
+}
