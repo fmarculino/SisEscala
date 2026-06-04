@@ -145,13 +145,13 @@ export function FolhaPontoEditor({
       const [entH, entM] = entrada.split(':').map(Number)
       const [saiH, saiM] = saida.split(':').map(Number)
       
-      const scheduledEntrance = new Date(folha.ano, folha.mes - 1, day, startHour, startMin, 0, 0)
-      const scheduledExit = new Date(folha.ano, folha.mes - 1, day, endHour, endMin, 0, 0)
+      const scheduledEntrance = new Date(`${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}:00-03:00`)
+      const scheduledExit = new Date(`${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00-03:00`)
       if (scheduledExit <= scheduledEntrance) {
         scheduledExit.setDate(scheduledExit.getDate() + 1)
       }
 
-      let realExit = new Date(folha.ano, folha.mes - 1, day, saiH, saiM, 0, 0)
+      let realExit = new Date(`${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(saiH).padStart(2, '0')}:${String(saiM).padStart(2, '0')}:00-03:00`)
       if (saiH < entH || (saiH === entH && saiM < entM)) {
         realExit.setDate(realExit.getDate() + 1)
       }
@@ -167,11 +167,12 @@ export function FolhaPontoEditor({
       const end = new Date(realExit.getTime())
       
       // Sunday is 0
-      const isSunday = new Date(folha.ano, folha.mes - 1, day).getDay() === 0
+      const isSunday = new Date(`${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T12:00:00-03:00`).getUTCDay() === 0
 
       while (current < end) {
-        const curHour = current.getHours()
-        const curDayOfWeek = current.getDay()
+        const localCurrent = new Date(current.getTime() - 3 * 60 * 60 * 1000)
+        const curHour = localCurrent.getUTCHours()
+        const curDayOfWeek = localCurrent.getUTCDay()
         const isSun = curDayOfWeek === 0
         const isNight = curHour >= 22 || curHour < 5
 

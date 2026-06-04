@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.8] - 2026-06-04
+
+### Fixed
+- **Inconsistência de Fuso Horário na Folha de Ponto**:
+  - Corrigido o bug em que horários de entrada/saída reais baseados no terminal eram extraídos incorretamente com diferença de fuso horário (ex. mostrando 10:59 em vez de 07:59) devido ao fato do servidor NodeJS rodar em UTC. Agora, os horários reais de presença são formatados explicitamente usando a timezone local de Brasília (`America/Sao_Paulo`).
+  - Ajustado o motor de cálculo de horas extras no backend e no frontend (`FolhaPontoEditor.tsx`) para utilizar horários locais (compensação UTC-3) para as datas de início/fim da jornada e loops de contagem de minutos de horas extras. Isso garante que a identificação de domingos, feriados e horas extras noturnas (entre 22h e 5h) ocorra com base no horário oficial brasileiro.
+
 ## [1.2.7] - 2026-06-04
 
 ### Added

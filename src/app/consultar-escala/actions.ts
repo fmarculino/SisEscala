@@ -865,7 +865,7 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
 
         if (hasRealEntrada) {
           const d = new Date(currentShift.presenca_entrada_em)
-          registro.entrada = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+          registro.entrada = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_entrada = 'real'
         } else {
           const offset = getDeterministicOffset(`${seedBase}-entrada`, maxVar)
@@ -876,7 +876,7 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
 
         if (hasRealSaida) {
           const d = new Date(currentShift.presenca_saida_em)
-          registro.saida = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+          registro.saida = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_saida = 'real'
         } else {
           const offset = getDeterministicOffset(`${seedBase}-saida`, maxVar)
@@ -900,8 +900,8 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
         if (hasRealSaida && currentShift.presenca_saida_em) {
           const realExit = new Date(currentShift.presenca_saida_em)
           
-          const scheduledEntrance = new Date(folha.ano, folha.mes - 1, day, startHour, startMin, 0, 0)
-          const scheduledExit = new Date(folha.ano, folha.mes - 1, day, endHour, endMin, 0, 0)
+          const scheduledEntrance = new Date(`${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}:00-03:00`)
+          const scheduledExit = new Date(`${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00-03:00`)
           if (scheduledExit <= scheduledEntrance) {
             scheduledExit.setDate(scheduledExit.getDate() + 1)
           }
@@ -914,9 +914,10 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
             const end = new Date(realExit.getTime())
             
             while (current < end) {
-              const curHour = current.getHours()
-              const curDayOfWeek = current.getDay()
-              const curDateStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`
+              const localCurrent = new Date(current.getTime() - 3 * 60 * 60 * 1000)
+              const curHour = localCurrent.getUTCHours()
+              const curDayOfWeek = localCurrent.getUTCDay()
+              const curDateStr = `${localCurrent.getUTCFullYear()}-${String(localCurrent.getUTCMonth() + 1).padStart(2, '0')}-${String(localCurrent.getUTCDate()).padStart(2, '0')}`
               const isSunday = curDayOfWeek === 0
               const isHoliday = feriadosSet.has(curDateStr)
               const isNight = curHour >= 22 || curHour < 5
@@ -1134,7 +1135,7 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
 
         if (hasRealEntrada) {
           const d = new Date(shift.presenca_entrada_em)
-          registro.entrada = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+          registro.entrada = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_entrada = 'real'
         } else {
           const offset = getDeterministicOffset(`${seedBase}-entrada`, maxVar)
@@ -1145,7 +1146,7 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
 
         if (hasRealSaida) {
           const d = new Date(shift.presenca_saida_em)
-          registro.saida = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+          registro.saida = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_saida = 'real'
         } else {
           const offset = getDeterministicOffset(`${seedBase}-saida`, maxVar)
@@ -1169,8 +1170,8 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
         if (hasRealSaida && shift.presenca_saida_em) {
           const realExit = new Date(shift.presenca_saida_em)
           
-          const scheduledEntrance = new Date(ano, mes - 1, day, startHour, startMin, 0, 0)
-          const scheduledExit = new Date(ano, mes - 1, day, endHour, endMin, 0, 0)
+          const scheduledEntrance = new Date(`${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}:00-03:00`)
+          const scheduledExit = new Date(`${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00-03:00`)
           if (scheduledExit <= scheduledEntrance) {
             scheduledExit.setDate(scheduledExit.getDate() + 1)
           }
@@ -1183,9 +1184,10 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
             const end = new Date(realExit.getTime())
             
             while (current < end) {
-              const curHour = current.getHours()
-              const curDayOfWeek = current.getDay()
-              const curDateStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`
+              const localCurrent = new Date(current.getTime() - 3 * 60 * 60 * 1000)
+              const curHour = localCurrent.getUTCHours()
+              const curDayOfWeek = localCurrent.getUTCDay()
+              const curDateStr = `${localCurrent.getUTCFullYear()}-${String(localCurrent.getUTCMonth() + 1).padStart(2, '0')}-${String(localCurrent.getUTCDate()).padStart(2, '0')}`
               const isSunday = curDayOfWeek === 0
               const isHoliday = feriadosSet.has(curDateStr)
               const isNight = curHour >= 22 || curHour < 5
