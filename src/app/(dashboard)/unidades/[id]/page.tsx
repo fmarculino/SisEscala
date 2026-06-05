@@ -4,6 +4,7 @@ import { StatusToggleButton } from '@/components/ui/StatusToggleButton'
 import { ArrowLeft, Save, Building2 } from 'lucide-react'
 import Link from 'next/link'
 import { GeoLocationPicker } from '@/components/GeoLocationPicker'
+import { LogoUploadManager } from '@/components/LogoUploadManager'
 
 export default async function EditUnidadePage({
   params,
@@ -94,31 +95,13 @@ export default async function EditUnidadePage({
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
                 Logotipo da Unidade
               </label>
-              {unidade.logo_url && (
-                <div className="mt-2 mb-3 flex items-center gap-4 animate-in fade-in">
-                  <div className="h-16 w-32 border border-zinc-200 dark:border-zinc-700 rounded-lg overflow-hidden bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] dark:bg-[radial-gradient(#3f3f46_1px,transparent_1px)] bg-[size:10px_10px] bg-zinc-50 dark:bg-zinc-900 flex items-center justify-center p-2 shadow-inner">
-                    <img 
-                      src={unidade.logo_url} 
-                      alt="Logo atual" 
-                      className="max-h-full max-w-full object-contain"
-                    />
-                  </div>
-                  <span className="text-xs text-zinc-500 font-medium">Logotipo atual cadastrado. Faça upload de um novo arquivo para substituí-lo.</span>
-                </div>
-              )}
-              <input
-                type="file"
-                name="logo"
-                id="logo"
-                accept="image/png, image/jpeg, image/svg+xml"
-                className="mt-1 block w-full text-sm text-zinc-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+              <LogoUploadManager 
+                initialLogoUrl={unidade.logo_url}
+                recommendationText="Recomendado: PNG com fundo transparente. Resolução máxima sugerida: 400x120px (máx. 1MB)."
               />
-              <p className="mt-1 text-[10px] text-zinc-500">
-                Recomendado: PNG com fundo transparente. Resolução máxima sugerida: 400x120px (máx. 1MB).
-              </p>
             </div>
 
             <GeoLocationPicker 

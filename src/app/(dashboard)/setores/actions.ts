@@ -100,28 +100,33 @@ export async function updateSetor(id: string, formData: FormData) {
     parent_id: parent_id || null,
   }
 
-  const logoFile = formData.get('logo') as File | null
-  if (logoFile && logoFile.size > 0) {
-    const fileExt = logoFile.name.split('.').pop()
-    const fileName = `setor_${id}.${fileExt}`
-    const buffer = Buffer.from(await logoFile.arrayBuffer())
+  const removeLogo = formData.get('remove_logo') === 'true'
+  if (removeLogo) {
+    updateData.logo_url = null
+  } else {
+    const logoFile = formData.get('logo') as File | null
+    if (logoFile && logoFile.size > 0) {
+      const fileExt = logoFile.name.split('.').pop()
+      const fileName = `setor_${id}.${fileExt}`
+      const buffer = Buffer.from(await logoFile.arrayBuffer())
 
-    const { error: uploadError } = await supabase.storage
-      .from('logos')
-      .upload(fileName, buffer, {
-        contentType: logoFile.type,
-        upsert: true
-      })
+      const { error: uploadError } = await supabase.storage
+        .from('logos')
+        .upload(fileName, buffer, {
+          contentType: logoFile.type,
+          upsert: true
+        })
 
-    if (uploadError) {
-      return { error: 'Erro ao fazer upload do logo: ' + uploadError.message }
+      if (uploadError) {
+        return { error: 'Erro ao fazer upload do logo: ' + uploadError.message }
+      }
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('logos')
+        .getPublicUrl(fileName)
+
+      updateData.logo_url = publicUrl
     }
-
-    const { data: { publicUrl } } = supabase.storage
-      .from('logos')
-      .getPublicUrl(fileName)
-
-    updateData.logo_url = publicUrl
   }
 
   const { error } = await supabase
