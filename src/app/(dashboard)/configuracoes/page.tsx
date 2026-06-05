@@ -449,25 +449,29 @@ export default function ConfigPage() {
                 </div>
               )}
 
-              <div className="relative group max-w-md">
-                <input
-                  id="instituicao_cabecalho"
-                  type="file"
-                  accept="image/png, image/jpeg, image/svg+xml"
-                  onChange={handleImageUpload}
-                  disabled={uploadingImage}
-                  className="block w-full text-sm text-zinc-500 file:mr-4 file:py-3 file:px-6 file:rounded-2xl file:border-2 file:border-dashed file:border-zinc-200 dark:file:border-zinc-700 file:text-sm file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-zinc-800 dark:file:text-zinc-300 file:transition-all cursor-pointer disabled:opacity-50"
-                />
-                {uploadingImage && (
-                  <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
-                    <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-                    <span className="text-[10px] font-bold text-zinc-400 uppercase">Processando...</span>
+              {!getConfig('instituicao_cabecalho_url')?.valor && (
+                <>
+                  <div className="relative group max-w-md animate-in fade-in duration-200">
+                    <input
+                      id="instituicao_cabecalho"
+                      type="file"
+                      accept="image/png, image/jpeg, image/svg+xml"
+                      onChange={handleImageUpload}
+                      disabled={uploadingImage}
+                      className="block w-full text-sm text-zinc-500 file:mr-4 file:py-3 file:px-6 file:rounded-2xl file:border-2 file:border-dashed file:border-zinc-200 dark:file:border-zinc-700 file:text-sm file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-zinc-800 dark:file:text-zinc-300 file:transition-all cursor-pointer disabled:opacity-50"
+                    />
+                    {uploadingImage && (
+                      <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                        <span className="text-[10px] font-bold text-zinc-400 uppercase">Processando...</span>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-              <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-tight">
-                Recomendado: PNG com fundo transparente ou SVG. Tamanho máximo: 1MB.
-              </p>
+                  <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-tight">
+                    Recomendado: PNG com fundo transparente ou SVG. Tamanho máximo: 1MB.
+                  </p>
+                </>
+              )}
             </div>
           </div>
         </div>
