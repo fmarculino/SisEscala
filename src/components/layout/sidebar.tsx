@@ -98,17 +98,27 @@ export function Sidebar({ user }: { user?: any }) {
     'SISTEMA': false,
   })
   const [folhaPontoHabilitada, setFolhaPontoHabilitada] = useState(false)
+  const [headerLogoUrl, setHeaderLogoUrl] = useState<string>('')
   const supabase = createClient()
 
   useEffect(() => {
     async function checkConfig() {
-      const { data, error } = await supabase
+      const { data: fpData } = await supabase
         .from('configuracoes_globais')
         .select('valor')
         .eq('chave', 'folha_ponto_habilitada')
         .single()
-      if (data && !error) {
-        setFolhaPontoHabilitada(data.valor === true)
+      if (fpData) {
+        setFolhaPontoHabilitada(fpData.valor === true)
+      }
+
+      const { data: logoData } = await supabase
+        .from('configuracoes_globais')
+        .select('valor')
+        .eq('chave', 'instituicao_cabecalho_url')
+        .single()
+      if (logoData?.valor) {
+        setHeaderLogoUrl(logoData.valor)
       }
     }
     checkConfig()
@@ -161,21 +171,38 @@ export function Sidebar({ user }: { user?: any }) {
 
   return (
     <div className={`flex h-screen flex-col bg-white dark:bg-zinc-950 text-zinc-600 dark:text-zinc-400 border-r border-zinc-200 dark:border-zinc-800 transition-all duration-300 print:hidden ${isCollapsed ? 'w-20' : 'w-64'}`}>
-      <div className="flex h-16 items-center justify-between px-4 border-b border-zinc-200 dark:border-zinc-800/50">
-        {!isCollapsed && (
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-600/20">
-              <Calendar className="text-white h-5 w-5" />
+      <div className={`flex flex-col border-b border-zinc-200 dark:border-zinc-800/50 p-4 gap-4 ${isCollapsed ? 'h-16 justify-center' : ''}`}>
+        <div className="flex items-center justify-between">
+          {!isCollapsed && (
+            <div className="flex flex-col items-center justify-center flex-1 pr-2">
+              {headerLogoUrl ? (
+                <>
+                  <div className="h-10 w-36 flex items-center justify-center overflow-hidden mb-2">
+                    <img 
+                      src={headerLogoUrl} 
+                      alt="Logo Instituição" 
+                      className="max-h-full max-w-full object-contain"
+                    />
+                  </div>
+                  <h1 className="text-[10px] font-black tracking-widest text-zinc-400 dark:text-zinc-500 uppercase">SISESCALA</h1>
+                </>
+              ) : (
+                <div className="flex items-center gap-2 self-start">
+                  <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-600/20">
+                    <Calendar className="text-white h-5 w-5" />
+                  </div>
+                  <h1 className="text-lg font-black tracking-tighter text-zinc-900 dark:text-white">SISESCALA</h1>
+                </div>
+              )}
             </div>
-            <h1 className="text-lg font-black tracking-tighter text-zinc-900 dark:text-white">SISESCALA</h1>
-          </div>
-        )}
-        <button 
-          onClick={() => setIsCollapsed(!isCollapsed)} 
-          className={`p-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-blue-600 transition-colors ${isCollapsed ? 'mx-auto' : ''}`}
-        >
-          {isCollapsed ? <ChevronRight className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
-        </button>
+          )}
+          <button 
+            onClick={() => setIsCollapsed(!isCollapsed)} 
+            className={`p-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-blue-600 transition-colors ${isCollapsed ? 'mx-auto' : ''}`}
+          >
+            {isCollapsed ? <ChevronRight className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
+          </button>
+        </div>
       </div>
 
       <nav className="flex-1 space-y-4 px-3 py-6 overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-zinc-200 dark:scrollbar-thumb-zinc-800">

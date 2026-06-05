@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { Save, Loader2, Settings, Clock, Shield, Bell, Database, Zap, Lock, CheckSquare, Calendar, FileText } from 'lucide-react'
+import { Save, Loader2, Settings, Clock, Shield, Bell, Database, Zap, Lock, CheckSquare, Calendar, FileText, Image } from 'lucide-react'
 
 export default function ConfigPage() {
   const supabase = createClient()
@@ -10,6 +10,45 @@ export default function ConfigPage() {
   const [saving, setSaving] = useState(false)
   const [configs, setConfigs] = useState<any[]>([])
   const [originalConfigs, setOriginalConfigs] = useState<any[]>([])
+  const [uploadingImage, setUploadingImage] = useState(false)
+
+  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (file.size > 1 * 1024 * 1024) {
+      alert('A imagem deve ter no máximo 1MB.')
+      return
+    }
+
+    setUploadingImage(true)
+    try {
+      const fileExt = file.name.split('.').pop()
+      const fileName = `instituicao_cabecalho.${fileExt}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('logos')
+        .upload(fileName, file, {
+          contentType: file.type,
+          upsert: true
+        })
+
+      if (uploadError) {
+        alert('Erro ao fazer upload: ' + uploadError.message)
+        return
+      }
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('logos')
+        .getPublicUrl(fileName)
+
+      updateConfig('instituicao_cabecalho_url', publicUrl)
+    } catch (error: any) {
+      alert('Erro ao processar imagem: ' + error.message)
+    } finally {
+      setUploadingImage(false)
+    }
+  }
 
   useEffect(() => {
     fetchConfigs()
@@ -67,7 +106,14 @@ export default function ConfigPage() {
   const getConfig = (chave: string) => configs.find(c => c.chave === chave)
 
   const updateConfig = (chave: string, valor: any) => {
-    setConfigs(prev => prev.map(c => c.chave === chave ? { ...c, valor } : c))
+    setConfigs(prev => {
+      const exists = prev.some(c => c.chave === chave)
+      if (exists) {
+        return prev.map(c => c.chave === chave ? { ...c, valor } : c)
+      } else {
+        return [...prev, { chave, valor }]
+      }
+    })
   }
 
   if (loading) {
@@ -366,6 +412,62 @@ export default function ConfigPage() {
                   Variação máxima (ex: 15min) adicionada ou subtraída dos horários oficiais ao preencher de forma fictícia os horários sem presença real.
                 </p>
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Cabeçalho da Instituição */}
+        <div className="bg-white dark:bg-zinc-900 rounded-[2rem] border border-zinc-200 dark:border-zinc-800 p-8 shadow-sm hover:shadow-md transition-shadow">
+          <div className="space-y-8">
+            <div className="flex items-center gap-4">
+              <div className="p-4 bg-blue-100 dark:bg-blue-900/30 rounded-2xl text-blue-600">
+                <Image className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-zinc-900 dark:text-white uppercase tracking-tight">Cabeçalho da Instituição</h3>
+                <p className="text-sm text-zinc-500 leading-relaxed">Envie a imagem que será utilizada nos cabeçalhos dos relatórios, escalas e folhas de ponto.</p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              {getConfig('instituicao_cabecalho_url')?.valor && (
+                <div className="flex items-center gap-4 animate-in fade-in">
+                  <div className="h-20 w-48 border-2 border-zinc-200 dark:border-zinc-700 rounded-2xl overflow-hidden bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] dark:bg-[radial-gradient(#3f3f46_1px,transparent_1px)] bg-[size:10px_10px] bg-zinc-50 dark:bg-zinc-900 flex items-center justify-center p-2 shadow-inner">
+                    <img 
+                      src={getConfig('instituicao_cabecalho_url')?.valor} 
+                      alt="Cabeçalho atual" 
+                      className="max-h-full max-w-full object-contain"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => updateConfig('instituicao_cabecalho_url', '')}
+                    className="px-4 py-2 text-xs font-black text-red-600 bg-red-50 dark:bg-red-950/30 rounded-xl hover:bg-red-100 dark:hover:bg-red-950/50 transition-all uppercase tracking-wider"
+                  >
+                    Remover Imagem
+                  </button>
+                </div>
+              )}
+
+              <div className="relative group max-w-md">
+                <input
+                  id="instituicao_cabecalho"
+                  type="file"
+                  accept="image/png, image/jpeg, image/svg+xml"
+                  onChange={handleImageUpload}
+                  disabled={uploadingImage}
+                  className="block w-full text-sm text-zinc-500 file:mr-4 file:py-3 file:px-6 file:rounded-2xl file:border-2 file:border-dashed file:border-zinc-200 dark:file:border-zinc-700 file:text-sm file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-zinc-800 dark:file:text-zinc-300 file:transition-all cursor-pointer disabled:opacity-50"
+                />
+                {uploadingImage && (
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                    <span className="text-[10px] font-bold text-zinc-400 uppercase">Processando...</span>
+                  </div>
+                )}
+              </div>
+              <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-tight">
+                Recomendado: PNG com fundo transparente ou SVG. Tamanho máximo: 1MB.
+              </p>
             </div>
           </div>
         </div>

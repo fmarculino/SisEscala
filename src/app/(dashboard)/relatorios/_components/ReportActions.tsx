@@ -1,7 +1,9 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import { Printer, FileSpreadsheet } from 'lucide-react'
 import { getReportBaseHtml, templates, ReportConfig } from '@/utils/report-templates'
+import { createClient } from '@/utils/supabase/client'
 
 interface Props {
   onExport?: () => void
@@ -13,6 +15,23 @@ interface Props {
 }
 
 export function ReportActions({ onExport, showExport = true, reportData, reportType, filters, title }: Props) {
+  const [headerLogoUrl, setHeaderLogoUrl] = useState<string>('')
+  const supabase = createClient()
+
+  useEffect(() => {
+    async function fetchHeaderLogo() {
+      const { data } = await supabase
+        .from('configuracoes_globais')
+        .select('valor')
+        .eq('chave', 'instituicao_cabecalho_url')
+        .single()
+      if (data?.valor) {
+        setHeaderLogoUrl(data.valor)
+      }
+    }
+    fetchHeaderLogo()
+  }, [])
+
   const handlePrint = () => {
     if (!reportType || !reportData) {
       window.print();
@@ -23,6 +42,7 @@ export function ReportActions({ onExport, showExport = true, reportData, reportT
       title: title || 'Relatório SisEscala',
       filters: filters || {},
       generationDate: new Date().toLocaleString('pt-BR'),
+      instituicaoCabecalhoUrl: headerLogoUrl || undefined,
     };
 
     let content = '';

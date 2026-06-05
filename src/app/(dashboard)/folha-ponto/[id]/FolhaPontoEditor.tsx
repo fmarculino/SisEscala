@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { salvarFolhaPonto, verificarDivergenciaEscala, sincronizarFolhaPonto, gerarFolhaPonto } from '../actions'
 import { Modal } from '@/components/ui/Modal'
+import { createClient } from '@/utils/supabase/client'
 
 function formatMinutesToTimeStr(totalMinutes: number): string {
   const h = Math.floor(totalMinutes / 60) % 24
@@ -39,6 +40,22 @@ export function FolhaPontoEditor({
   regenerateAction
 }: FolhaPontoEditorProps) {
   const router = useRouter()
+  const [instituicaoCabecalhoUrl, setInstituicaoCabecalhoUrl] = useState<string>('')
+  const supabase = createClient()
+
+  useEffect(() => {
+    async function fetchHeaderLogo() {
+      const { data } = await supabase
+        .from('configuracoes_globais')
+        .select('valor')
+        .eq('chave', 'instituicao_cabecalho_url')
+        .single()
+      if (data?.valor) {
+        setInstituicaoCabecalhoUrl(data.valor)
+      }
+    }
+    fetchHeaderLogo()
+  }, [])
 
   const executeSave = saveAction || salvarFolhaPonto
   const executeVerify = verifyDivergenceAction || verificarDivergenciaEscala
@@ -537,12 +554,22 @@ export function FolhaPontoEditor({
         <div className="p-8 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 print:bg-white print:border-zinc-300 print:p-4">
           <div className="flex flex-col sm:flex-row justify-between items-start gap-4 mb-6">
             <div className="flex items-center gap-4">
+              {/* Institution logo */}
+              {instituicaoCabecalhoUrl && (
+                <div className="h-14 w-28 border border-zinc-200 dark:border-zinc-800 rounded-lg p-1 bg-white flex items-center justify-center">
+                  <img 
+                    src={instituicaoCabecalhoUrl} 
+                    alt="Logo Instituição" 
+                    className="max-h-full max-w-full object-contain"
+                  />
+                </div>
+              )}
               {/* Unit/Sector logo */}
               {(setor?.logo_url || unidade?.logo_url) && (
                 <div className="h-14 w-28 border border-zinc-200 dark:border-zinc-800 rounded-lg p-1 bg-white flex items-center justify-center">
                   <img 
                     src={setor?.logo_url || unidade?.logo_url} 
-                    alt="Logo municipal" 
+                    alt="Logo Unidade" 
                     className="max-h-full max-w-full object-contain"
                   />
                 </div>

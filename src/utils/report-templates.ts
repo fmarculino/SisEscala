@@ -4,6 +4,7 @@ export interface ReportConfig {
   subtitle?: string;
   filters: Record<string, string | number | undefined>;
   generationDate: string;
+  instituicaoCabecalhoUrl?: string;
 }
 
 export const getReportBaseHtml = (config: ReportConfig, content: string) => `
@@ -40,6 +41,11 @@ export const getReportBaseHtml = (config: ReportConfig, content: string) => `
     </div>
 
     <div class="p-8">
+      ${config.instituicaoCabecalhoUrl ? `
+        <div class="flex justify-center mb-8 border-b border-zinc-200 pb-6">
+          <img src="${config.instituicaoCabecalhoUrl}" alt="Cabeçalho da Instituição" class="max-h-24 object-contain" />
+        </div>
+      ` : ''}
       <div class="flex justify-between items-start border-b-2 border-zinc-900 pb-6 mb-8">
         <div>
           <h2 class="text-3xl font-black text-zinc-900 uppercase tracking-tighter">${config.title}</h2>

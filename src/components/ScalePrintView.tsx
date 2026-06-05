@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { createClient } from '@/utils/supabase/client'
 
 type RowCategory = 'Regular' | 'Extra' | 'Plantão' | 'Sobreaviso'
 
@@ -38,9 +39,22 @@ export function ScalePrintView({
   permitirPlantaoExtra = false
 }: ScalePrintViewProps) {
   const [mounted, setMounted] = useState(false)
+  const [headerLogoUrl, setHeaderLogoUrl] = useState<string>('')
+  const supabase = createClient()
 
   useEffect(() => {
     setMounted(true)
+    async function fetchHeaderLogo() {
+      const { data } = await supabase
+        .from('configuracoes_globais')
+        .select('valor')
+        .eq('chave', 'instituicao_cabecalho_url')
+        .single()
+      if (data?.valor) {
+        setHeaderLogoUrl(data.valor)
+      }
+    }
+    fetchHeaderLogo()
   }, [])
   const daysInMonth = new Date(ano, mes, 0).getDate()
   const daysArray = Array.from({ length: daysInMonth }, (_, i) => i + 1)
@@ -146,14 +160,38 @@ export function ScalePrintView({
         <div key={pageIdx} className="print-page print-container">
           {/* Logo Area */}
           <div className="logo-area" style={{ padding: '8px 0', marginBottom: '8px', borderBottom: '1.5pt solid #000' }}>
-            <div className="flex items-center gap-4">
-               <div className="flex flex-col">
-                 <span className="text-base font-black text-green-800 tracking-tighter">{unidade?.nome || 'Unidade'}</span>
-                 <span className="text-[7.5pt] font-black uppercase tracking-wider">Prefeitura Municipal</span>
-               </div>
-               <div className="border-l-2 border-black pl-3 text-[7.5pt] font-bold leading-tight">
-                 Secretaria<br/>Municipal de<br/>Saúde
-               </div>
+            <div className="flex items-center gap-6">
+              {/* Logo Instituição ou Fallback */}
+              {headerLogoUrl ? (
+                <div style={{ height: '65px', width: '180px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <img 
+                    src={headerLogoUrl} 
+                    alt="Logo Instituição" 
+                    className="max-h-full max-w-full object-contain"
+                  />
+                </div>
+              ) : (
+                <div className="flex items-center gap-4">
+                  <div className="flex flex-col">
+                    <span className="text-base font-black text-green-800 tracking-tighter">{unidade?.nome || 'Unidade'}</span>
+                    <span className="text-[7.5pt] font-black uppercase tracking-wider">Prefeitura Municipal</span>
+                  </div>
+                  <div className="border-l-2 border-black pl-3 text-[7.5pt] font-bold leading-tight">
+                    Secretaria<br/>Municipal de<br/>Saúde
+                  </div>
+                </div>
+              )}
+
+              {/* Logo da Unidade (se houver) */}
+              {unidade?.logo_url && (
+                <div style={{ height: '65px', width: '120px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderLeft: '1px solid #000', paddingLeft: '16px' }}>
+                  <img 
+                    src={unidade.logo_url} 
+                    alt={`Logo ${unidade.nome}`} 
+                    className="max-h-full max-w-full object-contain"
+                  />
+                </div>
+              )}
             </div>
             <div className="text-center">
               <span className="text-sm font-black tracking-widest block uppercase" style={{ fontSize: '12pt' }}>{setor?.nome || 'SETOR'}</span>

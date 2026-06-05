@@ -115,9 +115,19 @@ export default function UnidadesClient({ userProfile }: UnidadesClientProps) {
               }`}
             >
               <div className="flex items-center justify-between mb-4">
-                <div className={`rounded-xl p-3 ${isAtiva ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500'}`}>
-                  <Building2 className="h-6 w-6" />
-                </div>
+                {unidade.logo_url ? (
+                  <div className="h-12 w-24 border border-zinc-200 dark:border-zinc-800 rounded-xl p-1 bg-white dark:bg-zinc-950 flex items-center justify-center overflow-hidden">
+                    <img 
+                      src={unidade.logo_url} 
+                      alt={`Logo ${unidade.nome}`} 
+                      className="max-h-full max-w-full object-contain"
+                    />
+                  </div>
+                ) : (
+                  <div className={`rounded-xl p-3 ${isAtiva ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500'}`}>
+                    <Building2 className="h-6 w-6" />
+                  </div>
+                )}
                 {!isAtiva && (
                   <span className="text-[10px] font-black uppercase bg-red-100 dark:bg-red-900/30 text-red-600 px-2 py-0.5 rounded-full">Inativa</span>
                 )}

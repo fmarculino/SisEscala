@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.2] - 2026-06-04
+
+### Added
+- **Logo de Cabeçalho da Instituição nas Configurações Globais**:
+  - Implementado campo para upload e remoção da logo da instituição na tela de Configurações (/configuracoes), seguindo as políticas de armazenamento e validação de imagens.
+  - Criada migração de banco de dados para a coluna `instituicao_cabecalho_url` na tabela `configuracoes_globais` e ajustada a política de RLS para permitir acesso de leitura pública (página de login anônima).
+- **Logos nos Cards de Unidades**:
+  - Exibição da logo de cada unidade diretamente na página de listagem (/unidades), substituindo o ícone padrão caso a unidade já possua uma logo configurada.
+- **Logo da Instituição na Login Page e Sidebar**:
+  - Integração da logo da instituição na tela de login, em tamanho ampliado correspondente ao espaço do logotipo verde padrão.
+  - Exibição da logo da instituição no topo da barra de navegação lateral (Sidebar) com o título "SISESCALA" posicionado centralizado abaixo da imagem.
+- **Logos nas Impressões de Escala e Folha de Ponto**:
+  - Redesenho do cabeçalho de impressão da Escala Mensal (`ScalePrintView`) e da Folha de Ponto (`FolhaPontoEditor`) para exibir a logo da instituição e a logo da unidade de forma elegante.
+  - Caso ambas as logos estejam cadastradas, elas são apresentadas lado a lado, separadas por um divisor vertical fino.
+- **Logo da Instituição em Relatórios**:
+  - Integração da logo da instituição no cabeçalho das visualizações e impressões de relatórios gerais (`ReportActions` e `report-templates.ts`).
+
 ## [1.3.1] - 2026-06-04
 
 ### Fixed

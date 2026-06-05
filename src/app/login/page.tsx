@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { login } from './actions'
+import { createClient } from '@/utils/supabase/client'
 
 import { Eye, EyeOff } from 'lucide-react'
 
@@ -10,6 +11,22 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+  const [headerLogoUrl, setHeaderLogoUrl] = useState<string>('')
+  const supabase = createClient()
+
+  useEffect(() => {
+    async function fetchHeaderLogo() {
+      const { data } = await supabase
+        .from('configuracoes_globais')
+        .select('valor')
+        .eq('chave', 'instituicao_cabecalho_url')
+        .single()
+      if (data?.valor) {
+        setHeaderLogoUrl(data.valor)
+      }
+    }
+    fetchHeaderLogo()
+  }, [])
 
   async function handleSubmit(formData: FormData) {
     setLoading(true)
@@ -24,8 +41,17 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
       <div className="w-full max-w-md space-y-8 rounded-2xl bg-white p-8 shadow-xl dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
-        <div className="text-center">
-          <h2 className="mt-6 text-3xl font-extrabold tracking-tight text-foreground">
+        <div className="text-center flex flex-col items-center">
+          {headerLogoUrl && (
+            <div className="mb-4 h-24 w-full flex items-center justify-center overflow-hidden">
+              <img 
+                src={headerLogoUrl} 
+                alt="Logo Instituição" 
+                className="max-h-full max-w-full object-contain"
+              />
+            </div>
+          )}
+          <h2 className={`text-3xl font-extrabold tracking-tight text-foreground ${headerLogoUrl ? 'mt-2' : 'mt-6'}`}>
             SisEscala
           </h2>
           <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
