@@ -575,7 +575,6 @@ export function FolhaPontoEditor({
                 </div>
               )}
               <div className="space-y-0.5">
-                <h2 className="text-xs font-black uppercase tracking-[0.2em] text-blue-600 print:text-black">Prefeitura Municipal</h2>
                 <h3 className="text-xl font-black text-zinc-900 dark:text-white uppercase print:text-black tracking-tight">Folha de Ponto Mensal</h3>
                 <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider print:text-zinc-500">Espelho Oficial de Frequência Individual</p>
               </div>
