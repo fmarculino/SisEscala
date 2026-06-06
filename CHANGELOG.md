@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.3] - 2026-06-06
+
+### Fixed
+- **Validação de Presença para Servidores Externos no Terminal**:
+  - Corrigido o bug que impedia servidores lotados em outras unidades (ex: SMS/DMAC) de confirmarem sua presença (entrada/saída) em terminais de unidades onde estão escalados para plantão (ex: LACEM/administração).
+  - A função de banco de dados `public.fn_confirmar_presenca` agora realiza uma verificação alternativa: se o coordenador não gerencia a lotação de origem do servidor, o sistema verifica se ele gerencia a unidade e o setor de alguma escala ativa (hoje ou ontem) daquele servidor, permitindo o registro de presença caso haja compatibilidade com o plantão.
+
 ## [1.3.2] - 2026-06-04
 
 ### Added
