@@ -55,6 +55,7 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos }: Ed
       : (servidor.pin_acesso || '')
   )
   const [currentTelefone, setCurrentTelefone] = useState(servidor.telefone || '')
+  const [currentCpf, setCurrentCpf] = useState(servidor.cpf || '')
 
   const sharePinWhatsApp = () => {
     if (!currentPin) return
@@ -67,6 +68,7 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos }: Ed
     setLoading(true)
     formData.set('cargo', cargoFinal)
     formData.set('pin_acesso', currentPin)
+    formData.set('cpf', currentCpf)
     const result = await updateServidor(id, formData)
     if (result?.error) {
       setError(result.error)
@@ -93,7 +95,7 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos }: Ed
           </div>
         )}
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-6">
-          <div className="sm:col-span-4">
+          <div className="sm:col-span-2">
             <label htmlFor="nome" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
               Nome Completo
             </label>
@@ -104,6 +106,31 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos }: Ed
               defaultValue={servidor.nome}
               required
               className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+
+          <div className="sm:col-span-2">
+            <label htmlFor="cpf" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              CPF
+            </label>
+            <input
+              id="cpf"
+              name="cpf"
+              type="text"
+              value={(() => {
+                let v = currentCpf.replace(/\D/g, "")
+                if (v.length > 9) return v.replace(/^(\d{3})(\d{3})(\d{3})(\d{0,2})/, "$1.$2.$3-$4")
+                if (v.length > 6) return v.replace(/^(\d{3})(\d{3})(\d{0,3})/, "$1.$2.$3")
+                if (v.length > 3) return v.replace(/^(\d{3})(\d{0,3})/, "$1.$2")
+                return v
+              })()}
+              placeholder="000.000.000-00"
+              onChange={(e) => {
+                let value = e.target.value.replace(/\D/g, "")
+                if (value.length > 11) value = value.slice(0, 11)
+                setCurrentCpf(value)
+              }}
+              className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white sm:text-sm font-mono"
             />
           </div>
 

@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
-import { Users, Plus, Shield, Building2, Pencil, X, Mail, Key, Check, AlertCircle, Loader2, GitBranch, Trash2, Power, PowerOff } from 'lucide-react'
+import { useState, useEffect, useMemo, useRef } from 'react'
+import { Users, Plus, Shield, Building2, Pencil, X, Mail, Key, Check, AlertCircle, Loader2, GitBranch, Trash2, Power, PowerOff, Search, ChevronDown } from 'lucide-react'
 import { createUser, updateUser, resetPassword, deleteUser, toggleUserStatus } from './actions'
 import { useRouter } from 'next/navigation'
 import { Modal } from '@/components/ui/Modal'
@@ -49,6 +49,20 @@ export default function UserManagementClient({
   const [formFullName, setFormFullName] = useState('')
   const [formEmail, setFormEmail] = useState('')
   const [selectedServidor, setSelectedServidor] = useState('')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  // Click outside listener for searchable dropdown
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   const handleEdit = (user: any) => {
     setEditingUser(user)
@@ -67,6 +81,8 @@ export default function UserManagementClient({
     setFormFullName('')
     setFormEmail('')
     setSelectedServidor('')
+    setSearchTerm('')
+    setIsDropdownOpen(false)
     setSelectedUnidades([])
     setSelectedSetores([])
     setAcessoTodasUnidades(false)
@@ -210,6 +226,8 @@ export default function UserManagementClient({
         setFormFullName('')
         setFormEmail('')
         setSelectedServidor('')
+        setSearchTerm('')
+        setIsDropdownOpen(false)
       } else {
         const result = await createUser(formData)
         if (result.error) {
@@ -224,6 +242,8 @@ export default function UserManagementClient({
         setFormFullName('')
         setFormEmail('')
         setSelectedServidor('')
+        setSearchTerm('')
+        setIsDropdownOpen(false)
       }
       router.refresh()
     } catch (error) {
@@ -262,6 +282,27 @@ export default function UserManagementClient({
     })
     return tree
   }, [setores, unidades])
+
+  // Filtered servidores based on search input (checks name, email, matricula, and cpf)
+  const filteredServidores = useMemo(() => {
+    const normalizeStr = (str: string) => {
+      if (!str) return ''
+      return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    }
+    const term = normalizeStr(searchTerm).replace(/[.\-/]/g, '').trim()
+    if (!term) return servidores
+
+    return servidores.filter(s => {
+      const normNome = normalizeStr(s.nome || '')
+      const normMatricula = normalizeStr(s.matricula || '')
+      const normCpf = normalizeStr(s.cpf || '').replace(/[.\-/]/g, '')
+      const normEmail = normalizeStr(s.email || '')
+      return normNome.includes(term) || 
+             normMatricula.includes(term) || 
+             normCpf.includes(term) ||
+             normEmail.includes(term)
+    })
+  }, [servidores, searchTerm])
 
   const toggleSectorRecursive = (sector: any, checked: boolean) => {
     let newSelected = [...selectedSetores]
@@ -446,35 +487,97 @@ export default function UserManagementClient({
               )}
 
               {!editingUser && (
-                <div>
-                  <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                <div className="relative" ref={dropdownRef}>
+                  <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
                     Vincular a Servidor existente (Opcional)
                   </label>
-                  <select
-                    value={selectedServidor}
-                    onChange={(e) => {
-                      const sId = e.target.value
-                      setSelectedServidor(sId)
-                      if (sId) {
-                        const s = servidores.find(serv => serv.id === sId)
-                        if (s) {
-                          setFormFullName(s.nome || '')
-                          setFormEmail(s.email || '')
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Pesquisar por nome, matrícula ou CPF..."
+                      value={searchTerm}
+                      onFocus={() => setIsDropdownOpen(true)}
+                      onChange={(e) => {
+                        setSearchTerm(e.target.value)
+                        setIsDropdownOpen(true)
+                        if (selectedServidor) {
+                          setSelectedServidor('')
+                          setFormFullName(e.target.value)
+                        } else {
+                          setFormFullName(e.target.value)
                         }
-                      } else {
-                        setFormFullName('')
-                        setFormEmail('')
-                      }
-                    }}
-                    className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 py-2 px-3 text-sm focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
-                  >
-                    <option value="">Selecione um servidor...</option>
-                    {servidores.map(s => (
-                      <option key={s.id} value={s.id}>
-                        {s.nome} {s.email ? `(${s.email})` : '(Sem E-mail)'}
-                      </option>
-                    ))}
-                  </select>
+                      }}
+                      className="w-full rounded-md border border-zinc-300 bg-zinc-50 py-2 pl-3 pr-10 text-sm focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 outline-none"
+                    />
+                    <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                      <Search className="h-4 w-4 text-zinc-400" />
+                    </div>
+                  </div>
+
+                  <input type="hidden" name="servidor_id" value={selectedServidor} />
+
+                  {isDropdownOpen && (
+                    <div className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-md bg-white py-1 text-base shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none dark:bg-zinc-800 dark:ring-zinc-700 sm:text-sm">
+                      {filteredServidores.length === 0 ? (
+                        <div className="relative cursor-default select-none py-2 px-4 text-zinc-500 dark:text-zinc-400">
+                          Nenhum servidor encontrado.
+                        </div>
+                      ) : (
+                        filteredServidores.map((s) => {
+                          const isSelected = selectedServidor === s.id
+                          return (
+                            <button
+                              key={s.id}
+                              type="button"
+                              onClick={() => {
+                                setSelectedServidor(s.id)
+                                setSearchTerm(s.nome)
+                                setFormFullName(s.nome || '')
+                                setFormEmail(s.email || '')
+                                setIsDropdownOpen(false)
+                              }}
+                              className={`relative w-full text-left cursor-pointer select-none py-2.5 pl-3 pr-9 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors ${
+                                isSelected ? 'bg-blue-50 text-blue-900 dark:bg-blue-900/20 dark:text-blue-200' : 'text-zinc-900 dark:text-zinc-100'
+                              }`}
+                            >
+                              <div className="font-semibold text-sm truncate">{s.nome}</div>
+                              <div className="text-[11px] text-zinc-500 dark:text-zinc-400 flex flex-wrap gap-x-2 mt-0.5">
+                                {s.email && <span className="truncate">{s.email}</span>}
+                                {s.matricula && <span>• Matrícula: {s.matricula}</span>}
+                                {s.cpf && <span>• CPF: {s.cpf}</span>}
+                              </div>
+                              {isSelected && (
+                                <span className="absolute inset-y-0 right-0 flex items-center pr-4 text-blue-600 dark:text-blue-400">
+                                  <Check className="h-4 w-4" />
+                                </span>
+                              )}
+                            </button>
+                          )
+                        })
+                      )}
+                    </div>
+                  )}
+
+                  {selectedServidor && (
+                    <div className="mt-1 flex items-center justify-between text-xs bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 p-2 rounded-md border border-blue-100 dark:border-blue-900/30">
+                      <span className="truncate">
+                        Vinculado a: <strong>{servidores.find(s => s.id === selectedServidor)?.nome}</strong>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedServidor('')
+                          setSearchTerm('')
+                          setFormFullName('')
+                          setFormEmail('')
+                        }}
+                        className="text-blue-500 hover:text-blue-700 dark:hover:text-blue-200 ml-2"
+                        title="Desvincular servidor"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 

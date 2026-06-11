@@ -78,7 +78,7 @@ export default async function UsuariosPage() {
   // 6. Fetch active servers to link
   const { data: servidores } = await supabase
     .from('servidores')
-    .select('id, nome, email')
+    .select('id, nome, email, matricula, cpf')
     .eq('status', 'Ativo')
     .order('nome')
 

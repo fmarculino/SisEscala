@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.3] - 2026-06-11
+
+### Added
+- **Busca Avançada na Vinculação de Servidores**:
+  - Implementado componente de dropdown autocompletar pesquisável (por nome, matrícula ou CPF) ao vincular novo usuário a um servidor existente, melhorando a experiência com grandes volumes de dados.
+  - Adicionado campo `CPF` no cadastro de servidores (banco de dados e formulários de cadastro e edição de servidor).
+
 ## [1.4.2] - 2026-06-11
 
 ### Added

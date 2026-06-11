@@ -9,6 +9,7 @@ export async function createServidor(formData: FormData) {
 
   const nome = formData.get('nome') as string
   const matricula = formData.get('matricula') as string
+  const cpf = formData.get('cpf') as string
   const cargo = formData.get('cargo') as string
   const vinculo = formData.get('vinculo') as any
   const unidade_id = formData.get('unidade_id') as string
@@ -62,6 +63,7 @@ export async function createServidor(formData: FormData) {
   const { error } = await supabase.from('servidores').insert({
     nome,
     matricula: matriculaFinal,
+    cpf: cpf || null,
     cargo,
     vinculo,
     unidade_id: unidade_id || null,
@@ -162,6 +164,7 @@ export async function updateServidor(id: string, formData: FormData) {
 
   const nome = formData.get('nome') as string
   const matricula = formData.get('matricula') as string
+  const cpf = formData.get('cpf') as string
   const cargo = formData.get('cargo') as string
   const vinculo = formData.get('vinculo') as any
   const unidade_id = formData.get('unidade_id') as string
@@ -216,6 +219,7 @@ export async function updateServidor(id: string, formData: FormData) {
   const updateData: any = {
     nome,
     matricula: matriculaFinal,
+    cpf: cpf || null,
     cargo,
     vinculo,
     unidade_id: unidade_id || null,
