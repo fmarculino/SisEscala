@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.1] - 2026-06-11
+
+### Added
+- **Cadastros de Cargos Homônimos**:
+  - Nova migration de banco de dados (`20260611154000_allow_duplicate_cargo_names_under_different_parents.sql`) alterando a restrição de unicidade para permitir cargos de mesmo nome sob pais diferentes (ex: `DIRETORIA / DMAC` e `COORDENAÇÃO / DMAC`).
+
+### Changed
+- **Edição Restrita de Marcações Reais**:
+  - Usuários que não sejam o Administrador Geral (`super_admin`) agora possuem bloqueio de edição (tanto no frontend quanto no backend) para marcações de ponto do tipo **Real (Verde)**, impedindo alterações não autorizadas.
+
 ## [1.4.0] - 2026-06-11
 
 ### Added

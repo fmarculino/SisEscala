@@ -853,6 +853,28 @@ export async function salvarFolhaPonto(folhaId: string, registros: any[], status
       return { error: 'Esta competência está encerrada e todos os dados estão congelados para auditoria.' }
     }
 
+    // Bloquear alteração de marcações reais (origem = 'real') para quem não for super_admin
+    if (userProfile.role !== 'super_admin') {
+      const oldRegistros = folha.registros as any[]
+      for (const r of registros) {
+        const oldR = oldRegistros?.find((o: any) => o.dia === r.dia)
+        if (oldR) {
+          if (oldR.origem_entrada === 'real' && r.entrada !== oldR.entrada) {
+            return { error: 'Não é permitido alterar marcações reais de entrada.' }
+          }
+          if (oldR.origem_saida_intervalo === 'real' && r.saida_intervalo !== oldR.saida_intervalo) {
+            return { error: 'Não é permitido alterar marcações reais de saída intervalo.' }
+          }
+          if (oldR.origem_retorno_intervalo === 'real' && r.retorno_intervalo !== oldR.retorno_intervalo) {
+            return { error: 'Não é permitido alterar marcações reais de retorno intervalo.' }
+          }
+          if (oldR.origem_saida === 'real' && r.saida !== oldR.saida) {
+            return { error: 'Não é permitido alterar marcações reais de saída.' }
+          }
+        }
+      }
+    }
+
     const { data: escala } = await supabase
       .from('escala_mensal')
       .select('unidade_id, setor_id, status, jornada_id, jornadas(horas_totais, nome, intervalo_minutos)')

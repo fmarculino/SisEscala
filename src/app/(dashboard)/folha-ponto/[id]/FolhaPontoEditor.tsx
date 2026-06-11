@@ -718,7 +718,7 @@ export function FolhaPontoEditor({
                           type="time" 
                           value={r.entrada || ''} 
                           onChange={(e) => handleCellChange(r.dia, 'entrada', e.target.value)}
-                          disabled={!isEditable}
+                          disabled={!isEditable || (r.origem_entrada === 'real' && profile?.role !== 'super_admin')}
                           className="w-full bg-transparent border-none text-center outline-none font-bold text-zinc-900 dark:text-white font-mono disabled:opacity-50"
                         />
                       ) : (
@@ -733,7 +733,7 @@ export function FolhaPontoEditor({
                           type="time" 
                           value={r.saida_intervalo || ''} 
                           onChange={(e) => handleCellChange(r.dia, 'saida_intervalo', e.target.value)}
-                          disabled={!isEditable}
+                          disabled={!isEditable || (r.origem_saida_intervalo === 'real' && profile?.role !== 'super_admin')}
                           className="w-full bg-transparent border-none text-center outline-none font-bold text-zinc-900 dark:text-white font-mono disabled:opacity-50"
                         />
                       ) : (
@@ -748,7 +748,7 @@ export function FolhaPontoEditor({
                           type="time" 
                           value={r.retorno_intervalo || ''} 
                           onChange={(e) => handleCellChange(r.dia, 'retorno_intervalo', e.target.value)}
-                          disabled={!isEditable}
+                          disabled={!isEditable || (r.origem_retorno_intervalo === 'real' && profile?.role !== 'super_admin')}
                           className="w-full bg-transparent border-none text-center outline-none font-bold text-zinc-900 dark:text-white font-mono disabled:opacity-50"
                         />
                       ) : (
@@ -763,7 +763,7 @@ export function FolhaPontoEditor({
                           type="time" 
                           value={r.saida || ''} 
                           onChange={(e) => handleCellChange(r.dia, 'saida', e.target.value)}
-                          disabled={!isEditable}
+                          disabled={!isEditable || (r.origem_saida === 'real' && profile?.role !== 'super_admin')}
                           className="w-full bg-transparent border-none text-center outline-none font-bold text-zinc-900 dark:text-white font-mono disabled:opacity-50"
                         />
                       ) : (

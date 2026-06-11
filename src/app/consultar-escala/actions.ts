@@ -555,7 +555,7 @@ export async function salvarFolhaPontoServidor(folhaId: string, registros: any[]
     // Fetch existing sheet
     const { data: folha, error: fetchError } = await supabase
       .from('folha_ponto')
-      .select('id, escala_mensal_id, mes, ano, status, servidor_id')
+      .select('id, escala_mensal_id, mes, ano, status, servidor_id, registros')
       .eq('id', folhaId)
       .single()
 
@@ -567,6 +567,26 @@ export async function salvarFolhaPontoServidor(folhaId: string, registros: any[]
 
     if (await isCompetencyClosed(folha.mes, folha.ano)) {
       return { error: 'Esta competência está encerrada e todos os dados estão congelados para auditoria.' }
+    }
+
+    // Bloquear alteração de marcações reais (origem = 'real') pelo portal
+    const oldRegistros = folha.registros as any[]
+    for (const r of registros) {
+      const oldR = oldRegistros?.find((o: any) => o.dia === r.dia)
+      if (oldR) {
+        if (oldR.origem_entrada === 'real' && r.entrada !== oldR.entrada) {
+          return { error: 'Não é permitido alterar marcações reais de entrada.' }
+        }
+        if (oldR.origem_saida_intervalo === 'real' && r.saida_intervalo !== oldR.saida_intervalo) {
+          return { error: 'Não é permitido alterar marcações reais de saída intervalo.' }
+        }
+        if (oldR.origem_retorno_intervalo === 'real' && r.retorno_intervalo !== oldR.retorno_intervalo) {
+          return { error: 'Não é permitido alterar marcações reais de retorno intervalo.' }
+        }
+        if (oldR.origem_saida === 'real' && r.saida !== oldR.saida) {
+          return { error: 'Não é permitido alterar marcações reais de saída.' }
+        }
+      }
     }
 
     if (folha.status === 'Revisada') {
