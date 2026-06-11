@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.4] - 2026-06-11
+
+### Changed
+- **Filtro de Servidores por CPF**:
+  - Adicionado o campo `CPF` ao filtro de pesquisa textual geral na tela de listagem de Servidores.
+  - Atualizado o placeholder do campo de busca para "Buscar por nome, matrícula, CPF...".
+
 ## [1.4.3] - 2026-06-11
 
 ### Added

@@ -13,6 +13,7 @@ interface Servidor {
   unidade_id: string
   setor_id: string
   status: 'Ativo' | 'Inativo'
+  cpf?: string
   unidades?: { nome: string }
   setores?: { nome: string }
 }
@@ -60,11 +61,19 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
 
   // Main filtering logic
   const filteredServidores = useMemo(() => {
+    const cleanSearch = searchTerm.toLowerCase().trim()
+    const cleanSearchCpf = cleanSearch.replace(/[.\-/]/g, '')
+    
     return initialServidores.filter(s => {
+      const normNome = s.nome.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+      const normSearch = cleanSearch.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      const cleanCpf = s.cpf?.replace(/[.\-/]/g, '') || ''
+
       const matchesSearch = 
-        s.nome.toLowerCase().includes(searchTerm.toLowerCase()) || 
-        s.matricula?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        s.cargo?.toLowerCase().includes(searchTerm.toLowerCase())
+        normNome.includes(normSearch) || 
+        s.matricula?.toLowerCase().includes(cleanSearch) ||
+        s.cargo?.toLowerCase().includes(cleanSearch) ||
+        cleanCpf.includes(cleanSearchCpf)
       
       const matchesUnidade = !selectedUnidade || s.unidade_id === selectedUnidade
       const matchesSetor = !selectedSetor || s.setor_id === selectedSetor
@@ -309,7 +318,7 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
           <input
             type="text"
-            placeholder="Buscar por nome, matrícula..."
+            placeholder="Buscar por nome, matrícula, CPF..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full pl-10 pr-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
