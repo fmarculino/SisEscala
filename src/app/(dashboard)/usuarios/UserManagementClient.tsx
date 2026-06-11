@@ -12,13 +12,15 @@ interface UserManagementClientProps {
   unidades: any[]
   setores: any[]
   currentUserRole: string
+  servidores: any[]
 }
 
 export default function UserManagementClient({
   initialProfiles,
   unidades,
   setores,
-  currentUserRole
+  currentUserRole,
+  servidores
 }: UserManagementClientProps) {
   const router = useRouter()
   const [editingUser, setEditingUser] = useState<any>(null)
@@ -43,8 +45,15 @@ export default function UserManagementClient({
   const [acessoTodasUnidades, setAcessoTodasUnidades] = useState(false)
   const [acessoTodosSetores, setAcessoTodosSetores] = useState(false)
 
+  // Form input field states
+  const [formFullName, setFormFullName] = useState('')
+  const [formEmail, setFormEmail] = useState('')
+  const [selectedServidor, setSelectedServidor] = useState('')
+
   const handleEdit = (user: any) => {
     setEditingUser(user)
+    setFormFullName(user.full_name || '')
+    setFormEmail(user.email || '')
     setSelectedUnidades(user.permitted_unidades || [])
     setSelectedSetores(user.permitted_setores || [])
     setAcessoTodasUnidades(user.acesso_todas_unidades || false)
@@ -55,6 +64,9 @@ export default function UserManagementClient({
 
   const handleCancel = () => {
     setEditingUser(null)
+    setFormFullName('')
+    setFormEmail('')
+    setSelectedServidor('')
     setSelectedUnidades([])
     setSelectedSetores([])
     setAcessoTodasUnidades(false)
@@ -172,7 +184,14 @@ export default function UserManagementClient({
     }
   }
 
+  const isEmailDuplicate = useMemo(() => {
+    if (editingUser) return false
+    if (!formEmail.trim()) return false
+    return initialProfiles.some(p => p.email.toLowerCase() === formEmail.trim().toLowerCase())
+  }, [formEmail, initialProfiles, editingUser])
+
   const handleSubmit = async (formData: FormData) => {
+    if (isEmailDuplicate) return
     setIsLoading(true)
     try {
       if (editingUser) {
@@ -188,6 +207,9 @@ export default function UserManagementClient({
            return
         }
         setEditingUser(null)
+        setFormFullName('')
+        setFormEmail('')
+        setSelectedServidor('')
       } else {
         const result = await createUser(formData)
         if (result.error) {
@@ -199,6 +221,9 @@ export default function UserManagementClient({
            })
            return
         }
+        setFormFullName('')
+        setFormEmail('')
+        setSelectedServidor('')
       }
       router.refresh()
     } catch (error) {
@@ -420,14 +445,47 @@ export default function UserManagementClient({
                 </div>
               )}
 
+              {!editingUser && (
+                <div>
+                  <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                    Vincular a Servidor existente (Opcional)
+                  </label>
+                  <select
+                    value={selectedServidor}
+                    onChange={(e) => {
+                      const sId = e.target.value
+                      setSelectedServidor(sId)
+                      if (sId) {
+                        const s = servidores.find(serv => serv.id === sId)
+                        if (s) {
+                          setFormFullName(s.nome || '')
+                          setFormEmail(s.email || '')
+                        }
+                      } else {
+                        setFormFullName('')
+                        setFormEmail('')
+                      }
+                    }}
+                    className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 py-2 px-3 text-sm focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
+                  >
+                    <option value="">Selecione um servidor...</option>
+                    {servidores.map(s => (
+                      <option key={s.id} value={s.id}>
+                        {s.nome} {s.email ? `(${s.email})` : '(Sem E-mail)'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Nome Completo</label>
                 <input 
                   required 
                   type="text" 
                   name="full_name" 
-                  defaultValue={editingUser?.full_name || ''}
-                  key={editingUser?.id + '-name'}
+                  value={formFullName}
+                  onChange={(e) => setFormFullName(e.target.value)}
                   className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 py-2 px-3 text-sm focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800" 
                 />
               </div>
@@ -438,11 +496,17 @@ export default function UserManagementClient({
                   required 
                   type="email" 
                   name="email" 
-                  defaultValue={editingUser?.email || ''}
+                  value={formEmail}
+                  onChange={(e) => setFormEmail(e.target.value)}
                   disabled={!!editingUser}
-                  key={editingUser?.id + '-email'}
                   className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 py-2 px-3 text-sm focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed" 
                 />
+                {isEmailDuplicate && (
+                  <p className="mt-1.5 text-xs font-bold text-red-500 flex items-center gap-1 animate-in fade-in slide-in-from-top-1">
+                    <AlertCircle className="h-3.5 w-3.5" />
+                    Este e-mail já possui um usuário cadastrado no sistema.
+                  </p>
+                )}
                 {editingUser && (
                   <p className="mt-1 text-xs text-zinc-500 italic">O email não pode ser alterado.</p>
                 )}
@@ -595,7 +659,7 @@ export default function UserManagementClient({
                 )}
                 <button 
                   type="submit" 
-                  disabled={isLoading}
+                  disabled={isLoading || isEmailDuplicate}
                   className="flex-1 flex justify-center rounded-md bg-blue-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
                 >
                   {isLoading ? 'Salvando...' : editingUser ? 'Salvar Alterações' : 'Cadastrar Usuário'}

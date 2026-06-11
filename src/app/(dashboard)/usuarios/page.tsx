@@ -75,6 +75,13 @@ export default async function UsuariosPage() {
     nome: (s as any).dicionario_setores?.nome || 'SETOR SEM NOME'
   })) || []
 
+  // 6. Fetch active servers to link
+  const { data: servidores } = await supabase
+    .from('servidores')
+    .select('id, nome, email')
+    .eq('status', 'Ativo')
+    .order('nome')
+
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between">
@@ -91,6 +98,7 @@ export default async function UsuariosPage() {
         unidades={unidades || []}
         setores={setores || []}
         currentUserRole={profile.role}
+        servidores={servidores || []}
       />
     </div>
   )

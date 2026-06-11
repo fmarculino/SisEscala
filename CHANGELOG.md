@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.2] - 2026-06-11
+
+### Added
+- **Vinculação de Servidores Existentes**:
+  - Adicionado campo de seleção no formulário de "Novo Usuário" para importar nome e e-mail diretamente a partir de um servidor ativo cadastrado no banco de dados.
+
+### Fixed
+- **Validação de E-mail Duplicado em Tempo Real**:
+  - Implementada verificação no frontend que bloqueia a submissão e exibe um alerta claro ao tentar cadastrar um usuário com e-mail já existente na base de dados de autenticação.
+
 ## [1.4.1] - 2026-06-11
 
 ### Added
