@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.9] - 2026-06-11
+
+### Changed
+- **Divisão de Batidas de Ponto em Blocos Contíguos**:
+  - Refatorada a confirmação de presença em terminal (`fn_confirmar_presenca` e a nova helper `fn_salvar_saida_bloco`) para tratar de forma inteligente escalas contíguas/sobrepostas (ex: Regular das 08h às 14h + Plantão T4 das 14h às 18h).
+  - Quando o servidor realiza o checkout final, o sistema distribui automaticamente os horários: a primeira escala recebe a saída no limite de sua janela (ex: 14h), a escala contígua seguinte recebe a entrada nesse mesmo horário de transição (ex: 14h), e a última escala recebe a saída final real (ex: 18h). Isso impede sobreposição de carga horária e duplicidade na folha de ponto.
+
 ## [1.4.8] - 2026-06-11
 
 ### Added
