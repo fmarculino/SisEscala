@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.7] - 2026-06-11
+
+### Changed
+- **Padrão de Tema Claro**:
+  - Ajustado o `ThemeProvider` no layout principal (`layout.tsx`) para iniciar por padrão no tema claro (`light`) e desabilitar o fallback automático baseado na preferência do sistema operacional (`enableSystem={false}`). Os usuários continuam podendo alternar o tema normalmente.
+
 ## [1.4.6] - 2026-06-11
 
 ### Added
