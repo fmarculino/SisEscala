@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.6] - 2026-06-11
+
+### Added
+- **Navegação de Retorno do Terminal de Presença**:
+  - Adicionado botão "Voltar ao Painel" no cabeçalho do Terminal de Presença (`/presenca`) quando acessado por um supervisor autenticado.
+  - Permite aos administradores/coordenadores retornarem diretamente ao painel principal (`/home`) sem necessidade de efetuar logout.
+
 ## [1.4.5] - 2026-06-11
 
 ### Added

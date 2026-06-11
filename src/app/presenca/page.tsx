@@ -231,13 +231,23 @@ export default function PresencaTerminalPage() {
           </div>
         </div>
         
-        <button 
-          onClick={handleLogout}
-          className="p-2 text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-all"
-          title="Sair e Desativar Terminal"
-        >
-          <LogOut className="h-5 w-5" />
-        </button>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/home"
+            className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-zinc-700 bg-zinc-100 hover:bg-zinc-200 dark:text-zinc-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 rounded-xl transition-all"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            <span>Voltar ao Painel</span>
+          </Link>
+          
+          <button 
+            onClick={handleLogout}
+            className="p-2 text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-all"
+            title="Sair e Desativar Terminal"
+          >
+            <LogOut className="h-5 w-5" />
+          </button>
+        </div>
       </header>
 
       {/* Main Terminal */}
