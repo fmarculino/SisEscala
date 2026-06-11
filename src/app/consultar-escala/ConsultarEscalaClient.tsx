@@ -176,9 +176,20 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
     if (result.error) {
       setError(result.error)
     } else {
-      setEscalas(result.escalas || [])
-      if (result.escalas?.length === 1) {
-        handleSelectEscala(result.escalas[0])
+      const escalasList = result.escalas || []
+      setEscalas(escalasList)
+      
+      if (escalasList.length > 0) {
+        // Tentar encontrar a escala mais recente do setor e unidade principal do servidor
+        const mainScale = escalasList.find((esc: any) => 
+          esc.setor_id === servidor.setor_id && esc.unidade_id === servidor.unidade_id
+        ) || escalasList.find((esc: any) => 
+          esc.setor_id === servidor.setor_id
+        ) || escalasList[0]
+        
+        if (mainScale) {
+          handleSelectEscala(mainScale)
+        }
       }
     }
     setLoading(false)
@@ -282,6 +293,19 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
                       placeholder="Digite sua matrícula..."
                       disabled={isPinValid}
                       value={matricula}
+                      onFocus={() => {
+                        setMatricula('')
+                        setIsMatriculaValid(false)
+                        setTempServidorId(null)
+                        setPin('')
+                        setIsPinValid(false)
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          handleFindServidor()
+                        }
+                      }}
                       onChange={(e) => {
                         setMatricula(e.target.value)
                         if (isMatriculaValid) {
@@ -331,6 +355,13 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
                           inputMode="numeric"
                           required
                           value={pin}
+                          onFocus={() => setPin('')}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              handleVerifyPin()
+                            }
+                          }}
                           onChange={(e) => setPin(e.target.value)}
                           className="block w-full pl-10 pr-10 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-white sm:text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono tracking-[1em] text-center"
                           placeholder="••••"

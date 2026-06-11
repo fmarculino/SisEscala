@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { 
   ArrowLeft, Printer, Save, RefreshCw, AlertTriangle, 
   Check, Loader2, Building2, Users, Calendar, Briefcase, 
-  Clock, FileText, CheckSquare, X
+  Clock, FileText, CheckSquare, X, Unlock
 } from 'lucide-react'
 import { salvarFolhaPonto, verificarDivergenciaEscala, sincronizarFolhaPonto, gerarFolhaPonto } from '../actions'
 import { Modal } from '@/components/ui/Modal'
@@ -41,20 +41,36 @@ export function FolhaPontoEditor({
 }: FolhaPontoEditorProps) {
   const router = useRouter()
   const [instituicaoCabecalhoUrl, setInstituicaoCabecalhoUrl] = useState<string>('')
+  const [closedPeriods, setClosedPeriods] = useState<any[]>([])
   const supabase = createClient()
 
+  const [isMounted, setIsMounted] = useState(false)
+
   useEffect(() => {
-    async function fetchHeaderLogo() {
-      const { data } = await supabase
+    setIsMounted(true)
+  }, [])
+
+  useEffect(() => {
+    async function fetchConfigs() {
+      const { data: logoData } = await supabase
         .from('configuracoes_globais')
         .select('valor')
         .eq('chave', 'instituicao_cabecalho_url')
         .single()
-      if (data?.valor) {
-        setInstituicaoCabecalhoUrl(data.valor)
+      if (logoData?.valor) {
+        setInstituicaoCabecalhoUrl(logoData.valor)
+      }
+
+      const { data: closedData } = await supabase
+        .from('configuracoes_globais')
+        .select('valor')
+        .eq('chave', 'competencias_encerradas')
+        .single()
+      if (closedData?.valor && Array.isArray(closedData.valor)) {
+        setClosedPeriods(closedData.valor)
       }
     }
-    fetchHeaderLogo()
+    fetchConfigs()
   }, [])
 
   const executeSave = saveAction || salvarFolhaPonto
@@ -68,6 +84,12 @@ export function FolhaPontoEditor({
   // Local state for table records
   const [registros, setRegistros] = useState<any[]>(folha.registros || [])
   const [status, setStatus] = useState<string>(folha.status)
+
+  const isCompetenciaEncerrada = useMemo(() => {
+    return closedPeriods.some((p: any) => p.mes === folha.mes && p.ano === folha.ano)
+  }, [closedPeriods, folha.mes, folha.ano])
+
+  const isEditable = status !== 'Revisada' && !isCompetenciaEncerrada
   
   // States for loaders and actions
   const [saving, setSaving] = useState(false)
@@ -464,7 +486,7 @@ export function FolhaPontoEditor({
           {/* Regenerar */}
           <button 
             onClick={handleRegenerar}
-            disabled={regenerating || saving || syncing}
+            disabled={regenerating || saving || syncing || !isEditable}
             className="inline-flex items-center bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-black text-xs uppercase tracking-wider px-4 py-2.5 rounded-xl transition-all disabled:opacity-50"
             title="Regera a folha limpando todas as edições manuais."
           >
@@ -484,7 +506,7 @@ export function FolhaPontoEditor({
           {/* Salvar */}
           <button 
             onClick={() => handleSave()}
-            disabled={saving || regenerating || syncing}
+            disabled={saving || regenerating || syncing || !isEditable}
             className="inline-flex items-center bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-wider px-4 py-2.5 rounded-xl transition-all shadow-md shadow-blue-500/20 active:scale-95 disabled:opacity-50"
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Save className="h-4 w-4 mr-1.5" />}
@@ -495,8 +517,8 @@ export function FolhaPontoEditor({
           {!isPortal && status === 'Rascunho' && (
             <button 
               onClick={() => handleSave('Gerada')}
-              disabled={saving}
-              className="inline-flex items-center bg-green-600 hover:bg-green-700 text-white font-black text-xs uppercase tracking-wider px-4 py-2.5 rounded-xl transition-all shadow-md shadow-green-500/20 active:scale-95"
+              disabled={saving || !isEditable}
+              className="inline-flex items-center bg-green-600 hover:bg-green-700 text-white font-black text-xs uppercase tracking-wider px-4 py-2.5 rounded-xl transition-all shadow-md shadow-green-500/20 active:scale-95 disabled:opacity-50"
             >
               <CheckSquare className="h-4 w-4 mr-1.5" />
               Finalizar
@@ -505,15 +527,40 @@ export function FolhaPontoEditor({
           {!isPortal && status === 'Gerada' && (
             <button 
               onClick={() => handleSave('Revisada')}
-              disabled={saving}
-              className="inline-flex items-center bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wider px-4 py-2.5 rounded-xl transition-all shadow-md shadow-emerald-500/20 active:scale-95"
+              disabled={saving || !isEditable}
+              className="inline-flex items-center bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wider px-4 py-2.5 rounded-xl transition-all shadow-md shadow-emerald-500/20 active:scale-95 disabled:opacity-50"
             >
               <Check className="h-4 w-4 mr-1.5" />
               Revisar/Fechar
             </button>
           )}
+          {!isPortal && status === 'Revisada' && !isCompetenciaEncerrada && (profile?.role === 'admin' || profile?.role === 'super_admin') && (
+            <button 
+              onClick={() => handleSave('Gerada')}
+              disabled={saving}
+              className="inline-flex items-center bg-amber-600 hover:bg-amber-700 text-white font-black text-xs uppercase tracking-wider px-4 py-2.5 rounded-xl transition-all shadow-md shadow-amber-500/20 active:scale-95"
+            >
+              <Unlock className="h-4 w-4 mr-1.5" />
+              Reabrir Folha
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Competência Encerrada warning banner - Hidden on Print */}
+      {isCompetenciaEncerrada && (
+        <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900 rounded-3xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 animate-in slide-in-from-top-4 duration-300 print:hidden mb-4">
+          <div className="flex gap-3">
+            <AlertTriangle className="h-6 w-6 text-red-600 dark:text-red-500 shrink-0" />
+            <div>
+              <h4 className="font-black text-red-900 dark:text-red-300 uppercase text-sm tracking-tight">Competência Encerrada</h4>
+              <p className="text-xs text-red-700 dark:text-red-400 mt-0.5 leading-relaxed">
+                Este período ({mesExtenso} de {folha.ano}) foi encerrado pelo Administrador Geral. Todos os dados estão congelados para histórico e auditoria, impedindo qualquer modificação.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Divergence warning banner - Hidden on Print */}
       {divergenceInfo.divergent && showDivergenceBanner && (
@@ -531,8 +578,8 @@ export function FolhaPontoEditor({
           <div className="flex items-center gap-3 self-end md:self-auto">
             <button 
               onClick={handleSync}
-              disabled={syncing}
-              className="bg-amber-600 hover:bg-amber-700 text-white font-black text-xs uppercase tracking-wider px-4 py-2 rounded-xl transition-all shadow-md"
+              disabled={syncing || !isEditable}
+              className="bg-amber-600 hover:bg-amber-700 text-white font-black text-xs uppercase tracking-wider px-4 py-2 rounded-xl transition-all shadow-md disabled:opacity-50"
             >
               {syncing ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
               Sincronizar
@@ -671,7 +718,8 @@ export function FolhaPontoEditor({
                           type="time" 
                           value={r.entrada || ''} 
                           onChange={(e) => handleCellChange(r.dia, 'entrada', e.target.value)}
-                          className="w-full bg-transparent border-none text-center outline-none font-bold text-zinc-900 dark:text-white font-mono"
+                          disabled={!isEditable}
+                          className="w-full bg-transparent border-none text-center outline-none font-bold text-zinc-900 dark:text-white font-mono disabled:opacity-50"
                         />
                       ) : (
                         <span className="text-zinc-300 dark:text-zinc-700">-</span>
@@ -685,7 +733,8 @@ export function FolhaPontoEditor({
                           type="time" 
                           value={r.saida_intervalo || ''} 
                           onChange={(e) => handleCellChange(r.dia, 'saida_intervalo', e.target.value)}
-                          className="w-full bg-transparent border-none text-center outline-none font-bold text-zinc-900 dark:text-white font-mono"
+                          disabled={!isEditable}
+                          className="w-full bg-transparent border-none text-center outline-none font-bold text-zinc-900 dark:text-white font-mono disabled:opacity-50"
                         />
                       ) : (
                         <span className="text-zinc-300 dark:text-zinc-700">-</span>
@@ -699,7 +748,8 @@ export function FolhaPontoEditor({
                           type="time" 
                           value={r.retorno_intervalo || ''} 
                           onChange={(e) => handleCellChange(r.dia, 'retorno_intervalo', e.target.value)}
-                          className="w-full bg-transparent border-none text-center outline-none font-bold text-zinc-900 dark:text-white font-mono"
+                          disabled={!isEditable}
+                          className="w-full bg-transparent border-none text-center outline-none font-bold text-zinc-900 dark:text-white font-mono disabled:opacity-50"
                         />
                       ) : (
                         <span className="text-zinc-300 dark:text-zinc-700">-</span>
@@ -713,7 +763,8 @@ export function FolhaPontoEditor({
                           type="time" 
                           value={r.saida || ''} 
                           onChange={(e) => handleCellChange(r.dia, 'saida', e.target.value)}
-                          className="w-full bg-transparent border-none text-center outline-none font-bold text-zinc-900 dark:text-white font-mono"
+                          disabled={!isEditable}
+                          className="w-full bg-transparent border-none text-center outline-none font-bold text-zinc-900 dark:text-white font-mono disabled:opacity-50"
                         />
                       ) : (
                         <span className="text-zinc-300 dark:text-zinc-700">-</span>
@@ -742,7 +793,8 @@ export function FolhaPontoEditor({
                         type="text" 
                         value={r.observacao || ''} 
                         onChange={(e) => handleCellChange(r.dia, 'observacao', e.target.value)}
-                        className="w-full bg-transparent border-none text-left outline-none text-zinc-700 dark:text-zinc-300 font-semibold"
+                        disabled={!isEditable}
+                        className="w-full bg-transparent border-none text-left outline-none text-zinc-700 dark:text-zinc-300 font-semibold disabled:opacity-50"
                         placeholder={isOffDay ? '' : 'Digitar observação...'}
                       />
                     </td>
@@ -804,9 +856,11 @@ export function FolhaPontoEditor({
           </div>
           
           {/* Print Metadata */}
-          <div className="hidden print:block text-right text-[6px] text-zinc-400 mt-12">
-            Documento emitido digitalmente via SisEscala. Data da emissão: {new Date().toLocaleDateString('pt-BR')} {new Date().toLocaleTimeString('pt-BR')}.
-          </div>
+          {isMounted && (
+            <div className="hidden print:block text-right text-[6px] text-zinc-400 mt-12">
+              Documento emitido digitalmente via SisEscala. Data da emissão: {new Date().toLocaleDateString('pt-BR')} {new Date().toLocaleTimeString('pt-BR')}.
+            </div>
+          )}
         </div>
       </div>
 

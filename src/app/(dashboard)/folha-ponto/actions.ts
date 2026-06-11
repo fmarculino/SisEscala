@@ -3,6 +3,7 @@
 import { createClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { hasSectorAccess, UserProfile } from '@/utils/permissions'
+import { autoCloseExpiredScalesAndTimesheets, isCompetencyClosed } from '@/utils/autoClose'
 
 // Helper: Get user profile with unit/sector permissions
 async function getUserProfile(supabase: any): Promise<UserProfile> {
@@ -63,9 +64,9 @@ function formatMinutesToTimeStr(totalMinutes: number): string {
 function generateFingerprint(records: any[]): string {
   const simplified = records.map(r => ({
     dia: r.dia,
-    turno: r.dicionario_turnos_id,
-    cat: r.categoria
+    turno: r.dicionario_turnos_id
   }))
+  simplified.sort((a, b) => a.dia - b.dia)
   const str = JSON.stringify(simplified)
   let hash = 0
   for (let i = 0; i < str.length; i++) {
@@ -96,6 +97,7 @@ function getAfastamentoNome(tiposEventos: any): string | null {
 // List servers for a sector/month with their scale and folha status
 export async function getServidoresFolhaPonto(mes: number, ano: number, unidadeId: string, setorId: string) {
   try {
+    await autoCloseExpiredScalesAndTimesheets()
     const supabase = await createClient()
     const userProfile = await getUserProfile(supabase)
 
@@ -173,6 +175,9 @@ export async function getServidoresFolhaPonto(mes: number, ano: number, unidadeI
 // Generate (or regenerate) a timesheet for a server
 export async function gerarFolhaPonto(servidorId: string, mes: number, ano: number, forcarRascunho: boolean = false) {
   try {
+    if (await isCompetencyClosed(mes, ano)) {
+      return { error: 'Esta competência está encerrada e todos os dados estão congelados para auditoria.' }
+    }
     const supabase = await createClient()
     const userProfile = await getUserProfile(supabase)
 
@@ -531,6 +536,10 @@ export async function sincronizarFolhaPonto(folhaId: string) {
 
     if (folhaError || !folha) throw new Error('Folha de ponto não encontrada')
 
+    if (await isCompetencyClosed(folha.mes, folha.ano)) {
+      return { error: 'Esta competência está encerrada e todos os dados estão congelados para auditoria.' }
+    }
+
     // Fetch scale
     const { data: escala, error: escError } = await supabase
       .from('escala_mensal')
@@ -834,15 +843,19 @@ export async function salvarFolhaPonto(folhaId: string, registros: any[], status
     // Fetch existing sheet to check values and lotação permission
     const { data: folha, error: fetchError } = await supabase
       .from('folha_ponto')
-      .select('escala_mensal_id, mes, ano, servidor_id, registros')
+      .select('escala_mensal_id, mes, ano, servidor_id, registros, status')
       .eq('id', folhaId)
       .single()
 
     if (fetchError || !folha) throw new Error('Folha de ponto não encontrada')
 
+    if (await isCompetencyClosed(folha.mes, folha.ano)) {
+      return { error: 'Esta competência está encerrada e todos os dados estão congelados para auditoria.' }
+    }
+
     const { data: escala } = await supabase
       .from('escala_mensal')
-      .select('unidade_id, setor_id, status, jornada_id, jornadas(horas_totais, name, nome, intervalo_minutos)')
+      .select('unidade_id, setor_id, status, jornada_id, jornadas(horas_totais, nome, intervalo_minutos)')
       .eq('id', folha.escala_mensal_id)
       .single()
 
@@ -851,6 +864,16 @@ export async function salvarFolhaPonto(folhaId: string, registros: any[], status
     // Security check
     if (!hasSectorAccess(userProfile, escala.setor_id, escala.unidade_id)) {
       return { error: 'Acesso negado para gerenciar esta folha.' }
+    }
+
+    // Se a folha estiver Revisada, apenas super_admin e admin podem reabri-la (passando status !== 'Revisada')
+    if (folha.status === 'Revisada') {
+      if (status !== 'Gerada' && status !== 'Rascunho') {
+        return { error: 'Esta folha de ponto está fechada (Revisada). Reabra-a antes de fazer edições.' }
+      }
+      if (userProfile.role !== 'super_admin' && userProfile.role !== 'admin') {
+        return { error: 'Apenas administradores podem reabrir uma folha de ponto fechada.' }
+      }
     }
 
     const jornadaDetails = escala.jornadas ? (escala.jornadas as any) : null
@@ -947,7 +970,7 @@ export async function verificarDivergenciaEscala(folhaId: string) {
 
     const { data: escalaDiaria } = await supabase
       .from('escala_diaria')
-      .select('dia, dicionario_turnos_id, categoria')
+      .select('dia, dicionario_turnos_id, categoria, dicionario_turnos(codigo)')
       .eq('escala_mensal_id', folha.escala_mensal_id)
       .eq('categoria', 'Regular')
 
@@ -968,7 +991,7 @@ export async function verificarDivergenciaEscala(folhaId: string) {
         const hadShift = record && record.turno_codigo !== null
         const hasShift = !!currentShift
 
-        const changed = (hadShift !== hasShift) || (hadShift && record.turno_codigo !== currentShift?.dicionario_turnos_id)
+        const changed = (hadShift !== hasShift) || (hadShift && record.turno_codigo !== getTurnoCodigo(currentShift?.dicionario_turnos))
         if (changed) {
           affectedDays.push(day)
         }

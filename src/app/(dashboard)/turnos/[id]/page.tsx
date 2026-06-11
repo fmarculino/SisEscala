@@ -74,21 +74,27 @@ export default async function EditTurnoPage({
               />
             </div>
 
-            <div className="sm:col-span-1">
-              <label htmlFor="tipo" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                Tipo de Turno
+            <div className="sm:col-span-2">
+              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
+                Tipo de Turno (Selecione um ou mais)
               </label>
-              <select
-                id="tipo"
-                name="tipo"
-                defaultValue={turno.tipo}
-                className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="Normal">Normal</option>
-                <option value="Plantão">Plantão</option>
-                <option value="Sobreaviso">Sobreaviso</option>
-                <option value="Extra">Extra</option>
-              </select>
+              <div className="mt-2 flex flex-wrap gap-4 p-4 bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-lg">
+                {['Normal', 'Plantão', 'Sobreaviso', 'Extra'].map(tipoOption => {
+                  const currentTipos = (turno.tipo || '').split(',').map((s: string) => s.trim())
+                  return (
+                    <label key={tipoOption} className="inline-flex items-center cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        name="tipo_options"
+                        value={tipoOption}
+                        defaultChecked={currentTipos.includes(tipoOption)}
+                        className="rounded border-zinc-300 text-blue-600 focus:ring-blue-500 bg-white dark:bg-zinc-900 dark:border-zinc-700 h-4 w-4"
+                      />
+                      <span className="ml-2 text-sm font-semibold text-zinc-700 dark:text-zinc-300">{tipoOption}</span>
+                    </label>
+                  )
+                })}
+              </div>
             </div>
 
             <div className="sm:col-span-2">

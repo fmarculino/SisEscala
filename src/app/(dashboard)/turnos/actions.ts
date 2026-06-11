@@ -10,7 +10,8 @@ export async function createTurno(formData: FormData) {
   const codigo = formData.get('codigo') as string
   const descricao = formData.get('descricao') as string
   const horas_computadas = parseFloat(formData.get('horas_computadas') as string)
-  const tipo = formData.get('tipo') as any
+  const tipoOptions = formData.getAll('tipo_options') as string[]
+  const tipo = tipoOptions.join(',') || 'Normal'
 
   const { error } = await supabase.from('dicionario_turnos').insert({
     codigo,
@@ -33,7 +34,8 @@ export async function updateTurno(id: string, formData: FormData) {
   const codigo = formData.get('codigo') as string
   const descricao = formData.get('descricao') as string
   const horas_computadas = parseFloat(formData.get('horas_computadas') as string)
-  const tipo = formData.get('tipo') as any
+  const tipoOptions = formData.getAll('tipo_options') as string[]
+  const tipo = tipoOptions.join(',') || 'Normal'
 
   const { error } = await supabase
     .from('dicionario_turnos')

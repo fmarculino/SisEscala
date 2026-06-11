@@ -12,7 +12,7 @@ export default async function ConsultarEscalaPage() {
     const supabase = await createAdminClient()
     const { data } = await supabase
       .from('servidores')
-      .select('id, nome, cargo, matricula')
+      .select('id, nome, cargo, matricula, unidade_id, setor_id')
       .eq('id', servidorId)
       .single()
     

@@ -620,7 +620,7 @@ export function ScaleGrid({
       return
     }
 
-    if (isClosed && userProfile?.role !== 'admin' && userProfile?.role !== 'super_admin') return
+    if (isCompetenciaEncerrada || escalaMensal[0]?.status === 'Fechada' || (isClosed && userProfile?.role !== 'admin' && userProfile?.role !== 'super_admin')) return
     
     setConfirmModal({
       isOpen: true,
@@ -1193,6 +1193,7 @@ export function ScaleGrid({
   }
 
   const handleSave = async () => {
+    if (isCompetenciaEncerrada) return
     // Validação: Todas as Jornadas devem estar selecionadas
     const servidorSemJornada = escalaMensal.find(em => !em.jornada_id)
     if (servidorSemJornada) {
@@ -1453,6 +1454,7 @@ export function ScaleGrid({
   }
 
   const handleCloseScale = async () => {
+    if (isCompetenciaEncerrada) return
     // Validação: Todas as Jornadas devem estar selecionadas
     const servidorSemJornada = escalaMensal.find(em => !em.jornada_id)
     if (servidorSemJornada) {
@@ -1502,6 +1504,7 @@ export function ScaleGrid({
   }
 
   const handleReopenScale = async () => {
+    if (isCompetenciaEncerrada) return
     setConfirmModal({
       isOpen: true,
       title: 'Reabrir Escala',
@@ -1546,6 +1549,10 @@ export function ScaleGrid({
   const isInactive = escalaMensal[0]?.ativo === false || isAutoInactivated
   const isComum = userProfile?.role === 'comum' || userProfile?.role === 'servidor'
   
+  const closedPeriodsRaw = configsGlobais?.find(c => c.chave === 'competencias_encerradas')?.valor
+  const closedPeriods = Array.isArray(closedPeriodsRaw) ? closedPeriodsRaw : []
+  const isCompetenciaEncerrada = closedPeriods.some((p: any) => p.mes === mes && p.ano === ano)
+
   const deadlineDay = parseInt(configs['dia_limite_planejamento'] || '10')
   const governanceLock = canEditScale({
     role: userProfile?.role as UserRole,
@@ -1554,7 +1561,7 @@ export function ScaleGrid({
     deadlineDay
   })
 
-  const isClosed = escalaMensal[0]?.status === 'Fechada' || isInactive || isComum || !governanceLock.canEdit
+  const isClosed = escalaMensal[0]?.status === 'Fechada' || isInactive || isComum || !governanceLock.canEdit || isCompetenciaEncerrada
 
   // Filter scales for common users
   const visibleEscalaMensal = useMemo(() => {
@@ -1664,7 +1671,7 @@ export function ScaleGrid({
               <FileText className="mr-2 h-4 w-4" /> Gerar PDF
             </button>
             
-            <button onClick={handleSave} disabled={loading || (isClosed && userProfile?.role !== 'admin' && userProfile?.role !== 'super_admin')} className="inline-flex items-center rounded-md bg-green-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-700 transition-all disabled:opacity-50">
+            <button onClick={handleSave} disabled={loading || isCompetenciaEncerrada || escalaMensal[0]?.status === 'Fechada' || (isClosed && userProfile?.role !== 'admin' && userProfile?.role !== 'super_admin')} className="inline-flex items-center rounded-md bg-green-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-700 transition-all disabled:opacity-50">
               {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
               Salvar Previsão
             </button>
@@ -1673,7 +1680,7 @@ export function ScaleGrid({
                 <Lock className="mr-2 h-4 w-4" /> Fechar Escala
               </button>
             )}
-            {isClosed && (userProfile?.role === 'admin' || userProfile?.role === 'super_admin') && !isInactive && (
+            {isClosed && !isCompetenciaEncerrada && (userProfile?.role === 'admin' || userProfile?.role === 'super_admin') && (
               <button onClick={handleReopenScale} disabled={loading} className="inline-flex items-center rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-700 transition-all">
                 <Unlock className="mr-2 h-4 w-4" /> Reabrir Escala
               </button>
@@ -1946,16 +1953,23 @@ export function ScaleGrid({
                                   />
                                 )}
                                 <input
-                                  list={cat === 'Sobreaviso' ? "turnos-sobreaviso-list" : (cat === 'Extra' ? "turnos-extra-list" : "turnos-list")}
+                                  list={
+                                    cat === 'Sobreaviso' ? 'turnos-sobreaviso-list' :
+                                    cat === 'Extra' ? 'turnos-extra-list' :
+                                    cat === 'Plantão' ? 'turnos-plantao-list' :
+                                    'turnos-normal-list'
+                                  }
                                   value={turno?.codigo || ''}
-                                  disabled={isClosed && userProfile?.role !== 'admin' && userProfile?.role !== 'super_admin'}
+                                  disabled={isCompetenciaEncerrada || escalaMensal[0]?.status === 'Fechada' || (isClosed && userProfile?.role !== 'admin' && userProfile?.role !== 'super_admin')}
                                   onChange={(e) => {
                                     const val = e.target.value.toUpperCase()
-                                    if (cat === 'Sobreaviso' && val !== '') {
-                                      const hasMatch = turnos.some(x => x.tipo === 'Sobreaviso' && x.codigo.startsWith(val))
+                                    const targetTipo = cat === 'Sobreaviso' ? 'Sobreaviso' : cat === 'Extra' ? 'Extra' : cat === 'Plantão' ? 'Plantão' : 'Normal'
+                                    
+                                    if (val !== '') {
+                                      const hasMatch = turnos.some(x => x.ativo !== false && x.tipo && x.tipo.split(',').map((s: string) => s.trim()).includes(targetTipo) && x.codigo.startsWith(val))
                                       if (!hasMatch) return
                                     }
-                                    const t = turnos.find(x => x.codigo === val)
+                                    const t = turnos.find(x => x.ativo !== false && x.tipo && x.tipo.split(',').map((s: string) => s.trim()).includes(targetTipo) && x.codigo === val)
                                     handleCellChange(em.servidor_id, cat, day, t?.id || '')
                                   }}
                                   className={`w-full h-full bg-transparent border-none text-center focus:outline-none focus:ring-1 focus:ring-blue-500 font-black p-0 text-[11px] uppercase ${isFailed ? 'text-red-600 dark:text-red-400 line-through' : 'text-zinc-900 dark:text-zinc-100'}`}
@@ -2063,7 +2077,7 @@ export function ScaleGrid({
                                   const redEntrada = isRedIndicator(day, cat, 'entrada')
                                   const redSaida = isRedIndicator(day, cat, 'saida')
 
-                                  const canEditPresence = !isClosed && (userProfile?.role === 'admin' || userProfile?.role === 'super_admin' || userProfile?.role === 'coordenador')
+                                  const canEditPresence = !isCompetenciaEncerrada && escalaMensal[0]?.status !== 'Fechada' && (!isClosed || userProfile?.role === 'admin' || userProfile?.role === 'super_admin') && (userProfile?.role === 'admin' || userProfile?.role === 'super_admin' || userProfile?.role === 'coordenador')
 
                                   return (
                                     <>
@@ -2279,18 +2293,26 @@ export function ScaleGrid({
           </tfoot>
         </table>
 
-        <datalist id="turnos-list">
-          {turnos.filter(t => t.ativo !== false).map(t => <option key={t.id} value={t.codigo}>{t.descricao}</option>)}
+        <datalist id="turnos-normal-list">
+          {turnos.filter(t => t.ativo !== false && t.tipo && t.tipo.split(',').map((s: string) => s.trim()).includes('Normal')).map(t => (
+            <option key={t.id} value={t.codigo}>{t.descricao}</option>
+          ))}
+        </datalist>
+
+        <datalist id="turnos-plantao-list">
+          {turnos.filter(t => t.ativo !== false && t.tipo && t.tipo.split(',').map((s: string) => s.trim()).includes('Plantão')).map(t => (
+            <option key={t.id} value={t.codigo}>{t.descricao}</option>
+          ))}
         </datalist>
 
         <datalist id="turnos-sobreaviso-list">
-          {turnos.filter(t => t.ativo !== false && t.tipo === 'Sobreaviso').map(t => (
+          {turnos.filter(t => t.ativo !== false && t.tipo && t.tipo.split(',').map((s: string) => s.trim()).includes('Sobreaviso')).map(t => (
             <option key={t.id} value={t.codigo}>{t.descricao}</option>
           ))}
         </datalist>
 
         <datalist id="turnos-extra-list">
-          {turnos.filter(t => t.ativo !== false && t.tipo === 'Extra').map(t => (
+          {turnos.filter(t => t.ativo !== false && t.tipo && t.tipo.split(',').map((s: string) => s.trim()).includes('Extra')).map(t => (
             <option key={t.id} value={t.codigo}>{t.descricao}</option>
           ))}
         </datalist>

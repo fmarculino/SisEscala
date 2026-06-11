@@ -1,6 +1,7 @@
 import { createClient } from '@/utils/supabase/server'
 import { ScaleGrid } from './ScaleGrid'
 import { hasUnitAccess, hasSectorAccess } from '@/utils/permissions'
+import { autoCloseExpiredScalesAndTimesheets } from '@/utils/autoClose'
 
 export default async function UnidadeEscalaPage({
   params,
@@ -12,6 +13,9 @@ export default async function UnidadeEscalaPage({
   const { unidadeId } = await params
   const { mes, ano, setor } = await searchParams
   
+  // Executar auto-fechamento de escalas e folhas de ponto expiradas
+  await autoCloseExpiredScalesAndTimesheets()
+
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 

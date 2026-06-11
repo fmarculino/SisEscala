@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.0] - 2026-06-11
+
+### Added
+- **Encerramento de Competência (Congelamento de Histórico)**:
+  - Permite ao Administrador Geral (`super_admin`) trancar competências (mês/ano) nas configurações globais.
+  - Congela permanentemente todas as escalas e folhas de ponto do período trancado, bloqueando edições para todos os perfis (inclusive administradores).
+  - Adicionado painel visual nas configurações do sistema e banner vermelho premium de aviso nos editores.
+  - Implementada Server Action `toggleCompetencyClosure` e a verificação defensiva de banco de dados `isCompetencyClosed`.
+- **Fechamento Automático de Períodos (Prazo Expirado)**:
+  - Rotina em lote (`autoCloseExpiredScalesAndTimesheets`) que inativa escalas e folhas expiradas com base em dias de inatividade configuráveis.
+  - Implementada tolerância para reabertura manual por administradores: se a escala ou folha for reaberta ou editada após o prazo, ela não é re-fechada pelo sistema.
+- **Turnos Multi-Tipo**:
+  - Possibilidade de configurar um mesmo turno em múltiplas categorias (ex: "Normal, Plantão") simultaneamente.
+  - Migração de banco de dados (`20260611010000_alter_dicionario_turnos_tipo_to_text.sql`) convertendo a coluna `tipo` de enum para `text`.
+
+### Changed
+- **Formulários de Turno**:
+  - Substituição do campo `<select>` por checkboxes de múltipla seleção no cadastro e edição de turnos.
+  - Badges coloridas individuais para cada tipo na listagem de turnos.
+- **Dropdown e Filtros da Grade de Escalas**:
+  - Datalists de turnos filtrados dinamicamente com base na categoria da linha no grid de escalas, impedindo misturar tipos diferentes de escala.
+  - Validação rigorosa na entrada para assegurar conformidade do tipo digitado.
+
+### Fixed
+- **Bloqueio de Edição no Portal do Servidor**:
+  - Removido o bloqueio visual do frontend que desabilitava totalmente a folha de ponto no Portal mesmo que o coordenador reabrisse o período.
+  - Inclusão da validação server-side de consistência (`isCompetencyClosed`) no portal nas Server Actions `salvarFolhaPontoServidor`, `sincronizarFolhaPontoServidor` e `gerarFolhaPontoServidor`.
+
 ## [1.3.3] - 2026-06-06
 
 ### Fixed

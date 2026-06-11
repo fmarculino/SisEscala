@@ -55,7 +55,7 @@ export default function TurnosPage() {
       t.descricao.toLowerCase().includes(searchTerm.toLowerCase())
     
     const matchesStatus = showInactive || t.ativo !== false
-    const matchesTipo = !selectedTipo || t.tipo === selectedTipo
+    const matchesTipo = !selectedTipo || (t.tipo && t.tipo.split(',').map((s: string) => s.trim()).includes(selectedTipo))
     
     return matchesSearch && matchesStatus && matchesTipo
   })
@@ -184,13 +184,18 @@ export default function TurnosPage() {
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex rounded-xl px-3 py-1 text-[10px] font-black uppercase tracking-widest leading-5 ${
-                      turno.tipo === 'Plantão' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300' : 
-                      turno.tipo === 'Sobreaviso' ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300' : 
-                      'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300'
-                    }`}>
-                      {turno.tipo}
-                    </span>
+                    <div className="flex flex-wrap gap-1">
+                      {(turno.tipo || '').split(',').map((s: string) => s.trim()).map((t: string) => (
+                        <span key={t} className={`inline-flex rounded-xl px-3 py-1 text-[10px] font-black uppercase tracking-widest leading-5 ${
+                          t === 'Plantão' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300' : 
+                          t === 'Sobreaviso' ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300' : 
+                          t === 'Extra' ? 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300' :
+                          'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300'
+                        }`}>
+                          {t}
+                        </span>
+                      ))}
+                    </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right">
                     <Link 

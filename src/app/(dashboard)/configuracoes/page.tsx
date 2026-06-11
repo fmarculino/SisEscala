@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { Save, Loader2, Settings, Clock, Shield, Bell, Database, Zap, Lock, CheckSquare, Calendar, FileText, Image } from 'lucide-react'
+import { Save, Loader2, Settings, Clock, Shield, Bell, Database, Zap, Lock, CheckSquare, Calendar, FileText, Image, Unlock } from 'lucide-react'
+import { toggleCompetencyClosure } from '@/utils/autoClose'
 
 export default function ConfigPage() {
   const supabase = createClient()
@@ -11,6 +12,10 @@ export default function ConfigPage() {
   const [configs, setConfigs] = useState<any[]>([])
   const [originalConfigs, setOriginalConfigs] = useState<any[]>([])
   const [uploadingImage, setUploadingImage] = useState(false)
+  const [profile, setProfile] = useState<any>(null)
+  const [lockMonth, setLockMonth] = useState(new Date().getMonth() + 1)
+  const [lockYear, setLockYear] = useState(new Date().getFullYear())
+  const [togglingLock, setTogglingLock] = useState(false)
 
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -52,7 +57,30 @@ export default function ConfigPage() {
 
   useEffect(() => {
     fetchConfigs()
+    async function loadProfile() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single()
+        if (prof) setProfile(prof)
+      }
+    }
+    loadProfile()
   }, [])
+
+  const handleToggleLock = async (mes: number, ano: number, lock: boolean) => {
+    setTogglingLock(true)
+    const res = await toggleCompetencyClosure(mes, ano, lock)
+    setTogglingLock(false)
+    if (res.error) {
+      alert(res.error)
+    } else {
+      fetchConfigs()
+    }
+  }
 
   async function fetchConfigs() {
     setLoading(true)
@@ -472,6 +500,111 @@ export default function ConfigPage() {
                   </p>
                 </>
               )}
+            </div>
+          </div>
+        </div>
+
+        {/* Encerramento de Competência */}
+        <div className="bg-white dark:bg-zinc-900 rounded-[2rem] border border-zinc-200 dark:border-zinc-800 p-8 shadow-sm hover:shadow-md transition-shadow">
+          <div className="space-y-8">
+            <div className="flex items-center gap-4">
+              <div className="p-4 bg-red-100 dark:bg-red-900/30 rounded-2xl text-red-600">
+                <Lock className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-zinc-900 dark:text-white uppercase tracking-tight">Encerramento de Competências</h3>
+                <p className="text-sm text-zinc-500 leading-relaxed">Gerencie o fechamento definitivo de competências mensais. Uma vez encerradas, as escalas e folhas são congeladas como dados históricos imutáveis.</p>
+              </div>
+            </div>
+
+            {profile?.role === 'super_admin' ? (
+              <div className="space-y-6">
+                {/* Formulário para Fechar Nova Competência */}
+                <div className="flex flex-wrap items-end gap-6 bg-zinc-50 dark:bg-zinc-800/40 p-6 rounded-2xl border border-zinc-150 dark:border-zinc-700/60">
+                  <div className="space-y-2 flex-1 min-w-[150px]">
+                    <label className="text-xs font-black text-zinc-400 uppercase tracking-widest block">Mês</label>
+                    <select 
+                      className="w-full bg-white dark:bg-zinc-900 border border-zinc-250 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-red-500 outline-none font-bold"
+                      value={lockMonth}
+                      onChange={(e) => setLockMonth(parseInt(e.target.value))}
+                    >
+                      {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                        <option key={m} value={m}>
+                          {new Date(2026, m - 1, 1).toLocaleString('pt-BR', { month: 'long' }).toUpperCase()}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-2 flex-1 min-w-[120px]">
+                    <label className="text-xs font-black text-zinc-400 uppercase tracking-widest block">Ano</label>
+                    <select 
+                      className="w-full bg-white dark:bg-zinc-900 border border-zinc-250 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-red-500 outline-none font-bold"
+                      value={lockYear}
+                      onChange={(e) => setLockYear(parseInt(e.target.value))}
+                    >
+                      {[2025, 2026, 2027, 2028].map(y => (
+                        <option key={y} value={y}>{y}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <button
+                    onClick={() => handleToggleLock(lockMonth, lockYear, true)}
+                    disabled={togglingLock}
+                    className="bg-red-600 hover:bg-red-700 text-white font-black text-xs uppercase tracking-wider px-6 py-4 rounded-xl transition-all shadow-md shadow-red-500/20 active:scale-95 disabled:opacity-50 min-h-[46px]"
+                  >
+                    {togglingLock ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Encerrar Competência'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-2xl p-4 text-xs font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-2">
+                <Shield className="h-4 w-4 shrink-0" />
+                <span>Apenas o Administrador Geral (super_admin) possui permissões para gerenciar e reverter o encerramento de competências.</span>
+              </div>
+            )}
+
+            {/* Lista de Competências Encerradas */}
+            <div className="space-y-4">
+              <h4 className="text-xs font-black text-zinc-400 uppercase tracking-widest">Competências Encerradas</h4>
+              
+              <div className="divide-y divide-zinc-100 dark:divide-zinc-800 border border-zinc-200 dark:border-zinc-850 rounded-2xl overflow-hidden bg-zinc-50/20 dark:bg-zinc-900/20">
+                {(Array.isArray(getConfig('competencias_encerradas')?.valor) ? getConfig('competencias_encerradas')?.valor : []).map((p: any) => (
+                  <div key={`${p.mes}-${p.ano}`} className="flex items-center justify-between p-4 hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-all">
+                    <div className="flex items-center gap-3">
+                      <Lock className="h-4 w-4 text-red-600" />
+                      <div>
+                        <span className="font-black text-sm text-zinc-900 dark:text-white uppercase tracking-tight">
+                          {new Date(p.ano, p.mes - 1, 1).toLocaleString('pt-BR', { month: 'long', year: 'numeric' })}
+                        </span>
+                        {p.encerrado_em && (
+                          <span className="block text-[10px] text-zinc-400 font-bold uppercase tracking-tight mt-0.5">
+                            Encerrado em: {new Date(p.encerrado_em).toLocaleDateString('pt-BR')} às {new Date(p.encerrado_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {profile?.role === 'super_admin' && (
+                      <button
+                        onClick={() => handleToggleLock(p.mes, p.ano, false)}
+                        disabled={togglingLock}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-black text-amber-600 hover:text-amber-700 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/20 dark:hover:bg-amber-950/40 rounded-lg transition-all uppercase tracking-wider disabled:opacity-50"
+                      >
+                        <Unlock className="h-3 w-3" />
+                        Reabrir
+                      </button>
+                    )}
+                  </div>
+                ))}
+
+                {(!getConfig('competencias_encerradas')?.valor || getConfig('competencias_encerradas')?.valor.length === 0) && (
+                  <div className="p-8 text-center text-zinc-500 text-xs font-bold uppercase tracking-wider">
+                    Nenhuma competência encerrada até o momento.
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>

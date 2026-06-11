@@ -3,6 +3,7 @@
 import { createClient, createAdminClient } from '@/utils/supabase/server'
 import { cookies } from 'next/headers'
 import { unstable_cache, revalidatePath } from 'next/cache'
+import { autoCloseExpiredScalesAndTimesheets, isCompetencyClosed } from '@/utils/autoClose'
 
 
 export async function findServidorByMatricula(matricula: string) {
@@ -38,15 +39,23 @@ export async function validatePin(servidorId: string, pin: string) {
   // Verificar bloqueio por tentativas (15 minutos de cooldown após 5 erros)
   const MAX_ATTEMPTS = 5
   const COOLDOWN_MINUTES = 15
-  
-  if (servidor.pin_failed_attempts >= MAX_ATTEMPTS && servidor.last_pin_attempt) {
+
+  if (servidor.last_pin_attempt) {
     const lastAttempt = new Date(servidor.last_pin_attempt)
     const now = new Date()
     const diffMinutes = (now.getTime() - lastAttempt.getTime()) / (1000 * 60)
-    
-    if (diffMinutes < COOLDOWN_MINUTES) {
-      return { 
-        error: `Muitas tentativas incorretas. Sua conta está bloqueada por mais ${Math.ceil(COOLDOWN_MINUTES - diffMinutes)} minutos.` 
+
+    if (diffMinutes >= COOLDOWN_MINUTES) {
+      // Cooldown expirado: resetar contador para dar nova chance
+      await supabase
+        .from('servidores')
+        .update({ pin_failed_attempts: 0 })
+        .eq('id', servidorId)
+      servidor.pin_failed_attempts = 0
+    } else if (servidor.pin_failed_attempts >= MAX_ATTEMPTS) {
+      // Bloqueado
+      return {
+        error: `Muitas tentativas incorretas. Sua conta está bloqueada por mais ${Math.ceil(COOLDOWN_MINUTES - diffMinutes)} minutos.`
       }
     }
   }
@@ -62,22 +71,29 @@ export async function validatePin(servidorId: string, pin: string) {
   })
 
   if (rpcError || !isPinValid) {
+    const newAttempts = (servidor.pin_failed_attempts || 0) + 1
+
     // Incrementar tentativas falhas
     await supabase
       .from('servidores')
-      .update({ 
-        pin_failed_attempts: (servidor.pin_failed_attempts || 0) + 1,
+      .update({
+        pin_failed_attempts: newAttempts,
         last_pin_attempt: new Date().toISOString()
       })
       .eq('id', servidorId)
 
-    return { error: 'PIN incorreto. Verifique com seu coordenador.' }
+    const attemptsLeft = MAX_ATTEMPTS - newAttempts
+    if (attemptsLeft > 0) {
+      return { error: `PIN incorreto. Você tem mais ${attemptsLeft} tentativa(s) antes do bloqueio.` }
+    } else {
+      return { error: `Muitas tentativas incorretas. Sua conta está bloqueada por 15 minutos.` }
+    }
   }
 
   // Sucesso: Resetar tentativas falhas
   await supabase
     .from('servidores')
-    .update({ 
+    .update({
       pin_failed_attempts: 0,
       last_pin_attempt: new Date().toISOString()
     })
@@ -96,6 +112,12 @@ export async function validatePin(servidorId: string, pin: string) {
 }
 
 export async function getServidorEscalas(servidorId: string) {
+  try {
+    await autoCloseExpiredScalesAndTimesheets()
+  } catch (err) {
+    console.error('Erro ao executar fechamento automático:', err)
+  }
+
   const supabase = await createAdminClient()
 
   const { data: escalas, error } = await supabase
@@ -120,10 +142,10 @@ export async function getServidorEscalas(servidorId: string) {
 
   const escalasMapped = escalas?.map(e => {
     const sectorData = Array.isArray(e.setores) ? e.setores[0] : e.setores
-    const dictData = sectorData ? (Array.isArray(sectorData.dicionario_setores) 
-      ? sectorData.dicionario_setores[0] 
+    const dictData = sectorData ? (Array.isArray(sectorData.dicionario_setores)
+      ? sectorData.dicionario_setores[0]
       : sectorData.dicionario_setores) : null
-      
+
     return {
       ...e,
       setores: sectorData ? {
@@ -143,7 +165,7 @@ export async function getEscalaDetails(escala: any) {
   if (!portalServidorId) {
     return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
   }
-  
+
   try {
     // Validação de Segurança: Verificar se o servidor logado tem vínculo com essa escala
     // ou se é uma consulta permitida.
@@ -195,7 +217,7 @@ export async function getEscalaDetails(escala: any) {
     const { turnos, jornadas, feriados, configsGlobais } = await getCachedStaticData()
     const { data: unidade } = await supabase.from('unidades').select('*').eq('id', escala.unidade_id).single()
     const { data: setorRaw } = await supabase.from('setores').select('*, dicionario_setores(nome)').eq('id', escala.setor_id).single()
-    
+
     // Fetch event details for the servers in the monthly scale
     const serverIds = escalaMensalRecords.map(em => em.servidor_id)
     const startStr = `${escala.ano}-${escala.mes.toString().padStart(2, '0')}-01`
@@ -208,11 +230,11 @@ export async function getEscalaDetails(escala: any) {
       .in('servidor_id', serverIds)
       .or(`data_inicio.lte.${endStr},data_fim.gte.${startStr}`)
 
-    const sectorData = setorRaw ? { 
-      ...setorRaw, 
-      nome: (Array.isArray(setorRaw.dicionario_setores) 
-        ? setorRaw.dicionario_setores[0]?.nome 
-        : (setorRaw as any).dicionario_setores?.nome) || 'SETOR SEM NOME' 
+    const sectorData = setorRaw ? {
+      ...setorRaw,
+      nome: (Array.isArray(setorRaw.dicionario_setores)
+        ? setorRaw.dicionario_setores[0]?.nome
+        : (setorRaw as any).dicionario_setores?.nome) || 'SETOR SEM NOME'
     } : null
 
     return {
@@ -433,8 +455,8 @@ export async function getFolhaPontoServidor(servidorId: string, mes: number, ano
     .single()
 
   const sectorData = escala ? (Array.isArray(escala.setores) ? escala.setores[0] : escala.setores) : null
-  const dictData = sectorData ? (Array.isArray(sectorData.dicionario_setores) 
-    ? sectorData.dicionario_setores[0] 
+  const dictData = sectorData ? (Array.isArray(sectorData.dicionario_setores)
+    ? sectorData.dicionario_setores[0]
     : sectorData.dicionario_setores) : null
 
   const resolvedSetor = sectorData ? {
@@ -492,9 +514,9 @@ function formatMinutesToTimeStr(totalMinutes: number): string {
 function generateFingerprint(records: any[]): string {
   const simplified = records.map(r => ({
     dia: r.dia,
-    turno: r.dicionario_turnos_id,
-    cat: r.categoria
+    turno: r.dicionario_turnos_id
   }))
+  simplified.sort((a, b) => a.dia - b.dia)
   const str = JSON.stringify(simplified)
   let hash = 0
   for (let i = 0; i < str.length; i++) {
@@ -543,6 +565,10 @@ export async function salvarFolhaPontoServidor(folhaId: string, registros: any[]
       return { error: 'Acesso negado.' }
     }
 
+    if (await isCompetencyClosed(folha.mes, folha.ano)) {
+      return { error: 'Esta competência está encerrada e todos os dados estão congelados para auditoria.' }
+    }
+
     if (folha.status === 'Revisada') {
       return { error: 'Esta folha de ponto já foi revisada e fechada pela coordenação e não pode ser editada.' }
     }
@@ -579,7 +605,7 @@ export async function salvarFolhaPontoServidor(folhaId: string, registros: any[]
       if (r.turno_codigo) {
         totalHorasNormais += horasNormaisDiarias
       }
-      
+
       const isFalta = r.observacao && r.observacao.toUpperCase().includes('FALTA')
       if (isFalta) {
         totalFaltas++
@@ -647,7 +673,7 @@ export async function verificarDivergenciaEscalaServidor(folhaId: string) {
 
     const { data: escalaDiaria } = await supabase
       .from('escala_diaria')
-      .select('dia, dicionario_turnos_id, categoria')
+      .select('dia, dicionario_turnos_id, categoria, dicionario_turnos(codigo)')
       .eq('escala_mensal_id', folha.escala_mensal_id)
       .eq('categoria', 'Regular')
 
@@ -666,7 +692,7 @@ export async function verificarDivergenciaEscalaServidor(folhaId: string) {
         const hadShift = record && record.turno_codigo !== null
         const hasShift = !!currentShift
 
-        const changed = (hadShift !== hasShift) || (hadShift && record.turno_codigo !== currentShift?.dicionario_turnos_id)
+        const changed = (hadShift !== hasShift) || (hadShift && record.turno_codigo !== getTurnoCodigo(currentShift?.dicionario_turnos))
         if (changed) {
           affectedDays.push(day)
         }
@@ -706,6 +732,10 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
 
     if (folha.servidor_id !== portalServidorId) {
       return { error: 'Acesso negado.' }
+    }
+
+    if (await isCompetencyClosed(folha.mes, folha.ano)) {
+      return { error: 'Esta competência está encerrada e todos os dados estão congelados para auditoria.' }
     }
 
     if (folha.status === 'Revisada') {
@@ -801,14 +831,14 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
 
       if (hasManualEdits && !scaleChangedForDay) {
         registrosAtualizados.push(registroExistente)
-        
+
         if (registroExistente.turno_codigo) {
           totalHorasNormais += horasNormaisDiarias
         }
         if (registroExistente.observacao.includes('FALTA')) {
           totalFaltas++
         }
-        
+
         if (registroExistente.hora_extra_minutos) {
           const isSunday = dateObj.getDay() === 0
           const isHoliday = !!feriadoInfo
@@ -856,16 +886,16 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
         totalHorasNormais += horasNormaisDiarias
 
         // Check if entry/exit was validated manually by a coordinator
-        const isManualEntrada = logs?.some(log => 
-          log.dia === day && 
-          log.categoria === 'Regular' && 
-          log.validacao_manual === true && 
+        const isManualEntrada = logs?.some(log =>
+          log.dia === day &&
+          log.categoria === 'Regular' &&
+          log.validacao_manual === true &&
           log.motivo_acionamento?.toLowerCase().includes('entrada')
         )
-        const isManualSaida = logs?.some(log => 
-          log.dia === day && 
-          log.categoria === 'Regular' && 
-          log.validacao_manual === true && 
+        const isManualSaida = logs?.some(log =>
+          log.dia === day &&
+          log.categoria === 'Regular' &&
+          log.validacao_manual === true &&
           log.motivo_acionamento?.toLowerCase().includes('saida')
         )
 
@@ -876,7 +906,7 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
         let officialSaidaMin = endHour * 60 + endMin
         let totalBrutoMin = officialSaidaMin - officialEntradaMin
         if (totalBrutoMin < 0) totalBrutoMin += 24 * 60
-        
+
         const halfJornadaMin = Math.floor(totalBrutoMin / 2)
         const officialSaidaIntervaloMin = (officialEntradaMin + halfJornadaMin) % (24 * 60)
         const officialRetornoIntervaloMin = (officialSaidaIntervaloMin + intervaloMinutos) % (24 * 60)
@@ -919,7 +949,7 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
 
         if (hasRealSaida && currentShift.presenca_saida_em) {
           const realExit = new Date(currentShift.presenca_saida_em)
-          
+
           const scheduledEntrance = new Date(`${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}:00-03:00`)
           const scheduledExit = new Date(`${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00-03:00`)
           if (scheduledExit <= scheduledEntrance) {
@@ -929,10 +959,10 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
           if (realExit > scheduledExit) {
             let extra50Min = 0
             let extra100Min = 0
-            
+
             const current = new Date(scheduledExit.getTime())
             const end = new Date(realExit.getTime())
-            
+
             while (current < end) {
               const localCurrent = new Date(current.getTime() - 3 * 60 * 60 * 1000)
               const curHour = localCurrent.getUTCHours()
@@ -947,7 +977,7 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
               } else {
                 extra50Min++
               }
-              
+
               current.setMinutes(current.getMinutes() + 1)
             }
 
@@ -1007,6 +1037,10 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
       .eq('mes', mes)
       .eq('ano', ano)
       .maybeSingle()
+
+    if (await isCompetencyClosed(mes, ano)) {
+      return { error: 'Esta competência está encerrada e todos os dados estão congelados para auditoria.' }
+    }
 
     if (existingFolha && existingFolha.status === 'Revisada') {
       return { error: 'Esta folha de ponto já foi revisada e fechada pela coordenação e não pode ser regenerada.' }
@@ -1073,7 +1107,7 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
     const startDate = `${ano}-${String(mes).padStart(2, '0')}-01`
     const daysInMonth = new Date(ano, mes, 0).getDate()
     const endDate = `${ano}-${String(mes).padStart(2, '0')}-${daysInMonth}`
-    
+
     const { data: feriados } = await supabase
       .from('feriados')
       .select('data, descricao')
@@ -1146,16 +1180,16 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
         totalHorasNormais += horasNormaisDiarias
 
         // Check if entry/exit was validated manually by a coordinator
-        const isManualEntrada = logs?.some(log => 
-          log.dia === day && 
-          log.categoria === 'Regular' && 
-          log.validacao_manual === true && 
+        const isManualEntrada = logs?.some(log =>
+          log.dia === day &&
+          log.categoria === 'Regular' &&
+          log.validacao_manual === true &&
           log.motivo_acionamento?.toLowerCase().includes('entrada')
         )
-        const isManualSaida = logs?.some(log => 
-          log.dia === day && 
-          log.categoria === 'Regular' && 
-          log.validacao_manual === true && 
+        const isManualSaida = logs?.some(log =>
+          log.dia === day &&
+          log.categoria === 'Regular' &&
+          log.validacao_manual === true &&
           log.motivo_acionamento?.toLowerCase().includes('saida')
         )
 
@@ -1166,7 +1200,7 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
         let officialSaidaMin = endHour * 60 + endMin
         let totalBrutoMin = officialSaidaMin - officialEntradaMin
         if (totalBrutoMin < 0) totalBrutoMin += 24 * 60
-        
+
         const halfJornadaMin = Math.floor(totalBrutoMin / 2)
         const officialSaidaIntervaloMin = (officialEntradaMin + halfJornadaMin) % (24 * 60)
         const officialRetornoIntervaloMin = (officialSaidaIntervaloMin + intervaloMinutos) % (24 * 60)
@@ -1209,7 +1243,7 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
 
         if (hasRealSaida && shift.presenca_saida_em) {
           const realExit = new Date(shift.presenca_saida_em)
-          
+
           const scheduledEntrance = new Date(`${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}:00-03:00`)
           const scheduledExit = new Date(`${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00-03:00`)
           if (scheduledExit <= scheduledEntrance) {
@@ -1219,10 +1253,10 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
           if (realExit > scheduledExit) {
             let extra50Min = 0
             let extra100Min = 0
-            
+
             const current = new Date(scheduledExit.getTime())
             const end = new Date(realExit.getTime())
-            
+
             while (current < end) {
               const localCurrent = new Date(current.getTime() - 3 * 60 * 60 * 1000)
               const curHour = localCurrent.getUTCHours()
@@ -1237,7 +1271,7 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
               } else {
                 extra50Min++
               }
-              
+
               current.setMinutes(current.getMinutes() + 1)
             }
 

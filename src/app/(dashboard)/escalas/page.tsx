@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
+import { autoCloseExpiredScalesAndTimesheets } from '@/utils/autoClose'
 import { Calendar, Plus, ChevronRight, Layers, Filter, Eye, EyeOff, Search, Loader2, Building2, Check, ShieldCheck } from 'lucide-react'
 import Link from 'next/link'
 import { Modal } from '@/components/ui/Modal'
@@ -58,6 +59,11 @@ export default function EscalasPage() {
 
   useEffect(() => {
     async function init() {
+      try {
+        await autoCloseExpiredScalesAndTimesheets()
+      } catch (err) {
+        console.error('Erro no fechamento automático:', err)
+      }
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
         const { data: prof } = await supabase
