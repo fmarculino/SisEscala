@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.0] - 2026-06-11
+
+### Added
+- **Condição Especial (Horário Livre) para Servidores**:
+  - Nova flag `ignora_janela_presenca` adicionada aos servidores para permitir registro de entrada e saída em qualquer horário (livre), ignorando limites e restrições de janela de presença padrão, desde que haja escala prevista para o dia.
+  - Exibição de campo checkbox destacado em amarelo ("Configurações Especiais") no formulário de edição do servidor apenas para usuários do tipo `super_admin`.
+  - Tratamento da nova flag nas Server Actions (`createServidor` e `updateServidor`) e na função Postgres principal (`fn_confirmar_presenca`).
+
 ## [1.4.9] - 2026-06-11
 
 ### Changed

@@ -10,9 +10,10 @@ interface EditServidorFormProps {
   unidades: any[]
   setores: any[]
   cargos: any[]
+  isSuperAdmin?: boolean
 }
 
-export function EditServidorForm({ id, servidor, unidades, setores, cargos }: EditServidorFormProps) {
+export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSuperAdmin = false }: EditServidorFormProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selectedUnidade, setSelectedUnidade] = useState(servidor.unidade_id || '')
@@ -69,6 +70,10 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos }: Ed
     formData.set('cargo', cargoFinal)
     formData.set('pin_acesso', currentPin)
     formData.set('cpf', currentCpf)
+    if (isSuperAdmin) {
+      const checkbox = document.getElementById('ignora_janela_presenca') as HTMLInputElement
+      formData.set('ignora_janela_presenca', checkbox?.checked ? 'true' : 'false')
+    }
     const result = await updateServidor(id, formData)
     if (result?.error) {
       setError(result.error)
@@ -364,6 +369,32 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos }: Ed
               </div>
             </div>
           </div>
+
+          {isSuperAdmin && (
+            <div className="sm:col-span-6 space-y-4 pt-6 border-t border-zinc-100 dark:border-zinc-800 animate-in fade-in slide-in-from-top-2">
+              <h3 className="text-sm font-bold text-zinc-900 dark:text-white flex items-center">
+                <div className="w-1.5 h-4 bg-yellow-500 rounded-full mr-2" />
+                Configurações Especiais (Apenas Administrador Geral)
+              </h3>
+              <div className="flex items-start gap-3 p-4 bg-yellow-50 dark:bg-yellow-900/10 border border-yellow-200 dark:border-yellow-900/30 rounded-xl">
+                <input
+                  id="ignora_janela_presenca"
+                  name="ignora_janela_presenca"
+                  type="checkbox"
+                  defaultChecked={servidor.ignora_janela_presenca}
+                  className="mt-1 h-4 w-4 rounded border-zinc-300 text-yellow-600 focus:ring-yellow-500 dark:border-zinc-700 dark:bg-zinc-800"
+                />
+                <div>
+                  <label htmlFor="ignora_janela_presenca" className="text-sm font-bold text-yellow-850 dark:text-yellow-300 block cursor-pointer">
+                    Condição Especial (Horário Livre)
+                  </label>
+                  <span className="text-xs text-yellow-700 dark:text-yellow-400 block mt-1">
+                    Permite que o servidor registre entrada e saída em qualquer horário, ignorando as restrições da janela de presença padrão, desde que esteja escalado para o dia.
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {error && (

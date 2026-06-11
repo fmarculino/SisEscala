@@ -107,6 +107,7 @@ export default async function EditServidorPage({
           unidades={unidades || []}
           setores={setores || []}
           cargos={cargos || []}
+          isSuperAdmin={userProfile?.role === 'super_admin'}
         />
       </div>
     </div>

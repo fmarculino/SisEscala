@@ -60,6 +60,8 @@ export async function createServidor(formData: FormData) {
     }
   }
 
+  const ignora_janela_presenca = formData.has('ignora_janela_presenca') ? formData.get('ignora_janela_presenca') === 'true' : false
+
   const { error } = await supabase.from('servidores').insert({
     nome,
     matricula: matriculaFinal,
@@ -71,6 +73,7 @@ export async function createServidor(formData: FormData) {
     email: email || null,
     telefone: telefone || null,
     pin_acesso: pin_acesso || null,
+    ignora_janela_presenca,
   })
 
   if (error) {
@@ -230,6 +233,10 @@ export async function updateServidor(id: string, formData: FormData) {
 
   if (pin_acesso !== '****') {
     updateData.pin_acesso = pin_acesso || null
+  }
+
+  if (formData.has('ignora_janela_presenca')) {
+    updateData.ignora_janela_presenca = formData.get('ignora_janela_presenca') === 'true'
   }
 
   const { error } = await supabase

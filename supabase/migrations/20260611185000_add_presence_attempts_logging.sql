@@ -404,7 +404,7 @@ BEGIN
             BEGIN
                 v_start_min := r.start_hour * 60;
                 
-                IF r.jornada_nome IS NOT NULL AND r.categoria != 'Extra' THEN
+                IF r.jornada_nome IS NOT NULL AND r.categoria = 'Regular' THEN
                     v_jornada_end := substring(r.jornada_nome from '(?:ÀS|AS|as|às)\s*([0-9]+)')::integer;
                     IF v_jornada_end IS NOT NULL THEN
                         v_jornada_parsed := true;
@@ -418,7 +418,7 @@ BEGIN
                 
                 IF NOT v_jornada_parsed THEN
                     v_duration := CASE 
-                        WHEN r.horas_totais IS NOT NULL AND r.horas_totais > 0 AND r.categoria != 'Extra' THEN r.horas_totais 
+                        WHEN r.categoria = 'Regular' AND r.horas_totais IS NOT NULL AND r.horas_totais > 0 THEN r.horas_totais 
                         ELSE COALESCE(r.horas_computadas, 0) 
                     END;
                     v_end_min := v_start_min + (v_duration * 60);
@@ -491,17 +491,10 @@ BEGIN
                         v_b_inicio := v_b3_inicio; v_b_fim := v_b3_fim; v_b_ids := v_b3_ids; v_b_entradas := v_b3_entradas; v_b_saidas := v_b3_saidas; v_b_cat := v_b3_cat;
                     END IF;
                     
-                    v_b_has_null_entrada := false;
-                    v_b_has_null_saida := false;
                     v_b_total_count := array_length(v_b_ids, 1);
                     
-                    FOR i IN 1..v_b_total_count LOOP
-                        IF v_b_entradas[i] IS NULL THEN v_b_has_null_entrada := true; END IF;
-                        IF v_b_saidas[i] IS NULL THEN v_b_has_null_saida := true; END IF;
-                    END LOOP;
-                    
-                    -- If the yesterday's block crosses midnight and at least one shift has an entry but no exit
-                    IF v_b_fim > 1440 AND NOT v_b_has_null_entrada AND v_b_has_null_saida THEN
+                    -- If the yesterday's block crosses midnight, the first shift has an entry, and the last shift has no exit
+                    IF v_b_fim > 1440 AND v_b_entradas[1] IS NOT NULL AND v_b_saidas[v_b_total_count] IS NULL THEN
                         -- Yesterday block end relative to today's midnight
                         DECLARE
                             v_fim_ontem_hoje_minutos INTEGER := v_b_fim - 1440;
@@ -615,7 +608,7 @@ BEGIN
         BEGIN
             v_start_min := r.start_hour * 60;
             
-            IF r.jornada_nome IS NOT NULL AND r.categoria != 'Extra' THEN
+            IF r.jornada_nome IS NOT NULL AND r.categoria = 'Regular' THEN
                 v_jornada_end := substring(r.jornada_nome from '(?:ÀS|AS|as|às)\s*([0-9]+)')::integer;
                 IF v_jornada_end IS NOT NULL THEN
                     v_jornada_parsed := true;
@@ -629,7 +622,7 @@ BEGIN
             
             IF NOT v_jornada_parsed THEN
                 v_duration := CASE 
-                    WHEN r.horas_totais IS NOT NULL AND r.horas_totais > 0 AND r.categoria != 'Extra' THEN r.horas_totais 
+                    WHEN r.categoria = 'Regular' AND r.horas_totais IS NOT NULL AND r.horas_totais > 0 THEN r.horas_totais 
                     ELSE COALESCE(r.horas_computadas, 0) 
                 END;
                 v_end_min := v_start_min + (v_duration * 60);
@@ -726,14 +719,10 @@ BEGIN
                 v_b_inicio := v_b3_inicio; v_b_fim := v_b3_fim; v_b_ids := v_b3_ids; v_b_entradas := v_b3_entradas; v_b_saidas := v_b3_saidas; v_b_cat := v_b3_cat;
             END IF;
             
-            v_b_has_null_entrada := false;
-            v_b_has_null_saida := false;
             v_b_total_count := array_length(v_b_ids, 1);
             v_b_completed_count := 0;
             
             FOR i IN 1..v_b_total_count LOOP
-                IF v_b_entradas[i] IS NULL THEN v_b_has_null_entrada := true; END IF;
-                IF v_b_saidas[i] IS NULL THEN v_b_has_null_saida := true; END IF;
                 IF v_b_entradas[i] IS NOT NULL AND v_b_saidas[i] IS NOT NULL THEN
                     v_b_completed_count := v_b_completed_count + 1;
                 END IF;
@@ -746,8 +735,8 @@ BEGIN
                 CONTINUE;
             END IF;
             
-            -- Check entry window (if at least one entry is null)
-            IF v_b_has_null_entrada THEN
+            -- Check entry window (if first shift has no entry)
+            IF v_b_entradas[1] IS NULL THEN
                 IF v_momento_atual_minutos >= (v_b_inicio - v_janela_minutos) AND 
                    v_momento_atual_minutos <= (v_b_inicio + v_janela_minutos) THEN
                     v_matched_block_idx := idx;
@@ -780,8 +769,8 @@ BEGIN
                 END IF;
             END IF;
             
-            -- Check exit window (if all entries are present, but at least one exit is null)
-            IF NOT v_b_has_null_entrada AND v_b_has_null_saida THEN
+            -- Check exit window (if first shift has entry, but the last shift has no exit)
+            IF v_b_entradas[1] IS NOT NULL AND v_b_saidas[v_b_total_count] IS NULL THEN
                 IF v_momento_atual_minutos >= (v_b_fim - v_janela_minutos) AND 
                    v_momento_atual_minutos <= (v_b_fim + v_janela_minutos) THEN
                     v_matched_block_idx := idx;
@@ -870,7 +859,7 @@ BEGIN
                       AND ed.dia = v_dia_hoje
                       AND ed.categoria IN ('Regular', 'Plantão', 'Extra')
                       AND (
-                          (v_closest_action = 'checkin' AND (extract(hour from COALESCE(
+                          (v_closest_action = 'checkin' AND (COALESCE(
                               CASE WHEN ed.categoria = 'Regular' THEN substring(j.nome from '^([0-9]+)')::integer ELSE NULL END,
                               CASE WHEN ed.categoria = 'Plantão' THEN
                                   CASE 
@@ -889,7 +878,7 @@ BEGIN
                                   )
                               ),
                               7
-                          ) || ' hours')::interval * 60 = v_closest_start))
+                          ) * 60 = v_closest_start))
                           OR 
                           (v_closest_action = 'checkout')
                       )
