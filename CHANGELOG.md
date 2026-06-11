@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.1] - 2026-06-11
+
+### Changed
+- **Melhorias na Geração e Regeneração de Folha de Ponto**:
+  - A geração e sincronização da folha de ponto mensal agora são limitadas até o dia e turno atuais do momento de sua geração. Marcações e dias futuros permanecem limpos e sem registros fictícios.
+  - A geração e regeneração da folha de ponto agora preservam todos os dias que possuem marcações ou observações inseridas manualmente (`origem = 'manual'`, `'FALTA'` ou `'MANUAL'`), evitando que o usuário perca ajustes anteriores ao regenerar.
+
 ## [1.5.0] - 2026-06-11
 
 ### Added

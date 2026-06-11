@@ -266,6 +266,32 @@ export async function gerarFolhaPonto(servidorId: string, mes: number, ano: numb
     const intervaloMinutos = jornadaDetails?.intervalo_minutos ?? 60
     const horasNormaisDiarias = jornadaDetails?.horas_totais ?? 8
 
+    // Fetch existing folha if exists to preserve manual edits
+    const { data: existingFolha } = await supabase
+      .from('folha_ponto')
+      .select('registros')
+      .eq('servidor_id', servidorId)
+      .eq('mes', mes)
+      .eq('ano', ano)
+      .maybeSingle()
+
+    const registrosExistentes = existingFolha?.registros as any[] || []
+
+    // Fetch timezone and setup current local time limit
+    const { data: configTimezone } = await supabase
+      .from('configuracoes_globais')
+      .select('valor')
+      .eq('chave', 'timezone')
+      .maybeSingle()
+    const timezone = (configTimezone?.valor as string) || 'America/Sao_Paulo'
+    const nowLocal = new Date(new Date().toLocaleString('en-US', { timeZone: timezone }))
+    const currentYear = nowLocal.getFullYear()
+    const currentMonth = nowLocal.getMonth() + 1
+    const currentDay = nowLocal.getDate()
+    const currentHour = nowLocal.getHours()
+    const currentMinute = nowLocal.getMinutes()
+    const currentTotalMin = currentHour * 60 + currentMinute
+
     const registros: any[] = []
     let totalHorasNormais = 0
     let totalExtra50 = 0
@@ -286,6 +312,48 @@ export async function gerarFolhaPonto(servidorId: string, mes: number, ano: numb
       const feriadoInfo = feriados?.find(f => f.data === dateStr)
 
       const shift = escalaDiaria?.find(ed => ed.dia === day)
+
+      // Check manual edits in existing record to preserve them
+      const registroExistente = registrosExistentes.find((r: any) => r.dia === day)
+      const hasManualEdits = registroExistente && (
+        registroExistente.origem_entrada === 'manual' ||
+        registroExistente.origem_saida_intervalo === 'manual' ||
+        registroExistente.origem_retorno_intervalo === 'manual' ||
+        registroExistente.origem_saida === 'manual' ||
+        registroExistente.observacao.includes('FALTA') ||
+        registroExistente.observacao.includes('MANUAL')
+      )
+
+      if (hasManualEdits) {
+        registros.push(registroExistente)
+        if (registroExistente.turno_codigo) {
+          totalHorasNormais += horasNormaisDiarias
+        }
+        if (registroExistente.observacao.includes('FALTA')) {
+          totalFaltas++
+        }
+        if (registroExistente.hora_extra_minutos) {
+          const isSunday = dateObj.getDay() === 0
+          const isHoliday = !!feriadoInfo
+          if (isSunday || isHoliday) {
+            totalExtra100 += registroExistente.hora_extra_minutos
+          } else {
+            totalExtra50 += registroExistente.hora_extra_minutos
+          }
+        }
+        continue
+      }
+
+      // Helper function to check if we should generate time for a scheduled marker
+      const shouldGenerate = (scheduledMin: number) => {
+        if (ano > currentYear) return false
+        if (ano < currentYear) return true
+        if (mes > currentMonth) return false
+        if (mes < currentMonth) return true
+        if (day > currentDay) return false
+        if (day < currentDay) return true
+        return currentTotalMin >= (scheduledMin % 1440)
+      }
 
       let registro: any = {
         dia: day,
@@ -362,7 +430,7 @@ export async function gerarFolhaPonto(servidorId: string, mes: number, ano: numb
           const d = new Date(shift.presenca_entrada_em)
           registro.entrada = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_entrada = 'real'
-        } else {
+        } else if (shouldGenerate(officialEntradaMin)) {
           const offset = getDeterministicOffset(`${seedBase}-entrada`, maxVar)
           const genMin = (officialEntradaMin + offset + 24 * 60) % (24 * 60)
           registro.entrada = formatMinutesToTimeStr(genMin)
@@ -374,7 +442,7 @@ export async function gerarFolhaPonto(servidorId: string, mes: number, ano: numb
           const d = new Date(shift.presenca_saida_em)
           registro.saida = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_saida = 'real'
-        } else {
+        } else if (shouldGenerate(officialSaidaMin)) {
           const offset = getDeterministicOffset(`${seedBase}-saida`, maxVar)
           const genMin = (officialSaidaMin + offset + 24 * 60) % (24 * 60)
           registro.saida = formatMinutesToTimeStr(genMin)
@@ -384,16 +452,20 @@ export async function gerarFolhaPonto(servidorId: string, mes: number, ano: numb
         // 3. Lunch Interval
         if (intervaloMinutos > 0) {
           // Lunch out
-          const outOffset = getDeterministicOffset(`${seedBase}-lunchout`, maxVar)
-          const genOutMin = (officialSaidaIntervaloMin + outOffset + 24 * 60) % (24 * 60)
-          registro.saida_intervalo = formatMinutesToTimeStr(genOutMin)
-          registro.origem_saida_intervalo = 'ficticio'
+          if (shouldGenerate(officialSaidaIntervaloMin)) {
+            const outOffset = getDeterministicOffset(`${seedBase}-lunchout`, maxVar)
+            const genOutMin = (officialSaidaIntervaloMin + outOffset + 24 * 60) % (24 * 60)
+            registro.saida_intervalo = formatMinutesToTimeStr(genOutMin)
+            registro.origem_saida_intervalo = 'ficticio'
+          }
 
           // Lunch return
-          const returnOffset = getDeterministicOffset(`${seedBase}-lunchreturn`, maxVar)
-          const genReturnMin = (officialRetornoIntervaloMin + returnOffset + 24 * 60) % (24 * 60)
-          registro.retorno_intervalo = formatMinutesToTimeStr(genReturnMin)
-          registro.origem_retorno_intervalo = 'ficticio'
+          if (shouldGenerate(officialRetornoIntervaloMin)) {
+            const returnOffset = getDeterministicOffset(`${seedBase}-lunchreturn`, maxVar)
+            const genReturnMin = (officialRetornoIntervaloMin + returnOffset + 24 * 60) % (24 * 60)
+            registro.retorno_intervalo = formatMinutesToTimeStr(genReturnMin)
+            registro.origem_retorno_intervalo = 'ficticio'
+          }
         }
 
         // 4. Overtime Calculation (Real Exit only)
@@ -603,6 +675,21 @@ export async function sincronizarFolhaPonto(folhaId: string) {
       .single()
     const maxVar = configVar?.valor ? parseInt(configVar.valor as string, 10) : 15
 
+    // Fetch timezone and setup current local time limit
+    const { data: configTimezone } = await supabase
+      .from('configuracoes_globais')
+      .select('valor')
+      .eq('chave', 'timezone')
+      .maybeSingle()
+    const timezone = (configTimezone?.valor as string) || 'America/Sao_Paulo'
+    const nowLocal = new Date(new Date().toLocaleString('en-US', { timeZone: timezone }))
+    const currentYear = nowLocal.getFullYear()
+    const currentMonth = nowLocal.getMonth() + 1
+    const currentDay = nowLocal.getDate()
+    const currentHour = nowLocal.getHours()
+    const currentMinute = nowLocal.getMinutes()
+    const currentTotalMin = currentHour * 60 + currentMinute
+
     const registrosExistentes = folha.registros as any[]
     const registrosAtualizados: any[] = []
 
@@ -670,6 +757,16 @@ export async function sincronizarFolhaPonto(folhaId: string) {
       }
 
       // Otherwise, REGENERATE the day
+      const shouldGenerate = (scheduledMin: number) => {
+        if (folha.ano > currentYear) return false
+        if (folha.ano < currentYear) return true
+        if (folha.mes > currentMonth) return false
+        if (folha.mes < currentMonth) return true
+        if (day > currentDay) return false
+        if (day < currentDay) return true
+        return currentTotalMin >= (scheduledMin % 1440)
+      }
+
       let registro: any = {
         dia: day,
         dia_semana: dayOfWeekStr,
@@ -735,7 +832,7 @@ export async function sincronizarFolhaPonto(folhaId: string) {
           const d = new Date(currentShift.presenca_entrada_em)
           registro.entrada = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_entrada = 'real'
-        } else {
+        } else if (shouldGenerate(officialEntradaMin)) {
           const offset = getDeterministicOffset(`${seedBase}-entrada`, maxVar)
           const genMin = (officialEntradaMin + offset + 24 * 60) % (24 * 60)
           registro.entrada = formatMinutesToTimeStr(genMin)
@@ -746,7 +843,7 @@ export async function sincronizarFolhaPonto(folhaId: string) {
           const d = new Date(currentShift.presenca_saida_em)
           registro.saida = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_saida = 'real'
-        } else {
+        } else if (shouldGenerate(officialSaidaMin)) {
           const offset = getDeterministicOffset(`${seedBase}-saida`, maxVar)
           const genMin = (officialSaidaMin + offset + 24 * 60) % (24 * 60)
           registro.saida = formatMinutesToTimeStr(genMin)
@@ -754,15 +851,19 @@ export async function sincronizarFolhaPonto(folhaId: string) {
         }
 
         if (intervaloMinutos > 0) {
-          const outOffset = getDeterministicOffset(`${seedBase}-lunchout`, maxVar)
-          const genOutMin = (officialSaidaIntervaloMin + outOffset + 24 * 60) % (24 * 60)
-          registro.saida_intervalo = formatMinutesToTimeStr(genOutMin)
-          registro.origem_saida_intervalo = 'ficticio'
+          if (shouldGenerate(officialSaidaIntervaloMin)) {
+            const outOffset = getDeterministicOffset(`${seedBase}-lunchout`, maxVar)
+            const genOutMin = (officialSaidaIntervaloMin + outOffset + 24 * 60) % (24 * 60)
+            registro.saida_intervalo = formatMinutesToTimeStr(genOutMin)
+            registro.origem_saida_intervalo = 'ficticio'
+          }
 
-          const returnOffset = getDeterministicOffset(`${seedBase}-lunchreturn`, maxVar)
-          const genReturnMin = (officialRetornoIntervaloMin + returnOffset + 24 * 60) % (24 * 60)
-          registro.retorno_intervalo = formatMinutesToTimeStr(genReturnMin)
-          registro.origem_retorno_intervalo = 'ficticio'
+          if (shouldGenerate(officialRetornoIntervaloMin)) {
+            const returnOffset = getDeterministicOffset(`${seedBase}-lunchreturn`, maxVar)
+            const genReturnMin = (officialRetornoIntervaloMin + returnOffset + 24 * 60) % (24 * 60)
+            registro.retorno_intervalo = formatMinutesToTimeStr(genReturnMin)
+            registro.origem_retorno_intervalo = 'ficticio'
+          }
         }
 
         if (hasRealSaida && currentShift.presenca_saida_em) {
