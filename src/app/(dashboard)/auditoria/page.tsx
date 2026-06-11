@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { ShieldCheck, Zap, Clock, MapPin, UserCheck, AlertCircle, Building2, Filter, FileDown, RotateCcw, ChevronLeft, ChevronRight, Search, LayoutList, CheckCircle2 } from 'lucide-react'
+import { ShieldCheck, Zap, Clock, MapPin, UserCheck, AlertCircle, Building2, Filter, FileDown, RotateCcw, ChevronLeft, ChevronRight, Search, LayoutList, CheckCircle2, XCircle } from 'lucide-react'
 import { applyAccessFilters, type UserProfile } from '@/utils/permissions'
 
 interface LogSobreaviso {
@@ -45,10 +45,28 @@ interface LogSistema {
   setores?: { nome: string };
 }
 
+interface LogTentativaNegada {
+  id: string;
+  servidor_id?: string;
+  matricula_digitada?: string;
+  nome_servidor_detectado?: string;
+  data_hora_tentativa: string;
+  coordenador_id?: string;
+  coordenador_nome?: string;
+  mensagem_erro: string;
+  escala_prevista_inicio?: string;
+  escala_prevista_fim?: string;
+  escala_categoria?: string;
+  unidade_nome?: string;
+  setor_nome?: string;
+  turno_codigo?: string;
+  detalhes_escala?: Record<string, any>;
+}
+
 export default function AuditoriaPage() {
-  const [logs, setLogs] = useState<(LogSobreaviso | LogSistema)[]>([])
+  const [logs, setLogs] = useState<(LogSobreaviso | LogSistema | LogTentativaNegada)[]>([])
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'sobreaviso' | 'presenca' | 'sistema'>('sobreaviso')
+  const [activeTab, setActiveTab] = useState<'sobreaviso' | 'presenca' | 'sistema' | 'negadas'>('sobreaviso')
   
   // Clear logs when tab changes to avoid showing stale data from the other tab
   useEffect(() => {
@@ -112,6 +130,24 @@ export default function AuditoriaPage() {
       if (filtros.dataInicio) query = query.gte('data_hora_acionamento', `${filtros.dataInicio}T00:00:00`)
       if (filtros.dataFim) query = query.lte('data_hora_acionamento', `${filtros.dataFim}T23:59:59`)
       if (filtros.busca) query = query.ilike('servidores.nome', `%${filtros.busca}%`)
+    } else if (activeTab === 'negadas') {
+      query = supabase
+        .from('logs_tentativas_presenca')
+        .select('*')
+      
+      if (filtros.busca) {
+        query = query.or(`nome_servidor_detectado.ilike.%${filtros.busca}%,matricula_digitada.ilike.%${filtros.busca}%`)
+      }
+      if (filtros.dataInicio) query = query.gte('data_hora_tentativa', `${filtros.dataInicio}T00:00:00`)
+      if (filtros.dataFim) query = query.lte('data_hora_tentativa', `${filtros.dataFim}T23:59:59`)
+      if (filtros.unidadeId) {
+        const unitName = unidades.find(u => u.id === filtros.unidadeId)?.nome
+        if (unitName) query = query.eq('unidade_nome', unitName)
+      }
+      if (filtros.setorId) {
+        const sectorName = setores.find(s => s.id === filtros.setorId)?.nome
+        if (sectorName) query = query.eq('setor_nome', sectorName)
+      }
     } else {
       query = supabase
         .from('logs_sistema')
@@ -127,12 +163,17 @@ export default function AuditoriaPage() {
     }
 
     query = applyAccessFilters(query, userProfile)
-    const orderBy = activeTab === 'sobreaviso' ? 'data_hora_acionamento' : 'created_at'
+    const orderBy = activeTab === 'sobreaviso' ? 'data_hora_acionamento' : 
+                    activeTab === 'negadas' ? 'data_hora_tentativa' : 'created_at'
     
     const { data } = await query.order(orderBy, { ascending: false })
     
     if (data) {
-      const reportTitle = `Relatório de Auditoria - ${activeTab === 'sobreaviso' ? 'Sobreaviso' : 'Sistema'}`
+      const reportTitle = `Relatório de Auditoria - ${
+        activeTab === 'sobreaviso' ? 'Sobreaviso' : 
+        activeTab === 'presenca' ? 'Presença Regular' : 
+        activeTab === 'negadas' ? 'Tentativas Negadas' : 'Sistema'
+      }`
       const generationDate = new Date().toLocaleString('pt-BR')
       
       const unidadeFiltro = filtros.unidadeId ? unidades.find(u => u.id === filtros.unidadeId)?.nome : 'Todas'
@@ -150,6 +191,28 @@ export default function AuditoriaPage() {
               <td class="py-3 px-2 text-[10px]">${log.unidades?.nome || '-'} / ${(log.setores as any)?.dicionario_setores?.nome || '-'}</td>
               <td class="py-3 px-2 text-[10px]">${new Date(log.created_at).toLocaleString('pt-BR')}</td>
               <td class="py-3 px-2 text-[10px] text-zinc-500">${JSON.stringify(log.detalhes)}</td>
+            </tr>
+          `;
+        } else if (activeTab === 'negadas') {
+          const log = item as LogTentativaNegada;
+          return `
+            <tr class="border-b border-zinc-100">
+              <td class="py-3 px-2 text-[10px] font-medium">
+                <div class="font-bold text-red-700">${log.nome_servidor_detectado || 'Desconhecido'}</div>
+                <div class="text-[8px] text-zinc-400">Matrícula Digitada: ${log.matricula_digitada || '-'}</div>
+              </td>
+              <td class="py-3 px-2 text-[10px]">${log.unidade_nome || '-'} / ${log.setor_nome || '-'}</td>
+              <td class="py-3 px-2 text-[10px]">${new Date(log.data_hora_tentativa).toLocaleString('pt-BR')}</td>
+              <td class="py-3 px-2 text-[10px]">
+                <div class="font-bold">${log.escala_prevista_inicio ? `${log.escala_prevista_inicio} às ${log.escala_prevista_fim} (${log.escala_categoria})` : 'Sem Escala'}</div>
+                <div class="text-[8px] text-zinc-500">Terminal: ${log.coordenador_nome || '-'}</div>
+              </td>
+              <td class="py-3 px-2 text-[10px] font-bold text-red-600">${log.mensagem_erro}</td>
+              <td class="py-3 px-2 text-center">
+                <span class="inline-block px-2 py-0.5 rounded text-[8px] font-bold bg-red-100 text-red-700">
+                  NEGADA
+                </span>
+              </td>
             </tr>
           `;
         } else {
@@ -279,6 +342,13 @@ export default function AuditoriaPage() {
                       <th class="py-3 px-2 text-[10px] font-black uppercase">${activeTab === 'presenca' ? 'Validador / Detalhes' : 'Aceite'}</th>
                       <th class="py-3 px-2 text-[10px] font-black uppercase">${activeTab === 'presenca' ? '-' : 'Chegada'}</th>
                       <th class="py-3 px-2 text-[10px] font-black uppercase">Status</th>
+                    ` : activeTab === 'negadas' ? `
+                      <th class="py-3 px-2 text-[10px] font-black uppercase">Servidor / Matrícula</th>
+                      <th class="py-3 px-2 text-[10px] font-black uppercase">Unidade / Setor</th>
+                      <th class="py-3 px-2 text-[10px] font-black uppercase">Tentativa</th>
+                      <th class="py-3 px-2 text-[10px] font-black uppercase">Escala / Coordenador</th>
+                      <th class="py-3 px-2 text-[10px] font-black uppercase">Erro Retornado</th>
+                      <th class="py-3 px-2 text-[10px] font-black uppercase">Status</th>
                     ` : `
                       <th class="py-3 px-2 text-[10px] font-black uppercase">Ação</th>
                       <th class="py-3 px-2 text-[10px] font-black uppercase">Usuário</th>
@@ -353,6 +423,24 @@ export default function AuditoriaPage() {
       if (filtros.dataInicio) query = query.gte('data_hora_acionamento', `${filtros.dataInicio}T00:00:00`)
       if (filtros.dataFim) query = query.lte('data_hora_acionamento', `${filtros.dataFim}T23:59:59`)
       if (filtros.busca) query = query.ilike('servidores.nome', `%${filtros.busca}%`)
+    } else if (activeTab === 'negadas') {
+      query = supabase
+        .from('logs_tentativas_presenca')
+        .select('*', { count: 'exact' })
+      
+      if (filtros.busca) {
+        query = query.or(`nome_servidor_detectado.ilike.%${filtros.busca}%,matricula_digitada.ilike.%${filtros.busca}%`)
+      }
+      if (filtros.dataInicio) query = query.gte('data_hora_tentativa', `${filtros.dataInicio}T00:00:00`)
+      if (filtros.dataFim) query = query.lte('data_hora_tentativa', `${filtros.dataFim}T23:59:59`)
+      if (filtros.unidadeId) {
+        const unitName = unidades.find(u => u.id === filtros.unidadeId)?.nome
+        if (unitName) query = query.eq('unidade_nome', unitName)
+      }
+      if (filtros.setorId) {
+        const sectorName = setores.find(s => s.id === filtros.setorId)?.nome
+        if (sectorName) query = query.eq('setor_nome', sectorName)
+      }
     } else {
       query = supabase
         .from('logs_sistema')
@@ -374,7 +462,8 @@ export default function AuditoriaPage() {
     const from = (page - 1) * pageSize
     const to = from + pageSize - 1
 
-    const orderBy = activeTab === 'sobreaviso' ? 'data_hora_acionamento' : 'created_at'
+    const orderBy = activeTab === 'sobreaviso' ? 'data_hora_acionamento' : 
+                    activeTab === 'negadas' ? 'data_hora_tentativa' : 'created_at'
 
     const { data, count } = await query
       .order(orderBy, { ascending: false })
@@ -433,7 +522,11 @@ export default function AuditoriaPage() {
     }
 
     // Realtime subscription
-    const table = activeTab === 'sobreaviso' ? 'logs_sobreaviso' : 'logs_sistema'
+    const table = activeTab === 'sobreaviso' || activeTab === 'presenca' 
+      ? 'logs_sobreaviso' 
+      : activeTab === 'negadas' 
+        ? 'logs_tentativas_presenca' 
+        : 'logs_sistema'
     const channel = supabase
       .channel('schema-db-changes')
       .on(
@@ -450,7 +543,7 @@ export default function AuditoriaPage() {
     }
   }, [fetchData, supabase, userProfile, activeTab])
 
-  const [selectedLog, setSelectedLog] = useState<LogSobreaviso | LogSistema | null>(null)
+  const [selectedLog, setSelectedLog] = useState<LogSobreaviso | LogSistema | LogTentativaNegada | null>(null)
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -580,6 +673,19 @@ export default function AuditoriaPage() {
           <ShieldCheck className="h-4 w-4" />
           Sistema
         </button>
+        {userProfile?.role === 'super_admin' && (
+          <button
+            onClick={() => { setActiveTab('negadas'); setPage(1); }}
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${
+              activeTab === 'negadas' 
+                ? 'bg-white dark:bg-zinc-700 text-blue-600 shadow-sm' 
+                : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'
+            }`}
+          >
+            <XCircle className="h-4 w-4" />
+            Tentativas Negadas
+          </button>
+        )}
       </div>
 
       {/* Filtros */}
@@ -671,7 +777,13 @@ export default function AuditoriaPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
           <input 
             type="text"
-            placeholder={activeTab === 'sobreaviso' ? "Buscar por nome do servidor..." : "Buscar por ação (ex: SALVAR, REMOVER SERVIDOR DA ESCALA)..."}
+            placeholder={
+              activeTab === 'sobreaviso' || activeTab === 'presenca' 
+                ? "Buscar por nome do servidor..." 
+                : activeTab === 'negadas'
+                  ? "Buscar por nome do servidor ou matrícula..."
+                  : "Buscar por ação (ex: SALVAR, REMOVER SERVIDOR DA ESCALA)..."
+            }
             value={filtros.busca}
             onChange={(e) => setFiltros(prev => ({ ...prev, busca: e.target.value }))}
             className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl pl-10 pr-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none shadow-inner"
@@ -686,9 +798,11 @@ export default function AuditoriaPage() {
             <h2 className="text-lg font-semibold flex items-center print:text-xl print:font-black">
               {activeTab === 'sobreaviso' ? <Zap className="mr-2 h-5 w-5 text-orange-500 print:hidden" /> : 
                activeTab === 'presenca' ? <CheckCircle2 className="mr-2 h-5 w-5 text-emerald-500 print:hidden" /> : 
+               activeTab === 'negadas' ? <XCircle className="mr-2 h-5 w-5 text-red-500 print:hidden" /> :
                <ShieldCheck className="mr-2 h-5 w-5 text-blue-500 print:hidden" />}
               {activeTab === 'sobreaviso' ? 'Relatório de Acionamentos Sobreaviso' : 
                activeTab === 'presenca' ? 'Validações de Presença Regular' : 
+               activeTab === 'negadas' ? 'Tentativas Negadas de Presença' :
                'Histórico de Ações do Sistema'}
             </h2>
             <div className="text-xs text-zinc-500 font-medium">
@@ -899,6 +1013,79 @@ export default function AuditoriaPage() {
                     </div>
                   );
                 })
+              ) : activeTab === 'negadas' ? (
+                (logs as LogTentativaNegada[]).map((log) => (
+                  <div 
+                    key={log.id} 
+                    onClick={() => setSelectedLog(log)}
+                    className="group hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors cursor-pointer border-b border-zinc-100 dark:border-zinc-800 last:border-none print:break-inside-avoid print:border-zinc-300"
+                  >
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 items-center gap-4 p-6">
+                      <div className="flex items-start space-x-4 lg:col-span-4">
+                        <div className="mt-1 rounded-full p-2 bg-red-50 dark:bg-red-900/20 text-red-600 print:hidden">
+                          <XCircle className="h-5 w-5" />
+                        </div>
+                        <div className="min-w-0">
+                          <h3 className="font-bold text-zinc-900 dark:text-white print:text-black truncate text-sm">
+                            {log.nome_servidor_detectado || 'Servidor Não Identificado'}
+                          </h3>
+                          <p className="text-[10px] text-zinc-500 font-medium truncate flex items-center">
+                            <Building2 className="mr-1 h-3 w-3 flex-shrink-0" />
+                            {log.unidade_nome || 'Unidade não informada'} / {log.setor_nome || 'Setor não informado'}
+                          </p>
+                          <p className="text-[9px] text-zinc-400">
+                            Matrícula Digitada: {log.matricula_digitada || '-'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="lg:col-span-8 flex flex-wrap items-center justify-end gap-x-8 gap-y-4">
+                        <div className="space-y-1">
+                          <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">
+                            Tentativa em
+                          </p>
+                          <p className="font-mono text-[11px] text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
+                            {new Date(log.data_hora_tentativa).toLocaleString('pt-BR')}
+                          </p>
+                        </div>
+
+                        <div className="space-y-1">
+                          <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">
+                            Escala Prevista
+                          </p>
+                          <p className="font-mono text-[11px] text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
+                            {log.escala_prevista_inicio ? `${log.escala_prevista_inicio} às ${log.escala_prevista_fim}` : 'Sem escala no horário'} 
+                            {log.escala_categoria ? ` (${log.escala_categoria})` : ''}
+                          </p>
+                        </div>
+
+                        <div className="space-y-1 max-w-[200px]">
+                          <p className="text-[10px] font-black text-red-400 uppercase tracking-widest">
+                            Motivo do Erro
+                          </p>
+                          <p className="text-[11px] text-red-600 dark:text-red-400 font-bold truncate" title={log.mensagem_erro}>
+                            {log.mensagem_erro}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          <div className="flex flex-col items-end gap-1">
+                            <span className="rounded-full px-3 py-1 text-[10px] font-black bg-red-50 text-red-600 dark:bg-red-900/20 whitespace-nowrap">
+                              RECUSADO
+                            </span>
+                          </div>
+
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); setSelectedLog(log); }}
+                            className="p-1.5 text-zinc-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition-all print:hidden ml-1"
+                          >
+                            <ChevronRight className="h-5 w-5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))
               ) : (
                 (logs as LogSistema[]).map((log) => (
                   <div 
@@ -989,7 +1176,10 @@ export default function AuditoriaPage() {
           <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-zinc-200 dark:border-zinc-800 animate-in fade-in zoom-in duration-200">
             <div className="p-6 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50 flex justify-between items-center">
               <h3 className="text-xl font-bold">
-                {activeTab === 'sobreaviso' ? 'Detalhes do Acionamento' : 'Detalhes da Ação'}
+                {activeTab === 'sobreaviso' ? 'Detalhes do Acionamento' : 
+                 activeTab === 'presenca' ? 'Detalhes da Presença' :
+                 activeTab === 'negadas' ? 'Detalhes da Tentativa Negada' :
+                 'Detalhes da Ação'}
               </h3>
               <button onClick={() => setSelectedLog(null)} className="text-zinc-600 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-white">
                 <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
@@ -1047,6 +1237,84 @@ export default function AuditoriaPage() {
                           {JSON.stringify(log.detalhes, null, 2)}
                         </pre>
                       </div>
+                    </div>
+
+                    <button 
+                      onClick={() => setSelectedLog(null)}
+                      className="w-full py-3 bg-zinc-900 dark:bg-white dark:text-zinc-900 text-white font-bold rounded-xl hover:opacity-90 transition-opacity"
+                    >
+                      Fechar
+                    </button>
+                  </div>
+                );
+              })()
+            ) : activeTab === 'negadas' ? (
+              (() => {
+                const log = selectedLog as LogTentativaNegada;
+                return (
+                  <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
+                    <div className="flex items-center space-x-4">
+                      <div className="h-12 w-12 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center text-red-600">
+                        <XCircle className="h-6 w-6" />
+                      </div>
+                      <div>
+                        <p className="text-sm text-zinc-600 dark:text-zinc-400">Servidor Detectado</p>
+                        <p className="text-lg font-bold">{log.nome_servidor_detectado || 'Não cadastrado'}</p>
+                        <p className="text-xs text-zinc-500">Matrícula Digitada: {log.matricula_digitada || '-'}</p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4">
+                      <div className="bg-red-50 dark:bg-red-900/10 p-4 rounded-xl border border-red-100 dark:border-red-900/30">
+                        <div className="flex items-center gap-2 mb-1 text-red-700 dark:text-red-400">
+                          <AlertCircle className="h-4 w-4" />
+                          <p className="text-xs font-bold uppercase">Motivo da Recusa / Erro</p>
+                        </div>
+                        <p className="text-sm text-red-900 dark:text-red-200 font-medium">
+                          {log.mensagem_erro}
+                        </p>
+                      </div>
+
+                      <div className="bg-zinc-50 dark:bg-zinc-800/50 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800">
+                        <p className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase mb-2">Informações do Registro</p>
+                        <div className="space-y-2 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-zinc-500">Horário da Tentativa:</span>
+                            <span className="font-medium">{log.data_hora_tentativa ? new Date(log.data_hora_tentativa).toLocaleString('pt-BR') : '-'}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-zinc-500">Unidade / Setor:</span>
+                            <span className="font-medium text-right">{log.unidade_nome || '-'} / {log.setor_nome || '-'}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-zinc-500">Coordenador do Terminal:</span>
+                            <span className="font-medium">{log.coordenador_nome || '-'}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="bg-zinc-50 dark:bg-zinc-800/50 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800">
+                        <p className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase mb-2">Escala Prevista</p>
+                        <div className="space-y-2 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-zinc-500">Janela de Escala:</span>
+                            <span className="font-medium">{log.escala_prevista_inicio ? `${log.escala_prevista_inicio} às ${log.escala_prevista_fim}` : 'Sem Escala'}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-zinc-500">Categoria / Turno:</span>
+                            <span className="font-medium">{log.escala_categoria || '-'} ({log.turno_codigo || '-'})</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {log.detalhes_escala && (
+                        <div className="bg-zinc-900 p-4 rounded-xl border border-zinc-700 text-zinc-100">
+                          <p className="text-xs font-bold text-zinc-400 uppercase mb-2">Dump Diagnóstico da Escala (JSON)</p>
+                          <pre className="text-[10px] font-mono whitespace-pre-wrap overflow-auto max-h-[150px]">
+                            {JSON.stringify(log.detalhes_escala, null, 2)}
+                          </pre>
+                        </div>
+                      )}
                     </div>
 
                     <button 

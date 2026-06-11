@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.8] - 2026-06-11
+
+### Added
+- **Painel de Log de Tentativas Negadas de Presença**:
+  - Nova aba "Tentativas Negadas" adicionada no módulo de Auditoria (`/auditoria`), visível exclusivamente para o Administrador Geral (`super_admin`).
+  - Registro centralizado de tentativas malsucedidas de confirmação de presença via terminal (por PIN/matrícula inválidos, servidor fora de lotação/escala ou fora da janela permitida).
+  - Exibição de informações diagnósticas ricas, incluindo o horário previsto, código do turno, categoria, unidade, setor, matrícula digitada e dump JSON completo do cruzamento de escala mais próxima.
+  - Integração total com filtros de busca textual, período e lotação no painel de auditoria.
+  - Exportação de relatório PDF/impressão consolidada atualizada para cobrir as ocorrências de tentativas negadas.
+
 ## [1.4.7] - 2026-06-11
 
 ### Changed
