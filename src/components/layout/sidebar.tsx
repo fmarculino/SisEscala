@@ -266,6 +266,23 @@ export function Sidebar({ user }: { user?: any }) {
       </nav>
 
       <div className="p-4 border-t border-zinc-200 dark:border-zinc-800/50 space-y-4">
+        {isCollapsed ? (
+          <Link
+            href="/presenca"
+            className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors mx-auto mb-2 shadow-sm"
+            title="Confirmar Presença"
+          >
+            <ShieldCheck className="h-5 w-5" />
+          </Link>
+        ) : (
+          <Link
+            href="/presenca"
+            className="flex items-center justify-center gap-2 px-3 py-2.5 mb-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all shadow-sm shadow-blue-500/15 hover:shadow-md uppercase tracking-wider"
+          >
+            <ShieldCheck className="h-4 w-4 shrink-0" />
+            <span>Confirmar Presença</span>
+          </Link>
+        )}
         {!isCollapsed && (
           <div className="flex items-center gap-3 px-3 py-2 mb-2 bg-zinc-50 dark:bg-zinc-900/50 rounded-xl border border-zinc-200 dark:border-zinc-800/50">
             <div className="w-8 h-8 rounded-full bg-blue-600/10 dark:bg-blue-600/20 flex items-center justify-center text-blue-600 dark:text-blue-500">

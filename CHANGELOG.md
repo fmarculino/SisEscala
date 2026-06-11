@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.5] - 2026-06-11
+
+### Added
+- **Atalho de Confirmação de Presença na Sidebar**:
+  - Adicionado botão premium "Confirmar Presença" na parte inferior da barra lateral (sidebar) para usuários logados (coordenadores e administradores).
+  - Permite acessar diretamente a tela de presença (`/presenca`) sem a necessidade de efetuar logout e login novamente.
+  - Implementado suporte dinâmico para os estados expandido e colapsado da sidebar.
+
 ## [1.4.4] - 2026-06-11
 
 ### Changed
