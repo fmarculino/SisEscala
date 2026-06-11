@@ -297,7 +297,7 @@ BEGIN
                 SELECT nome INTO v_main_unit_nome FROM public.unidades WHERE id = v_servidor_unidade_id;
                 SELECT ds.nome INTO v_main_sector_nome 
                 FROM public.setores s 
-                JOIN public.dicionario_setores ds ON s.dicionario_setores_id = ds.id 
+                JOIN public.dicionario_setores ds ON s.dicionario_setor_id = ds.id 
                 WHERE s.id = v_servidor_setor_id;
 
                 PERFORM public.fn_log_tentativa_negada(
@@ -861,7 +861,7 @@ BEGIN
                     JOIN public.escala_mensal em ON ed.escala_mensal_id = em.id
                     JOIN public.unidades u ON em.unidade_id = u.id
                     JOIN public.setores s ON em.setor_id = s.id
-                    JOIN public.dicionario_setores ds ON s.dicionario_setores_id = ds.id
+                    JOIN public.dicionario_setores ds ON s.dicionario_setor_id = ds.id
                     JOIN public.dicionario_turnos dt ON ed.dicionario_turnos_id = dt.id
                     LEFT JOIN public.jornadas j ON em.jornada_id = j.id
                     WHERE em.servidor_id = v_servidor_id
