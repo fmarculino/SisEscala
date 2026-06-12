@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.6.0] - 2026-06-11
+
+### Added
+- **Histórico de Lotações e Rastreamento de Transferências**:
+  - Nova tabela `historico_transferencias` para auditoria e linha do tempo de transferências de servidores entre setores e unidades.
+  - Campos dinâmicos de Data de Transferência e Motivo/Justificativa no formulário de edição de servidor (`EditServidorForm.tsx`) revelados apenas sob mudança de lotação.
+  - Aba de **Histórico & Relatórios** na visualização detalhada do servidor com linha do tempo de lotações, cálculo automático de tempo trabalhado em cada local e links rápidos para puxar todas as escalas e folhas de ponto de períodos passados.
+- **Suporte a Transferências no Meio do Mês**:
+  - Ajuste de restrição de unicidade na tabela `folha_ponto` no banco de dados para associar por `escala_mensal_id` em vez de `(servidor_id, mes, ano)`, permitindo múltiplas escalas e folhas parciais no mesmo mês para servidores transferidos.
+
+### Fixed
+- **Bug de Lotação Retroativa na Folha de Ponto**:
+  - Correção na action `gerarFolhaPonto` para ler a lotação de forma segura a partir dos dados gravados na **escala** e não na lotação atual do cadastro do servidor, corrigindo o erro ao visualizar folhas passadas após transferência.
+
 ## [1.5.1] - 2026-06-11
 
 ### Changed

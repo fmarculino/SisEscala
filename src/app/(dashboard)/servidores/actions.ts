@@ -219,14 +219,59 @@ export async function updateServidor(id: string, formData: FormData) {
     }
   }
 
+  // Query current lotação before updating to check for changes
+  const { data: currentServidor, error: fetchError } = await supabase
+    .from('servidores')
+    .select('unidade_id, setor_id')
+    .eq('id', id)
+    .single()
+
+  if (fetchError) {
+    return { error: `Erro ao obter servidor atual: ${fetchError.message}` }
+  }
+
+  const newUnidadeId = unidade_id || null
+  const newSetorId = setor_id || null
+
+  const isTransferred = currentServidor.unidade_id !== newUnidadeId || currentServidor.setor_id !== newSetorId
+
+  if (isTransferred) {
+    const dataTransferencia = formData.get('data_transferencia') as string
+    const motivoTransferencia = formData.get('motivo_transferencia') as string
+
+    if (!dataTransferencia || !motivoTransferencia) {
+      return { error: 'Para realizar uma transferência de setor ou unidade, a data e o motivo são obrigatórios.' }
+    }
+
+    const { data: { user } } = await supabase.auth.getUser()
+    const criado_por_id = user?.id || null
+
+    const { error: histError } = await supabase
+      .from('historico_transferencias')
+      .insert({
+        servidor_id: id,
+        unidade_origem_id: currentServidor.unidade_id,
+        setor_origem_id: currentServidor.setor_id,
+        unidade_destino_id: newUnidadeId,
+        setor_destino_id: newSetorId,
+        data_transferencia: dataTransferencia,
+        motivo: motivoTransferencia,
+        criado_por_id
+      })
+
+    if (histError) {
+      return { error: `Erro ao salvar histórico de transferência: ${histError.message}` }
+    }
+  }
+
   const updateData: any = {
     nome,
     matricula: matriculaFinal,
     cpf: cpf || null,
     cargo,
     vinculo,
-    unidade_id: unidade_id || null,
-    setor_id: setor_id || null,
+    unidade_id: newUnidadeId,
+    setor_id: newSetorId,
     email: email || null,
     telefone: telefone || null,
   }

@@ -157,6 +157,92 @@ export default function NovoSetorForm({ unidades, setoresExistentes, dicionario 
             </p>
           )}
         </div>
+        {/* Dimensionamento por Turno */}
+        <div className="border-t border-zinc-200 dark:border-zinc-800 pt-6 space-y-6">
+          <div>
+            <h3 className="text-sm font-black uppercase tracking-widest text-zinc-800 dark:text-zinc-200">
+              Dimensionamento de Servidores por Turno
+            </h3>
+            <p className="text-xs text-zinc-500 italic mt-1">
+              Configure as quantidades mínimas, ideais e máximas de servidores necessários por turno. Deixe em branco para ignorar validações.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-zinc-50 dark:bg-zinc-800/40 p-6 rounded-2xl border border-zinc-200/50 dark:border-zinc-800/50">
+            {/* Manhã */}
+            <div className="space-y-4 col-span-1 md:col-span-3 border-b border-zinc-200 dark:border-zinc-800 pb-4">
+              <h4 className="text-xs font-black uppercase tracking-wider text-blue-600 dark:text-blue-400">Turno da Manhã</h4>
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label htmlFor="servidores_manha_min" className="block text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-1">Mínimo</label>
+                  <input type="number" min="0" name="servidores_manha_min" id="servidores_manha_min" defaultValue="" className="block w-full px-3 py-2 bg-white dark:bg-zinc-900 border-2 border-zinc-200 dark:border-zinc-700 rounded-xl text-zinc-900 dark:text-white focus:border-blue-500 focus:ring-0 transition-all font-bold" />
+                </div>
+                <div>
+                  <label htmlFor="servidores_manha_ideal" className="block text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-1">Ideal</label>
+                  <input type="number" min="0" name="servidores_manha_ideal" id="servidores_manha_ideal" defaultValue="" className="block w-full px-3 py-2 bg-white dark:bg-zinc-900 border-2 border-zinc-200 dark:border-zinc-700 rounded-xl text-zinc-900 dark:text-white focus:border-blue-500 focus:ring-0 transition-all font-bold" />
+                </div>
+                <div>
+                  <label htmlFor="servidores_manha_max" className="block text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-1">Máximo</label>
+                  <input type="number" min="0" name="servidores_manha_max" id="servidores_manha_max" defaultValue="" className="block w-full px-3 py-2 bg-white dark:bg-zinc-900 border-2 border-zinc-200 dark:border-zinc-700 rounded-xl text-zinc-900 dark:text-white focus:border-blue-500 focus:ring-0 transition-all font-bold" />
+                </div>
+              </div>
+            </div>
+
+            {/* Tarde */}
+            <div className="space-y-4 col-span-1 md:col-span-3 border-b border-zinc-200 dark:border-zinc-800 pb-4">
+              <h4 className="text-xs font-black uppercase tracking-wider text-blue-600 dark:text-blue-400">Turno da Tarde</h4>
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label htmlFor="servidores_tarde_min" className="block text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-1">Mínimo</label>
+                  <input type="number" min="0" name="servidores_tarde_min" id="servidores_tarde_min" defaultValue="" className="block w-full px-3 py-2 bg-white dark:bg-zinc-900 border-2 border-zinc-200 dark:border-zinc-700 rounded-xl text-zinc-900 dark:text-white focus:border-blue-500 focus:ring-0 transition-all font-bold" />
+                </div>
+                <div>
+                  <label htmlFor="servidores_tarde_ideal" className="block text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-1">Ideal</label>
+                  <input type="number" min="0" name="servidores_tarde_ideal" id="servidores_tarde_ideal" defaultValue="" className="block w-full px-3 py-2 bg-white dark:bg-zinc-900 border-2 border-zinc-200 dark:border-zinc-700 rounded-xl text-zinc-900 dark:text-white focus:border-blue-500 focus:ring-0 transition-all font-bold" />
+                </div>
+                <div>
+                  <label htmlFor="servidores_tarde_max" className="block text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-1">Máximo</label>
+                  <input type="number" min="0" name="servidores_tarde_max" id="servidores_tarde_max" defaultValue="" className="block w-full px-3 py-2 bg-white dark:bg-zinc-900 border-2 border-zinc-200 dark:border-zinc-700 rounded-xl text-zinc-900 dark:text-white focus:border-blue-500 focus:ring-0 transition-all font-bold" />
+                </div>
+              </div>
+            </div>
+
+            {/* Noite */}
+            <div className="space-y-4 col-span-1 md:col-span-3">
+              <h4 className="text-xs font-black uppercase tracking-wider text-blue-600 dark:text-blue-400">Turno da Noite</h4>
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label htmlFor="servidores_noite_min" className="block text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-1">Mínimo</label>
+                  <input type="number" min="0" name="servidores_noite_min" id="servidores_noite_min" defaultValue="" className="block w-full px-3 py-2 bg-white dark:bg-zinc-900 border-2 border-zinc-200 dark:border-zinc-700 rounded-xl text-zinc-900 dark:text-white focus:border-blue-500 focus:ring-0 transition-all font-bold" />
+                </div>
+                <div>
+                  <label htmlFor="servidores_noite_ideal" className="block text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-1">Ideal</label>
+                  <input type="number" min="0" name="servidores_noite_ideal" id="servidores_noite_ideal" defaultValue="" className="block w-full px-3 py-2 bg-white dark:bg-zinc-900 border-2 border-zinc-200 dark:border-zinc-700 rounded-xl text-zinc-900 dark:text-white focus:border-blue-500 focus:ring-0 transition-all font-bold" />
+                </div>
+                <div>
+                  <label htmlFor="servidores_noite_max" className="block text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-1">Máximo</label>
+                  <input type="number" min="0" name="servidores_noite_max" id="servidores_noite_max" defaultValue="" className="block w-full px-3 py-2 bg-white dark:bg-zinc-900 border-2 border-zinc-200 border-zinc-200 dark:border-zinc-700 rounded-xl text-zinc-900 dark:text-white focus:border-blue-500 focus:ring-0 transition-all font-bold" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Finais de semana e feriados flag */}
+          <div className="flex items-center gap-3 bg-zinc-50 dark:bg-zinc-800/40 p-4 rounded-2xl border border-zinc-200/50 dark:border-zinc-800/50">
+            <input 
+              type="checkbox" 
+              name="dimensionamento_fds_feriados" 
+              id="dimensionamento_fds_feriados"
+              value="true"
+              defaultChecked={true}
+              className="h-5 w-5 text-blue-600 rounded border-zinc-300 focus:ring-blue-500"
+            />
+            <label htmlFor="dimensionamento_fds_feriados" className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
+              Aplicar regras de dimensionamento nos finais de semana e feriados
+            </label>
+          </div>
+        </div>
+
         {/* Logotipo do Setor */}
         <div>
           <label htmlFor="logo" className="block text-sm font-black uppercase tracking-widest text-zinc-500 dark:text-zinc-400 mb-2">

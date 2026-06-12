@@ -86,6 +86,16 @@ export interface Database {
           unidade_id: string | null
           nome: string
           ativo: boolean
+          servidores_manha_min: number | null
+          servidores_manha_ideal: number | null
+          servidores_manha_max: number | null
+          servidores_tarde_min: number | null
+          servidores_tarde_ideal: number | null
+          servidores_tarde_max: number | null
+          servidores_noite_min: number | null
+          servidores_noite_ideal: number | null
+          servidores_noite_max: number | null
+          dimensionamento_fds_feriados: boolean | null
         }
       }
       servidores: {
@@ -170,6 +180,44 @@ export interface Database {
           criado_por?: string | null
           created_at?: string
           updated_at?: string
+        }
+      }
+      historico_transferencias: {
+        Row: {
+          id: string
+          servidor_id: string
+          unidade_origem_id: string | null
+          setor_origem_id: string | null
+          unidade_destino_id: string | null
+          setor_destino_id: string | null
+          data_transferencia: string
+          motivo: string
+          criado_por_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          servidor_id: string
+          unidade_origem_id?: string | null
+          setor_origem_id?: string | null
+          unidade_destino_id?: string | null
+          setor_destino_id?: string | null
+          data_transferencia: string
+          motivo: string
+          criado_por_id?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          servidor_id?: string
+          unidade_origem_id?: string | null
+          setor_origem_id?: string | null
+          unidade_destino_id?: string | null
+          setor_destino_id?: string | null
+          data_transferencia?: string
+          motivo?: string
+          criado_por_id?: string | null
+          created_at?: string
         }
       }
     }

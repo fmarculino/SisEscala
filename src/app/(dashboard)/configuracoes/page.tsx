@@ -227,6 +227,31 @@ export default function ConfigPage() {
           </div>
         </div>
 
+        {/* Regra de Dimensionamento de Servidores */}
+        <div className="bg-white dark:bg-zinc-900 rounded-[2rem] border border-zinc-200 dark:border-zinc-800 p-8 shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex flex-col md:flex-row md:items-center gap-8">
+            <div className="p-4 bg-blue-100 dark:bg-blue-900/30 rounded-2xl text-blue-600">
+              <Shield className="h-6 w-6" />
+            </div>
+            <div className="flex-1 space-y-1">
+              <h3 className="text-lg font-black text-zinc-900 dark:text-white uppercase tracking-tight">Regra de Dimensionamento de Turnos</h3>
+              <p className="text-sm text-zinc-500 leading-relaxed max-w-2xl">
+                Define a rigidez das regras de servidores por turno (mínimo, ideal, máximo) configuradas nos setores.
+              </p>
+            </div>
+            <div className="flex items-center gap-4 bg-zinc-50 dark:bg-zinc-800 p-2 rounded-2xl border border-zinc-200 dark:border-zinc-700 w-full md:w-auto">
+              <select 
+                className="w-full md:w-64 bg-white dark:bg-zinc-900 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold transition-all"
+                value={getConfig('escala_regra_dimensionamento')?.valor || 'flexivel'}
+                onChange={(e) => updateConfig('escala_regra_dimensionamento', e.target.value)}
+              >
+                <option value="flexivel">Flexível (Exibe apenas avisos)</option>
+                <option value="rigida">Rígida (Bloqueia e força limites)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
         {/* Regras de Sobreaviso */}
         <div className="bg-white dark:bg-zinc-900 rounded-[2rem] border border-zinc-200 dark:border-zinc-800 p-8 shadow-sm hover:shadow-md transition-shadow">
           <div className="space-y-8">

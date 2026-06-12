@@ -178,6 +178,7 @@ export function ScaleGrid({
   })
   const [externalSectors, setExternalSectors] = useState<any[]>([])
   const [externalServers, setExternalServers] = useState<any[]>([])
+  const [currentSector, setCurrentSector] = useState<any>(null)
 
   // Modal & Alert states
   const [alertModal, setAlertModal] = useState<{ isOpen: boolean, title: string, message: string, type: 'default' | 'danger' | 'success' | 'warning' }>({
@@ -247,9 +248,13 @@ export function ScaleGrid({
       if (units) setAllUnidades(units)
       setAllSetores(sectors)
       if (journeys) setJornadas(journeys)
+
+      // Fetch specific sector info for dimensioning rules
+      const { data: currentSec } = await supabase.from('setores').select('*').eq('id', setorId).single()
+      if (currentSec) setCurrentSector(currentSec)
     }
     fetchData()
-  }, [supabase])
+  }, [supabase, setorId])
 
   // Fetch sectors when unit changes in modal
   useEffect(() => {
@@ -487,6 +492,67 @@ export function ScaleGrid({
     
     return totals
   }, [daysArray, escalaMensal, gridData, turnos, getStatusForDay, desconsiderarFalha])
+
+  const getShiftTotalStyleAndTooltip = useCallback((count: number, shift: 'M' | 'T' | 'N', day: number) => {
+    if (!currentSector) return { className: '', title: '' }
+
+    const dateStr = `${ano}-${mes.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`
+    const d = new Date(ano, mes - 1, day)
+    const isWE = d.getDay() === 0 || d.getDay() === 6
+    const isHoliday = feriados.some(f => f.data === dateStr)
+    const isWeekendOrHoliday = isWE || isHoliday
+
+    const applyOnFdsFeriados = currentSector.dimensionamento_fds_feriados !== false
+
+    if (isWeekendOrHoliday && !applyOnFdsFeriados) {
+      return { className: '', title: 'Dimensionamento ignorado em finais de semana/feriados neste setor' }
+    }
+
+    let min = null
+    let ideal = null
+    let max = null
+
+    if (shift === 'M') {
+      min = currentSector.servidores_manha_min
+      ideal = currentSector.servidores_manha_ideal
+      max = currentSector.servidores_manha_max
+    } else if (shift === 'T') {
+      min = currentSector.servidores_tarde_min
+      ideal = currentSector.servidores_tarde_ideal
+      max = currentSector.servidores_tarde_max
+    } else if (shift === 'N') {
+      min = currentSector.servidores_noite_min
+      ideal = currentSector.servidores_noite_ideal
+      max = currentSector.servidores_noite_max
+    }
+
+    if (ideal === null || ideal === 0) return { className: '', title: '' }
+
+    const safeMin = min ?? 0
+    const safeMax = max ?? 0
+
+    if (count < safeMin) {
+      return { 
+        className: 'bg-red-100 text-red-700 dark:bg-red-950/45 dark:text-red-300 border-red-350 dark:border-red-900', 
+        title: `Desfalque crítico: ${count} de ${ideal} ideal (Mínimo: ${safeMin})` 
+      }
+    } else if (count >= safeMin && count < ideal) {
+      return { 
+        className: 'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400 border-amber-350 dark:border-amber-900', 
+        title: `Abaixo do ideal: ${count} de ${ideal} ideal (Mínimo: ${safeMin})` 
+      }
+    } else if (safeMax > 0 && count > safeMax) {
+      return { 
+        className: 'bg-purple-100 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400 border-purple-350 dark:border-purple-900', 
+        title: `Excesso de servidores: ${count} de ${ideal} ideal (Máximo: ${safeMax})` 
+      }
+    } else {
+      return { 
+        className: 'bg-green-100 text-green-700 dark:bg-green-950/30 dark:text-green-400 border-green-350 dark:border-green-900', 
+        title: `Dimensionamento ideal: ${count} servidores` 
+      }
+    }
+  }, [currentSector, ano, mes, feriados])
 
   const hasConfirmedPresence = useCallback((servidorId: string, escalaMensalId: string) => {
     const presenceForServer = presenceData[servidorId]
@@ -817,6 +883,87 @@ export function ScaleGrid({
       }
     } catch (err) {
       console.error('Erro na validação de conflito:', err)
+    }
+
+    // Validação de Dimensionamento Máximo (Regra Rígida)
+    const regraDimensionamento = configs['escala_regra_dimensionamento'] || 'flexivel'
+    if (regraDimensionamento === 'rigida' && currentSector) {
+      const dateStr = `${ano}-${mes.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`
+      const d = new Date(ano, mes - 1, day)
+      const isWE = d.getDay() === 0 || d.getDay() === 6
+      const isHoliday = feriados.some(f => f.data === dateStr)
+      const isWeekendOrHoliday = isWE || isHoliday
+      const applyOnFdsFeriados = currentSector.dimensionamento_fds_feriados !== false
+
+      if (!isWeekendOrHoliday || applyOnFdsFeriados) {
+        const targetTurno = turnos.find(t => t.id === turnoId)
+        if (targetTurno && targetTurno.codigo) {
+          const code = targetTurno.codigo.toUpperCase()
+          const isM = code.includes('M')
+          const isT = code.includes('T')
+          const isN = code.includes('N')
+
+          let simulatedCountM = 0
+          let simulatedCountT = 0
+          let simulatedCountN = 0
+
+          escalaMensal.forEach(em => {
+            let hasM = false
+            let hasT = false
+            let hasN = false
+
+            const categories: RowCategory[] = ['Regular', 'Extra', 'Plantão']
+            categories.forEach(cat => {
+              let cellTurnoId = gridData[em.servidor_id]?.[cat]?.[day]
+              if (em.servidor_id === servidorId && cat === categoria) {
+                cellTurnoId = turnoId
+              }
+
+              const cellTurno = turnos.find(t => t.id === cellTurnoId)
+              if (cellTurno && cellTurno.codigo) {
+                const cCode = cellTurno.codigo.toUpperCase()
+                if (cCode.includes('M')) hasM = true
+                if (cCode.includes('T')) hasT = true
+                if (cCode.includes('N')) hasN = true
+              }
+            })
+
+            if (hasM) simulatedCountM++
+            if (hasT) simulatedCountT++
+            if (hasN) simulatedCountN++
+          })
+
+          if (isM && currentSector.servidores_manha_max > 0 && simulatedCountM > currentSector.servidores_manha_max) {
+            setAlertModal({
+              isOpen: true,
+              title: '⚠️ Limite Máximo Excedido (Regra Rígida)',
+              message: `O limite máximo para o turno da MANHÃ é de ${currentSector.servidores_manha_max} servidores. Esta ação elevaria o total para ${simulatedCountM} servidores no dia ${day}.`,
+              type: 'warning'
+            })
+            return
+          }
+
+          if (isT && currentSector.servidores_tarde_max > 0 && simulatedCountT > currentSector.servidores_tarde_max) {
+            setAlertModal({
+              isOpen: true,
+              title: '⚠️ Limite Máximo Excedido (Regra Rígida)',
+              message: `O limite máximo para o turno da TARDE é de ${currentSector.servidores_tarde_max} servidores. Esta ação elevaria o total para ${simulatedCountT} servidores no dia ${day}.`,
+              type: 'warning'
+            })
+            return
+          }
+
+          if (isN && currentSector.servidores_noite_max > 0 && simulatedCountN > currentSector.servidores_noite_max) {
+            setAlertModal({
+              isOpen: true,
+              title: '⚠️ Limite Máximo Excedido (Regra Rígida)',
+              message: `O limite máximo para o turno da NOITE é de ${currentSector.servidores_noite_max} servidores. Esta ação elevaria o total para ${simulatedCountN} servidores no dia ${day}.`,
+              type: 'warning'
+            })
+            return
+          }
+        }
+      }
     }
 
     setGridData(prev => {
@@ -1194,6 +1341,50 @@ export function ScaleGrid({
 
   const handleSave = async () => {
     if (isCompetenciaEncerrada) return
+
+    // Validação de Dimensionamento Máximo (Regra Rígida)
+    const regraDimensionamento = configs['escala_regra_dimensionamento'] || 'flexivel'
+    if (regraDimensionamento === 'rigida' && currentSector) {
+      const maxM = currentSector.servidores_manha_max || 0
+      const maxT = currentSector.servidores_tarde_max || 0
+      const maxN = currentSector.servidores_noite_max || 0
+      const applyOnFdsFeriados = currentSector.dimensionamento_fds_feriados !== false
+
+      const overstaffedDays: string[] = []
+
+      daysArray.forEach(day => {
+        const dateStr = `${ano}-${mes.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`
+        const d = new Date(ano, mes - 1, day)
+        const isWE = d.getDay() === 0 || d.getDay() === 6
+        const isHoliday = feriados.some(f => f.data === dateStr)
+        const isWeekendOrHoliday = isWE || isHoliday
+
+        if (!isWeekendOrHoliday || applyOnFdsFeriados) {
+          const countM = shiftTotals.M[day] || 0
+          const countT = shiftTotals.T[day] || 0
+          const countN = shiftTotals.N[day] || 0
+
+          const violations = []
+          if (maxM > 0 && countM > maxM) violations.push(`Manhã: ${countM}/${maxM}`)
+          if (maxT > 0 && countT > maxT) violations.push(`Tarde: ${countT}/${maxT}`)
+          if (maxN > 0 && countN > maxN) violations.push(`Noite: ${countN}/${maxN}`)
+
+          if (violations.length > 0) {
+            overstaffedDays.push(`Dia ${day} (${violations.join(', ')})`)
+          }
+        }
+      })
+
+      if (overstaffedDays.length > 0) {
+        setAlertModal({
+          isOpen: true,
+          title: '⚠️ Limite Máximo Excedido (Regra Rígida)',
+          message: `A escala possui dias com mais servidores do que o limite máximo permitido:\n\n${overstaffedDays.slice(0, 5).join('\n')}${overstaffedDays.length > 5 ? `\n...e mais ${overstaffedDays.length - 5} dias.` : ''}`,
+          type: 'warning'
+        })
+        return
+      }
+    }
     // Validação: Todas as Jornadas devem estar selecionadas
     const servidorSemJornada = escalaMensal.find(em => !em.jornada_id)
     if (servidorSemJornada) {
@@ -1455,6 +1646,73 @@ export function ScaleGrid({
 
   const handleCloseScale = async () => {
     if (isCompetenciaEncerrada) return
+
+    // Validação de Dimensionamento (Regra Rígida - Mínimos e Máximos)
+    const regraDimensionamento = configs['escala_regra_dimensionamento'] || 'flexivel'
+    if (regraDimensionamento === 'rigida' && currentSector) {
+      const minM = currentSector.servidores_manha_min || 0
+      const minT = currentSector.servidores_tarde_min || 0
+      const minN = currentSector.servidores_noite_min || 0
+
+      const maxM = currentSector.servidores_manha_max || 0
+      const maxT = currentSector.servidores_tarde_max || 0
+      const maxN = currentSector.servidores_noite_max || 0
+
+      const applyOnFdsFeriados = currentSector.dimensionamento_fds_feriados !== false
+
+      const dimensioningViolations: string[] = []
+
+      daysArray.forEach(day => {
+        const dateStr = `${ano}-${mes.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`
+        const d = new Date(ano, mes - 1, day)
+        const isWE = d.getDay() === 0 || d.getDay() === 6
+        const isHoliday = feriados.some(f => f.data === dateStr)
+        const isWeekendOrHoliday = isWE || isHoliday
+
+        if (!isWeekendOrHoliday || applyOnFdsFeriados) {
+          const countM = shiftTotals.M[day] || 0
+          const countT = shiftTotals.T[day] || 0
+          const countN = shiftTotals.N[day] || 0
+
+          const violations = []
+          // Check Min
+          if (currentSector.servidores_manha_ideal > 0 && countM < minM) {
+            violations.push(`Manhã: ${countM} (Mín: ${minM})`)
+          }
+          if (currentSector.servidores_tarde_ideal > 0 && countT < minT) {
+            violations.push(`Tarde: ${countT} (Mín: ${minT})`)
+          }
+          if (currentSector.servidores_noite_ideal > 0 && countN < minN) {
+            violations.push(`Noite: ${countN} (Mín: ${minN})`)
+          }
+
+          // Check Max
+          if (currentSector.servidores_manha_ideal > 0 && maxM > 0 && countM > maxM) {
+            violations.push(`Manhã: ${countM} (Máx: ${maxM})`)
+          }
+          if (currentSector.servidores_tarde_ideal > 0 && maxT > 0 && countT > maxT) {
+            violations.push(`Tarde: ${countT} (Máx: ${maxT})`)
+          }
+          if (currentSector.servidores_noite_ideal > 0 && maxN > 0 && countN > maxN) {
+            violations.push(`Noite: ${countN} (Máx: ${maxN})`)
+          }
+
+          if (violations.length > 0) {
+            dimensioningViolations.push(`Dia ${day} (${violations.join(', ')})`)
+          }
+        }
+      })
+
+      if (dimensioningViolations.length > 0) {
+        setAlertModal({
+          isOpen: true,
+          title: '⚠️ Erro de Dimensionamento (Regra Rígida)',
+          message: `Não é possível fechar a escala. Há dias que não cumprem os limites mínimos ou máximos de servidores definidos para o setor:\n\n${dimensioningViolations.slice(0, 5).join('\n')}${dimensioningViolations.length > 5 ? `\n...e mais ${dimensioningViolations.length - 5} dias.` : ''}`,
+          type: 'warning'
+        })
+        return
+      }
+    }
     // Validação: Todas as Jornadas devem estar selecionadas
     const servidorSemJornada = escalaMensal.find(em => !em.jornada_id)
     if (servidorSemJornada) {
@@ -2253,32 +2511,44 @@ export function ScaleGrid({
               <td className="sticky left-[180px] z-10 bg-white dark:bg-zinc-900 p-1 border border-zinc-300 dark:border-zinc-600 uppercase text-[10px] text-center font-bold text-zinc-800 dark:text-zinc-200">
                 MANHÃ
               </td>
-              {daysArray.map(day => (
-                <td key={day} className="p-1 border border-zinc-300 dark:border-zinc-600 text-center bg-white dark:bg-zinc-900 text-[11px] font-bold text-zinc-900 dark:text-zinc-100">
-                  {shiftTotals.M[day] || ''}
-                </td>
-              ))}
+              {daysArray.map(day => {
+                const count = shiftTotals.M[day] || 0
+                const { className, title } = getShiftTotalStyleAndTooltip(count, 'M', day)
+                return (
+                  <td key={day} className={`p-1 border border-zinc-300 dark:border-zinc-600 text-center text-[11px] font-bold ${className || 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100'}`} title={title}>
+                    {count || ''}
+                  </td>
+                )
+              })}
               <td colSpan={isTotalsCollapsed ? 1 : 8} rowSpan={4} className="bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600"></td>
             </tr>
             <tr>
               <td className="sticky left-[180px] z-10 bg-white dark:bg-zinc-900 p-1 border border-zinc-300 dark:border-zinc-600 uppercase text-[10px] text-center font-bold text-zinc-800 dark:text-zinc-200">
                 TARDE
               </td>
-              {daysArray.map(day => (
-                <td key={day} className="p-1 border border-zinc-300 dark:border-zinc-600 text-center bg-white dark:bg-zinc-900 text-[11px] font-bold text-zinc-900 dark:text-zinc-100">
-                  {shiftTotals.T[day] || ''}
-                </td>
-              ))}
+              {daysArray.map(day => {
+                const count = shiftTotals.T[day] || 0
+                const { className, title } = getShiftTotalStyleAndTooltip(count, 'T', day)
+                return (
+                  <td key={day} className={`p-1 border border-zinc-300 dark:border-zinc-600 text-center text-[11px] font-bold ${className || 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100'}`} title={title}>
+                    {count || ''}
+                  </td>
+                )
+              })}
             </tr>
             <tr>
               <td className="sticky left-[180px] z-10 bg-white dark:bg-zinc-900 p-1 border border-zinc-300 dark:border-zinc-600 uppercase text-[10px] text-center font-bold text-zinc-800 dark:text-zinc-200">
                 NOITE
               </td>
-              {daysArray.map(day => (
-                <td key={day} className="p-1 border border-zinc-300 dark:border-zinc-600 text-center bg-white dark:bg-zinc-900 text-[11px] font-bold text-zinc-900 dark:text-zinc-100">
-                  {shiftTotals.N[day] || ''}
-                </td>
-              ))}
+              {daysArray.map(day => {
+                const count = shiftTotals.N[day] || 0
+                const { className, title } = getShiftTotalStyleAndTooltip(count, 'N', day)
+                return (
+                  <td key={day} className={`p-1 border border-zinc-300 dark:border-zinc-600 text-center text-[11px] font-bold ${className || 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100'}`} title={title}>
+                    {count || ''}
+                  </td>
+                )
+              })}
             </tr>
             <tr>
               <td className="sticky left-[180px] z-10 bg-white dark:bg-zinc-900 p-1 border border-zinc-300 dark:border-zinc-600 uppercase text-[10px] text-center font-bold text-zinc-800 dark:text-zinc-200">

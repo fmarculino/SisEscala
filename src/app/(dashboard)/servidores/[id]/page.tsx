@@ -1,8 +1,5 @@
 import { createClient } from '@/utils/supabase/server'
-import { StatusToggle } from '@/components/servidores/StatusToggle'
-import { EditServidorForm } from './EditServidorForm'
-import { ArrowLeft, Info } from 'lucide-react'
-import Link from 'next/link'
+import { ServidorDetalhesClient } from './ServidorDetalhesClient'
 import { applyAccessFilters } from '@/utils/permissions'
 
 export default async function EditServidorPage({
@@ -68,48 +65,67 @@ export default async function EditServidorPage({
     .order('nome')
 
   if (!servidor) {
-    return <div>Servidor não encontrado</div>
+    return <div className="p-8 text-center text-red-600 font-bold">Servidor não encontrado</div>
   }
 
+  // Fetch transfer history
+  const { data: historicoRaw } = await supabase
+    .from('historico_transferencias')
+    .select('*, unidade_origem:unidades!unidade_origem_id(nome), setor_origem:setores!setor_origem_id(dicionario_setores(nome)), unidade_destino:unidades!unidade_destino_id(nome), setor_destino:setores!setor_destino_id(dicionario_setores(nome))')
+    .eq('servidor_id', id)
+    .order('data_transferencia', { ascending: true })
+
+  const historico = historicoRaw?.map(h => {
+    const origSetData = Array.isArray(h.setor_origem) ? h.setor_origem[0] : h.setor_origem
+    const destSetData = Array.isArray(h.setor_destino) ? h.setor_destino[0] : h.setor_destino
+    
+    const origDict = origSetData ? (Array.isArray(origSetData.dicionario_setores) ? origSetData.dicionario_setores[0] : origSetData.dicionario_setores) : null
+    const destDict = destSetData ? (Array.isArray(destSetData.dicionario_setores) ? destSetData.dicionario_setores[0] : destSetData.dicionario_setores) : null
+
+    return {
+      ...h,
+      unidade_origem_nome: h.unidade_origem?.nome || 'Sem Unidade',
+      setor_origem_nome: origDict?.nome || 'Sem Setor',
+      unidade_destino_nome: h.unidade_destino?.nome || 'Sem Unidade',
+      setor_destino_nome: destDict?.nome || 'Sem Setor'
+    }
+  }) || []
+
+  // Fetch scales history
+  const { data: escalasRaw } = await supabase
+    .from('escala_mensal')
+    .select('*, unidades(nome), setores(dicionario_setores(nome))')
+    .eq('servidor_id', id)
+    .order('ano', { ascending: false })
+    .order('mes', { ascending: false })
+
+  const escalas = escalasRaw?.map(e => {
+    const sectorData = Array.isArray(e.setores) ? e.setores[0] : e.setores
+    const dictData = sectorData ? (Array.isArray(sectorData.dicionario_setores) ? sectorData.dicionario_setores[0] : sectorData.dicionario_setores) : null
+    return {
+      ...e,
+      unidade_nome: e.unidades?.nome || 'Sem Unidade',
+      setor_nome: dictData?.nome || 'Sem Setor'
+    }
+  }) || []
+
+  // Fetch timesheets
+  const { data: folhas } = await supabase
+    .from('folha_ponto')
+    .select('id, escala_mensal_id, status')
+    .eq('servidor_id', id)
+
   return (
-    <div className="max-w-3xl mx-auto space-y-8">
-      <div className="flex items-center justify-between">
-        <Link
-          href="/servidores"
-          className="flex items-center text-sm text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 transition-colors"
-        >
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Voltar
-        </Link>
-        <StatusToggle 
-          servidorId={id} 
-          currentStatus={servidor.status} 
-          nome={servidor.nome} 
-        />
-      </div>
-
-      <div className="space-y-6">
-        {servidor.status === 'Inativo' && (
-          <div className="bg-red-50 border border-red-200 dark:bg-red-900/10 dark:border-red-800 p-4 rounded-xl flex gap-3">
-            <Info className="h-5 w-5 text-red-600 dark:text-red-400 shrink-0" />
-            <div>
-              <p className="text-sm font-bold text-red-800 dark:text-red-300">Servidor Inativo</p>
-              <p className="text-xs text-red-700 dark:text-red-400">
-                <strong>Motivo:</strong> {servidor.motivo_inativacao || 'Não informado'}
-              </p>
-            </div>
-          </div>
-        )}
-
-        <EditServidorForm 
-          id={id}
-          servidor={servidor}
-          unidades={unidades || []}
-          setores={setores || []}
-          cargos={cargos || []}
-          isSuperAdmin={userProfile?.role === 'super_admin'}
-        />
-      </div>
-    </div>
+    <ServidorDetalhesClient
+      id={id}
+      servidor={servidor}
+      unidades={unidades || []}
+      setores={setores || []}
+      cargos={cargos || []}
+      isSuperAdmin={userProfile?.role === 'super_admin'}
+      historico={historico}
+      escalas={escalas}
+      folhas={folhas || []}
+    />
   )
 }

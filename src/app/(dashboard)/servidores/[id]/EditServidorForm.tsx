@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { Save, User, Layers, Eye, EyeOff, MessageCircle } from 'lucide-react'
+import { Save, User, Layers, Eye, EyeOff, MessageCircle, Info } from 'lucide-react'
 import { updateServidor } from '../actions'
 
 interface EditServidorFormProps {
@@ -17,6 +17,9 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selectedUnidade, setSelectedUnidade] = useState(servidor.unidade_id || '')
+  const [selectedSetor, setSelectedSetor] = useState(servidor.setor_id || '')
+
+  const isLotaçãoChanged = selectedUnidade !== (servidor.unidade_id || '') || selectedSetor !== (servidor.setor_id || '')
 
   const isTemporary = servidor.matricula ? /^T\d{7}$/.test(servidor.matricula) : false
 
@@ -249,7 +252,14 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
               id="unidade_id"
               name="unidade_id"
               value={selectedUnidade}
-              onChange={(e) => setSelectedUnidade(e.target.value)}
+              onChange={(e) => {
+                const nextUnit = e.target.value
+                setSelectedUnidade(nextUnit)
+                const belongs = setores.some(s => s.id === selectedSetor && s.unidade_id === nextUnit)
+                if (!belongs) {
+                  setSelectedSetor('')
+                }
+              }}
               className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="">Sem Unidade</option>
@@ -267,7 +277,8 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
             <select
               id="setor_id"
               name="setor_id"
-              defaultValue={servidor.setor_id || ''}
+              value={selectedSetor}
+              onChange={(e) => setSelectedSetor(e.target.value)}
               className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="">Sem Setor</option>
@@ -281,6 +292,47 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
               A escala será gerada com base no setor selecionado aqui.
             </p>
           </div>
+
+          {isLotaçãoChanged && (
+            <div className="sm:col-span-6 p-5 bg-amber-50 dark:bg-amber-950/25 border border-amber-200 dark:border-amber-900/40 rounded-xl space-y-4 animate-in fade-in slide-in-from-top-2">
+              <div className="flex items-center gap-2 text-sm font-bold text-amber-800 dark:text-amber-300">
+                <Info className="h-5 w-5 text-amber-500" />
+                Registrar Transferência de Servidor
+              </div>
+              <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
+                Você alterou a lotação deste servidor. Para salvar essa transferência, por favor informe a data de efetivação e o motivo da mudança para registro no histórico.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="data_transferencia" className="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase">
+                    Data de Transferência *
+                  </label>
+                  <input
+                    type="date"
+                    id="data_transferencia"
+                    name="data_transferencia"
+                    required={isLotaçãoChanged}
+                    max={new Date().toISOString().split('T')[0]}
+                    defaultValue={new Date().toISOString().split('T')[0]}
+                    className="mt-1 block w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="motivo_transferencia" className="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase">
+                    Motivo / Justificativa *
+                  </label>
+                  <textarea
+                    id="motivo_transferencia"
+                    name="motivo_transferencia"
+                    required={isLotaçãoChanged}
+                    rows={2}
+                    placeholder="Ex: Remanejamento devido a aumento de demanda..."
+                    className="mt-1 block w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="sm:col-span-6 space-y-4 pt-6 border-t border-zinc-100 dark:border-zinc-800">
             <h3 className="text-sm font-bold text-zinc-900 dark:text-white flex items-center">

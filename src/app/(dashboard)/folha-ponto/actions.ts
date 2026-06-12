@@ -106,8 +106,8 @@ export async function getServidoresFolhaPonto(mes: number, ano: number, unidadeI
       return { error: 'Acesso negado a este setor/unidade.' }
     }
 
-    // 1. Fetch servers allocated in this unit & sector
-    const { data: servidores, error: servError } = await supabase
+    // 1. Fetch servers currently allocated in this unit & sector
+    const { data: servidoresAtuais, error: servError } = await supabase
       .from('servidores')
       .select('id, nome, matricula, cargo')
       .eq('unidade_id', unidadeId)
@@ -116,7 +116,41 @@ export async function getServidoresFolhaPonto(mes: number, ano: number, unidadeI
       .order('nome')
 
     if (servError) throw servError
-    if (!servidores || servidores.length === 0) return { servidores: [] }
+
+    // 2. Fetch scales in this sector/unit/month/year to find historical servers who might have been transferred
+    const { data: escalasMes, error: escMesError } = await supabase
+      .from('escala_mensal')
+      .select('servidor_id, servidores(id, nome, matricula, cargo)')
+      .eq('unidade_id', unidadeId)
+      .eq('setor_id', setorId)
+      .eq('mes', mes)
+      .eq('ano', ano)
+
+    if (escMesError) throw escMesError
+
+    // Combine them safely using a Map to avoid duplicates
+    const servidoresMap = new Map<string, { id: string; nome: string; matricula: string | null; cargo: string | null }>()
+    
+    servidoresAtuais?.forEach(s => {
+      servidoresMap.set(s.id, s)
+    })
+
+    escalasMes?.forEach(em => {
+      const s = em.servidores as any
+      if (s && s.id) {
+        servidoresMap.set(s.id, {
+          id: s.id,
+          nome: s.nome,
+          matricula: s.matricula,
+          cargo: s.cargo
+        })
+      }
+    })
+
+    const servidores = Array.from(servidoresMap.values())
+    servidores.sort((a, b) => a.nome.localeCompare(b.nome))
+
+    if (servidores.length === 0) return { servidores: [] }
 
     const serverIds = servidores.map(s => s.id)
 
@@ -173,43 +207,93 @@ export async function getServidoresFolhaPonto(mes: number, ano: number, unidadeI
 }
 
 // Generate (or regenerate) a timesheet for a server
-export async function gerarFolhaPonto(servidorId: string, mes: number, ano: number, forcarRascunho: boolean = false) {
+export async function gerarFolhaPonto(
+  servidorId: string,
+  mes: number,
+  ano: number,
+  forcarRascunho: boolean = false,
+  escalaMensalId?: string
+) {
   try {
-    if (await isCompetencyClosed(mes, ano)) {
-      return { error: 'Esta competência está encerrada e todos os dados estão congelados para auditoria.' }
-    }
     const supabase = await createClient()
     const userProfile = await getUserProfile(supabase)
 
-    // Fetch server lotação details
+    let escala: any = null
+
+    if (escalaMensalId) {
+      const { data: esc, error: escError } = await supabase
+        .from('escala_mensal')
+        .select('id, status, unidade_id, setor_id, mes, ano, status, jornada_id, jornadas(nome, intervalo_minutos, horas_totais)')
+        .eq('id', escalaMensalId)
+        .single()
+      if (escError) throw escError
+      escala = esc
+    } else {
+      // Find matching scale for this server, month, year
+      const { data: serverInfo } = await supabase
+        .from('servidores')
+        .select('unidade_id, setor_id')
+        .eq('id', servidorId)
+        .single()
+
+      const query = supabase
+        .from('escala_mensal')
+        .select('id, status, unidade_id, setor_id, mes, ano, status, jornada_id, jornadas(nome, intervalo_minutos, horas_totais)')
+        .eq('servidor_id', servidorId)
+        .eq('mes', mes)
+        .eq('ano', ano)
+        .eq('ativo', true)
+
+      if (serverInfo?.unidade_id && serverInfo?.setor_id) {
+        const { data: match } = await query
+          .eq('unidade_id', serverInfo.unidade_id)
+          .eq('setor_id', serverInfo.setor_id)
+          .maybeSingle()
+        if (match) {
+          escala = match
+        }
+      }
+
+      if (!escala) {
+        const { data: list } = await supabase
+          .from('escala_mensal')
+          .select('id, status, unidade_id, setor_id, mes, ano, status, jornada_id, jornadas(nome, intervalo_minutos, horas_totais)')
+          .eq('servidor_id', servidorId)
+          .eq('mes', mes)
+          .eq('ano', ano)
+          .eq('ativo', true)
+          .limit(1)
+        if (list && list.length > 0) {
+          escala = list[0]
+        }
+      }
+    }
+
+    if (!escala) {
+      return { error: 'Servidor não possui escala regular criada neste setor para o mês selecionado.' }
+    }
+
+    const resolvedMes = escala.mes
+    const resolvedAno = escala.ano
+    const resolvedUnidadeId = escala.unidade_id
+    const resolvedSetorId = escala.setor_id
+
+    if (await isCompetencyClosed(resolvedMes, resolvedAno)) {
+      return { error: 'Esta competência está encerrada e todos os dados estão congelados para auditoria.' }
+    }
+
+    // Fetch server details
     const { data: servidor, error: servError } = await supabase
       .from('servidores')
-      .select('id, unidade_id, setor_id, nome, matricula')
+      .select('id, nome, matricula')
       .eq('id', servidorId)
       .single()
 
     if (servError || !servidor) throw new Error('Servidor não encontrado')
 
-    // Security check
-    if (!servidor.unidade_id || !servidor.setor_id || !hasSectorAccess(userProfile, servidor.setor_id, servidor.unidade_id)) {
+    // Security check using scale's unit and sector
+    if (!resolvedUnidadeId || !resolvedSetorId || !hasSectorAccess(userProfile, resolvedSetorId, resolvedUnidadeId)) {
       return { error: 'Acesso negado às escalas deste servidor.' }
-    }
-
-    // Fetch the active lotação escala_mensal
-    const { data: escala, error: escError } = await supabase
-      .from('escala_mensal')
-      .select('id, status, jornada_id, jornadas(nome, intervalo_minutos, horas_totais)')
-      .eq('servidor_id', servidorId)
-      .eq('unidade_id', servidor.unidade_id)
-      .eq('setor_id', servidor.setor_id)
-      .eq('mes', mes)
-      .eq('ano', ano)
-      .eq('ativo', true)
-      .maybeSingle()
-
-    if (escError) throw escError
-    if (!escala) {
-      return { error: 'Servidor não possui escala regular criada neste setor para o mês selecionado.' }
     }
 
     // Check status requirement
@@ -241,9 +325,9 @@ export async function gerarFolhaPonto(servidorId: string, mes: number, ano: numb
       .eq('escala_mensal_id', escala.id)
 
     // Fetch holidays
-    const startDate = `${ano}-${String(mes).padStart(2, '0')}-01`
-    const daysInMonth = new Date(ano, mes, 0).getDate()
-    const endDate = `${ano}-${String(mes).padStart(2, '0')}-${daysInMonth}`
+    const startDate = `${resolvedAno}-${String(resolvedMes).padStart(2, '0')}-01`
+    const daysInMonth = new Date(resolvedAno, resolvedMes, 0).getDate()
+    const endDate = `${resolvedAno}-${String(resolvedMes).padStart(2, '0')}-${daysInMonth}`
     
     const { data: feriados } = await supabase
       .from('feriados')
@@ -270,9 +354,7 @@ export async function gerarFolhaPonto(servidorId: string, mes: number, ano: numb
     const { data: existingFolha } = await supabase
       .from('folha_ponto')
       .select('registros')
-      .eq('servidor_id', servidorId)
-      .eq('mes', mes)
-      .eq('ano', ano)
+      .eq('escala_mensal_id', escala.id)
       .maybeSingle()
 
     const registrosExistentes = existingFolha?.registros as any[] || []
@@ -473,8 +555,8 @@ export async function gerarFolhaPonto(servidorId: string, mes: number, ano: numb
           const realExit = new Date(shift.presenca_saida_em)
           
           // Official scheduled exit timestamp
-          const scheduledEntrance = new Date(`${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}:00-03:00`)
-          const scheduledExit = new Date(`${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00-03:00`)
+          const scheduledEntrance = new Date(`${resolvedAno}-${String(resolvedMes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}:00-03:00`)
+          const scheduledExit = new Date(`${resolvedAno}-${String(resolvedMes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00-03:00`)
           if (scheduledExit <= scheduledEntrance) {
             scheduledExit.setDate(scheduledExit.getDate() + 1) // crosses midnight
           }
@@ -526,8 +608,8 @@ export async function gerarFolhaPonto(servidorId: string, mes: number, ano: numb
       .upsert({
         escala_mensal_id: escala.id,
         servidor_id: servidorId,
-        mes,
-        ano,
+        mes: resolvedMes,
+        ano: resolvedAno,
         status: forcarRascunho ? 'Rascunho' : 'Gerada',
         registros,
         escala_fingerprint: fingerprint,
@@ -537,7 +619,7 @@ export async function gerarFolhaPonto(servidorId: string, mes: number, ano: numb
         total_faltas: totalFaltas,
         gerado_por_id: userProfile.id,
         gerado_em: new Date().toISOString()
-      }, { onConflict: 'servidor_id, mes, ano' })
+      }, { onConflict: 'escala_mensal_id' })
       .select('id')
       .single()
 
@@ -562,22 +644,23 @@ export async function gerarFolhasEmLote(mes: number, ano: number, unidadeId: str
       return { error: 'Acesso negado a este setor/unidade.' }
     }
 
-    // Fetch servers
-    const { data: servidores, error: servError } = await supabase
-      .from('servidores')
-      .select('id')
+    // Fetch scales for this month/year, unit, and sector to generate sheets for all matching servers
+    const { data: escalas, error: escError } = await supabase
+      .from('escala_mensal')
+      .select('id, servidor_id')
       .eq('unidade_id', unidadeId)
       .eq('setor_id', setorId)
-      .eq('status', 'Ativo')
+      .eq('mes', mes)
+      .eq('ano', ano)
 
-    if (servError) throw servError
-    if (!servidores || servidores.length === 0) return { error: 'Nenhum servidor ativo encontrado neste setor.' }
+    if (escError) throw escError
+    if (!escalas || escalas.length === 0) return { error: 'Nenhuma escala encontrada neste setor para a competência selecionada.' }
 
     let geradas = 0
     let erros = 0
 
-    for (const s of servidores) {
-      const res = await gerarFolhaPonto(s.id, mes, ano, forcarRascunho)
+    for (const esc of escalas) {
+      const res = await gerarFolhaPonto(esc.servidor_id, mes, ano, forcarRascunho, esc.id)
       if (res.success) {
         geradas++
       } else {
