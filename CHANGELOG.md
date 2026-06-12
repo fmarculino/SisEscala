@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.6.1] - 2026-06-12
+
+### Added
+- **Limpeza Inteligente de Escalas e Conflitos na Transferência**:
+  - Implementada limpeza automática de turnos diários concorrentes (`escala_diaria`) sem presença confirmada durante a transferência de lotação de um servidor.
+  - No setor de origem (para o mês da transferência), limpa todas as escalas diárias planejadas a partir da data de transferência (inclusive).
+  - No setor de destino (para o mês da transferência), limpa quaisquer escalas diárias planejadas antes da data de transferência.
+  - Para meses subsequentes à transferência, remove completamente as escalas mensais e escalas diárias residuais do setor de origem.
+  - Para meses precedentes à transferência, remove quaisquer escalas mensais e escalas diárias residuais do setor de destino.
+  - Preserva integralmente registros de presença confirmada ou batidas de ponto em ambos os setores, evitando qualquer perda de dados históricos.
+
 ## [1.6.0] - 2026-06-11
 
 ### Added

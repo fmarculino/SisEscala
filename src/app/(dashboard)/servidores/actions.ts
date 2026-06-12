@@ -262,6 +262,128 @@ export async function updateServidor(id: string, formData: FormData) {
     if (histError) {
       return { error: `Erro ao salvar histórico de transferência: ${histError.message}` }
     }
+
+    // Clear concurrent scale shifts in both sectors for the transfer month/year and subsequent/preceding periods
+    try {
+      const dateParts = dataTransferencia.split('-')
+      const transferYear = parseInt(dateParts[0], 10)
+      const transferMonth = parseInt(dateParts[1], 10)
+      const transferDay = parseInt(dateParts[2], 10)
+
+      if (!isNaN(transferYear) && !isNaN(transferMonth) && !isNaN(transferDay)) {
+        // A. Origin Scale (Transfer Month): Clear shifts on and after the transfer day (without presence)
+        if (currentServidor.unidade_id && currentServidor.setor_id) {
+          const { data: originScale } = await supabase
+            .from('escala_mensal')
+            .select('id')
+            .eq('servidor_id', id)
+            .eq('unidade_id', currentServidor.unidade_id)
+            .eq('setor_id', currentServidor.setor_id)
+            .eq('mes', transferMonth)
+            .eq('ano', transferYear)
+            .maybeSingle()
+
+          if (originScale) {
+            await supabase
+              .from('escala_diaria')
+              .delete()
+              .eq('escala_mensal_id', originScale.id)
+              .gte('dia', transferDay)
+              .is('presenca_entrada_em', null)
+              .is('presenca_saida_em', null)
+          }
+        }
+
+        // B. Destination Scale (Transfer Month): Clear shifts before the transfer day (without presence)
+        if (newUnidadeId && newSetorId) {
+          const { data: destScale } = await supabase
+            .from('escala_mensal')
+            .select('id')
+            .eq('servidor_id', id)
+            .eq('unidade_id', newUnidadeId)
+            .eq('setor_id', newSetorId)
+            .eq('mes', transferMonth)
+            .eq('ano', transferYear)
+            .maybeSingle()
+
+          if (destScale) {
+            await supabase
+              .from('escala_diaria')
+              .delete()
+              .eq('escala_mensal_id', destScale.id)
+              .lt('dia', transferDay)
+              .is('presenca_entrada_em', null)
+              .is('presenca_saida_em', null)
+          }
+        }
+
+        // C. Subsequent Months (Origin Sector): Delete all monthly scales and daily shifts without presence
+        if (currentServidor.unidade_id && currentServidor.setor_id) {
+          const { data: futureOriginScales } = await supabase
+            .from('escala_mensal')
+            .select('id, mes, ano')
+            .eq('servidor_id', id)
+            .eq('unidade_id', currentServidor.unidade_id)
+            .eq('setor_id', currentServidor.setor_id)
+
+          if (futureOriginScales) {
+            const futureScaleIds = futureOriginScales
+              .filter(em => em.ano > transferYear || (em.ano === transferYear && em.mes > transferMonth))
+              .map(em => em.id)
+
+            if (futureScaleIds.length > 0) {
+              // Deletar turnos diários sem presença
+              await supabase
+                .from('escala_diaria')
+                .delete()
+                .in('escala_mensal_id', futureScaleIds)
+                .is('presenca_entrada_em', null)
+                .is('presenca_saida_em', null)
+
+              // Tentar deletar as escalas mensais correspondentes
+              await supabase
+                .from('escala_mensal')
+                .delete()
+                .in('id', futureScaleIds)
+            }
+          }
+        }
+
+        // D. Preceding Months (Destination Sector): Delete any monthly scales and daily shifts without presence
+        if (newUnidadeId && newSetorId) {
+          const { data: pastDestScales } = await supabase
+            .from('escala_mensal')
+            .select('id, mes, ano')
+            .eq('servidor_id', id)
+            .eq('unidade_id', newUnidadeId)
+            .eq('setor_id', newSetorId)
+
+          if (pastDestScales) {
+            const pastScaleIds = pastDestScales
+              .filter(em => em.ano < transferYear || (em.ano === transferYear && em.mes < transferMonth))
+              .map(em => em.id)
+
+            if (pastScaleIds.length > 0) {
+              // Deletar turnos diários sem presença
+              await supabase
+                .from('escala_diaria')
+                .delete()
+                .in('escala_mensal_id', pastScaleIds)
+                .is('presenca_entrada_em', null)
+                .is('presenca_saida_em', null)
+
+              // Tentar deletar as escalas mensais correspondentes
+              await supabase
+                .from('escala_mensal')
+                .delete()
+                .in('id', pastScaleIds)
+            }
+          }
+        }
+      }
+    } catch (cleanError: any) {
+      console.error('Erro ao limpar escalas na transferência:', cleanError)
+    }
   }
 
   const updateData: any = {
