@@ -17,12 +17,14 @@ CREATE TABLE IF NOT EXISTS public.historico_transferencias (
 
 -- 2. Adjust folha_ponto unique constraints
 ALTER TABLE public.folha_ponto DROP CONSTRAINT IF EXISTS unique_servidor_mes_ano;
+ALTER TABLE public.folha_ponto DROP CONSTRAINT IF EXISTS unique_escala_mensal_id;
 ALTER TABLE public.folha_ponto ADD CONSTRAINT unique_escala_mensal_id UNIQUE (escala_mensal_id);
 
 -- 3. Enable RLS on historico_transferencias
 ALTER TABLE public.historico_transferencias ENABLE ROW LEVEL SECURITY;
 
 -- 4. Create RLS Policies
+DROP POLICY IF EXISTS "Admins e Coordenadores podem ler historico_transferencias" ON public.historico_transferencias;
 CREATE POLICY "Admins e Coordenadores podem ler historico_transferencias" ON public.historico_transferencias
     FOR SELECT TO authenticated
     USING (
@@ -38,6 +40,7 @@ CREATE POLICY "Admins e Coordenadores podem ler historico_transferencias" ON pub
          ))
     );
 
+DROP POLICY IF EXISTS "Admins e Coordenadores podem inserir historico_transferencias" ON public.historico_transferencias;
 CREATE POLICY "Admins e Coordenadores podem inserir historico_transferencias" ON public.historico_transferencias
     FOR INSERT TO authenticated
     WITH CHECK (
