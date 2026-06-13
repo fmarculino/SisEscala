@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { Users, Plus, UserCircle, Building2, Search, Filter, Layers, UserX, UserCheck, FileDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 
 interface Servidor {
   id: string
@@ -36,6 +37,7 @@ interface ServidoresClientProps {
 }
 
 export function ServidoresClient({ initialServidores, unidades, setores }: ServidoresClientProps) {
+  const router = useRouter()
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedUnidade, setSelectedUnidade] = useState('')
   const [selectedSetor, setSelectedSetor] = useState('')
@@ -399,12 +401,17 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
             </thead>
             <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
               {paginatedServidores.map((servidor) => (
-                <tr key={servidor.id} className={`hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors group ${servidor.status === 'Inativo' ? 'opacity-60 grayscale-[0.5]' : ''}`}>
-                  <td className="px-6 py-4 whitespace-nowrap w-10">
+                <tr 
+                  key={servidor.id} 
+                  onClick={() => router.push(`/servidores/${servidor.id}`)}
+                  className={`cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors group ${servidor.status === 'Inativo' ? 'opacity-60 grayscale-[0.5]' : ''}`}
+                >
+                  <td className="px-6 py-4 whitespace-nowrap w-10" onClick={(e) => e.stopPropagation()}>
                     <input
                       type="checkbox"
                       checked={selectedIds.has(servidor.id)}
                       onChange={(e) => handleSelectRow(servidor.id, e.target.checked)}
+                      onClick={(e) => e.stopPropagation()}
                       className="rounded border-zinc-300 dark:border-zinc-700 text-blue-600 focus:ring-blue-500 bg-white dark:bg-zinc-955"
                     />
                   </td>
@@ -425,7 +432,7 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-zinc-600 dark:text-zinc-400 font-medium">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-col items-start gap-0.5">
                       <span>{servidor.matricula || '---'}</span>
                       {servidor.matricula && /^T\d{7}$/.test(servidor.matricula) && (
                         <span className="inline-flex items-center rounded-md bg-amber-50 px-2 py-0.5 text-[9px] font-bold text-amber-800 border border-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-900/30">
@@ -472,7 +479,7 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
                     <Link href={`/servidores/${servidor.id}`} className="inline-flex items-center text-blue-600 hover:text-blue-900 font-bold px-3 py-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all">
                       Gerenciar
                     </Link>
