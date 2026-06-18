@@ -170,7 +170,7 @@ export async function getServidoresFolhaPonto(mes: number, ano: number, unidadeI
     // 3. Fetch existing folhas
     const { data: folhas, error: folhaError } = await supabase
       .from('folha_ponto')
-      .select('id, status, servidor_id, total_horas_normais, total_horas_extras_50, total_horas_extras_100, total_faltas')
+      .select('id, status, servidor_id, escala_mensal_id, total_horas_normais, total_horas_extras_50, total_horas_extras_100, total_faltas')
       .in('servidor_id', serverIds)
       .eq('mes', mes)
       .eq('ano', ano)
@@ -180,7 +180,7 @@ export async function getServidoresFolhaPonto(mes: number, ano: number, unidadeI
     // 4. Map together
     const mapped = servidores.map(s => {
       const escala = escalas?.find(e => e.servidor_id === s.id)
-      const folha = folhas?.find(f => f.servidor_id === s.id)
+      const folha = escala ? folhas?.find(f => f.escala_mensal_id === escala.id) : null
 
       return {
         servidor_id: s.id,

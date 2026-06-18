@@ -73,27 +73,24 @@ export function applyAccessFilters(
   }
 
   // 2. Caso: Usuário tem unidades específicas (Herança de Unidade -> Setores)
-  // REGRA: Somente ADMIN herda acesso a todos os setores de uma unidade vinculada.
-  // COORDENADOR precisa estar vinculado ao setor especificamente para ver dados do setor,
-  // a menos que ele tenha acesso total aos setores (acesso_todos_setores = true).
-  const isAdminOrSuper = profile.role === 'admin' || profile.role === 'super_admin'
-  const isAdminOrSuperOrAllSectors = isAdminOrSuper || profile.acesso_todos_setores
+  // REGRA: Usuários herdam acesso a todos os setores da unidade vinculada apenas se tiverem acesso_todos_setores = true.
+  // Caso contrário, precisam estar vinculados aos setores especificamente.
+  const hasAllSectorsAccess = profile.acesso_todos_setores
 
   if (profile.permitted_unidades.length > 0) {
-    if (isAdminOrSuperOrAllSectors) {
-      // Admin ou usuário com acesso total a setores vê tudo da unidade OU setores extras
+    if (hasAllSectorsAccess) {
+      // Usuário com acesso total a setores vê tudo da unidade OU setores extras
       if (profile.permitted_setores.length > 0) {
         return query.or(`${unidadeField}.in.(${profile.permitted_unidades.join(',')}),${setorField}.in.(${profile.permitted_setores.join(',')})`)
       }
       return query.in(unidadeField, profile.permitted_unidades)
     } else {
-      // Coordenador (ou outros) sem acesso total a setores: Vê apenas os setores vinculados, 
-      // mesmo que a unidade esteja vinculada (a unidade serve para filtros de UI e servidores)
+      // Usuário sem acesso total a setores: Vê apenas os setores vinculados
       if (profile.permitted_setores.length > 0) {
         return query.in(setorField, profile.permitted_setores)
       }
       
-      // Se não tem setores vinculados, mas tem unidade, e é coordenador:
+      // Se não tem setores vinculados, mas tem unidade:
       // Retorna vazio para escalas/setores, pois ele deve ser vinculado ao setor.
       return query.eq('id', '00000000-0000-0000-0000-000000000000')
     }
@@ -129,9 +126,6 @@ export function hasSectorAccess(profile: UserProfile | null, setorId: string, un
   
   // Se o usuário tem acesso total aos setores da sua unidade, ele tem acesso a qualquer setor da unidade à qual ele tem acesso
   if (profile.acesso_todos_setores && unidadeId && hasUnitAccess(profile, unidadeId)) return true
-
-  // Se tem acesso à unidade do setor e é admin, tem acesso a todos os setores da unidade (Herança de admin)
-  if (profile.role === 'admin' && unidadeId && hasUnitAccess(profile, unidadeId)) return true
   
   // Caso contrário, precisa estar explicitamente listado nos setores permitidos
   return profile.permitted_setores.includes(setorId)
