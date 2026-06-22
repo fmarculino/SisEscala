@@ -419,7 +419,7 @@ export async function cancelSwapRequest(solicitacaoId: string) {
   return { success: true }
 }
 
-export async function getFolhaPontoServidor(servidorId: string, mes: number, ano: number) {
+export async function getFolhaPontoServidor(servidorId: string, mes: number, ano: number, escalaMensalId?: string) {
   const supabase = await createAdminClient()
   const cookieStore = await cookies()
   const portalServidorId = cookieStore.get('portal_servidor_id')?.value
@@ -432,13 +432,18 @@ export async function getFolhaPontoServidor(servidorId: string, mes: number, ano
     return { error: 'Acesso negado.' }
   }
 
-  const { data: folha, error } = await supabase
+  let query = supabase
     .from('folha_ponto')
     .select('*, servidores(*)')
     .eq('servidor_id', servidorId)
-    .eq('mes', mes)
-    .eq('ano', ano)
-    .maybeSingle()
+
+  if (escalaMensalId) {
+    query = query.eq('escala_mensal_id', escalaMensalId)
+  } else {
+    query = query.eq('mes', mes).eq('ano', ano)
+  }
+
+  const { data: folha, error } = await query.maybeSingle()
 
   if (error) {
     return { error: error.message }
@@ -1035,7 +1040,7 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
 }
 
 // Server Action: Generate or regenerate employee's timesheet from the portal
-export async function gerarFolhaPontoServidor(servidorId: string, mes: number, ano: number, forcarRascunho: boolean = false) {
+export async function gerarFolhaPontoServidor(servidorId: string, mes: number, ano: number, forcarRascunho: boolean = false, escalaMensalId?: string) {
   try {
     const supabase = await createAdminClient()
     const cookieStore = await cookies()
@@ -1050,13 +1055,17 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
     }
 
     // Check if the sheet already exists and is closed (Revisada)
-    const { data: existingFolha } = await supabase
+    let existingQuery = supabase
       .from('folha_ponto')
       .select('status')
-      .eq('servidor_id', servidorId)
-      .eq('mes', mes)
-      .eq('ano', ano)
-      .maybeSingle()
+
+    if (escalaMensalId) {
+      existingQuery = existingQuery.eq('escala_mensal_id', escalaMensalId)
+    } else {
+      existingQuery = existingQuery.eq('servidor_id', servidorId).eq('mes', mes).eq('ano', ano)
+    }
+
+    const { data: existingFolha } = await existingQuery.maybeSingle()
 
     if (await isCompetencyClosed(mes, ano)) {
       return { error: 'Esta competência está encerrada e todos os dados estão congelados para auditoria.' }
@@ -1076,18 +1085,34 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
     if (servError || !servidor) throw new Error('Servidor não encontrado')
 
     // Fetch the active lotação escala_mensal
-    const { data: escala, error: escError } = await supabase
-      .from('escala_mensal')
-      .select('id, status, jornada_id, jornadas(nome, intervalo_minutos, horas_totais)')
-      .eq('servidor_id', servidorId)
-      .eq('unidade_id', servidor.unidade_id)
-      .eq('setor_id', servidor.setor_id)
-      .eq('mes', mes)
-      .eq('ano', ano)
-      .eq('ativo', true)
-      .maybeSingle()
+    let escala;
+    if (escalaMensalId) {
+      const { data: esc, error: escError } = await supabase
+        .from('escala_mensal')
+        .select('id, status, jornada_id, jornadas(nome, intervalo_minutos, horas_totais), unidade_id, setor_id')
+        .eq('id', escalaMensalId)
+        .eq('servidor_id', servidorId)
+        .eq('ativo', true)
+        .single()
+      
+      if (escError) throw escError
+      escala = esc
+    } else {
+      const { data: esc, error: escError } = await supabase
+        .from('escala_mensal')
+        .select('id, status, jornada_id, jornadas(nome, intervalo_minutos, horas_totais), unidade_id, setor_id')
+        .eq('servidor_id', servidorId)
+        .eq('unidade_id', servidor.unidade_id)
+        .eq('setor_id', servidor.setor_id)
+        .eq('mes', mes)
+        .eq('ano', ano)
+        .eq('ativo', true)
+        .maybeSingle()
+      
+      if (escError) throw escError
+      escala = esc
+    }
 
-    if (escError) throw escError
     if (!escala) {
       return { error: 'Servidor não possui escala regular criada neste setor para o mês selecionado.' }
     }
@@ -1321,7 +1346,7 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
         total_faltas: totalFaltas,
         ultima_edicao_em: new Date().toISOString()
       }, {
-        onConflict: 'servidor_id,mes,ano'
+        onConflict: 'escala_mensal_id'
       })
 
     if (upsertError) throw upsertError

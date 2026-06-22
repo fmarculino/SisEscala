@@ -49,7 +49,7 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
     setLoadingFolha(true)
     setError(null)
     try {
-      const res = await getFolhaPontoServidor(servidor.id, selectedEscala.mes, selectedEscala.ano)
+      const res = await getFolhaPontoServidor(servidor.id, selectedEscala.mes, selectedEscala.ano, selectedEscala.id)
       if (res.error) {
         setError(res.error)
       } else {
@@ -71,7 +71,7 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
       const scaleStatus = myEM?.status || 'Em Andamento'
       const forcarRascunho = scaleStatus === 'Em Andamento'
 
-      const res = await gerarFolhaPontoServidor(servidor.id, selectedEscala.mes, selectedEscala.ano, forcarRascunho)
+      const res = await gerarFolhaPontoServidor(servidor.id, selectedEscala.mes, selectedEscala.ano, forcarRascunho, selectedEscala.id)
       if (res.error) {
         setError(res.error)
       } else {
@@ -453,6 +453,21 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
           Sair do Portal
         </button>
       </div>
+
+      {error && (
+        <div className="p-4 rounded-xl bg-red-50 dark:bg-red-900/20 text-sm text-red-650 dark:text-red-400 border border-red-100 dark:border-red-900/30 flex justify-between items-center gap-2 print:hidden">
+          <div className="flex gap-2">
+            <span className="font-bold">⚠️</span>
+            <span>{error}</span>
+          </div>
+          <button 
+            onClick={() => setError(null)}
+            className="text-red-500 hover:text-red-700 font-bold px-2 py-1 rounded hover:bg-red-100/50 transition-all text-xs"
+          >
+            Fechar
+          </button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 print:block print:w-full">
         {/* Scales List */}
