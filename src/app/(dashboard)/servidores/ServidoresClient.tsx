@@ -42,6 +42,7 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
   const [selectedUnidade, setSelectedUnidade] = useState('')
   const [selectedSetor, setSelectedSetor] = useState('')
   const [selectedVinculo, setSelectedVinculo] = useState('')
+  const [selectedCargo, setSelectedCargo] = useState('')
   const [selectedStatus, setSelectedStatus] = useState<string>('Ativo')
 
   const [page, setPage] = useState(1)
@@ -53,13 +54,22 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
   useEffect(() => {
     setPage(1)
     setSelectedIds(new Set())
-  }, [searchTerm, selectedUnidade, selectedSetor, selectedVinculo, selectedStatus])
+  }, [searchTerm, selectedUnidade, selectedSetor, selectedCargo, selectedVinculo, selectedStatus])
 
   // Filter sectors based on selected unit
   const filteredSetoresOptions = useMemo(() => {
     if (!selectedUnidade) return setores
     return setores.filter(s => s.unidade_id === selectedUnidade)
   }, [selectedUnidade, setores])
+
+  // Extract unique cargo values from list of servers for filtering
+  const cargosOptions = useMemo(() => {
+    const uniqueCargos = Array.from(
+      new Set(initialServidores.map(s => s.cargo).filter(Boolean))
+    )
+    uniqueCargos.sort((a, b) => a.localeCompare(b))
+    return uniqueCargos
+  }, [initialServidores])
 
   // Main filtering logic
   const filteredServidores = useMemo(() => {
@@ -79,12 +89,13 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
       
       const matchesUnidade = !selectedUnidade || s.unidade_id === selectedUnidade
       const matchesSetor = !selectedSetor || s.setor_id === selectedSetor
+      const matchesCargo = !selectedCargo || s.cargo === selectedCargo
       const matchesVinculo = !selectedVinculo || s.vinculo === selectedVinculo
       const matchesStatus = !selectedStatus || s.status === selectedStatus
 
-      return matchesSearch && matchesUnidade && matchesSetor && matchesVinculo && matchesStatus
+      return matchesSearch && matchesUnidade && matchesSetor && matchesCargo && matchesVinculo && matchesStatus
     })
-  }, [initialServidores, searchTerm, selectedUnidade, selectedSetor, selectedVinculo, selectedStatus])
+  }, [initialServidores, searchTerm, selectedUnidade, selectedSetor, selectedCargo, selectedVinculo, selectedStatus])
 
   // Paginated servers local calculation
   const totalCount = filteredServidores.length
@@ -145,6 +156,10 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
       const unidadeName = selectedUnidade 
         ? unidades.find(u => u.id === selectedUnidade)?.nome 
         : 'Todas'
+      const setorName = selectedSetor
+        ? setores.find(s => s.id === selectedSetor)?.nome 
+        : 'Todos'
+      const cargoName = selectedCargo || 'Todos'
       const vinculoName = selectedVinculo || 'Todos'
       const statusName = selectedStatus || 'Todos'
       const searchDescription = searchTerm ? `"${searchTerm}"` : 'Nenhum'
@@ -219,10 +234,14 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
                 </div>
               </div>
 
-              <div class="grid grid-cols-4 gap-4 mb-6 bg-zinc-50 p-4 rounded-xl border border-zinc-100 text-xs">
+              <div class="grid grid-cols-5 gap-4 mb-6 bg-zinc-50 p-4 rounded-xl border border-zinc-100 text-xs">
                 <div>
-                  <p class="text-[9px] font-black text-zinc-400 uppercase">Unidade</p>
-                  <p class="font-bold text-zinc-800">${unidadeName}</p>
+                  <p class="text-[9px] font-black text-zinc-400 uppercase">Unidade / Setor</p>
+                  <p class="font-bold text-zinc-800">${unidadeName} / ${setorName}</p>
+                </div>
+                <div>
+                  <p class="text-[9px] font-black text-zinc-400 uppercase">Cargo</p>
+                  <p class="font-bold text-zinc-800">${cargoName}</p>
                 </div>
                 <div>
                   <p class="text-[9px] font-black text-zinc-400 uppercase">Vínculo</p>
@@ -315,7 +334,7 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
       </div>
 
       {/* Filters Bar */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 bg-zinc-50 dark:bg-zinc-800/40 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4 bg-zinc-50 dark:bg-zinc-800/40 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
           <input
@@ -338,6 +357,28 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
           <option value="">Todas as Unidades</option>
           {unidades.map(u => (
             <option key={u.id} value={u.id}>{u.nome}</option>
+          ))}
+        </select>
+
+        <select
+          value={selectedSetor}
+          onChange={(e) => setSelectedSetor(e.target.value)}
+          className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+        >
+          <option value="">Todos os Setores</option>
+          {filteredSetoresOptions.map(s => (
+            <option key={s.id} value={s.id}>{s.nome}</option>
+          ))}
+        </select>
+
+        <select
+          value={selectedCargo}
+          onChange={(e) => setSelectedCargo(e.target.value)}
+          className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+        >
+          <option value="">Todos os Cargos</option>
+          {cargosOptions.map(c => (
+            <option key={c} value={c}>{c}</option>
           ))}
         </select>
 
@@ -367,6 +408,7 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
             setSearchTerm('')
             setSelectedUnidade('')
             setSelectedSetor('')
+            setSelectedCargo('')
             setSelectedVinculo('')
             setSelectedStatus('Ativo')
             setSelectedIds(new Set())
@@ -502,6 +544,7 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
                 setSearchTerm('')
                 setSelectedUnidade('')
                 setSelectedSetor('')
+                setSelectedCargo('')
                 setSelectedVinculo('')
                 setSelectedStatus('Ativo')
                 setSelectedIds(new Set())
