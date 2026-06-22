@@ -278,7 +278,7 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
     }
   }
 
-  const vinculos = ['Contratada', 'Concursada', 'Efetiva', 'Comissionada']
+  const vinculos = ['Contratada', 'Concursada', 'Efetiva', 'Comissionada', 'Estagiária']
 
   return (
     <div className="space-y-6">
@@ -462,6 +462,7 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
                       servidor.vinculo === 'Efetiva' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800' : 
                       servidor.vinculo === 'Contratada' ? 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800' :
                       servidor.vinculo === 'Concursada' ? 'bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-900/20 dark:text-indigo-400 dark:border-indigo-800' :
+                      servidor.vinculo === 'Estagiária' ? 'bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-900/20 dark:text-purple-400 dark:border-purple-800' :
                       'bg-orange-50 text-orange-700 border border-orange-200 dark:bg-orange-900/20 dark:text-orange-400 dark:border-orange-800'
                     }`}>
                       {servidor.vinculo}

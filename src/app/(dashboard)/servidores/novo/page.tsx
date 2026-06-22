@@ -278,6 +278,7 @@ export default function NovoServidorPage() {
               <option value="Contratada">Contratada</option>
               <option value="Concursada">Concursada</option>
               <option value="Comissionada">Comissionada</option>
+              <option value="Estagiária">Estagiária</option>
             </select>
           </div>
 

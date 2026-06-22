@@ -241,6 +241,7 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
               <option value="Concursada">Concursada</option>
               <option value="Contratada">Contratada</option>
               <option value="Comissionada">Comissionada</option>
+              <option value="Estagiária">Estagiária</option>
             </select>
           </div>
 
