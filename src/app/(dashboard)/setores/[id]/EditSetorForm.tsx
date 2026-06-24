@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import { Save, Layers, Building2, ChevronRight, Info } from 'lucide-react'
 import { updateSetor } from '../actions'
 import { LogoUploadManager } from '@/components/LogoUploadManager'
+import { GeoLocationPicker } from '@/components/GeoLocationPicker'
 
 interface EditSetorFormProps {
   setor: any
@@ -211,6 +212,13 @@ export default function EditSetorForm({ setor, unidades, setoresPai, dicionario 
             </label>
           </div>
         </div>
+
+        {/* Geolocalização */}
+        <GeoLocationPicker 
+          defaultLat={setor.latitude} 
+          defaultLong={setor.longitude} 
+          defaultRaio={setor.raio_geofence} 
+        />
 
         {/* Logotipo do Setor */}
         <div>

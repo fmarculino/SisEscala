@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react'
 import { Save, Layers, Building2, ChevronRight, Info } from 'lucide-react'
 import { createSetor } from '../actions'
+import { GeoLocationPicker } from '@/components/GeoLocationPicker'
 
 interface NovoSetorFormProps {
   unidades: any[]
@@ -242,6 +243,9 @@ export default function NovoSetorForm({ unidades, setoresExistentes, dicionario 
             </label>
           </div>
         </div>
+
+        {/* Geolocalização */}
+        <GeoLocationPicker />
 
         {/* Logotipo do Setor */}
         <div>

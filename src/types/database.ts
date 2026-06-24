@@ -96,6 +96,9 @@ export interface Database {
           servidores_noite_ideal: number | null
           servidores_noite_max: number | null
           dimensionamento_fds_feriados: boolean | null
+          latitude: number | null
+          longitude: number | null
+          raio_geofence: number | null
         }
       }
       servidores: {

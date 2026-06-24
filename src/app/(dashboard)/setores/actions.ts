@@ -41,6 +41,10 @@ export async function createSetor(formData: FormData) {
 
   const dimensionamento_fds_feriados = formData.get('dimensionamento_fds_feriados') === 'true'
 
+  const latitude = formData.get('latitude') ? parseFloat(formData.get('latitude') as string) : null
+  const longitude = formData.get('longitude') ? parseFloat(formData.get('longitude') as string) : null
+  const raio_geofence = (latitude !== null && longitude !== null && formData.get('raio_geofence')) ? parseInt(formData.get('raio_geofence') as string) : null
+
   // 1. Garantir que o nome existe no dicionário
   const { data: dictEntry, error: dictError } = await supabase
     .from('dicionario_setores')
@@ -95,7 +99,10 @@ export async function createSetor(formData: FormData) {
     servidores_noite_min,
     servidores_noite_ideal,
     servidores_noite_max,
-    dimensionamento_fds_feriados
+    dimensionamento_fds_feriados,
+    latitude,
+    longitude,
+    raio_geofence
   })
 
   if (error) {
@@ -133,6 +140,10 @@ export async function updateSetor(id: string, formData: FormData) {
 
   const dimensionamento_fds_feriados = formData.get('dimensionamento_fds_feriados') === 'true'
 
+  const latitude = formData.get('latitude') ? parseFloat(formData.get('latitude') as string) : null
+  const longitude = formData.get('longitude') ? parseFloat(formData.get('longitude') as string) : null
+  const raio_geofence = (latitude !== null && longitude !== null && formData.get('raio_geofence')) ? parseInt(formData.get('raio_geofence') as string) : null
+
   // 1. Garantir que o nome existe no dicionário
   const { data: dictEntry, error: dictError } = await supabase
     .from('dicionario_setores')
@@ -157,7 +168,10 @@ export async function updateSetor(id: string, formData: FormData) {
     servidores_noite_min,
     servidores_noite_ideal,
     servidores_noite_max,
-    dimensionamento_fds_feriados
+    dimensionamento_fds_feriados,
+    latitude,
+    longitude,
+    raio_geofence
   }
 
   const removeLogo = formData.get('remove_logo') === 'true'
