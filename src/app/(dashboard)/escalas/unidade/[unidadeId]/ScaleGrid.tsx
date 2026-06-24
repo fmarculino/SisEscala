@@ -2168,7 +2168,11 @@ export function ScaleGrid({
                         const activeEvent = getActiveEventForDay(em.servidor_id, day)
                         const permitirPlantaoExtra = configs['permitir_plantao_extra_durante_eventos'] === 'true'
                         const isRegular = cat === 'Regular'
-                        const isCellBlockedByEvent = activeEvent && (isRegular || !permitirPlantaoExtra)
+                        const isCellBlockedByEvent = activeEvent && (isRegular || !permitirPlantaoExtra) && (
+                          !activeEvent.slots || 
+                          activeEvent.slots.length === 0 || 
+                          activeEvent.slots.some((s: string) => currentSlots.includes(s))
+                        )
                         const eventAbbr = activeEvent ? activeEvent.tipos_eventos?.nome.substring(0, 3).toUpperCase() : ''
 
                         return (
@@ -2181,7 +2185,7 @@ export function ScaleGrid({
                               ${(presenceData[em.servidor_id]?.[cat]?.[day]?.entrada || presenceData[em.servidor_id]?.[cat]?.[day]?.saida || effectiveStatus === 'Chegou') ? 'bg-emerald-50/50 dark:bg-emerald-900/10' : ''}`}
                             title={
                               isCellBlockedByEvent 
-                                ? `⚠️ BLOQUEADO: Servidor em afastamento (${activeEvent.tipos_eventos?.nome})${activeEvent.observacao ? ` - ${activeEvent.observacao}` : ''}`
+                                ? `⚠️ BLOQUEADO: Servidor em afastamento (${activeEvent.tipos_eventos?.nome})${activeEvent.slots && activeEvent.slots.length > 0 ? ` [Período: ${activeEvent.slots.join(', ')}]` : ''}${activeEvent.observacao ? ` - ${activeEvent.observacao}` : ''}`
                                 : hasExternalConflict 
                                   ? `⚠️ CONFLITO REAL: ${realConflictDetails}` 
                                   : isBusyElsewhere

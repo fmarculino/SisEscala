@@ -134,7 +134,15 @@ export function PortalScaleGrid({ data, servidorId }: PortalScaleGridProps) {
                         const isHoliday = !!feriado
 
                         const activeEvent = getActiveEventForDay(em.servidor_id, day)
-                        const isCellBlockedByEvent = activeEvent && (cat === 'Regular' || !permitirPlantaoExtra)
+                        const currentTurnoId = gridData[em.servidor_id]?.[cat]?.[day]
+                        const currentTurno = turnos.find((t: any) => t.id === currentTurnoId)
+                        const currentSlots = currentTurno?.slots || []
+
+                        const isCellBlockedByEvent = activeEvent && (cat === 'Regular' || !permitirPlantaoExtra) && (
+                          !activeEvent.slots || 
+                          activeEvent.slots.length === 0 || 
+                          activeEvent.slots.some((s: string) => currentSlots.includes(s))
+                        )
 
                         if (isCellBlockedByEvent) {
                           const eventAbbr = activeEvent.tipos_eventos?.nome.substring(0, 3).toUpperCase() || ''

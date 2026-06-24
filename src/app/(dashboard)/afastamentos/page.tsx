@@ -31,6 +31,7 @@ interface ServidorEvento {
   data_inicio: string
   data_fim: string
   observacao: string | null
+  slots: string[] | null
   servidores: {
     id: string
     nome: string
@@ -64,6 +65,8 @@ export default function AfastamentosPage() {
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [observacao, setObservacao] = useState('')
+  const [selectedPeriodo, setSelectedPeriodo] = useState<'integral' | 'M' | 'T' | 'N' | 'custom'>('integral')
+  const [customSlots, setCustomSlots] = useState<string[]>([])
 
   // Search & List Filters
   const [searchTerm, setSearchTerm] = useState('')
@@ -281,7 +284,13 @@ export default function AfastamentosPage() {
     try {
       const { data: { user } } = await supabase.auth.getUser()
       
-      // 1. Validar se o servidor possui alguma escala prevista no período
+      let slotsValue: string[] | null = null
+      if (selectedPeriodo === 'M') slotsValue = ['M']
+      else if (selectedPeriodo === 'T') slotsValue = ['T']
+      else if (selectedPeriodo === 'N') slotsValue = ['N']
+      else if (selectedPeriodo === 'custom') slotsValue = customSlots.length > 0 ? customSlots : null
+
+      // 1. Validar se o servidor possui alguma escala prevista no período com conflito de slots
       const { data: monthlyScales } = await supabase
         .from('escala_mensal')
         .select('id, mes, ano')
@@ -291,7 +300,7 @@ export default function AfastamentosPage() {
         const ids = monthlyScales.map(m => m.id)
         const { data: dailies } = await supabase
           .from('escala_diaria')
-          .select('id, dia, escala_mensal_id')
+          .select('id, dia, escala_mensal_id, dicionario_turnos(slots)')
           .in('escala_mensal_id', ids)
 
         if (dailies && dailies.length > 0) {
@@ -299,7 +308,12 @@ export default function AfastamentosPage() {
             const mScale = monthlyScales.find(m => m.id === d.escala_mensal_id)
             if (!mScale) return false
             const dayDate = new Date(mScale.ano, mScale.mes - 1, d.dia)
-            return dayDate >= start && dayDate <= end
+            const dateMatch = dayDate >= start && dayDate <= end
+            if (!dateMatch) return false
+
+            if (!slotsValue || slotsValue.length === 0) return true
+            const shiftSlots = (d.dicionario_turnos as any)?.slots || []
+            return shiftSlots.some((s: string) => slotsValue!.includes(s))
           })
 
           if (hasScaleConflict) {
@@ -307,7 +321,7 @@ export default function AfastamentosPage() {
             setAlertModal({
               isOpen: true,
               title: '⚠️ Conflito de Escala Detectado',
-              message: 'Não é permitido cadastrar o afastamento neste período pois o servidor possui escala prevista ou confirmada na grade. O coordenador deve primeiro remover a previsão da escala na grade da unidade.',
+              message: 'Não é permitido cadastrar o afastamento neste período pois o servidor possui escala prevista ou confirmada incompatível na grade. O coordenador deve primeiro remover a previsão da escala na grade da unidade.',
               type: 'warning'
             })
             return
@@ -315,7 +329,7 @@ export default function AfastamentosPage() {
         }
       }
 
-      await executeInsertion(user?.id)
+      await executeInsertion(user?.id, slotsValue)
 
     } catch (error: any) {
       setAlertModal({
@@ -329,7 +343,7 @@ export default function AfastamentosPage() {
   }
 
   // DB insertion execution
-  const executeInsertion = async (userId?: string) => {
+  const executeInsertion = async (userId?: string, slotsValue: string[] | null = null) => {
     setSaving(true)
     try {
       const { error } = await supabase
@@ -340,7 +354,8 @@ export default function AfastamentosPage() {
           data_inicio: startDate,
           data_fim: endDate,
           observacao: observacao || null,
-          criado_por: userId || null
+          criado_por: userId || null,
+          slots: slotsValue
         })
 
       if (error) throw error
@@ -353,13 +368,16 @@ export default function AfastamentosPage() {
         servidor_nome: serverName,
         tipo_afastamento: typeName,
         data_inicio: startDate,
-        data_fim: endDate
+        data_fim: endDate,
+        slots: slotsValue
       })
 
       setStartDate('')
       setEndDate('')
       setObservacao('')
       setSelectedServidor('')
+      setSelectedPeriodo('integral')
+      setCustomSlots([])
 
       await fetchAfastamentos()
 
@@ -392,6 +410,17 @@ export default function AfastamentosPage() {
     setStartDate(a.data_inicio)
     setEndDate(a.data_fim)
     setObservacao(a.observacao || '')
+    
+    if (!a.slots || a.slots.length === 0) {
+      setSelectedPeriodo('integral')
+      setCustomSlots([])
+    } else if (a.slots.length === 1 && (a.slots[0] === 'M' || a.slots[0] === 'T' || a.slots[0] === 'N')) {
+      setSelectedPeriodo(a.slots[0] as any)
+      setCustomSlots([])
+    } else {
+      setSelectedPeriodo('custom')
+      setCustomSlots(a.slots)
+    }
   }
 
   const cancelEditing = () => {
@@ -403,9 +432,11 @@ export default function AfastamentosPage() {
     setStartDate('')
     setEndDate('')
     setObservacao('')
+    setSelectedPeriodo('integral')
+    setCustomSlots([])
   }
 
-  const executeUpdate = async (id: string, userId?: string) => {
+  const executeUpdate = async (id: string, userId?: string, slotsValue: string[] | null = null) => {
     setSaving(true)
     try {
       const { error } = await supabase
@@ -416,6 +447,7 @@ export default function AfastamentosPage() {
           data_inicio: startDate,
           data_fim: endDate,
           observacao: observacao || null,
+          slots: slotsValue,
           updated_at: new Date().toISOString()
         })
         .eq('id', id)
@@ -431,7 +463,8 @@ export default function AfastamentosPage() {
         servidor_nome: serverName,
         tipo_afastamento: typeName,
         data_inicio: startDate,
-        data_fim: endDate
+        data_fim: endDate,
+        slots: slotsValue
       })
 
       cancelEditing()
@@ -486,8 +519,14 @@ export default function AfastamentosPage() {
 
     try {
       const { data: { user } } = await supabase.auth.getUser()
+
+      let slotsValue: string[] | null = null
+      if (selectedPeriodo === 'M') slotsValue = ['M']
+      else if (selectedPeriodo === 'T') slotsValue = ['T']
+      else if (selectedPeriodo === 'N') slotsValue = ['N']
+      else if (selectedPeriodo === 'custom') slotsValue = customSlots.length > 0 ? customSlots : null
       
-      // 1. Validar se o servidor possui alguma escala prevista no período
+      // 1. Validar se o servidor possui alguma escala prevista no período com conflito de slots
       const { data: monthlyScales } = await supabase
         .from('escala_mensal')
         .select('id, mes, ano')
@@ -497,7 +536,7 @@ export default function AfastamentosPage() {
         const ids = monthlyScales.map(m => m.id)
         const { data: dailies } = await supabase
           .from('escala_diaria')
-          .select('id, dia, escala_mensal_id')
+          .select('id, dia, escala_mensal_id, dicionario_turnos(slots)')
           .in('escala_mensal_id', ids)
 
         if (dailies && dailies.length > 0) {
@@ -505,7 +544,12 @@ export default function AfastamentosPage() {
             const mScale = monthlyScales.find(m => m.id === d.escala_mensal_id)
             if (!mScale) return false
             const dayDate = new Date(mScale.ano, mScale.mes - 1, d.dia)
-            return dayDate >= start && dayDate <= end
+            const dateMatch = dayDate >= start && dayDate <= end
+            if (!dateMatch) return false
+
+            if (!slotsValue || slotsValue.length === 0) return true
+            const shiftSlots = (d.dicionario_turnos as any)?.slots || []
+            return shiftSlots.some((s: string) => slotsValue!.includes(s))
           })
 
           if (hasScaleConflict) {
@@ -513,7 +557,7 @@ export default function AfastamentosPage() {
             setAlertModal({
               isOpen: true,
               title: '⚠️ Conflito de Escala Detectado',
-              message: 'Não é permitido alterar o afastamento para este período pois o servidor possui escala prevista ou confirmada na grade. O coordenador deve primeiro remover a previsão da escala na grade da unidade.',
+              message: 'Não é permitido alterar o afastamento para este período pois o servidor possui escala prevista ou confirmada incompatível na grade. O coordenador deve primeiro remover a previsão da escala na grade da unidade.',
               type: 'warning'
             })
             return
@@ -521,7 +565,7 @@ export default function AfastamentosPage() {
         }
       }
 
-      await executeUpdate(editingId, user?.id)
+      await executeUpdate(editingId, user?.id, slotsValue)
 
     } catch (error: any) {
       setAlertModal({
@@ -653,6 +697,57 @@ export default function AfastamentosPage() {
                 ))}
               </select>
             </div>
+
+            <div>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Período do Afastamento</label>
+              <select
+                value={selectedPeriodo}
+                onChange={e => {
+                  const val = e.target.value as any
+                  setSelectedPeriodo(val)
+                  if (val === 'integral') setCustomSlots([])
+                  else if (val === 'M') setCustomSlots(['M'])
+                  else if (val === 'T') setCustomSlots(['T'])
+                  else if (val === 'N') setCustomSlots(['N'])
+                  else setCustomSlots(['M', 'T'])
+                }}
+                className="w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-sm mb-1"
+              >
+                <option value="integral">Dia Inteiro (Integral)</option>
+                <option value="M">Meio Período - Manhã (M)</option>
+                <option value="T">Meio Período - Tarde (T)</option>
+                <option value="N">Meio Período - Noite (N)</option>
+                <option value="custom">Personalizado (Múltiplos Períodos)</option>
+              </select>
+            </div>
+
+            {selectedPeriodo === 'custom' && (
+              <div className="bg-zinc-50 dark:bg-zinc-800/40 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 space-y-3">
+                <span className="block text-[10px] font-black uppercase tracking-widest text-zinc-500">Selecione os Turnos/Períodos</span>
+                <div className="flex gap-4">
+                  {['M', 'T', 'N'].map(slot => {
+                    const label = slot === 'M' ? 'Manhã' : slot === 'T' ? 'Tarde' : 'Noite'
+                    return (
+                      <label key={slot} className="flex items-center gap-2 text-xs font-bold cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={customSlots.includes(slot)}
+                          onChange={e => {
+                            if (e.target.checked) {
+                              setCustomSlots(prev => [...prev, slot])
+                            } else {
+                              setCustomSlots(prev => prev.filter(s => s !== slot))
+                            }
+                          }}
+                          className="rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        {label} ({slot})
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -816,6 +911,11 @@ export default function AfastamentosPage() {
                           >
                             {a.tipos_eventos?.nome}
                           </span>
+                          <div className="mt-1 flex flex-wrap gap-1 items-center">
+                            <span className="text-[9px] font-bold text-zinc-500 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-800/80 px-1.5 py-0.5 rounded">
+                              {(!a.slots || a.slots.length === 0) ? 'Dia Inteiro' : `Período: ${a.slots.join(', ')}`}
+                            </span>
+                          </div>
                           {a.observacao && (
                             <span 
                               className="block text-[10px] text-zinc-400 italic max-w-[200px] truncate mt-1"

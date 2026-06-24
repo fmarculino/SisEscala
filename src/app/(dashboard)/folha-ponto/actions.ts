@@ -93,6 +93,22 @@ function getAfastamentoNome(tiposEventos: any): string | null {
   return tiposEventos.nome || null
 }
 
+function getAfastamentoObservacao(af: any): string {
+  const baseName = getAfastamentoNome(af.tipos_eventos) || af.observacao || 'Afastado'
+  if (af.slots && af.slots.length > 0) {
+    return `${baseName} (${af.slots.join(', ')})`
+  }
+  return baseName
+}
+
+function isShiftOverlappingAfastamento(afastamento: any, shift: any): boolean {
+  if (!afastamento) return false
+  if (!afastamento.slots || afastamento.slots.length === 0) return true
+  if (!shift || !shift.dicionario_turnos) return false
+  const shiftSlots = (shift.dicionario_turnos as any).slots || []
+  return shiftSlots.some((s: string) => afastamento.slots.includes(s))
+}
+
 
 // List servers for a sector/month with their scale and folha status
 export async function getServidoresFolhaPonto(mes: number, ano: number, unidadeId: string, setorId: string) {
@@ -340,7 +356,7 @@ export async function gerarFolhaPonto(
     // Fetch absences (afastamentos)
     const { data: afastamentos } = await supabase
       .from('servidores_eventos')
-      .select('data_inicio, data_fim, observacao, tipos_eventos(nome)')
+      .select('data_inicio, data_fim, observacao, slots, tipos_eventos(nome)')
       .eq('servidor_id', servidorId)
       .or(`data_inicio.lte.${endDate},data_fim.gte.${startDate}`)
 
@@ -388,12 +404,12 @@ export async function gerarFolhaPonto(
       const dateStr = `${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 
       // Check afastamento
-      const afastamento = afastamentos?.find(af => dateStr >= af.data_inicio && dateStr <= af.data_fim)
+      const rawAfastamento = afastamentos?.find(af => dateStr >= af.data_inicio && dateStr <= af.data_fim)
+      const shift = escalaDiaria?.find(ed => ed.dia === day)
+      const afastamento = isShiftOverlappingAfastamento(rawAfastamento, shift) ? rawAfastamento : null
       
       // Check holiday
       const feriadoInfo = feriados?.find(f => f.data === dateStr)
-
-      const shift = escalaDiaria?.find(ed => ed.dia === day)
 
       // Check manual edits in existing record to preserve them
       const registroExistente = registrosExistentes.find((r: any) => r.dia === day)
@@ -453,7 +469,7 @@ export async function gerarFolhaPonto(
         origem_retorno_intervalo: null,
         origem_saida: null,
         feriado: !!feriadoInfo,
-        afastamento: afastamento ? (getAfastamentoNome(afastamento.tipos_eventos) || afastamento.observacao || 'Afastado') : null
+        afastamento: afastamento ? getAfastamentoObservacao(afastamento) : null
       }
 
       if (registro.afastamento) {
@@ -740,7 +756,7 @@ export async function sincronizarFolhaPonto(folhaId: string) {
     // Fetch absences
     const { data: afastamentos } = await supabase
       .from('servidores_eventos')
-      .select('data_inicio, data_fim, observacao, tipos_eventos(nome)')
+      .select('data_inicio, data_fim, observacao, slots, tipos_eventos(nome)')
       .eq('servidor_id', folha.servidor_id)
       .or(`data_inicio.lte.${endDate},data_fim.gte.${startDate}`)
 
@@ -798,7 +814,8 @@ export async function sincronizarFolhaPonto(folhaId: string) {
       const scaleChangedForDay = (hadShift !== hasShift) || (hadShift && registroExistente.turno_codigo !== getTurnoCodigo(currentShift?.dicionario_turnos))
 
       // Check afastamento and holidays
-      const afastamento = afastamentos?.find(af => dateStr >= af.data_inicio && dateStr <= af.data_fim)
+      const rawAfastamento = afastamentos?.find(af => dateStr >= af.data_inicio && dateStr <= af.data_fim)
+      const afastamento = isShiftOverlappingAfastamento(rawAfastamento, currentShift) ? rawAfastamento : null
       const feriadoInfo = feriados?.find(f => f.data === dateStr)
 
       // Core logic: If day changed, or if it had no manual edits, we regenerate it.
@@ -866,7 +883,7 @@ export async function sincronizarFolhaPonto(folhaId: string) {
         origem_retorno_intervalo: null,
         origem_saida: null,
         feriado: !!feriadoInfo,
-        afastamento: afastamento ? (getAfastamentoNome(afastamento.tipos_eventos) || afastamento.observacao || 'Afastado') : null
+        afastamento: afastamento ? getAfastamentoObservacao(afastamento) : null
       }
 
       if (registro.afastamento) {
