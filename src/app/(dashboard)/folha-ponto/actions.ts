@@ -476,6 +476,9 @@ export async function gerarFolhaPonto(
         registro.observacao = registro.afastamento.toUpperCase()
       } else if (registro.feriado) {
         registro.observacao = `FERIADO: ${feriadoInfo?.descricao}`.toUpperCase()
+        if (rawAfastamento) {
+          registro.observacao = `AFASTAMENTO PARCIAL: ${getAfastamentoObservacao(rawAfastamento)} | ${registro.observacao}`.toUpperCase()
+        }
       } else if (!shift) {
         // Rest day (folga)
         if (dateObj.getDay() === 0) {
@@ -485,9 +488,15 @@ export async function gerarFolhaPonto(
         } else {
           registro.observacao = 'FOLGA'
         }
+        if (rawAfastamento) {
+          registro.observacao = `AFASTAMENTO PARCIAL: ${getAfastamentoObservacao(rawAfastamento)} | ${registro.observacao}`.toUpperCase()
+        }
       } else {
         // Work day!
         totalHorasNormais += horasNormaisDiarias
+        if (rawAfastamento) {
+          registro.observacao = `AFASTAMENTO PARCIAL: ${getAfastamentoObservacao(rawAfastamento)}`.toUpperCase()
+        }
 
         // Check if entry/exit was validated manually by a coordinator
         const isManualEntrada = logs?.some(log => 
@@ -890,6 +899,9 @@ export async function sincronizarFolhaPonto(folhaId: string) {
         registro.observacao = registro.afastamento.toUpperCase()
       } else if (registro.feriado) {
         registro.observacao = `FERIADO: ${feriadoInfo?.descricao}`.toUpperCase()
+        if (rawAfastamento) {
+          registro.observacao = `AFASTAMENTO PARCIAL: ${getAfastamentoObservacao(rawAfastamento)} | ${registro.observacao}`.toUpperCase()
+        }
       } else if (!currentShift) {
         if (dateObj.getDay() === 0) {
           registro.observacao = 'DOMINGO'
@@ -898,8 +910,14 @@ export async function sincronizarFolhaPonto(folhaId: string) {
         } else {
           registro.observacao = 'FOLGA'
         }
+        if (rawAfastamento) {
+          registro.observacao = `AFASTAMENTO PARCIAL: ${getAfastamentoObservacao(rawAfastamento)} | ${registro.observacao}`.toUpperCase()
+        }
       } else {
         totalHorasNormais += horasNormaisDiarias
+        if (rawAfastamento) {
+          registro.observacao = `AFASTAMENTO PARCIAL: ${getAfastamentoObservacao(rawAfastamento)}`.toUpperCase()
+        }
 
         const isManualEntrada = logs?.some(log => 
           log.dia === day && 

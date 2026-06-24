@@ -916,6 +916,9 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
         registro.observacao = registro.afastamento.toUpperCase()
       } else if (registro.feriado) {
         registro.observacao = `FERIADO: ${feriadoInfo?.descricao}`.toUpperCase()
+        if (rawAfastamento) {
+          registro.observacao = `AFASTAMENTO PARCIAL: ${getAfastamentoObservacao(rawAfastamento)} | ${registro.observacao}`.toUpperCase()
+        }
       } else if (!currentShift) {
         if (dateObj.getDay() === 0) {
           registro.observacao = 'DOMINGO'
@@ -924,8 +927,14 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
         } else {
           registro.observacao = 'FOLGA'
         }
+        if (rawAfastamento) {
+          registro.observacao = `AFASTAMENTO PARCIAL: ${getAfastamentoObservacao(rawAfastamento)} | ${registro.observacao}`.toUpperCase()
+        }
       } else {
         totalHorasNormais += horasNormaisDiarias
+        if (rawAfastamento) {
+          registro.observacao = `AFASTAMENTO PARCIAL: ${getAfastamentoObservacao(rawAfastamento)}`.toUpperCase()
+        }
 
         // Check if entry/exit was validated manually by a coordinator
         const isManualEntrada = logs?.some(log =>
@@ -1231,6 +1240,9 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
         registro.observacao = registro.afastamento.toUpperCase()
       } else if (registro.feriado) {
         registro.observacao = `FERIADO: ${feriadoInfo?.descricao}`.toUpperCase()
+        if (rawAfastamento) {
+          registro.observacao = `AFASTAMENTO PARCIAL: ${getAfastamentoObservacao(rawAfastamento)} | ${registro.observacao}`.toUpperCase()
+        }
       } else if (!shift) {
         if (dateObj.getDay() === 0) {
           registro.observacao = 'DOMINGO'
@@ -1239,8 +1251,14 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
         } else {
           registro.observacao = 'FOLGA'
         }
+        if (rawAfastamento) {
+          registro.observacao = `AFASTAMENTO PARCIAL: ${getAfastamentoObservacao(rawAfastamento)} | ${registro.observacao}`.toUpperCase()
+        }
       } else {
         totalHorasNormais += horasNormaisDiarias
+        if (rawAfastamento) {
+          registro.observacao = `AFASTAMENTO PARCIAL: ${getAfastamentoObservacao(rawAfastamento)}`.toUpperCase()
+        }
 
         // Check if entry/exit was validated manually by a coordinator
         const isManualEntrada = logs?.some(log =>
