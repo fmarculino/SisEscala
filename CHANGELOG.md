@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.7.0] - 2026-06-23
+
+### Added
+- **Geolocalização por Setores com Fallback**:
+  - Adicionado suporte para cadastro de geolocalização (`latitude`, `longitude` e `raio_geofence`) na tabela de `setores`.
+  - Implementado fallback automático para as coordenadas da unidade se os dados de geolocalização do setor não forem preenchidos.
+  - Atualização nas Server Actions de criação/edição e nas funções de banco de dados (`register_sobreaviso_arrival` e `get_sobreaviso_details`) para herança automática.
+- **Formatação Hierárquica de Setores nos Dropdowns**:
+  - Nova utilidade `src/utils/sectors.ts` para organizar e identar subsectores nos seletores da aplicação (ex: `↳ ENFERMAGEM` sob `ALA - PSICOSSOCIAL`).
+  - Atualização dos dropdowns em Folha de Ponto, Afastamentos, Nova Escala, Novo Servidor, Editar Servidor e Filtros de Relatórios.
+- **Migração de Dados (ALA - PSICOSSOCIAL)**:
+  - Criada migração `20260624010000_migrate_ala_to_hmm_sector.sql` para converter com segurança a unidade ALA - PSICOSSOCIAL em setor sob a unidade HMM, vinculando suas escalas, servidores e logs históricos.
+
 ## [1.6.1] - 2026-06-12
 
 ### Added

@@ -5,6 +5,7 @@ import { createClient } from '@/utils/supabase/client'
 import { Save, ArrowLeft, Loader2, Layers } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { formatSectorsHierarchy } from '@/utils/sectors'
 
 export default function NovaEscalaPage() {
   const router = useRouter()
@@ -52,7 +53,7 @@ export default function NovaEscalaPage() {
       if (units) setUnidades(units)
 
       // Fetch Sectors
-      let sectorsQuery = supabase.from('setores').select('id, unidade_id, dicionario_setores(nome)').eq('ativo', true)
+      let sectorsQuery = supabase.from('setores').select('id, unidade_id, parent_id, dicionario_setores(nome)').eq('ativo', true)
       if (!prof.acesso_todos_setores && !isSuperAdmin) {
         if (prof.role === 'coordenador') {
           // Coordenadores SÓ vêem setores vinculados
@@ -82,7 +83,7 @@ export default function NovaEscalaPage() {
           ...s,
           nome: (s as any).dicionario_setores?.nome || 'SETOR SEM NOME'
         }))
-        setSetores(mappedSectors)
+        setSetores(formatSectorsHierarchy(mappedSectors))
       }
 
       // Auto-select if only one option

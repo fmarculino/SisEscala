@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { ArrowLeft, Save, Layers, ChevronRight, Eye, EyeOff, MessageCircle } from 'lucide-react'
 import { createClient } from '@/utils/supabase/client'
 import { applyAccessFilters } from '@/utils/permissions'
+import { formatSectorsHierarchy } from '@/utils/sectors'
 
 interface Cargo {
   id: string
@@ -63,7 +64,7 @@ export default function NovoServidorPage() {
       // 4. Fetch Sectors with access filter
       let sectorsQuery = supabase
         .from('setores')
-        .select('id, unidade_id, dicionario_setores(nome)')
+        .select('id, unidade_id, parent_id, dicionario_setores(nome)')
         .eq('ativo', true)
 
       sectorsQuery = applyAccessFilters(sectorsQuery, userProfile)
@@ -79,7 +80,7 @@ export default function NovoServidorPage() {
             nome: dictData?.nome || 'SETOR SEM NOME'
           }
         })
-        setSetores(mappedSectors)
+        setSetores(formatSectorsHierarchy(mappedSectors))
       }
 
       const { data: roles } = await supabase.from('cargos').select('*').eq('ativo', true).order('nome')

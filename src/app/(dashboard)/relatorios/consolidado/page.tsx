@@ -58,7 +58,7 @@ export default async function ConsolidadoPage({ searchParams }: Props) {
 
   // Fetch Master Data for filters
   const { data: unidades } = await applyAccessFilters(supabase.from('unidades').select('id, nome').eq('ativo', true), userProfile, { bypassSuperAdmin: true })
-  const { data: setoresRaw } = await applyAccessFilters(supabase.from('setores').select('id, unidade_id, dicionario_setores(nome)').eq('ativo', true), userProfile, { bypassSuperAdmin: true })
+  const { data: setoresRaw } = await applyAccessFilters(supabase.from('setores').select('id, unidade_id, parent_id, dicionario_setores(nome)').eq('ativo', true), userProfile, { bypassSuperAdmin: true })
   const setores = (setoresRaw as any[])?.map(s => {
     const dictData = Array.isArray(s.dicionario_setores) 
       ? s.dicionario_setores[0] 

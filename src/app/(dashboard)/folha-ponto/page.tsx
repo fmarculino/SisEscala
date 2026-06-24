@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { applyAccessFilters } from '@/utils/permissions'
 import { getServidoresFolhaPonto, gerarFolhaPonto, gerarFolhasEmLote } from './actions'
 import { Modal } from '@/components/ui/Modal'
+import { formatSectorsHierarchy } from '@/utils/sectors'
 
 export default function FolhaPontoPage() {
   const supabase = createClient()
@@ -63,7 +64,7 @@ export default function FolhaPontoPage() {
             const { data: uData } = await unitsQuery
             setUnidades(uData || [])
 
-            let sectorsQuery = supabase.from('setores').select('id, unidade_id, dicionario_setores(nome)')
+            let sectorsQuery = supabase.from('setores').select('id, unidade_id, parent_id, dicionario_setores(nome)')
             sectorsQuery = applyAccessFilters(sectorsQuery, userProfile, { setorField: 'id' })
             const { data: sRaw } = await sectorsQuery
             
@@ -74,10 +75,11 @@ export default function FolhaPontoPage() {
               return {
                 id: s.id,
                 unidade_id: s.unidade_id,
+                parent_id: s.parent_id,
                 nome: dictData?.nome || 'SETOR SEM NOME'
               }
             }) || []
-            setSetores(sData)
+            setSetores(formatSectorsHierarchy(sData))
 
             // Pre-select first unit & sector if available
             if (uData && uData.length > 0) {

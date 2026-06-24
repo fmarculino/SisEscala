@@ -1,6 +1,7 @@
 import { createClient } from '@/utils/supabase/server'
 import { ServidorDetalhesClient } from './ServidorDetalhesClient'
 import { applyAccessFilters } from '@/utils/permissions'
+import { formatSectorsHierarchy } from '@/utils/sectors'
 
 export default async function EditServidorPage({
   params,
@@ -43,12 +44,12 @@ export default async function EditServidorPage({
   // Fetch Sectors with access filter
   let sectorsQuery = supabase
     .from('setores')
-    .select('id, unidade_id, dicionario_setores(nome)')
+    .select('id, unidade_id, parent_id, dicionario_setores(nome)')
     .eq('ativo', true)
 
   sectorsQuery = applyAccessFilters(sectorsQuery, userProfile)
   const { data: sectorsRaw } = await sectorsQuery
-  const setores = (sectorsRaw as any[])?.map(s => {
+  const sectorsMapped = (sectorsRaw as any[])?.map(s => {
     const dictData = Array.isArray(s.dicionario_setores) 
       ? s.dicionario_setores[0] 
       : s.dicionario_setores
@@ -58,6 +59,7 @@ export default async function EditServidorPage({
       nome: dictData?.nome || 'SETOR SEM NOME'
     }
   }) || []
+  const setores = formatSectorsHierarchy(sectorsMapped)
 
   const { data: cargos } = await supabase
     .from('cargos')

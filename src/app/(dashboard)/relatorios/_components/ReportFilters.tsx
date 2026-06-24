@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Search, Calendar, Building2, LayoutGrid } from 'lucide-react'
+import { formatSectorsHierarchy } from '@/utils/sectors'
 
 interface FiltersProps {
   onFilterChange: (filters: any) => void
@@ -27,7 +28,9 @@ export function ReportFilters({ onFilterChange, unidades, setores, initialFilter
     onFilterChange({ mes, ano, unidadeId, setorId })
   }, [mes, ano, unidadeId, setorId])
 
-  const filteredSetores = setores.filter(s => !unidadeId || s.unidade_id === unidadeId)
+  const filteredSetores = formatSectorsHierarchy(
+    setores.filter(s => !unidadeId || s.unidade_id === unidadeId)
+  )
 
   return (
     <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl shadow-sm space-y-4 md:space-y-0 md:flex md:items-center md:gap-4">

@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { applyAccessFilters, hasSectorAccess } from '@/utils/permissions'
+import { formatSectorsHierarchy } from '@/utils/sectors'
 
 interface Servidor {
   id: string
@@ -132,7 +133,7 @@ export default function AfastamentosPage() {
         ...s,
         nome: (Array.isArray(s.dicionario_setores) ? s.dicionario_setores[0]?.nome : s.dicionario_setores?.nome) || 'SETOR SEM NOME'
       })) || []
-      setSetores(sectors)
+      setSetores(formatSectorsHierarchy(sectors))
 
       // 3. Fetch event types
       const { data: types } = await supabase
