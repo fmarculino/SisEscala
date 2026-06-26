@@ -493,7 +493,9 @@ export async function gerarFolhaPonto(
         origem_retorno_intervalo: null,
         origem_saida: null,
         feriado: !!feriadoInfo,
-        afastamento: afastamento ? getAfastamentoObservacao(afastamento) : null
+        afastamento: afastamento ? getAfastamentoObservacao(afastamento) : null,
+        jornada_nome: activeJornada?.nome || null,
+        jornada_temporaria: !!tempJourney,
       }
 
       if (registro.afastamento) {
@@ -945,7 +947,9 @@ export async function sincronizarFolhaPonto(folhaId: string) {
         origem_retorno_intervalo: null,
         origem_saida: null,
         feriado: !!feriadoInfo,
-        afastamento: afastamento ? getAfastamentoObservacao(afastamento) : null
+        afastamento: afastamento ? getAfastamentoObservacao(afastamento) : null,
+        jornada_nome: activeJornada?.nome || null,
+        jornada_temporaria: !!tempJourney,
       }
 
       if (registro.afastamento) {
