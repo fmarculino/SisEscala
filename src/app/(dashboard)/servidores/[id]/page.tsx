@@ -66,6 +66,20 @@ export default async function EditServidorPage({
     .select('*')
     .order('nome')
 
+  // Fetch all active journeys
+  const { data: jornadas } = await supabase
+    .from('jornadas')
+    .select('id, nome, horas_totais, intervalo_minutos')
+    .eq('ativo', true)
+    .order('nome')
+
+  // Fetch temporary journeys for this server
+  const { data: jornadasTemporarias } = await supabase
+    .from('servidores_jornadas_temporarias')
+    .select('*, jornadas(nome)')
+    .eq('servidor_id', id)
+    .order('data_inicio', { ascending: false })
+
   if (!servidor) {
     return <div className="p-8 text-center text-red-600 font-bold">Servidor não encontrado</div>
   }
@@ -128,6 +142,8 @@ export default async function EditServidorPage({
       historico={historico}
       escalas={escalas}
       folhas={folhas || []}
+      jornadas={jornadas || []}
+      jornadasTemporarias={jornadasTemporarias || []}
     />
   )
 }

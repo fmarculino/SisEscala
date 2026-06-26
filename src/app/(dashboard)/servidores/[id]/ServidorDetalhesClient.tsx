@@ -3,8 +3,9 @@
 import { useState, useMemo } from 'react'
 import { EditServidorForm } from './EditServidorForm'
 import { StatusToggle } from '@/components/servidores/StatusToggle'
-import { Info, History, User, Calendar, FileText, ArrowRight, Clock, MapPin, CheckCircle, ExternalLink } from 'lucide-react'
+import { Info, History, User, Calendar, FileText, ArrowRight, Clock, MapPin, CheckCircle, ExternalLink, Plus, Trash2 } from 'lucide-react'
 import Link from 'next/link'
+import { createJornadaTemporaria, deleteJornadaTemporaria } from '../actions'
 
 interface ServidorDetalhesClientProps {
   id: string
@@ -16,6 +17,8 @@ interface ServidorDetalhesClientProps {
   historico: any[]
   escalas: any[]
   folhas: any[]
+  jornadas: any[]
+  jornadasTemporarias: any[]
 }
 
 export function ServidorDetalhesClient({
@@ -27,9 +30,19 @@ export function ServidorDetalhesClient({
   isSuperAdmin,
   historico,
   escalas,
-  folhas
+  folhas,
+  jornadas,
+  jornadasTemporarias
 }: ServidorDetalhesClientProps) {
-  const [activeTab, setActiveTab] = useState<'cadastro' | 'historico'>('cadastro')
+  const [activeTab, setActiveTab] = useState<'cadastro' | 'historico' | 'jornadas_temporarias'>('cadastro')
+  
+  // State for temporary journey form
+  const [loading, setLoading] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [selectedJornada, setSelectedJornada] = useState('')
+  const [dataInicio, setDataInicio] = useState('')
+  const [dataFim, setDataFim] = useState('')
+  const [motivo, setMotivo] = useState('')
 
   // Helper: Format Portuguese month and year
   const getMesAnoFormatado = (mes: number, ano: number) => {
@@ -170,6 +183,46 @@ export function ServidorDetalhesClient({
     return set.size
   }, [periods])
 
+  const handleAddJornadaTemporaria = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setFormError(null)
+    setLoading(true)
+
+    if (!selectedJornada || !dataInicio || !dataFim) {
+      setFormError('Preencha todos os campos obrigatórios.')
+      setLoading(false)
+      return
+    }
+
+    if (new Date(dataInicio) > new Date(dataFim)) {
+      setFormError('A data de início não pode ser posterior à data de término.')
+      setLoading(false)
+      return
+    }
+
+    const res = await createJornadaTemporaria(id, selectedJornada, dataInicio, dataFim, motivo)
+    if (res.error) {
+      setFormError(res.error)
+    } else {
+      // Clear form
+      setSelectedJornada('')
+      setDataInicio('')
+      setDataFim('')
+      setMotivo('')
+    }
+    setLoading(false)
+  }
+
+  const handleDeleteJornada = async (journeyId: string) => {
+    if (!confirm('Deseja realmente remover esta alteração temporária? Isso restaurará o horário padrão para este período.')) {
+      return
+    }
+    const res = await deleteJornadaTemporaria(journeyId, id)
+    if (res.error) {
+      alert(`Erro ao remover: ${res.error}`)
+    }
+  }
+
   return (
     <div className="max-w-4xl mx-auto space-y-8">
       {/* Header and Status Toggle */}
@@ -202,6 +255,17 @@ export function ServidorDetalhesClient({
           Cadastro do Servidor
         </button>
         <button
+          onClick={() => setActiveTab('jornadas_temporarias')}
+          className={`flex items-center gap-2 px-6 py-3 border-b-2 font-bold text-sm transition-all ${
+            activeTab === 'jornadas_temporarias'
+              ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+              : 'border-transparent text-zinc-500 hover:text-zinc-800 hover:border-zinc-300 dark:hover:text-zinc-300'
+          }`}
+        >
+          <Clock className="h-4 w-4" />
+          Jornadas Temporárias
+        </button>
+        <button
           onClick={() => setActiveTab('historico')}
           className={`flex items-center gap-2 px-6 py-3 border-b-2 font-bold text-sm transition-all ${
             activeTab === 'historico'
@@ -216,7 +280,7 @@ export function ServidorDetalhesClient({
 
       {/* Tab Contents */}
       <div className="space-y-6">
-        {activeTab === 'cadastro' ? (
+        {activeTab === 'cadastro' && (
           <div className="space-y-6">
             {servidor.status === 'Inativo' && (
               <div className="bg-red-50 border border-red-200 dark:bg-red-950/20 dark:border-red-900/40 p-4 rounded-xl flex gap-3 animate-in fade-in">
@@ -239,7 +303,140 @@ export function ServidorDetalhesClient({
               isSuperAdmin={isSuperAdmin}
             />
           </div>
-        ) : (
+        )}
+
+        {activeTab === 'jornadas_temporarias' && (
+          <div className="space-y-8 animate-in fade-in">
+            {/* Create temporary journey form */}
+            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-8 rounded-2xl shadow-sm space-y-6">
+              <h2 className="text-lg font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+                <Plus className="h-5 w-5 text-blue-500" />
+                Cadastrar Jornada Temporária (Alteração por Período)
+              </h2>
+
+              <form onSubmit={handleAddJornadaTemporaria} className="space-y-4">
+                {formError && (
+                  <div className="p-3.5 bg-red-50 border border-red-200 dark:bg-red-950/20 dark:border-red-900/40 text-red-800 dark:text-red-300 text-xs rounded-xl font-semibold">
+                    {formError}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Jornada Temporária *</label>
+                    <select
+                      value={selectedJornada}
+                      onChange={(e) => setSelectedJornada(e.target.value)}
+                      className="w-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                      required
+                    >
+                      <option value="">Selecione a Jornada...</option>
+                      {jornadas.map(j => (
+                        <option key={j.id} value={j.id}>{j.nome}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Data Inicial *</label>
+                    <input
+                      type="date"
+                      value={dataInicio}
+                      onChange={(e) => setDataInicio(e.target.value)}
+                      className="w-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Data Final *</label>
+                    <input
+                      type="date"
+                      value={dataFim}
+                      onChange={(e) => setDataFim(e.target.value)}
+                      className="w-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Motivo / Observação</label>
+                  <textarea
+                    value={motivo}
+                    onChange={(e) => setMotivo(e.target.value)}
+                    rows={2}
+                    placeholder="Ex: Acordo operacional de troca de turno temporário..."
+                    className="w-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none"
+                  />
+                </div>
+
+                <div className="flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold rounded-xl transition-all shadow-md text-sm cursor-pointer"
+                  >
+                    {loading ? 'Salvando...' : 'Salvar Alteração'}
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            {/* List of active temporary journeys */}
+            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-8 rounded-2xl shadow-sm space-y-6">
+              <h2 className="text-lg font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+                <Clock className="h-5 w-5 text-blue-500" />
+                Histórico de Alterações de Horário por Período
+              </h2>
+
+              {jornadasTemporarias.length === 0 ? (
+                <p className="text-sm text-zinc-400 italic">Nenhuma jornada temporária cadastrada para este servidor.</p>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+                  <table className="w-full text-left text-sm text-zinc-500 dark:text-zinc-400">
+                    <thead className="text-xs text-zinc-700 uppercase bg-zinc-50 dark:bg-zinc-950 dark:text-zinc-300 font-bold border-b border-zinc-200 dark:border-zinc-800">
+                      <tr>
+                        <th scope="col" className="px-6 py-3">Jornada</th>
+                        <th scope="col" className="px-6 py-3">Período</th>
+                        <th scope="col" className="px-6 py-3">Duração</th>
+                        <th scope="col" className="px-6 py-3">Motivo</th>
+                        <th scope="col" className="px-6 py-3 text-right">Ação</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+                      {jornadasTemporarias.map((jt) => (
+                        <tr key={jt.id} className="bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-950/40">
+                          <td className="px-6 py-4 font-bold text-zinc-900 dark:text-white">
+                            {jt.jornadas?.nome || 'Jornada Excluída'}
+                          </td>
+                          <td className="px-6 py-4 text-xs font-semibold">
+                            De {new Date(jt.data_inicio).toLocaleDateString('pt-BR')} até {new Date(jt.data_fim).toLocaleDateString('pt-BR')}
+                          </td>
+                          <td className="px-6 py-4 text-xs">
+                            {calculateDuration(jt.data_inicio, jt.data_fim)}
+                          </td>
+                          <td className="px-6 py-4 text-xs italic">
+                            {jt.motivo || '-'}
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <button
+                              onClick={() => handleDeleteJornada(jt.id)}
+                              className="p-2 bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 hover:bg-red-100 rounded-lg transition-colors border border-red-100/30"
+                              title="Remover jornada temporária"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'historico' && (
           <div className="space-y-8 animate-in fade-in">
             {/* KPI Summary cards */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

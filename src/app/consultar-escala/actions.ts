@@ -834,10 +834,18 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
       .eq('servidor_id', folha.servidor_id)
       .or(`data_inicio.lte.${endDate},data_fim.gte.${startDate}`)
 
-    const jornadaDetails = escala.jornadas ? (escala.jornadas as any) : null
-    const { startHour, startMin, endHour, endMin } = parseJornadaNome(jornadaDetails?.nome || '')
-    const intervaloMinutos = jornadaDetails?.intervalo_minutos ?? 60
-    const horasNormaisDiarias = jornadaDetails?.horas_totais ?? 8
+    // Fetch temporary journeys overlapping this month
+    const { data: tempJourneys } = await supabase
+      .from('servidores_jornadas_temporarias')
+      .select('*, jornadas(nome, horas_totais, intervalo_minutos)')
+      .eq('servidor_id', folha.servidor_id)
+      .or(`data_inicio.lte.${endDate},data_fim.gte.${startDate}`)
+
+    // Parse Jornada
+    const globalJornadaDetails = escala.jornadas ? (escala.jornadas as any) : null
+    const globalJornada = parseJornadaNome(globalJornadaDetails?.nome || '')
+    const globalIntervaloMinutos = globalJornadaDetails?.intervalo_minutos ?? 60
+    const globalHorasNormaisDiarias = globalJornadaDetails?.horas_totais ?? 8
 
     const { data: configVar } = await supabase
       .from('configuracoes_globais')
@@ -875,6 +883,13 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
       const dateObj = new Date(folha.ano, folha.mes - 1, day)
       const dayOfWeekStr = weekDaysShort[dateObj.getDay()]
       const dateStr = `${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+
+      // Resolve dynamic journey for this day
+      const tempJourney = tempJourneys?.find(tj => dateStr >= tj.data_inicio && dateStr <= tj.data_fim)
+      const activeJornada = tempJourney ? tempJourney.jornadas : globalJornadaDetails
+      const { startHour, startMin, endHour, endMin } = activeJornada === globalJornadaDetails ? globalJornada : parseJornadaNome(activeJornada?.nome || '')
+      const intervaloMinutos = activeJornada === globalJornadaDetails ? globalIntervaloMinutos : (activeJornada?.intervalo_minutos ?? 60)
+      const horasNormaisDiarias = activeJornada === globalJornadaDetails ? globalHorasNormaisDiarias : (activeJornada?.horas_totais ?? 8)
 
       const currentShift = currentShifts.find(s => s.dia === day)
       const registroExistente = registrosExistentes.find(r => r.dia === day)
@@ -1252,10 +1267,18 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
       .eq('servidor_id', servidorId)
       .or(`data_inicio.lte.${endDate},data_fim.gte.${startDate}`)
 
-    const jornadaDetails = escala.jornadas ? (escala.jornadas as any) : null
-    const { startHour, startMin, endHour, endMin } = parseJornadaNome(jornadaDetails?.nome || '')
-    const intervaloMinutos = jornadaDetails?.intervalo_minutos ?? 60
-    const horasNormaisDiarias = jornadaDetails?.horas_totais ?? 8
+    // Fetch temporary journeys overlapping this month
+    const { data: tempJourneys } = await supabase
+      .from('servidores_jornadas_temporarias')
+      .select('*, jornadas(nome, horas_totais, intervalo_minutos)')
+      .eq('servidor_id', servidorId)
+      .or(`data_inicio.lte.${endDate},data_fim.gte.${startDate}`)
+
+    // Parse Jornada
+    const globalJornadaDetails = escala.jornadas ? (escala.jornadas as any) : null
+    const globalJornada = parseJornadaNome(globalJornadaDetails?.nome || '')
+    const globalIntervaloMinutos = globalJornadaDetails?.intervalo_minutos ?? 60
+    const globalHorasNormaisDiarias = globalJornadaDetails?.horas_totais ?? 8
 
     const registros: any[] = []
     let totalHorasNormais = 0
@@ -1269,6 +1292,13 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
       const dateObj = new Date(ano, mes - 1, day)
       const dayOfWeekStr = weekDaysShort[dateObj.getDay()]
       const dateStr = `${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+
+      // Resolve dynamic journey for this day
+      const tempJourney = tempJourneys?.find(tj => dateStr >= tj.data_inicio && dateStr <= tj.data_fim)
+      const activeJornada = tempJourney ? tempJourney.jornadas : globalJornadaDetails
+      const { startHour, startMin, endHour, endMin } = activeJornada === globalJornadaDetails ? globalJornada : parseJornadaNome(activeJornada?.nome || '')
+      const intervaloMinutos = activeJornada === globalJornadaDetails ? globalIntervaloMinutos : (activeJornada?.intervalo_minutos ?? 60)
+      const horasNormaisDiarias = activeJornada === globalJornadaDetails ? globalHorasNormaisDiarias : (activeJornada?.horas_totais ?? 8)
 
       const rawAfastamento = afastamentos?.find(af => dateStr >= af.data_inicio && dateStr <= af.data_fim)
       const feriadoInfo = feriados?.find(f => f.data === dateStr)
