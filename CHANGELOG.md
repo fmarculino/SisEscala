@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.8.2] - 2026-06-25
+
+### Added
+- **Herança de Jornada de Trabalho no Gerador Inteligente**:
+  - O gerador inteligente agora busca a jornada de trabalho (`jornada_id` / coluna "Tipo") cadastrada na escala do mês anterior e a preenche automaticamente para cada servidor que não possuir uma jornada selecionada na grade atual.
+  - Elimina o trabalho manual de selecionar a jornada de trabalho servidor por servidor após gerar a escala sugerida.
+
 ## [1.8.1] - 2026-06-25
 
 ### Fixed

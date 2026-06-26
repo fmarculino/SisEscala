@@ -3055,7 +3055,7 @@ export function ScaleGrid({
                   if (!intelligentModal) return
                   setLoading(true)
                   try {
-                    const generatedGrid = await generateIntelligentScale(supabase, {
+                    const { grid: generatedGrid, jornadas: prevJornadas } = await generateIntelligentScale(supabase, {
                       unidadeId,
                       setorId,
                       mes,
@@ -3098,6 +3098,17 @@ export function ScaleGrid({
                       return updated
                     })
 
+                    // Atualizar a jornada de trabalho (seletor de Tipo) para os servidores herdando do mês anterior
+                    setEscalaMensal(prev => prev.map(em => {
+                      if (!em.jornada_id && prevJornadas[em.servidor_id]) {
+                        return {
+                          ...em,
+                          jornada_id: prevJornadas[em.servidor_id]
+                        }
+                      }
+                      return em
+                    }))
+
                     let cellsFilled = 0
                     Object.values(generatedGrid).forEach(categories => {
                       Object.values(categories).forEach(days => {
@@ -3133,7 +3144,7 @@ export function ScaleGrid({
                       setAlertModal({
                         isOpen: true,
                         title: 'Gerador Inteligente',
-                        message: `Sugestão de escala gerada com sucesso! ${cellsFilled} turnos foram preenchidos localmente como rascunho (Draft) para os servidores com ciclo 12x36 detectado. Lembre-se de salvar a escala.`,
+                        message: `Sugestão de escala gerada com sucesso! ${cellsFilled} turnos e jornadas correspondentes foram preenchidos localmente como rascunho (Draft). Lembre-se de salvar a escala.`,
                         type: 'success'
                       })
                     }

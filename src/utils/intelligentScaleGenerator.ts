@@ -52,7 +52,7 @@ export async function fetchGeneratorData(
   // 1. Buscar escalas mensais do mês anterior
   const { data: prevScales, error: errScales } = await supabase
     .from('escala_mensal')
-    .select('id, servidor_id')
+    .select('id, servidor_id, jornada_id')
     .eq('setor_id', setorId)
     .eq('mes', prevMes)
     .eq('ano', prevAno)
@@ -66,8 +66,10 @@ export async function fetchGeneratorData(
   console.log(`[Gerador] Escalas do mês anterior encontradas:`, prevScales?.length || 0);
 
   const prevScaleMap = new Map<string, string>() // servidor_id -> escala_mensal_id
+  const prevJornadasMap = new Map<string, string>() // servidor_id -> jornada_id
   prevScales?.forEach(ps => {
     if (ps.servidor_id) prevScaleMap.set(ps.servidor_id, ps.id)
+    if (ps.servidor_id && ps.jornada_id) prevJornadasMap.set(ps.servidor_id, ps.jornada_id)
   })
 
   // 2. Buscar escalas diárias do mês anterior para detectar o padrão
@@ -122,6 +124,7 @@ export async function fetchGeneratorData(
 
   return {
     prevScaleMap,
+    prevJornadasMap,
     prevDailies,
     lastDayPrev,
     events: events || [],
@@ -215,6 +218,11 @@ function analyzeHistory(
 /**
  * Gera a escala inteligente em rascunho local.
  */
+export interface IntelligentScaleResult {
+  grid: GridData
+  jornadas: Record<string, string>
+}
+
 export async function generateIntelligentScale(
   supabase: SupabaseClient,
   params: {
@@ -226,12 +234,12 @@ export async function generateIntelligentScale(
     turnos: any[]
     options: GeneratorOptions
   }
-): Promise<GridData> {
+): Promise<IntelligentScaleResult> {
   const { escalaMensal, turnos, mes, ano, setorId, options } = params
   const daysInMonth = new Date(ano, mes, 0).getDate()
   const servidorIds = escalaMensal.map(em => em.servidor_id)
 
-  if (servidorIds.length === 0) return {}
+  if (servidorIds.length === 0) return { grid: {}, jornadas: {} }
 
   // 1. Buscar dados do histórico e afastamentos
   const data = await fetchGeneratorData(supabase, servidorIds, setorId, mes, ano)
@@ -349,5 +357,13 @@ export async function generateIntelligentScale(
     }
   })
 
-  return resultGrid
+  const prevJornadasObj: Record<string, string> = {}
+  data.prevJornadasMap.forEach((jId, sId) => {
+    prevJornadasObj[sId] = jId
+  })
+
+  return {
+    grid: resultGrid,
+    jornadas: prevJornadasObj
+  }
 }
