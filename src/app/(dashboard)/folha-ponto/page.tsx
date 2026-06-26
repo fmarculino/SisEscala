@@ -2,10 +2,10 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { FileText, Loader2, Search, Building2, Layers, Calendar, ChevronRight, Play, RefreshCw, AlertCircle } from 'lucide-react'
+import { FileText, Loader2, Search, Building2, Layers, Calendar, ChevronRight, Play, RefreshCw, AlertCircle, Printer } from 'lucide-react'
 import Link from 'next/link'
 import { applyAccessFilters } from '@/utils/permissions'
-import { getServidoresFolhaPonto, gerarFolhaPonto, gerarFolhasEmLote } from './actions'
+import { getServidoresFolhaPonto, gerarFolhaPonto, gerarFolhasEmLote, getFolhasPontoPrintData } from './actions'
 import { Modal } from '@/components/ui/Modal'
 import { formatSectorsHierarchy } from '@/utils/sectors'
 
@@ -29,6 +29,19 @@ export default function FolhaPontoPage() {
 
   // Server timesheet data
   const [servidoresData, setServidoresData] = useState<any[]>([])
+  const [selectedFolhas, setSelectedFolhas] = useState<Set<string>>(new Set())
+
+  // Reset selected timesheets on filter changes
+  useEffect(() => {
+    setSelectedFolhas(new Set())
+  }, [selectedUnidade, selectedSetor, mes, ano])
+
+  // Helper for batch printing minutes formatting
+  const formatMinutesToTimeStr = (totalMinutes: number): string => {
+    const h = Math.floor(totalMinutes / 60)
+    const m = totalMinutes % 60
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+  }
 
   // Modal
   const [alertModal, setAlertModal] = useState<{ isOpen: boolean, title: string, message: string, type: 'default' | 'danger' | 'success' | 'warning' }>({
@@ -192,6 +205,244 @@ export default function FolhaPontoPage() {
     s.cargo?.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
+  // Selection handlers
+  const selectableServidores = filteredServidores.filter(s => s.folha_id !== null)
+  const allSelected = selectableServidores.length > 0 && selectableServidores.every(s => selectedFolhas.has(s.folha_id))
+  
+  const handleToggleAll = () => {
+    if (allSelected) {
+      setSelectedFolhas(new Set())
+    } else {
+      setSelectedFolhas(new Set(selectableServidores.map(s => s.folha_id)))
+    }
+  }
+
+  const handleImprimirSelecionadas = async () => {
+    if (selectedFolhas.size === 0) return
+    setActionLoading('imprimir-lote')
+    try {
+      const ids = Array.from(selectedFolhas)
+      const res = await getFolhasPontoPrintData(ids)
+      if (res.error || !res.folhas) {
+        throw new Error(res.error || 'Erro ao carregar dados de impressão.')
+      }
+
+      const win = window.open('', '_blank')
+      if (!win) {
+        throw new Error('Bloqueador de pop-ups detectado. Por favor, permita pop-ups para este site para realizar a impressão.')
+      }
+
+      const folhasHTML = res.folhas.map((folha: any) => {
+        const { servidores: servidor, registros: regs, escala } = folha
+        const { unidades: unidade, setores: setor, jornadas: jornada } = escala
+
+        const mesesNomes = [
+          'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+          'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+        ]
+        const mesExt = mesesNomes[folha.mes - 1]
+
+        const parsedRegs = Array.isArray(regs) ? regs : []
+
+        const tableRowsHTML = parsedRegs.map((r: any) => {
+          const isWorkDay = !!r.turno_codigo
+          const isOffDay = r.feriado || r.afastamento || !isWorkDay
+          const isWeekend = r.dia_semana === 'Sáb' || r.dia_semana === 'Dom'
+          
+          return `
+            <tr class="${isOffDay ? 'bg-zinc-50/50' : ''} ${isWeekend && !isOffDay ? 'bg-zinc-50/30' : ''}">
+              <td class="px-3 py-1.5 border-r border-zinc-300 text-center font-black text-zinc-950">${String(r.dia).padStart(2, '0')}</td>
+              <td class="px-2 py-1.5 border-r border-zinc-300 text-center font-bold text-zinc-500">${r.dia_semana || ''}</td>
+              <td class="px-3 py-1.5 border-r border-zinc-300 text-center font-mono font-bold">${isWorkDay && !r.afastamento && !r.feriado ? (r.entrada || '') : '-'}</td>
+              <td class="px-3 py-1.5 border-r border-zinc-300 text-center font-mono font-bold">${isWorkDay && r.saida_intervalo && !r.afastamento && !r.feriado ? (r.saida_intervalo || '') : '-'}</td>
+              <td class="px-3 py-1.5 border-r border-zinc-300 text-center font-mono font-bold">${isWorkDay && r.retorno_intervalo && !r.afastamento && !r.feriado ? (r.retorno_intervalo || '') : '-'}</td>
+              <td class="px-3 py-1.5 border-r border-zinc-300 text-center font-mono font-bold">${isWorkDay && !r.afastamento && !r.feriado ? (r.saida || '') : '-'}</td>
+              <td class="px-3 py-1.5 border-r border-zinc-300 text-center font-mono font-bold text-blue-600">${isWorkDay && r.hora_extra_minutos && r.hora_extra_minutos > 0 ? formatMinutesToTimeStr(r.hora_extra_minutos) : '-'}</td>
+              <td class="px-4 py-1.5 border-r border-zinc-300 font-medium">${r.observacao || ''}</td>
+              <td class="px-2 py-1.5 text-center"></td>
+            </tr>
+          `
+        }).join('')
+
+        return `
+          <div class="print-page bg-white p-8 max-w-5xl mx-auto my-8 border border-zinc-200 rounded-3xl shadow-lg">
+            <!-- Document Header -->
+            <div class="flex justify-between items-start border-b border-zinc-300 pb-4 mb-6">
+              <div class="flex items-center gap-4">
+                ${res.logoUrl ? `
+                  <div class="h-14 w-28 border border-zinc-200 rounded-lg p-1 bg-white flex items-center justify-center">
+                    <img src="${res.logoUrl}" alt="Logo" class="max-h-full max-w-full object-contain" />
+                  </div>
+                ` : ''}
+                ${setor?.logo_url || unidade?.logo_url ? `
+                  <div class="h-14 w-28 border border-zinc-200 rounded-lg p-1 bg-white flex items-center justify-center">
+                    <img src="${setor?.logo_url || unidade?.logo_url}" alt="Logo" class="max-h-full max-w-full object-contain" />
+                  </div>
+                ` : ''}
+                <div>
+                  <h3 class="text-xl font-black text-zinc-900 uppercase tracking-tight">Folha de Ponto Mensal</h3>
+                  <p class="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Espelho Oficial de Frequência Individual</p>
+                </div>
+              </div>
+              <div class="text-right">
+                <div class="text-[9px] font-black uppercase text-zinc-400">Competência</div>
+                <div class="text-lg font-bold text-zinc-900 uppercase">${mesExt} / ${folha.ano}</div>
+              </div>
+            </div>
+
+            <!-- Metadata -->
+            <div class="grid grid-cols-4 gap-4 text-xs mb-6 bg-zinc-50 p-4 rounded-2xl border border-zinc-100">
+               <div>
+                 <div class="text-[9px] font-black uppercase text-zinc-400 mb-0.5">Servidor</div>
+                 <div class="font-bold text-zinc-900 uppercase">${servidor.nome}</div>
+                 <div class="text-[10px] text-zinc-500 font-bold">Matrícula: ${servidor.matricula || '---'}</div>
+               </div>
+               <div>
+                 <div class="text-[9px] font-black uppercase text-zinc-400 mb-0.5">Cargo / Vínculo</div>
+                 <div class="font-bold text-zinc-900 uppercase">${servidor.cargo || '---'}</div>
+                 <div class="text-[10px] text-zinc-500">${servidor.vinculo || '---'}</div>
+               </div>
+               <div>
+                 <div class="text-[9px] font-black uppercase text-zinc-400 mb-0.5">Unidade</div>
+                 <div class="font-bold text-zinc-900 uppercase">${unidade.nome}</div>
+                 <div class="text-[10px] text-zinc-500 truncate">${unidade.endereco || '---'}</div>
+               </div>
+               <div>
+                 <div class="text-[9px] font-black uppercase text-zinc-400 mb-0.5">Setor / Jornada</div>
+                 <div class="font-bold text-zinc-900 uppercase">${setor?.nome}</div>
+                 <div class="text-[10px] text-zinc-500">${jornada?.nome || 'Não Vinculada'}</div>
+               </div>
+            </div>
+
+            <!-- Entries Table -->
+            <table class="w-full text-[10px] text-left border-collapse border border-zinc-300">
+               <thead>
+                 <tr class="bg-zinc-100 text-zinc-600 font-black uppercase tracking-wider border-b border-zinc-300">
+                   <th class="px-3 py-2 text-center w-12 border-r border-zinc-300">Dia</th>
+                   <th class="px-2 py-2 text-center w-12 border-r border-zinc-300">Sem</th>
+                   <th class="px-3 py-2 text-center w-24 border-r border-zinc-300">Entrada</th>
+                   <th class="px-3 py-2 text-center w-24 border-r border-zinc-300">Saída Int.</th>
+                   <th class="px-3 py-2 text-center w-24 border-r border-zinc-300">Retorno Int.</th>
+                   <th class="px-3 py-2 text-center w-24 border-r border-zinc-300">Saída</th>
+                   <th class="px-3 py-2 text-center w-20 border-r border-zinc-300">Extra</th>
+                   <th class="px-4 py-2 border-r border-zinc-300">Observações / Justificativas</th>
+                   <th class="px-3 py-2 text-center w-24">Visto</th>
+                 </tr>
+               </thead>
+               <tbody class="divide-y divide-zinc-200">
+                 ${tableRowsHTML}
+               </tbody>
+            </table>
+
+            <!-- Summary / Totals -->
+            <div class="mt-6">
+               <div class="grid grid-cols-4 gap-4 text-center mb-8">
+                 <div class="bg-white border border-zinc-300 p-3 rounded-xl">
+                   <div class="text-[8px] font-black uppercase text-zinc-400 mb-0.5">Horas Normais</div>
+                   <div class="text-lg font-black text-zinc-900">${folha.total_horas_normais || 0}h</div>
+                 </div>
+                 <div class="bg-white border border-zinc-300 p-3 rounded-xl">
+                   <div class="text-[8px] font-black uppercase text-zinc-400 mb-0.5">Horas Extra (50%)</div>
+                   <div class="text-lg font-black text-blue-600">${folha.total_horas_extras_50 || 0}h</div>
+                 </div>
+                 <div class="bg-white border border-zinc-300 p-3 rounded-xl">
+                   <div class="text-[8px] font-black uppercase text-zinc-400 mb-0.5">Horas Extra (100%)</div>
+                   <div class="text-lg font-black text-violet-600">${folha.total_horas_extras_100 || 0}h</div>
+                 </div>
+                 <div class="bg-white border border-zinc-300 p-3 rounded-xl">
+                   <div class="text-[8px] font-black uppercase text-zinc-400 mb-0.5">Total Faltas</div>
+                   <div class="text-lg font-black text-red-500">${folha.total_faltas || 0}</div>
+                 </div>
+               </div>
+
+               <!-- Signatures -->
+               <div class="grid grid-cols-2 gap-10 px-4 mt-8">
+                 <div class="text-center">
+                   <div class="w-full border-t border-zinc-400 pt-2">
+                     <div class="text-[9px] font-black uppercase text-zinc-950">${servidor.nome}</div>
+                     <div class="text-[7px] text-zinc-400 font-bold uppercase tracking-widest mt-0.5">Assinatura do Servidor</div>
+                   </div>
+                 </div>
+                 <div class="text-center">
+                   <div class="w-full border-t border-zinc-400 pt-2">
+                     <div class="text-[9px] font-black uppercase text-zinc-950">Chefia Imediata / Coordenação</div>
+                     <div class="text-[7px] text-zinc-400 font-bold uppercase tracking-widest mt-0.5">Carimbo e Assinatura</div>
+                   </div>
+                 </div>
+               </div>
+
+               <div class="text-right text-[6px] text-zinc-400 mt-8">
+                 Documento emitido digitalmente via SisEscala. Data da emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}.
+               </div>
+            </div>
+          </div>
+        `
+      }).join('')
+
+      const printHTML = `
+        <!DOCTYPE html>
+        <html lang="pt-BR">
+        <head>
+          <meta charset="UTF-8">
+          <title>Impressão de Folhas de Ponto em Lote</title>
+          <script src="https://cdn.tailwindcss.com"></script>
+          <style>
+            @media print {
+              .no-print { display: none !important; }
+              body { background: white !important; padding: 0 !important; }
+              .print-page {
+                page-break-after: always;
+                page-break-inside: avoid;
+                margin: 0 !important;
+                border: none !important;
+                box-shadow: none !important;
+                padding: 1.5cm !important;
+                width: 100% !important;
+                max-width: none !important;
+              }
+              @page {
+                size: A4 portrait;
+                margin: 0;
+              }
+            }
+            body { font-family: 'Inter', sans-serif; background-color: #f4f4f5; }
+            table { page-break-inside: auto; }
+            tr { page-break-inside: avoid; page-break-after: auto; }
+            thead { display: table-header-group; }
+          </style>
+        </head>
+        <body class="p-4 bg-zinc-100">
+          <div class="max-w-5xl mx-auto mb-6 bg-zinc-900 p-4 text-white flex justify-between items-center no-print rounded-2xl shadow-lg">
+            <div>
+              <h1 class="text-lg font-black tracking-tight uppercase">SIS ESCALA</h1>
+              <p class="text-zinc-400 text-[10px] uppercase font-bold tracking-widest">Impressão em Lote (${res.folhas.length} folhas)</p>
+            </div>
+            <button onclick="window.print()" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold transition-all shadow-lg flex items-center gap-2 text-sm">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"></path><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+              Imprimir Selecionadas
+            </button>
+          </div>
+          
+          ${folhasHTML}
+        </body>
+        </html>
+      `
+
+      win.document.write(printHTML)
+      win.document.close()
+    } catch (err: any) {
+      console.error(err)
+      setAlertModal({
+        isOpen: true,
+        title: 'Erro de Impressão',
+        message: err.message || 'Houve um erro ao processar a impressão em lote.',
+        type: 'danger'
+      })
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
   const meses = [
     { value: 1, label: 'Janeiro' },
     { value: 2, label: 'Fevereiro' },
@@ -323,6 +574,14 @@ export default function FolhaPontoPage() {
             
             <div className="flex flex-wrap gap-3">
               <button 
+                onClick={handleImprimirSelecionadas}
+                disabled={selectedFolhas.size === 0 || actionLoading !== null}
+                className="inline-flex items-center bg-zinc-800 hover:bg-zinc-900 text-white font-black text-xs uppercase tracking-wider px-5 py-3 rounded-xl transition-all shadow-md active:scale-95 disabled:opacity-50"
+              >
+                {actionLoading === 'imprimir-lote' ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Printer className="h-4 w-4 mr-2" />}
+                Imprimir Selecionadas (${selectedFolhas.size})
+              </button>
+              <button 
                 onClick={() => handleGerarEmLote(true)}
                 disabled={actionLoading !== null}
                 className="inline-flex items-center bg-amber-500 hover:bg-amber-600 text-white font-black text-xs uppercase tracking-wider px-5 py-3 rounded-xl transition-all shadow-md active:scale-95 disabled:opacity-50"
@@ -367,6 +626,14 @@ export default function FolhaPontoPage() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-zinc-50 dark:bg-zinc-800/50 border-b border-zinc-200 dark:border-zinc-800">
+                  <th className="px-6 py-4 w-12 select-none">
+                    <input 
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={handleToggleAll}
+                      className="rounded border-zinc-300 text-blue-600 focus:ring-blue-500 h-4 w-4 cursor-pointer"
+                    />
+                  </th>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-zinc-500 dark:text-zinc-400">Servidor</th>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-zinc-500 dark:text-zinc-400">Jornada Lotação</th>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-zinc-500 dark:text-zinc-400">Escala Mensal</th>
@@ -384,6 +651,32 @@ export default function FolhaPontoPage() {
 
                   return (
                     <tr key={s.servidor_id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
+                      <td className="px-6 py-4">
+                        {hasFolha ? (
+                          <input 
+                            type="checkbox"
+                            checked={selectedFolhas.has(s.folha_id)}
+                            onChange={() => {
+                              setSelectedFolhas(prev => {
+                                const next = new Set(prev)
+                                if (next.has(s.folha_id)) {
+                                  next.delete(s.folha_id)
+                                } else {
+                                  next.add(s.folha_id)
+                                }
+                                return next
+                              })
+                            }}
+                            className="rounded border-zinc-300 text-blue-600 focus:ring-blue-500 h-4 w-4 cursor-pointer"
+                          />
+                        ) : (
+                          <input 
+                            type="checkbox"
+                            disabled
+                            className="rounded border-zinc-200 text-zinc-300 h-4 w-4 cursor-not-allowed opacity-30"
+                          />
+                        )}
+                      </td>
                       <td className="px-6 py-4">
                         <div className="font-black text-zinc-900 dark:text-white uppercase tracking-tighter text-sm">
                           {s.nome}

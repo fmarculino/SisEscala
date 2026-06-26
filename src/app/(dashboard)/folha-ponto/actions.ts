@@ -325,20 +325,30 @@ export async function gerarFolhaPonto(
       .single()
     const maxVar = configVar?.valor ? parseInt(configVar.valor as string, 10) : 15
 
-    // Fetch regular shifts from escala_diaria
+    // Fetch all active scales of this server for this month/year to collect all shifts (including across different sectors/units if any)
+    const { data: todasEscalas } = await supabase
+      .from('escala_mensal')
+      .select('id')
+      .eq('servidor_id', servidorId)
+      .eq('mes', resolvedMes)
+      .eq('ano', resolvedAno)
+      .eq('ativo', true)
+
+    const escalaIds = todasEscalas?.map((e: any) => e.id) || [escala.id]
+
+    // Fetch all shifts from escala_diaria (including Extra and Plantão) across all scales of the server
     const { data: escalaDiaria, error: diError } = await supabase
       .from('escala_diaria')
-      .select('id, dia, dicionario_turnos_id, presenca_entrada_em, presenca_saida_em, presenca_confirmada, dicionario_turnos(codigo, slots)')
-      .eq('escala_mensal_id', escala.id)
-      .eq('categoria', 'Regular')
+      .select('id, dia, categoria, dicionario_turnos_id, presenca_entrada_em, presenca_saida_em, presenca_confirmada, dicionario_turnos(codigo, slots)')
+      .in('escala_mensal_id', escalaIds)
 
     if (diError) throw diError
 
-    // Fetch manual validation logs
+    // Fetch manual validation logs across all scales of the server
     const { data: logs } = await supabase
       .from('logs_sobreaviso')
       .select('dia, categoria, validacao_manual, motivo_acionamento')
-      .eq('escala_mensal_id', escala.id)
+      .in('escala_mensal_id', escalaIds)
 
     // Fetch holidays
     const startDate = `${resolvedAno}-${String(resolvedMes).padStart(2, '0')}-01`
@@ -405,7 +415,7 @@ export async function gerarFolhaPonto(
 
       // Check afastamento
       const rawAfastamento = afastamentos?.find(af => dateStr >= af.data_inicio && dateStr <= af.data_fim)
-      const shift = escalaDiaria?.find(ed => ed.dia === day)
+      const shift = escalaDiaria?.find(ed => ed.dia === day && ed.categoria === 'Regular')
       const afastamento = isShiftOverlappingAfastamento(rawAfastamento, shift) ? rawAfastamento : null
       
       // Check holiday
@@ -512,9 +522,16 @@ export async function gerarFolhaPonto(
           log.motivo_acionamento?.toLowerCase().includes('saida')
         )
 
-        // Check if there was presence confirmada but actually no checkin/checkout timestamps
-        const hasRealEntrada = !!shift.presenca_entrada_em && !isManualEntrada
-        const hasRealSaida = !!shift.presenca_saida_em && !isManualSaida
+        // Check if there was presence confirmada on any shift for this day (Regular, Extra, Plantão)
+        const dayShifts = escalaDiaria?.filter(d => d.dia === day) || []
+        const allEntradas = dayShifts.map(s => s.presenca_entrada_em).filter(Boolean)
+        const allSaidas = dayShifts.map(s => s.presenca_saida_em).filter(Boolean)
+        
+        const realEntradaTime = allEntradas.length > 0 ? new Date(Math.min(...allEntradas.map(t => new Date(t).getTime()))) : null
+        const realSaidaTime = allSaidas.length > 0 ? new Date(Math.max(...allSaidas.map(t => new Date(t).getTime()))) : null
+
+        const hasRealEntrada = realEntradaTime !== null && !isManualEntrada
+        const hasRealSaida = realSaidaTime !== null && !isManualSaida
 
         // Calculate official time markers (in minutes from midnight)
         const officialEntradaMin = startHour * 60 + startMin
@@ -533,9 +550,8 @@ export async function gerarFolhaPonto(
         const seedBase = `${servidorId}-${mes}-${ano}-${day}`
 
         // 1. Entrance Time
-        if (hasRealEntrada) {
-          const d = new Date(shift.presenca_entrada_em)
-          registro.entrada = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+        if (hasRealEntrada && realEntradaTime) {
+          registro.entrada = realEntradaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_entrada = 'real'
         } else if (shouldGenerate(officialEntradaMin)) {
           const offset = getDeterministicOffset(`${seedBase}-entrada`, maxVar)
@@ -545,9 +561,8 @@ export async function gerarFolhaPonto(
         }
 
         // 2. Exit Time
-        if (hasRealSaida) {
-          const d = new Date(shift.presenca_saida_em)
-          registro.saida = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+        if (hasRealSaida && realSaidaTime) {
+          registro.saida = realSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_saida = 'real'
         } else if (shouldGenerate(officialSaidaMin)) {
           const offset = getDeterministicOffset(`${seedBase}-saida`, maxVar)
@@ -576,8 +591,8 @@ export async function gerarFolhaPonto(
         }
 
         // 4. Overtime Calculation (Real Exit only)
-        if (hasRealSaida && shift.presenca_saida_em) {
-          const realExit = new Date(shift.presenca_saida_em)
+        if (hasRealSaida && realSaidaTime) {
+          const realExit = realSaidaTime
           
           // Official scheduled exit timestamp
           const scheduledEntrance = new Date(`${resolvedAno}-${String(resolvedMes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}:00-03:00`)
@@ -734,21 +749,31 @@ export async function sincronizarFolhaPonto(folhaId: string) {
       return { error: 'Acesso negado para gerenciar esta folha.' }
     }
 
-    // Fetch regular shifts from escala_diaria
+    // Fetch all active scales of this server for this month/year to collect all shifts (including across different sectors/units if any)
+    const { data: todasEscalas } = await supabase
+      .from('escala_mensal')
+      .select('id')
+      .eq('servidor_id', folha.servidor_id)
+      .eq('mes', folha.mes)
+      .eq('ano', folha.ano)
+      .eq('ativo', true)
+
+    const escalaIds = todasEscalas?.map((e: any) => e.id) || [escala.id]
+
+    // Fetch all shifts from escala_diaria (Regular, Extra, Plantão) across all scales of the server
     const { data: escalaDiaria } = await supabase
       .from('escala_diaria')
-      .select('id, dia, dicionario_turnos_id, presenca_entrada_em, presenca_saida_em, presenca_confirmada, dicionario_turnos(codigo, slots)')
-      .eq('escala_mensal_id', escala.id)
-      .eq('categoria', 'Regular')
+      .select('id, dia, categoria, dicionario_turnos_id, presenca_entrada_em, presenca_saida_em, presenca_confirmada, dicionario_turnos(codigo, slots)')
+      .in('escala_mensal_id', escalaIds)
 
-    // Fetch manual validation logs
+    // Fetch manual validation logs across all scales of the server
     const { data: logs } = await supabase
       .from('logs_sobreaviso')
       .select('dia, categoria, validacao_manual, motivo_acionamento')
-      .eq('escala_mensal_id', escala.id)
+      .in('escala_mensal_id', escalaIds)
 
     const currentShifts = escalaDiaria || []
-    const fingerprint = generateFingerprint(currentShifts)
+    const fingerprint = generateFingerprint(currentShifts.filter(d => d.categoria === 'Regular'))
 
     // Fetch holidays
     const startDate = `${folha.ano}-${String(folha.mes).padStart(2, '0')}-01`
@@ -813,7 +838,7 @@ export async function sincronizarFolhaPonto(folhaId: string) {
       const dayOfWeekStr = weekDaysShort[dateObj.getDay()]
       const dateStr = `${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 
-      const currentShift = currentShifts.find(s => s.dia === day)
+      const currentShift = currentShifts.find(s => s.dia === day && s.categoria === 'Regular')
       const registroExistente = registrosExistentes.find(r => r.dia === day)
 
       // Check if this day's scale actually changed (shift presence vs existing record)
@@ -932,8 +957,16 @@ export async function sincronizarFolhaPonto(folhaId: string) {
           log.motivo_acionamento?.toLowerCase().includes('saida')
         )
 
-        const hasRealEntrada = !!currentShift.presenca_entrada_em && !isManualEntrada
-        const hasRealSaida = !!currentShift.presenca_saida_em && !isManualSaida
+        // Check if there was presence confirmada on any shift for this day (Regular, Extra, Plantão)
+        const dayShifts = currentShifts.filter(d => d.dia === day)
+        const allEntradas = dayShifts.map(s => s.presenca_entrada_em).filter(Boolean)
+        const allSaidas = dayShifts.map(s => s.presenca_saida_em).filter(Boolean)
+        
+        const realEntradaTime = allEntradas.length > 0 ? new Date(Math.min(...allEntradas.map(t => new Date(t).getTime()))) : null
+        const realSaidaTime = allSaidas.length > 0 ? new Date(Math.max(...allSaidas.map(t => new Date(t).getTime()))) : null
+
+        const hasRealEntrada = realEntradaTime !== null && !isManualEntrada
+        const hasRealSaida = realSaidaTime !== null && !isManualSaida
 
         const officialEntradaMin = startHour * 60 + startMin
         let officialSaidaMin = endHour * 60 + endMin
@@ -946,9 +979,8 @@ export async function sincronizarFolhaPonto(folhaId: string) {
 
         const seedBase = `${folha.servidor_id}-${folha.mes}-${folha.ano}-${day}`
 
-        if (hasRealEntrada) {
-          const d = new Date(currentShift.presenca_entrada_em)
-          registro.entrada = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+        if (hasRealEntrada && realEntradaTime) {
+          registro.entrada = realEntradaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_entrada = 'real'
         } else if (shouldGenerate(officialEntradaMin)) {
           const offset = getDeterministicOffset(`${seedBase}-entrada`, maxVar)
@@ -957,9 +989,8 @@ export async function sincronizarFolhaPonto(folhaId: string) {
           registro.origem_entrada = 'ficticio'
         }
 
-        if (hasRealSaida) {
-          const d = new Date(currentShift.presenca_saida_em)
-          registro.saida = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+        if (hasRealSaida && realSaidaTime) {
+          registro.saida = realSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_saida = 'real'
         } else if (shouldGenerate(officialSaidaMin)) {
           const offset = getDeterministicOffset(`${seedBase}-saida`, maxVar)
@@ -984,8 +1015,8 @@ export async function sincronizarFolhaPonto(folhaId: string) {
           }
         }
 
-        if (hasRealSaida && currentShift.presenca_saida_em) {
-          const realExit = new Date(currentShift.presenca_saida_em)
+        if (hasRealSaida && realSaidaTime) {
+          const realExit = realSaidaTime
           
           const scheduledEntrance = new Date(`${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}:00-03:00`)
           const scheduledExit = new Date(`${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00-03:00`)
@@ -1250,3 +1281,71 @@ export async function verificarDivergenciaEscala(folhaId: string) {
     return { divergent: false }
   }
 }
+
+// Fetch complete print data for multiple timesheets (folhas de ponto) in batch
+export async function getFolhasPontoPrintData(folhaIds: string[]) {
+  try {
+    const supabase = await createClient()
+    const userProfile = await getUserProfile(supabase)
+
+    // Fetch global logo config
+    const { data: logoData } = await supabase
+      .from('configuracoes_globais')
+      .select('valor')
+      .eq('chave', 'instituicao_cabecalho_url')
+      .single()
+    const logoUrl = logoData?.valor || ''
+
+    // Fetch the folhas with server details
+    const { data: folhas, error: folhaError } = await supabase
+      .from('folha_ponto')
+      .select('*, servidores(*)')
+      .in('id', folhaIds)
+
+    if (folhaError) throw folhaError
+    if (!folhas || folhas.length === 0) return { error: 'Nenhuma folha encontrada.' }
+
+    // Fetch scales
+    const escalaIds = folhas.map(f => f.escala_mensal_id)
+    const { data: escalas, error: escError } = await supabase
+      .from('escala_mensal')
+      .select('*, unidades(*), setores(*, dicionario_setores(nome)), jornadas(*)')
+      .in('id', escalaIds)
+
+    if (escError) throw escError
+
+    const mappedFolhas = []
+    for (const folha of folhas) {
+      const escala = escalas?.find(e => e.id === folha.escala_mensal_id)
+      if (!escala) continue
+
+      if (!hasSectorAccess(userProfile, escala.setor_id, escala.unidade_id)) {
+        continue
+      }
+
+      const sectorData = Array.isArray(escala.setores) ? escala.setores[0] : escala.setores
+      const dictData = sectorData ? (Array.isArray(sectorData.dicionario_setores) 
+        ? sectorData.dicionario_setores[0] 
+        : sectorData.dicionario_setores) : null
+
+      const resolvedSetor = sectorData ? {
+        ...sectorData,
+        nome: dictData?.nome || 'SETOR SEM NOME'
+      } : null
+
+      mappedFolhas.push({
+        ...folha,
+        escala: {
+          ...escala,
+          setores: resolvedSetor
+        }
+      })
+    }
+
+    return { folhas: mappedFolhas, logoUrl }
+  } catch (error: any) {
+    console.error('Erro em getFolhasPontoPrintData:', error)
+    return { error: error.message }
+  }
+}
+
