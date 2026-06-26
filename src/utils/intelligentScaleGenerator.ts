@@ -47,14 +47,23 @@ export async function fetchGeneratorData(
   const { mes: prevMes, ano: prevAno } = getPreviousMonth(mes, ano)
   const lastDayPrev = new Date(prevAno, prevMes, 0).getDate()
 
+  console.log(`[Gerador] Iniciando busca para servidores:`, servidorIds, `Setor: ${setorId}, Mês atual: ${mes}/${ano}, Mês anterior: ${prevMes}/${prevAno}`);
+
   // 1. Buscar escalas mensais do mês anterior
-  const { data: prevScales } = await supabase
+  const { data: prevScales, error: errScales } = await supabase
     .from('escala_mensal')
     .select('id, servidor_id')
     .eq('setor_id', setorId)
     .eq('mes', prevMes)
     .eq('ano', prevAno)
     .in('servidor_id', servidorIds)
+
+  if (errScales) {
+    console.error('[Gerador] Erro ao buscar prevScales:', errScales)
+    throw new Error(`Erro ao buscar escalas do mês anterior (escala_mensal): ${errScales.message} (${errScales.code})`)
+  }
+
+  console.log(`[Gerador] Escalas do mês anterior encontradas:`, prevScales?.length || 0);
 
   const prevScaleMap = new Map<string, string>() // servidor_id -> escala_mensal_id
   prevScales?.forEach(ps => {
@@ -65,30 +74,51 @@ export async function fetchGeneratorData(
   const prevScaleIds = prevScales?.map(ps => ps.id) || []
   let prevDailies: any[] = []
   if (prevScaleIds.length > 0) {
-    const { data } = await supabase
+    const { data, error: errDailies } = await supabase
       .from('escala_diaria')
       .select('escala_mensal_id, dia, dicionario_turnos_id, categoria')
       .in('escala_mensal_id', prevScaleIds)
       .eq('categoria', 'Regular')
+
+    if (errDailies) {
+      console.error('[Gerador] Erro ao buscar prevDailies:', errDailies)
+      throw new Error(`Erro ao buscar diárias do mês anterior (escala_diaria): ${errDailies.message} (${errDailies.code})`)
+    }
     prevDailies = data || []
   }
+
+  console.log(`[Gerador] Diárias do mês anterior encontradas:`, prevDailies.length);
 
   // 3. Buscar eventos de afastamento no mês atual
   const lastDayCurrent = new Date(ano, mes, 0).getDate()
   const startRange = `${ano}-${mes.toString().padStart(2, '0')}-01`
   const endRange = `${ano}-${mes.toString().padStart(2, '0')}-${lastDayCurrent}`
 
-  const { data: events } = await supabase
+  const { data: events, error: errEvents } = await supabase
     .from('servidores_eventos')
     .select('*, tipos_eventos(*)')
     .in('servidor_id', servidorIds)
     .or(`data_inicio.lte.${endRange},data_fim.gte.${startRange}`)
 
+  if (errEvents) {
+    console.error('[Gerador] Erro ao buscar eventos:', errEvents)
+    throw new Error(`Erro ao buscar afastamentos dos servidores: ${errEvents.message} (${errEvents.code})`)
+  }
+
+  console.log(`[Gerador] Afastamentos encontrados para o mês atual:`, events?.length || 0);
+
   // 4. Buscar detalhes dos servidores (preferências e carga horária)
-  const { data: serverDetails } = await supabase
+  const { data: serverDetails, error: errDetails } = await supabase
     .from('servidores')
     .select('id, preferenca_turno, carga_horaria_semanal')
     .in('id', servidorIds)
+
+  if (errDetails) {
+    console.error('[Gerador] Erro ao buscar detalhes dos servidores:', errDetails)
+    throw new Error(`Erro ao buscar dados cadastrais dos servidores: ${errDetails.message} (${errDetails.code})`)
+  }
+
+  console.log(`[Gerador] Detalhes cadastrais dos servidores buscados:`, serverDetails?.length || 0);
 
   return {
     prevScaleMap,
@@ -106,7 +136,9 @@ function analyzeHistory(
   servidorId: string,
   escalaMensalId: string | undefined,
   prevDailies: any[],
-  lastDayPrev: number
+  lastDayPrev: number,
+  prevMes: number,
+  prevAno: number
 ): HistoryInfo {
   if (!escalaMensalId) {
     return { patternDetected: 'Desconhecido', lastDayWorked: false, lastDayOffset: 99, preferredTurnoId: null }
@@ -143,7 +175,6 @@ function analyzeHistory(
   })
 
   // Detectar padrão 12x36 (trabalha dia sim, dia não)
-  // Medimos as diferenças entre dias de plantão consecutivos
   let diffsOf2 = 0
   for (let i = 1; i < workedDays.length; i++) {
     if (workedDays[i] - workedDays[i - 1] === 2) {
@@ -152,7 +183,21 @@ function analyzeHistory(
   }
 
   const ratio12x36 = diffsOf2 / (workedDays.length - 1 || 1)
-  const patternDetected = ratio12x36 > 0.6 ? '12x36' : 'Desconhecido'
+
+  // Detectar padrão 5x2 (trabalha seg-sex, folga sáb-dom)
+  let weekdayWorkCount = 0
+  let weekendWorkCount = 0
+  workedDays.forEach(day => {
+    const dayOfWeek = new Date(prevAno, prevMes - 1, day).getDay() // 0=Dom, 6=Sáb
+    if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+      weekdayWorkCount++
+    } else {
+      weekendWorkCount++
+    }
+  })
+  const is5x2 = weekdayWorkCount >= 4 && weekendWorkCount <= 1
+
+  const patternDetected = ratio12x36 > 0.6 ? '12x36' : (is5x2 ? '5x2' : 'Desconhecido')
 
   // Verificar proximidade do último dia trabalhado
   const lastWorkedDay = workedDays[workedDays.length - 1]
@@ -216,7 +261,8 @@ export async function generateIntelligentScale(
     
     // Obter histórico
     const prevScaleId = data.prevScaleMap.get(sId)
-    const history = analyzeHistory(sId, prevScaleId, data.prevDailies, data.lastDayPrev)
+    const { mes: prevMes, ano: prevAno } = getPreviousMonth(mes, ano)
+    const history = analyzeHistory(sId, prevScaleId, data.prevDailies, data.lastDayPrev, prevMes, prevAno)
 
     // Decidir turno ideal
     let selectedTurnoId = defaultTurno?.id
@@ -252,13 +298,34 @@ export async function generateIntelligentScale(
         }
         isWorkDay = !isWorkDay
       }
-    } else {
-      // Fallback padrão se não houver histórico ou continuidade desativada
-      // Para manter a segurança, não preenchemos nada (deixamos em branco para o coordenador aplicar um template)
-      // ou preenchemos com base no ciclo 12x36 padrão começando trabalhando
-      // Mas o usuário pediu "Assistente de Continuidade", então se não houver histórico para continuar,
-      // deixamos a linha vazia para não poluir ou assumimos o template padrão se desejar.
-      // Vamos deixar a linha vazia, pois "dar menos trabalho" significa não inventar dados onde não existe histórico.
+    } else if (options.respectContinuity && history.patternDetected === '5x2') {
+      // Padrão 5x2: trabalha de segunda a sexta, folga aos sábados e domingos
+      for (let day = 1; day <= daysInMonth; day++) {
+        const dayOfWeek = new Date(ano, mes - 1, day).getDay()
+        if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+          resultGrid[sId]['Regular'][day] = selectedTurnoId
+        }
+      }
+    } else if (options.respectContinuity && prevScaleId) {
+      // Fallback de Repetição Semanal (Para plantões fixos semanais ou escalas mistas):
+      // Identifica os dias da semana trabalhados no mês passado e replica-os.
+      const workedDaysOfWeek = new Set<number>()
+      const dailies = data.prevDailies.filter(d => d.escala_mensal_id === prevScaleId)
+      dailies.forEach(d => {
+        if (d.dicionario_turnos_id) {
+          const dayOfWeek = new Date(prevAno, prevMes - 1, d.dia).getDay()
+          workedDaysOfWeek.add(dayOfWeek)
+        }
+      })
+
+      if (workedDaysOfWeek.size > 0) {
+        for (let day = 1; day <= daysInMonth; day++) {
+          const dayOfWeek = new Date(ano, mes - 1, day).getDay()
+          if (workedDaysOfWeek.has(dayOfWeek)) {
+            resultGrid[sId]['Regular'][day] = selectedTurnoId
+          }
+        }
+      }
     }
 
     // 3. Bloqueio por afastamentos (Veredito do Usuário: Limpar dias de férias/licenças)

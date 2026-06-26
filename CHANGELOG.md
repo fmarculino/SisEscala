@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.8.1] - 2026-06-25
+
+### Fixed
+- **Tratamento de Erros e Depuração no Gerador Inteligente**:
+  - Adicionado tratamento de erros e exibição de exceções nas consultas de histórico de escalas e diárias do mês anterior em `src/utils/intelligentScaleGenerator.ts`.
+  - Evita falhas silenciosas que exibem a mensagem genérica "Nenhum Histórico Encontrado" caso ocorram restrições de permissão RLS ou de conexão com o banco de dados.
+  - Inseridos logs de depuração detalhados no console de desenvolvedor para ajudar a auditar as UUIDs de servidores, setores e contagem de registros processados em tempo real no frontend.
+
 ## [1.8.0] - 2026-06-25
 
 ### Added
