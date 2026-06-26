@@ -3098,22 +3098,45 @@ export function ScaleGrid({
                       return updated
                     })
 
+                    let cellsFilled = 0
+                    Object.values(generatedGrid).forEach(categories => {
+                      Object.values(categories).forEach(days => {
+                        cellsFilled += Object.keys(days).length
+                      })
+                    })
+
                     logAction('GERAR_ESCALA_INTELIGENTE', {
                       setor_id: setorId,
                       opcoes: {
                         respectContinuity: intelligentModal.respectContinuity,
                         respectEvents: intelligentModal.respectEvents,
                         respectPreferences: intelligentModal.respectPreferences
-                      }
+                      },
+                      celulas_preenchidas: cellsFilled
                     })
 
+                    const prevMesNum = mes === 1 ? 12 : mes - 1
+                    const prevAnoNum = mes === 1 ? ano - 1 : ano
+                    const prevMesNome = new Date(prevAnoNum, prevMesNum - 1, 1).toLocaleString('pt-BR', { month: 'long' })
+                    const prevMesCapitalizado = prevMesNome.charAt(0).toUpperCase() + prevMesNome.slice(1)
+
                     setIntelligentModal(null)
-                    setAlertModal({
-                      isOpen: true,
-                      title: 'Gerador Inteligente',
-                      message: 'Sugestão de escala gerada como rascunho com sucesso! Lembre-se de salvar as alterações.',
-                      type: 'success'
-                    })
+
+                    if (cellsFilled === 0) {
+                      setAlertModal({
+                        isOpen: true,
+                        title: 'Nenhum Histórico Encontrado',
+                        message: `Não foi possível preencher a escala automaticamente porque não foi encontrado nenhum histórico de escala salva para os servidores deste setor no mês anterior (${prevMesCapitalizado} de ${prevAnoNum}). Para novos setores, você deve aplicar os templates regulares manualmente nesta primeira competência.`,
+                        type: 'warning'
+                      })
+                    } else {
+                      setAlertModal({
+                        isOpen: true,
+                        title: 'Gerador Inteligente',
+                        message: `Sugestão de escala gerada com sucesso! ${cellsFilled} turnos foram preenchidos localmente como rascunho (Draft) para os servidores com ciclo 12x36 detectado. Lembre-se de salvar a escala.`,
+                        type: 'success'
+                      })
+                    }
                   } catch (err) {
                     console.error('Erro no gerador inteligente:', err)
                     setAlertModal({
