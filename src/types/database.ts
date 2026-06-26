@@ -108,6 +108,8 @@ export interface Database {
           matricula: string | null
           unidade_id: string | null
           setor_id: string | null
+          preferenca_turno: 'M' | 'T' | 'N' | 'Flexivel' | null
+          carga_horaria_semanal: number | null
         }
       }
       escala_mensal: {

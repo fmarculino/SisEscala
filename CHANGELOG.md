@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.8.0] - 2026-06-25
+
+### Added
+- **Auto-Escala Inteligente (Fase 1)**:
+  - Adicionado o botão **"Gerador Inteligente"** com ícone `Sparkles` animado e destacado na grade de escalas (`ScaleGrid.tsx`).
+  - Novo módulo utilitário `src/utils/intelligentScaleGenerator.ts` para cálculo automático de escala baseado em:
+    - Continuidade histórica de folgas (especialmente para a escala alternada 12x36) a partir do último dia trabalhado no mês anterior.
+    - Evasão e limpeza automática de turnos nos dias com férias ou licenças agendadas em `servidores_eventos`.
+    - Respeito às preferências de turno cadastradas ou detectadas do servidor.
+  - Modal de configurações no grid permitindo ao coordenador selecionar quais regras aplicar (continuidade, afastamentos, preferências) e testar a escala localmente em modo rascunho (Draft) antes de salvar.
+  - Novos campos `preferenca_turno` e `carga_horaria_semanal` na tabela `public.servidores` para guardar preferências e limites semanais dos servidores.
+  - Novos inputs correspondentes nos formulários de criação (`novo/page.tsx`) e edição (`EditServidorForm.tsx`) de servidores.
+- **Filtro de Turnos no Modal de Template**:
+  - Ajustado o dropdown de seleção de turnos do modal de aplicação de template de escala para exibir apenas turnos normais/regulares (tipo `'Normal'`), ocultando extras, sobreavisos ou virtuais.
+
 ## [1.7.0] - 2026-06-23
 
 ### Added

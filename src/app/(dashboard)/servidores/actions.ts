@@ -17,6 +17,8 @@ export async function createServidor(formData: FormData) {
   const email = formData.get('email') as string
   const telefone = formData.get('telefone') as string
   const pin_acesso = formData.get('pin_acesso') as string
+  const preferenca_turno = formData.get('preferenca_turno') as string || 'Flexivel'
+  const carga_horaria_semanal = parseInt(formData.get('carga_horaria_semanal') as string || '40', 10)
 
   let matriculaFinal = matricula?.trim() || ''
 
@@ -74,6 +76,8 @@ export async function createServidor(formData: FormData) {
     telefone: telefone || null,
     pin_acesso: pin_acesso || null,
     ignora_janela_presenca,
+    preferenca_turno,
+    carga_horaria_semanal: isNaN(carga_horaria_semanal) ? 40 : carga_horaria_semanal,
   })
 
   if (error) {
@@ -175,6 +179,8 @@ export async function updateServidor(id: string, formData: FormData) {
   const email = formData.get('email') as string
   const telefone = formData.get('telefone') as string
   const pin_acesso = formData.get('pin_acesso') as string
+  const preferenca_turno = formData.get('preferenca_turno') as string || 'Flexivel'
+  const carga_horaria_semanal = parseInt(formData.get('carga_horaria_semanal') as string || '40', 10)
 
   let matriculaFinal = matricula?.trim() || ''
 
@@ -396,6 +402,8 @@ export async function updateServidor(id: string, formData: FormData) {
     setor_id: newSetorId,
     email: email || null,
     telefone: telefone || null,
+    preferenca_turno,
+    carga_horaria_semanal: isNaN(carga_horaria_semanal) ? 40 : carga_horaria_semanal,
   }
 
   if (pin_acesso !== '****') {

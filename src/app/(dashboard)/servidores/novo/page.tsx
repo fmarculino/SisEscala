@@ -284,6 +284,38 @@ export default function NovoServidorPage() {
           </div>
 
           <div className="sm:col-span-3">
+            <label htmlFor="preferenca_turno" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              Preferência de Turno
+            </label>
+            <select
+              id="preferenca_turno"
+              name="preferenca_turno"
+              defaultValue="Flexivel"
+              className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white sm:text-sm"
+            >
+              <option value="Flexivel">Flexível</option>
+              <option value="M">Manhã</option>
+              <option value="T">Tarde</option>
+              <option value="N">Noite</option>
+            </select>
+          </div>
+
+          <div className="sm:col-span-3">
+            <label htmlFor="carga_horaria_semanal" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              Carga Horária Semanal (horas)
+            </label>
+            <input
+              type="number"
+              id="carga_horaria_semanal"
+              name="carga_horaria_semanal"
+              defaultValue={40}
+              min={1}
+              max={168}
+              className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white sm:text-sm"
+            />
+          </div>
+
+          <div className="sm:col-span-3">
             <label htmlFor="unidade_id" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
               Unidade
             </label>

@@ -6,7 +6,7 @@ import {
   Save, Loader2, Info, Zap, Lock, Unlock, FileText, Plus, UserPlus, Users, 
   CheckCircle, Trash2, Globe, X, Copy, Check, Clock, Navigation2,
   ShieldCheck, ShieldAlert, AlertTriangle, LayoutTemplate,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, Sparkles
 } from 'lucide-react'
 import { ScalePrintView } from '@/components/ScalePrintView'
 import { Modal } from '@/components/ui/Modal'
@@ -14,6 +14,7 @@ import React from 'react'
 import { canEditScale, UserRole } from '@/utils/governance'
 import { runComplianceCheck, getViolationsForCell, type ComplianceViolation } from '@/utils/complianceEngine'
 import { generateTemplate, TEMPLATE_OPTIONS, type TemplateType, countWorkDays } from '@/utils/scaleTemplates'
+import { generateIntelligentScale } from '@/utils/intelligentScaleGenerator'
 import { SwapRequestPanel } from '@/components/SwapRequestPanel'
 
 interface ScaleGridProps {
@@ -215,6 +216,14 @@ export function ScaleGrid({
     turnoId: string
     startDay: number
     startWorking: boolean
+  } | null>(null)
+
+  // Intelligent Generator Modal State
+  const [intelligentModal, setIntelligentModal] = useState<{
+    isOpen: boolean
+    respectContinuity: boolean
+    respectEvents: boolean
+    respectPreferences: boolean
   } | null>(null)
 
   const fetchOccupancy = useCallback(async (servidorIds: string[]) => {
@@ -1898,14 +1907,36 @@ export function ScaleGrid({
             <button
               onClick={() => {
                 if (escalaMensal.length === 0) {
+                  setAlertModal({ isOpen: true, title: 'Sem Servidores', message: 'Adicione pelo menos um servidor à grade antes de usar o Gerador Inteligente.', type: 'warning' })
+                  return
+                }
+                setIntelligentModal({
+                  isOpen: true,
+                  respectContinuity: true,
+                  respectEvents: true,
+                  respectPreferences: true
+                })
+              }}
+              disabled={loading || isClosed}
+              className="inline-flex items-center rounded-md border border-indigo-200 text-indigo-700 bg-indigo-50/50 px-3 py-2 text-sm font-medium hover:bg-indigo-100 dark:border-indigo-800 dark:text-indigo-400 dark:bg-indigo-950/20 transition-colors disabled:opacity-50"
+            >
+              <Sparkles className="h-4 w-4 mr-2 text-indigo-500 animate-pulse" />
+              Gerador Inteligente
+            </button>
+
+            <button
+              onClick={() => {
+                if (escalaMensal.length === 0) {
                   setAlertModal({ isOpen: true, title: 'Sem Servidores', message: 'Adicione pelo menos um servidor à grade antes de aplicar um template.', type: 'warning' })
                   return
                 }
+                const normalTurnos = turnos.filter(t => t.ativo !== false && t.tipo && t.tipo.split(',').map((s: string) => s.trim()).includes('Normal'))
+                const defaultTurnId = normalTurnos.find(t => t.codigo === 'MT')?.id || normalTurnos[0]?.id || turnos[0]?.id || ''
                 setTemplateModal({
                   isOpen: true,
                   servidorId: escalaMensal[0]?.servidor_id || '',
                   templateType: '12x36',
-                  turnoId: turnos.find(t => t.codigo === 'MT')?.id || turnos[0]?.id || '',
+                  turnoId: defaultTurnId,
                   startDay: 1,
                   startWorking: true
                 })
@@ -2841,9 +2872,12 @@ export function ScaleGrid({
                   value={templateModal.turnoId}
                   onChange={(e) => setTemplateModal(prev => prev ? { ...prev, turnoId: e.target.value } : null)}
                 >
-                  {turnos.filter(t => t.ativo !== false).map(t => (
-                    <option key={t.id} value={t.id}>{t.codigo} — {t.descricao}</option>
-                  ))}
+                  {turnos
+                    .filter(t => t.ativo !== false && t.tipo && t.tipo.split(',').map((s: string) => s.trim()).includes('Normal'))
+                    .map(t => (
+                      <option key={t.id} value={t.id}>{t.codigo} — {t.descricao}</option>
+                    ))
+                  }
                 </select>
               </div>
 
@@ -2942,6 +2976,160 @@ export function ScaleGrid({
                 className="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-bold rounded-lg transition-all shadow-lg shadow-purple-500/20 min-w-[140px]"
               >
                 Aplicar Template
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Gerador Inteligente de Escala */}
+      {intelligentModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-2xl border border-zinc-200 dark:border-zinc-800 w-full max-w-md overflow-hidden animate-in fade-in duration-200">
+            <div className="p-6 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between bg-zinc-50 dark:bg-zinc-900/50">
+              <h2 className="text-xl font-bold flex items-center gap-2 text-zinc-900 dark:text-white">
+                <Sparkles className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                Gerador Inteligente
+              </h2>
+              <button onClick={() => setIntelligentModal(null)} className="text-zinc-400 hover:text-zinc-600">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                O gerador analisará as escalas do mês anterior e os eventos/afastamentos agendados para sugerir a distribuição de turnos de forma inteligente.
+              </p>
+
+              <div className="space-y-4 pt-2">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={intelligentModal.respectContinuity}
+                    onChange={(e) => setIntelligentModal(prev => prev ? { ...prev, respectContinuity: e.target.checked } : null)}
+                    className="mt-1 h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <div>
+                    <span className="text-sm font-semibold text-zinc-950 dark:text-zinc-50 block">Respeitar Continuidade Histórica</span>
+                    <span className="text-xs text-zinc-500 block">Detecta ciclos 12x36 do mês anterior e inicia no dia correto.</span>
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={intelligentModal.respectEvents}
+                    onChange={(e) => setIntelligentModal(prev => prev ? { ...prev, respectEvents: e.target.checked } : null)}
+                    className="mt-1 h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <div>
+                    <span className="text-sm font-semibold text-zinc-950 dark:text-zinc-50 block">Evitar Dias de Afastamento</span>
+                    <span className="text-xs text-zinc-500 block">Zera o turno nos dias com férias ou licenças cadastradas.</span>
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={intelligentModal.respectPreferences}
+                    onChange={(e) => setIntelligentModal(prev => prev ? { ...prev, respectPreferences: e.target.checked } : null)}
+                    className="mt-1 h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <div>
+                    <span className="text-sm font-semibold text-zinc-950 dark:text-zinc-50 block">Respeitar Preferências de Turno</span>
+                    <span className="text-xs text-zinc-500 block">Prioriza o turno preferido ou o mais frequente do servidor.</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <div className="p-6 bg-zinc-50 dark:bg-zinc-900/50 border-t border-zinc-100 dark:border-zinc-800 flex justify-end gap-3">
+              <button
+                onClick={() => setIntelligentModal(null)}
+                className="px-4 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={async () => {
+                  if (!intelligentModal) return
+                  setLoading(true)
+                  try {
+                    const generatedGrid = await generateIntelligentScale(supabase, {
+                      unidadeId,
+                      setorId,
+                      mes,
+                      ano,
+                      escalaMensal,
+                      turnos,
+                      options: {
+                        respectContinuity: intelligentModal.respectContinuity,
+                        respectEvents: intelligentModal.respectEvents,
+                        respectPreferences: intelligentModal.respectPreferences
+                      }
+                    })
+
+                    setGridData(prev => {
+                      const updated = { ...prev }
+                      Object.entries(generatedGrid).forEach(([servidorId, categories]) => {
+                        if (!updated[servidorId]) {
+                          updated[servidorId] = {
+                            Regular: {},
+                            Extra: {},
+                            Plantão: {},
+                            Sobreaviso: {}
+                          }
+                        }
+                        Object.entries(categories).forEach(([category, days]) => {
+                          const cat = category as RowCategory
+                          Object.entries(days).forEach(([dayStr, turnoId]) => {
+                            const day = parseInt(dayStr)
+                            
+                            // Se o dia tem presença confirmada, NÃO sobrescreve
+                            const em = escalaMensal.find(x => x.servidor_id === servidorId)
+                            if (em && hasPresenceForDay(servidorId, em.id, cat, day)) {
+                              return
+                            }
+
+                            updated[servidorId][cat][day] = turnoId
+                          })
+                        })
+                      })
+                      return updated
+                    })
+
+                    logAction('GERAR_ESCALA_INTELIGENTE', {
+                      setor_id: setorId,
+                      opcoes: {
+                        respectContinuity: intelligentModal.respectContinuity,
+                        respectEvents: intelligentModal.respectEvents,
+                        respectPreferences: intelligentModal.respectPreferences
+                      }
+                    })
+
+                    setIntelligentModal(null)
+                    setAlertModal({
+                      isOpen: true,
+                      title: 'Gerador Inteligente',
+                      message: 'Sugestão de escala gerada como rascunho com sucesso! Lembre-se de salvar as alterações.',
+                      type: 'success'
+                    })
+                  } catch (err) {
+                    console.error('Erro no gerador inteligente:', err)
+                    setAlertModal({
+                      isOpen: true,
+                      title: 'Erro na Geração',
+                      message: 'Ocorreu um erro ao calcular a escala. Verifique a conexão e tente novamente.',
+                      type: 'danger'
+                    })
+                  } finally {
+                    setLoading(false)
+                  }
+                }}
+                className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-lg transition-all shadow-lg shadow-indigo-500/20 min-w-[140px] flex items-center justify-center gap-1.5"
+              >
+                {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                Sugerir Escala
               </button>
             </div>
           </div>
