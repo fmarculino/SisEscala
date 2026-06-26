@@ -48,6 +48,10 @@ Regras que o algoritmo tenta satisfazer para atingir a melhor escala possível, 
 3. **Equidade de Horas**: Distribuir a carga horária de forma justa entre servidores de mesma categoria/cargo.
 4. **Preferência de Turno**: Se o servidor tem preferência cadastrada por um turno (ex: Manhã), priorizar escalá-lo nesse turno.
 
+### C. Janela de Análise Histórica (Melhoria Futura)
+Para a Fase 1, a análise de **curto prazo** (1 mês anterior) é suficiente para garantir a transição física das folgas (12x36). No entanto, escalas de saúde podem ser atípicas devido a férias ou licenças recentes. Para versões futuras, planeja-se:
+- **Janela de 3 a 6 meses**: Avaliar a média ponderada de comportamento para identificar o turno preferido real e a frequência de plantões extras históricos, evitando usar como base um único mês que possa ter sido atípico.
+
 ---
 
 ## 4. Análise de Alternativas de Algoritmo
