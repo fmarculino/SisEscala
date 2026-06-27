@@ -23,6 +23,7 @@ interface ScalePrintViewProps {
   }
   servidoresEventos?: any[]
   permitirPlantaoExtra?: boolean
+  destaqueServidorId?: string
 }
 
 export function ScalePrintView({ 
@@ -36,7 +37,8 @@ export function ScalePrintView({
   jornadas,
   shiftTotals,
   servidoresEventos = [],
-  permitirPlantaoExtra = false
+  permitirPlantaoExtra = false,
+  destaqueServidorId
 }: ScalePrintViewProps) {
   const [mounted, setMounted] = useState(false)
   const [headerLogoUrl, setHeaderLogoUrl] = useState<string>('')
@@ -96,7 +98,7 @@ export function ScalePrintView({
     <div className="hidden print:block bg-white p-0 m-0 print-view-portal">
       <style dangerouslySetInnerHTML={{ __html: `
         @media print {
-          @page { size: landscape; margin: 0.5cm; }
+          @page { size: landscape; margin: 0.4cm 0.4cm; }
           
           /* Hide the entire Next.js application tree during print */
           body > *:not(.print-view-portal) {
@@ -130,7 +132,7 @@ export function ScalePrintView({
             position: relative !important; 
             width: 100% !important; 
             box-sizing: border-box !important; 
-            padding: 5px !important;
+            padding: 2px !important;
             display: block !important;
             height: auto !important;
             overflow: visible !important;
@@ -141,29 +143,34 @@ export function ScalePrintView({
           }
           .print-page * { visibility: visible !important; }
           .print-page { color: #000; }
-          table { width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 8.5pt; table-layout: fixed; }
+          table { width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 8pt; table-layout: fixed; }
           tr { page-break-inside: avoid; break-inside: avoid; }
-          th, td { border: 0.5pt solid #000; padding: 3.5px 1px; text-align: center; line-height: 1.15; overflow: hidden; white-space: nowrap; }
+          th, td { border: 0.5pt solid #000; padding: 2.2px 0.5px; text-align: center; line-height: 1.1; overflow: hidden; white-space: nowrap; }
           .bg-green { background-color: #f3f4f6 !important; border-top: 1.5pt solid #000; border-bottom: 1.5pt solid #000; font-weight: bold; }
           .bg-gray-header { background-color: #e5e7eb !important; font-weight: bold; }
           .bg-gray-cell { background-color: #f3f4f6 !important; }
           .bg-yellow { background-color: #facc15 !important; font-weight: bold; }
           .text-left { text-align: left; padding-left: 2px; }
           .font-bold { font-weight: bold; }
-          .logo-area { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; border-bottom: 1pt solid #000; margin-bottom: 5px; }
+          .logo-area { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; border-bottom: 1.2pt solid #000; margin-bottom: 4px; }
           .event-cell { color: #fff !important; font-weight: 900 !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
           .print-container { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+          .highlight-row {
+            background-color: #dbeafe !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
         }
       `}} />
 
       {pages.map((pageServers, pageIdx) => (
         <div key={pageIdx} className="print-page print-container">
           {/* Logo Area */}
-          <div className="logo-area" style={{ padding: '8px 0', marginBottom: '8px', borderBottom: '1.5pt solid #000' }}>
+          <div className="logo-area">
             <div className="flex items-center gap-6">
               {/* Logo Instituição ou Fallback */}
               {headerLogoUrl ? (
-                <div style={{ height: '65px', width: '180px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ height: '52px', width: '160px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <img 
                     src={headerLogoUrl} 
                     alt="Logo Instituição" 
@@ -173,10 +180,10 @@ export function ScalePrintView({
               ) : (
                 <div className="flex items-center gap-4">
                   <div className="flex flex-col">
-                    <span className="text-base font-black text-green-800 tracking-tighter">{unidade?.nome || 'Unidade'}</span>
-                    <span className="text-[7.5pt] font-black uppercase tracking-wider">Prefeitura Municipal</span>
+                    <span className="text-sm font-black text-green-800 tracking-tighter">{unidade?.nome || 'Unidade'}</span>
+                    <span className="text-[7pt] font-black uppercase tracking-wider">Prefeitura Municipal</span>
                   </div>
-                  <div className="border-l-2 border-black pl-3 text-[7.5pt] font-bold leading-tight">
+                  <div className="border-l-2 border-black pl-3 text-[7pt] font-bold leading-tight">
                     Secretaria<br/>Municipal de<br/>Saúde
                   </div>
                 </div>
@@ -184,7 +191,7 @@ export function ScalePrintView({
 
               {/* Logo da Unidade (se houver) */}
               {unidade?.logo_url && (
-                <div style={{ height: '65px', width: '120px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderLeft: '1px solid #000', paddingLeft: '16px' }}>
+                <div style={{ height: '52px', width: '100px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderLeft: '1px solid #000', paddingLeft: '12px' }}>
                   <img 
                     src={unidade.logo_url} 
                     alt={`Logo ${unidade.nome}`} 
@@ -194,14 +201,14 @@ export function ScalePrintView({
               )}
             </div>
             <div className="text-center">
-              <span className="text-sm font-black tracking-widest block uppercase" style={{ fontSize: '12pt' }}>{setor?.nome || 'SETOR'}</span>
-              <span className="text-[7.5pt] font-bold uppercase">{unidade?.nome || 'Unidade de Saúde'}</span>
+              <span className="text-sm font-black tracking-widest block uppercase" style={{ fontSize: '11pt' }}>{setor?.nome || 'SETOR'}</span>
+              <span className="text-[7pt] font-bold uppercase">{unidade?.nome || 'Unidade de Saúde'}</span>
             </div>
-            <div className="text-[7.5pt] font-black italic uppercase">Escala de Serviço</div>
+            <div className="text-[7pt] font-black italic uppercase">Escala de Serviço</div>
           </div>
 
           {/* Green/Gray Meta Bar */}
-          <div className="bg-green flex justify-between px-3 py-1.5 text-[9pt] mb-2" style={{ fontSize: '9pt', padding: '5px 10px', marginBottom: '8px' }}>
+          <div className="bg-green flex justify-between px-3 py-1 text-[8.5pt]" style={{ fontSize: '8.5pt', padding: '4px 8px', marginBottom: '6px' }}>
             <div className="font-bold">{setor?.nome || 'SETOR'} — {unidade?.nome || 'UNIDADE'}</div>
             <div className="uppercase font-black tracking-wider">01 A {daysInMonth} DE {new Intl.DateTimeFormat('pt-BR', { month: 'long' }).format(new Date(ano, mes - 1))} DE {ano}</div>
             <div className="flex gap-2">
@@ -227,21 +234,22 @@ export function ScalePrintView({
               {pageServers.map((em, idx) => {
                 const categories: RowCategory[] = ['Regular', 'Extra', 'Plantão', 'Sobreaviso']
                 const globalIdx = pageIdx * serversPerPage + idx
+                const isHighlighted = em.servidor_id === destaqueServidorId
                 
                 return (
                   <React.Fragment key={em.id}>
                     {categories.map((cat, catIdx) => (
-                      <tr key={`${em.id}-${cat}`}>
+                      <tr key={`${em.id}-${cat}`} className={isHighlighted ? 'highlight-row' : ''}>
                         {catIdx === 0 && (
                           <>
-                            <td rowSpan={4}>{globalIdx + 1}</td>
-                            <td rowSpan={4} className="text-left font-bold" style={{ fontSize: '9.5pt' }}>
+                            <td rowSpan={4} className={isHighlighted ? 'highlight-row' : ''}>{globalIdx + 1}</td>
+                            <td rowSpan={4} className={`text-left font-bold ${isHighlighted ? 'highlight-row' : ''}`} style={{ fontSize: '9.5pt' }}>
                               {em.servidores?.nome}
-                              <div style={{ fontSize: '6.5pt', fontWeight: 'normal' }}>{em.servidores?.cargo}</div>
+                              <div style={{ fontSize: '6.5pt', fontWeight: 'normal', lineHeight: '1.0' }}>{em.servidores?.cargo}</div>
                             </td>
                           </>
                         )}
-                        <td className="text-left uppercase" style={{ fontSize: '6.5pt', fontWeight: 'bold' }}>
+                        <td className={`text-left uppercase ${isHighlighted ? 'highlight-row' : ''}`} style={{ fontSize: '6.5pt', fontWeight: 'bold' }}>
                           {cat === 'Regular' ? (em.jornadas?.nome || 'Regular') : cat === 'Extra' ? 'Extras' : cat === 'Plantão' ? 'Plantões' : 'Sobreaviso'}
                         </td>
                         {daysArray.map(day => {
@@ -296,7 +304,7 @@ export function ScalePrintView({
 
                           const fontSize = code.length > 2 ? '7.5pt' : '9pt'
                           return (
-                            <td key={day} className={isWE ? 'bg-gray-cell' : ''} style={{ fontSize, fontWeight: 'bold', verticalAlign: 'middle' }}>{displayCode}</td>
+                            <td key={day} className={`${isWE ? 'bg-gray-cell' : ''} ${isHighlighted ? 'highlight-row' : ''}`} style={{ fontSize, fontWeight: 'bold', verticalAlign: 'middle' }}>{displayCode}</td>
                           )
                         })}
                       </tr>
@@ -304,55 +312,56 @@ export function ScalePrintView({
                   </React.Fragment>
                 )
               })}
+
+              {/* Table Footer: only show on the last page at the end of the scale */}
+              {pageIdx === totalPages - 1 && (
+                <>
+                  <tr className="bg-gray-header">
+                    <td rowSpan={4} colSpan={2} style={{ fontSize: '8.5pt', fontWeight: 'bold', verticalAlign: 'middle' }}>
+                      SERVIDORES POR TURNO
+                    </td>
+                    <td style={{ fontSize: '6.5pt', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                      MANHÃ
+                    </td>
+                    {daysArray.map(day => (
+                      <td key={day} style={{ fontSize: '8.5pt', fontWeight: 'bold' }}>
+                        {shiftTotals.M[day] || ''}
+                      </td>
+                    ))}
+                  </tr>
+                  <tr className="bg-gray-header">
+                    <td style={{ fontSize: '6.5pt', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                      TARDE
+                    </td>
+                    {daysArray.map(day => (
+                      <td key={day} style={{ fontSize: '8.5pt', fontWeight: 'bold' }}>
+                        {shiftTotals.T[day] || ''}
+                      </td>
+                    ))}
+                  </tr>
+                  <tr className="bg-gray-header">
+                    <td style={{ fontSize: '6.5pt', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                      NOITE
+                    </td>
+                    {daysArray.map(day => (
+                      <td key={day} style={{ fontSize: '8.5pt', fontWeight: 'bold' }}>
+                        {shiftTotals.N[day] || ''}
+                      </td>
+                    ))}
+                  </tr>
+                  <tr className="bg-gray-header">
+                    <td style={{ fontSize: '6.5pt', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                      SOBREAVISO
+                    </td>
+                    {daysArray.map(day => (
+                      <td key={day} style={{ fontSize: '8.5pt', fontWeight: 'bold' }}>
+                        {shiftTotals.S[day] || ''}
+                      </td>
+                    ))}
+                  </tr>
+                </>
+              )}
             </tbody>
-            {/* Table Footer: only show on the last page */}
-            {pageIdx === totalPages - 1 && (
-              <tfoot className="bg-zinc-100 dark:bg-zinc-800">
-                <tr>
-                  <td rowSpan={4} colSpan={2} className="sticky left-0 z-10 bg-zinc-200 p-2 border border-zinc-300 dark:border-zinc-600 text-center align-middle uppercase text-sm font-black text-zinc-900 dark:text-zinc-100" style={{ fontSize: '8.5pt' }}>
-                    SERVIDORES POR TURNO
-                  </td>
-                  <td className="sticky left-[180px] z-10 bg-white dark:bg-zinc-900 p-1 border border-zinc-300 dark:border-zinc-600 uppercase text-[10px] text-center font-bold text-zinc-800 dark:text-zinc-200" style={{ fontSize: '6.5pt' }}>
-                    MANHÃ
-                  </td>
-                  {daysArray.map(day => (
-                    <td key={day} className="p-1 border border-zinc-300 dark:border-zinc-600 text-center bg-white dark:bg-zinc-900 text-[11px] font-bold text-zinc-900 dark:text-zinc-100" style={{ fontSize: '8.5pt' }}>
-                      {shiftTotals.M[day] || ''}
-                    </td>
-                  ))}
-                </tr>
-                <tr>
-                  <td className="sticky left-[180px] z-10 bg-white dark:bg-zinc-900 p-1 border border-zinc-300 dark:border-zinc-600 uppercase text-[10px] text-center font-bold text-zinc-800 dark:text-zinc-200" style={{ fontSize: '6.5pt' }}>
-                    TARDE
-                  </td>
-                  {daysArray.map(day => (
-                    <td key={day} className="p-1 border border-zinc-300 dark:border-zinc-600 text-center bg-white dark:bg-zinc-900 text-[11px] font-bold text-zinc-900 dark:text-zinc-100" style={{ fontSize: '8.5pt' }}>
-                      {shiftTotals.T[day] || ''}
-                    </td>
-                  ))}
-                </tr>
-                <tr>
-                  <td className="sticky left-[180px] z-10 bg-white dark:bg-zinc-900 p-1 border border-zinc-300 dark:border-zinc-600 uppercase text-[10px] text-center font-bold text-zinc-800 dark:text-zinc-200" style={{ fontSize: '6.5pt' }}>
-                    NOITE
-                  </td>
-                  {daysArray.map(day => (
-                    <td key={day} className="p-1 border border-zinc-300 dark:border-zinc-600 text-center bg-white dark:bg-zinc-900 text-[11px] font-bold text-zinc-900 dark:text-zinc-100" style={{ fontSize: '8.5pt' }}>
-                      {shiftTotals.N[day] || ''}
-                    </td>
-                  ))}
-                </tr>
-                <tr>
-                  <td className="sticky left-[180px] z-10 bg-white dark:bg-zinc-900 p-1 border border-zinc-300 dark:border-zinc-600 uppercase text-[10px] text-center font-bold text-zinc-800 dark:text-zinc-200" style={{ fontSize: '6.5pt' }}>
-                    SOBREAVISO
-                  </td>
-                  {daysArray.map(day => (
-                    <td key={day} className="p-1 border border-zinc-300 dark:border-zinc-600 text-center bg-white dark:bg-zinc-900 text-[11px] font-bold text-zinc-900 dark:text-zinc-100" style={{ fontSize: '8.5pt' }}>
-                      {shiftTotals.S[day] || ''}
-                    </td>
-                  ))}
-                </tr>
-              </tfoot>
-            )}
           </table>
         </div>
       ))}
