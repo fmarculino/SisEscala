@@ -445,3 +445,49 @@ export async function toggleServidorStatus(id: string, status: 'Ativo' | 'Inativ
   revalidatePath('/servidores')
   return { success: true }
 }
+
+export async function createJornadaTemporaria(
+  servidorId: string, 
+  jornadaId: string, 
+  dataInicio: string, 
+  dataFim: string, 
+  motivo?: string
+) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  const { error } = await supabase
+    .from('servidores_jornadas_temporarias')
+    .insert({
+      servidor_id: servidorId,
+      jornada_id: jornadaId,
+      data_inicio: dataInicio,
+      data_fim: dataFim,
+      motivo: motivo || null,
+      criado_por: user?.id
+    })
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  revalidatePath(`/servidores/${servidorId}`)
+  return { success: true }
+}
+
+export async function deleteJornadaTemporaria(id: string, servidorId: string) {
+  const supabase = await createClient()
+
+  const { error } = await supabase
+    .from('servidores_jornadas_temporarias')
+    .delete()
+    .eq('id', id)
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  revalidatePath(`/servidores/${servidorId}`)
+  return { success: true }
+}
+

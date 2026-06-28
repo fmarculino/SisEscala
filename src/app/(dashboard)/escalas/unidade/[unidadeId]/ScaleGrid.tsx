@@ -55,6 +55,7 @@ export function ScaleGrid({
   const [loading, setLoading] = useState(false)
   const [isTotalsCollapsed, setIsTotalsCollapsed] = useState(false)
   const [servidoresEventos, setServidoresEventos] = useState<any[]>([])
+  const [jornadasTemporarias, setJornadasTemporarias] = useState<any[]>([])
 
   const fetchServidoresEventos = useCallback(async () => {
     if (escalaMensalInicial.length === 0) return
@@ -76,9 +77,30 @@ export function ScaleGrid({
     }
   }, [supabase, escalaMensalInicial, mes, ano])
 
+  const fetchJornadasTemporarias = useCallback(async () => {
+    if (escalaMensalInicial.length === 0) return
+    const servantIds = escalaMensalInicial.map(em => em.servidor_id)
+    const lastDay = new Date(ano, mes, 0).getDate()
+    const startRange = `${ano}-${mes.toString().padStart(2, '0')}-01`
+    const endRange = `${ano}-${mes.toString().padStart(2, '0')}-${lastDay}`
+
+    const { data, error } = await supabase
+      .from('servidores_jornadas_temporarias')
+      .select('*, jornadas(*)')
+      .in('servidor_id', servantIds)
+      .or(`data_inicio.lte.${endRange},data_fim.gte.${startRange}`)
+
+    if (error) {
+      console.error('Erro ao buscar jornadas temporárias:', error)
+    } else {
+      setJornadasTemporarias(data || [])
+    }
+  }, [supabase, escalaMensalInicial, mes, ano])
+
   useEffect(() => {
     fetchServidoresEventos()
-  }, [escalaMensalInicial, fetchServidoresEventos])
+    fetchJornadasTemporarias()
+  }, [escalaMensalInicial, fetchServidoresEventos, fetchJornadasTemporarias])
 
   const getActiveEventForDay = useCallback((servidorId: string, day: number) => {
     const dateStr = `${ano}-${mes.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`
@@ -2048,6 +2070,8 @@ export function ScaleGrid({
               const totals = calculateTotals(em.servidor_id)
               const categories: RowCategory[] = ['Regular', 'Extra', 'Plantão', 'Sobreaviso']
               const isExternal = em.servidores?.unidade_id !== unidadeId || em.servidores?.setor_id !== setorId
+              const serverTempJourneys = jornadasTemporarias.filter(jt => jt.servidor_id === em.servidor_id)
+              const hasTempJourney = serverTempJourneys.length > 0
               
               return (
                 <React.Fragment key={em.id}>
@@ -2057,6 +2081,14 @@ export function ScaleGrid({
                         <td rowSpan={4} className="sticky left-0 z-10 bg-white dark:bg-zinc-900 p-2 border border-zinc-200 dark:border-zinc-700 font-bold whitespace-nowrap align-top text-zinc-900 dark:text-zinc-100">
                           <div className="flex items-center gap-2">
                             {em.servidores?.nome}
+                            {hasTempJourney && (
+                              <span 
+                                className="inline-flex items-center" 
+                                title={`Possui jornada temporária cadastrada:\n${serverTempJourneys.map(jt => `${jt.jornadas?.nome} (De ${new Date(jt.data_inicio + 'T00:00:00').toLocaleDateString('pt-BR')} até ${new Date(jt.data_fim + 'T00:00:00').toLocaleDateString('pt-BR')})`).join('\n')}`}
+                              >
+                                <Clock className="h-3.5 w-3.5 text-amber-500 fill-amber-500/10 cursor-help" />
+                              </span>
+                            )}
                             {hasConfirmedPresence(em.servidor_id, em.id) && (
                               <span title="Escala Protegida: Contém registros de presença">
                                 <ShieldCheck className="h-3 w-3 text-emerald-500" />
@@ -2197,6 +2229,7 @@ export function ScaleGrid({
                         const isDisregarded = isFailed && desconsiderarFalha
 
                         const activeEvent = getActiveEventForDay(em.servidor_id, day)
+                        const dayTempJourney = serverTempJourneys.find(jt => dateStr >= jt.data_inicio && dateStr <= jt.data_fim)
                         const permitirPlantaoExtra = configs['permitir_plantao_extra_durante_eventos'] === 'true'
                         const isRegular = cat === 'Regular'
                         const isCellBlockedByEvent = activeEvent && (isRegular || !permitirPlantaoExtra) && (
@@ -2215,6 +2248,7 @@ export function ScaleGrid({
                               ${hasExternalConflict ? 'ring-1 ring-inset ring-red-500' : ''}
                               ${(presenceData[em.servidor_id]?.[cat]?.[day]?.entrada || presenceData[em.servidor_id]?.[cat]?.[day]?.saida || effectiveStatus === 'Chegou') ? 'bg-emerald-50/50 dark:bg-emerald-900/10' : ''}`}
                             title={
+                              `${dayTempJourney ? `🕒 Jornada Temporária Ativa: ${dayTempJourney.jornadas?.nome}\n` : ''}${
                               isCellBlockedByEvent 
                                 ? `⚠️ BLOQUEADO: Servidor em afastamento (${activeEvent.tipos_eventos?.nome})${activeEvent.slots && activeEvent.slots.length > 0 ? ` [Período: ${activeEvent.slots.join(', ')}]` : ''}${activeEvent.observacao ? ` - ${activeEvent.observacao}` : ''}`
                                 : hasExternalConflict 
@@ -2228,6 +2262,7 @@ export function ScaleGrid({
                                         : activeEvent
                                           ? `ℹ️ Servidor em afastamento (${activeEvent.tipos_eventos?.nome}) - Alocação permitida por governança`
                                           : ''
+                              }`
                             }
                           >
                             {isCellBlockedByEvent ? (
@@ -2239,6 +2274,12 @@ export function ScaleGrid({
                               </div>
                             ) : (
                               <div className="relative w-full h-full">
+                                {dayTempJourney && (
+                                  <div 
+                                    className="absolute top-0 left-0 right-0 h-[2.5px] bg-amber-500 dark:bg-amber-600 z-10 pointer-events-none" 
+                                    title={`Jornada Temporária: ${dayTempJourney.jornadas?.nome}`}
+                                  />
+                                )}
                                 {activeEvent && (
                                   <div 
                                     className="absolute inset-0 pointer-events-none opacity-20"

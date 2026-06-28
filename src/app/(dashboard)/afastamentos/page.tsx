@@ -309,11 +309,11 @@ export default function AfastamentosPage() {
         const ids = monthlyScales.map(m => m.id)
         const { data: dailies } = await supabase
           .from('escala_diaria')
-          .select('id, dia, escala_mensal_id, dicionario_turnos(slots)')
+          .select('id, dia, escala_mensal_id, dicionario_turnos(slots), presenca_entrada_em, presenca_saida_em, presenca_confirmada, confirmado_por_id')
           .in('escala_mensal_id', ids)
 
         if (dailies && dailies.length > 0) {
-          const hasScaleConflict = dailies.some(d => {
+          const conflictingDailies = dailies.filter(d => {
             const mScale = monthlyScales.find(m => m.id === d.escala_mensal_id)
             if (!mScale) return false
             const dayDate = new Date(mScale.ano, mScale.mes - 1, d.dia)
@@ -325,13 +325,36 @@ export default function AfastamentosPage() {
             return shiftSlots.some((s: string) => slotsValue!.includes(s))
           })
 
-          if (hasScaleConflict) {
+          if (conflictingDailies.length > 0) {
+            const hasConfirmedOrMarked = conflictingDailies.some(d => 
+              d.presenca_entrada_em !== null || 
+              d.presenca_saida_em !== null || 
+              d.presenca_confirmada === true || 
+              d.confirmado_por_id !== null
+            )
+
+            if (hasConfirmedOrMarked) {
+              setSaving(false)
+              setAlertModal({
+                isOpen: true,
+                title: '⚠️ Conflito de Escala Confirmada',
+                message: 'Não é permitido cadastrar o afastamento neste período pois o servidor possui escala confirmada ou com marcações de presença reais na grade. O coordenador deve intervir pessoalmente.',
+                type: 'warning'
+              })
+              return
+            }
+
+            // Caso sejam apenas previsões, solicita a confirmação do usuário
             setSaving(false)
-            setAlertModal({
+            setConfirmModal({
               isOpen: true,
-              title: '⚠️ Conflito de Escala Detectado',
-              message: 'Não é permitido cadastrar o afastamento neste período pois o servidor possui escala prevista ou confirmada incompatível na grade. O coordenador deve primeiro remover a previsão da escala na grade da unidade.',
-              type: 'warning'
+              title: 'Substituir Previsões de Escala?',
+              message: 'Detectamos previsões de escala para este servidor no período selecionado. Elas serão substituídas automaticamente pelo lançamento do afastamento. Deseja prosseguir?',
+              type: 'warning',
+              onConfirm: () => {
+                setConfirmModal(null)
+                executeInsertion(user?.id, slotsValue)
+              }
             })
             return
           }
@@ -545,11 +568,11 @@ export default function AfastamentosPage() {
         const ids = monthlyScales.map(m => m.id)
         const { data: dailies } = await supabase
           .from('escala_diaria')
-          .select('id, dia, escala_mensal_id, dicionario_turnos(slots)')
+          .select('id, dia, escala_mensal_id, dicionario_turnos(slots), presenca_entrada_em, presenca_saida_em, presenca_confirmada, confirmado_por_id')
           .in('escala_mensal_id', ids)
 
         if (dailies && dailies.length > 0) {
-          const hasScaleConflict = dailies.some(d => {
+          const conflictingDailies = dailies.filter(d => {
             const mScale = monthlyScales.find(m => m.id === d.escala_mensal_id)
             if (!mScale) return false
             const dayDate = new Date(mScale.ano, mScale.mes - 1, d.dia)
@@ -561,13 +584,36 @@ export default function AfastamentosPage() {
             return shiftSlots.some((s: string) => slotsValue!.includes(s))
           })
 
-          if (hasScaleConflict) {
+          if (conflictingDailies.length > 0) {
+            const hasConfirmedOrMarked = conflictingDailies.some(d => 
+              d.presenca_entrada_em !== null || 
+              d.presenca_saida_em !== null || 
+              d.presenca_confirmada === true || 
+              d.confirmado_por_id !== null
+            )
+
+            if (hasConfirmedOrMarked) {
+              setSaving(false)
+              setAlertModal({
+                isOpen: true,
+                title: '⚠️ Conflito de Escala Confirmada',
+                message: 'Não é permitido alterar o afastamento para este período pois o servidor possui escala confirmada ou com marcações de presença reais na grade. O coordenador deve intervir pessoalmente.',
+                type: 'warning'
+              })
+              return
+            }
+
+            // Caso sejam apenas previsões, solicita a confirmação do usuário
             setSaving(false)
-            setAlertModal({
+            setConfirmModal({
               isOpen: true,
-              title: '⚠️ Conflito de Escala Detectado',
-              message: 'Não é permitido alterar o afastamento para este período pois o servidor possui escala prevista ou confirmada incompatível na grade. O coordenador deve primeiro remover a previsão da escala na grade da unidade.',
-              type: 'warning'
+              title: 'Substituir Previsões de Escala?',
+              message: 'Detectamos previsões de escala para este servidor no período selecionado. Elas serão substituídas automaticamente pelo lançamento do afastamento. Deseja prosseguir?',
+              type: 'warning',
+              onConfirm: () => {
+                setConfirmModal(null)
+                executeUpdate(editingId, user?.id, slotsValue)
+              }
             })
             return
           }

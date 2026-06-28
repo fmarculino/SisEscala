@@ -755,6 +755,7 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
          shiftTotals={calculateShiftTotals(fullEscalaData)}
          servidoresEventos={fullEscalaData.servidoresEventos}
          permitirPlantaoExtra={fullEscalaData.configsGlobais?.find((c: any) => c.chave === 'permitir_plantao_extra_durante_eventos')?.valor === true || fullEscalaData.configsGlobais?.find((c: any) => c.chave === 'permitir_plantao_extra_durante_eventos')?.valor?.toString() === 'true'}
+         destaqueServidorId={servidor?.id}
       />
     )}
 

@@ -707,8 +707,19 @@ export function FolhaPontoEditor({
                     </td>
                     
                     {/* Dia da semana */}
-                    <td className="px-2 py-2 border-r border-zinc-200 dark:border-zinc-700 text-center font-bold text-zinc-500">
-                      {r.dia_semana}
+                    <td 
+                      className="px-2 py-2 border-r border-zinc-200 dark:border-zinc-700 text-center font-bold text-zinc-500"
+                      title={r.jornada_nome ? `Jornada: ${r.jornada_nome}${r.jornada_temporaria ? ' (Temporária)' : ''}` : undefined}
+                    >
+                      <div>{r.dia_semana}</div>
+                      {r.jornada_temporaria && (
+                        <span 
+                          className="inline-block mt-0.5 px-1 py-0.2 text-[8px] font-semibold bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 rounded border border-amber-200 dark:border-amber-800/40"
+                          title={`Jornada Temporária: ${r.jornada_nome}`}
+                        >
+                          Temp
+                        </span>
+                      )}
                     </td>
 
                     {/* Entrada */}
