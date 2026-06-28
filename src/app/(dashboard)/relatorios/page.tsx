@@ -1,4 +1,4 @@
-import { FileText, ChevronRight, BarChart3, PieChart, Download, Search } from 'lucide-react'
+import { FileText, ChevronRight, BarChart3, PieChart, Download, Search, Activity } from 'lucide-react'
 import { createClient } from '@/utils/supabase/server'
 import { AcessoNegado } from '@/components/AcessoNegado'
 import Link from 'next/link'
@@ -30,6 +30,12 @@ export default async function RelatoriosPage() {
       desc: 'Análise de cobertura por unidade e turno.', 
       icon: PieChart,
       href: '/relatorios/distribuicao'
+    },
+    { 
+      title: 'Diagnóstico de Plantões & Sobreavisos', 
+      desc: 'Análise de carga horária, riscos de fadiga e efetividade de acionamentos.', 
+      icon: Activity,
+      href: '/relatorios/plantao-sobreaviso'
     },
     { 
       title: 'Folha de RH', 
