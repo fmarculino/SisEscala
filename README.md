@@ -1,6 +1,4 @@
-# SisEscala 📅
-
-[![Version](https://img.shields.io/badge/version-1.8.0-green.svg)](https://github.com/fmarculino/SisEscala)
+# SisEscala 📅[![Version](https://img.shields.io/badge/version-1.9.0-green.svg)](https://github.com/fmarculino/SisEscala)
 [![Next.js](https://img.shields.io/badge/framework-Next.js%2015-black.svg)](https://nextjs.org/)
 [![Supabase](https://img.shields.io/badge/backend-Supabase-green.svg)](https://supabase.com/)
 [![Tailwind CSS](https://img.shields.io/badge/styling-Tailwind%20CSS-38B2AC.svg)](https://tailwindcss.com/)
@@ -21,11 +19,21 @@ O sistema foca em **governança, segurança jurídica e eficiência operacional*
 - **Horas Extras Virtuais**: Lançamento de horas extras numéricas (1h, 2h, etc.) sem geração de falsos positivos de conflito com a escala regular do servidor (como o turno normal MT).
 - **Validação de Governança**: Restrição rígida por linha na grade de escala (Extra apenas na linha EXTRAS, Sobreaviso na linha SOBREAVISO) e bloqueio automático de horas extras diárias acima do limite legal de 2 horas.
 - **Visualização Hierárquica de Setores**: Dropdowns de seleção de setores organizados em formato de árvore (ex: indentação de subsetores como a Enfermagem sob sua respectiva Ala), eliminando ambiguidades e facilitando a navegação.
+- **Impressão de Escalas Otimizada**: Componente `ScalePrintView` integrado no portal de consulta para exportação direta em PDF e impressão das escalas mensais organizadas por unidade/setor, em conformidade com as exigências municipais.
+
+### 📅 Gestão de Afastamentos & Eventos
+- **Administração de Ausências**: Painel dedicado para cadastro de Férias, Atestados Médicos, Licenças Maternidade/Paternidade e Prêmio.
+- **Sincronização com o Grid**: Regra automática que limpa turnos diários planejados concorrentes (sem presença confirmada) no período do evento, impedindo a alocação indevida de servidores afastados.
 
 ### ⚖️ Compliance Legal (Motor de Regras)
 - **Validação de Interjornada**: Alerta automático para períodos de descanso inferiores a 11 horas.
 - **Validação de DSR**: Controle de Descanso Semanal Remunerado (7+ dias de trabalho).
 - **Segurança Jurídica**: Alertas visuais preventivos para o coordenador antes do fechamento da folha.
+
+### 📊 Painel de Auditoria & Relatórios Diagnósticos
+- **Relatórios Consolidados**: Relatórios de frequência de ponto, consolidados de horas extras, relatórios gerenciais de distribuição e conciliação por setores.
+- **Dashboard de Performance**: Painel estatístico com gráficos dinâmicos de plantões extras e taxas de acionamento/resposta de sobreavisos por período, facilitando decisões de dimensionamento de pessoal pelo RH.
+- **Filtros Modulares**: Sistema integrado de busca e refinamento por data, servidor, cargo, unidade e setor em todo o módulo de relatórios.
 
 ### 🔄 Portal do Servidor (Autoatendimento)
 - **Consulta em Tempo Real**: O servidor acessa sua escala individual via PIN ou matrícula.
@@ -39,9 +47,13 @@ O sistema foca em **governança, segurança jurídica e eficiência operacional*
 - **Auditoria Forense**: Trilha de auditoria detalhada para todas as batidas e ajustes manuais.
 - **Geolocalização em Setores com Fallback**: Configuração opcional de coordenadas geográficas (`latitude`, `longitude` e `raio_geofence`) específicas para setores físicos descentralizados. Quando não preenchida, o sistema herda automaticamente a geolocalização da unidade principal.
 
----
+### ✈️ Gestão de Diárias e Pernoites (Planejado)
+- **Deslocamento a Serviço**: Módulo desenhado para controle orçamentário e logístico de servidores que viajam com frequência (motoristas, TI, campanhas de saúde externa).
+- **Cálculo Automático**: Aplicação de tabelas de reembolso diferenciadas por tipo de destino (Zona Rural, Vilas, Intermunicipal, Capital) e nível do cargo, com distinção entre diárias cheias (pernoite) e meia-diárias.
+- **Prestação de Contas Integrada**: Fluxo de aprovação prévia com anexação posterior de relatórios e comprovantes diretamente no sistema.
 
 ## 🛠️ Stack Tecnológica
+
 
 - **Frontend**: [Next.js 15+](https://nextjs.org/) (App Router)
 - **Linguagem**: [TypeScript](https://www.typescriptlang.org/)

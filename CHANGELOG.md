@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.9.0] - 2026-06-28
+
+### Added
+- **Gestão de Afastamentos & Eventos**:
+  - Nova interface de administração para cadastro e controle de Férias, Atestados Médicos, Licenças (Maternidade/Paternidade/Prêmio) e outros afastamentos.
+  - Sincronização inteligente com a escala diária: remoção automática de escalas futuras e concorrentes sem presença confirmada e bloqueio estrito contra novos agendamentos no período de afastamento do servidor.
+- **Dashboard de Relatórios Diagnósticos**:
+  - Novo painel interativo exibindo métricas operacionais chaves e gráficos de performance de escala por período.
+  - Análise quantitativa de plantões extras gerados e monitoramento detalhado de tempos de resposta e SLAs de aceitação de chamados de sobreaviso.
+- **Filtros de Relatórios Modulares**:
+  - Sistema de busca e filtragem por Data Início/Fim, Servidor, Cargo, Unidade e Setor com herança hierárquica e preenchimento dinâmico.
+- **Impressão Dinâmica de Escala (ScalePrintView)**:
+  - Exportação e formatação especializada de visualização de grade mensal (imprimir/PDF) integrada ao portal do servidor e coordenação.
+- **Estudo e Plano de Diárias e Pernoites**:
+  - Documentação completa do modelo de negócios e banco de dados para controle de deslocamentos e indenizações de motoristas, técnicos de TI e profissionais em ações de campo em zonas rurais/vilas/assentamentos.
+
 ## [1.8.2] - 2026-06-25
 
 ### Added
