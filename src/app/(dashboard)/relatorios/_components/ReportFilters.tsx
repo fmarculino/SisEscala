@@ -16,6 +16,7 @@ export function ReportFilters({ onFilterChange, unidades, setores, initialFilter
   const [ano, setAno] = useState(initialFilters?.ano || new Date().getFullYear())
   const [unidadeId, setUnidadeId] = useState(initialFilters?.unidadeId || '')
   const [setorId, setSetorId] = useState(initialFilters?.setorId || '')
+  const [previsao, setPrevisao] = useState(initialFilters?.previsao || false)
 
   const meses = [
     'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
@@ -25,8 +26,8 @@ export function ReportFilters({ onFilterChange, unidades, setores, initialFilter
   const anos = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i)
 
   useEffect(() => {
-    onFilterChange({ mes, ano, unidadeId, setorId })
-  }, [mes, ano, unidadeId, setorId])
+    onFilterChange({ mes, ano, unidadeId, setorId, previsao })
+  }, [mes, ano, unidadeId, setorId, previsao])
 
   const filteredSetores = formatSectorsHierarchy(
     setores.filter(s => !unidadeId || s.unidade_id === unidadeId)
@@ -107,6 +108,20 @@ export function ReportFilters({ onFilterChange, unidades, setores, initialFilter
             </select>
           </div>
         </div>
+      </div>
+      
+      {/* Switch Toggle */}
+      <div className="flex items-center gap-2 border-t md:border-t-0 md:border-l border-zinc-200 dark:border-zinc-800 pt-4 md:pt-0 md:pl-4 shrink-0">
+        <label className="relative inline-flex items-center cursor-pointer select-none">
+          <input 
+            type="checkbox" 
+            checked={previsao} 
+            onChange={(e) => setPrevisao(e.target.checked)}
+            className="sr-only peer" 
+          />
+          <div className="w-9 h-5 bg-zinc-200 dark:bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+          <span className="ml-2 text-xs font-black text-zinc-600 dark:text-zinc-400 uppercase tracking-widest leading-none">Incluir Previsões</span>
+        </label>
       </div>
     </div>
   )

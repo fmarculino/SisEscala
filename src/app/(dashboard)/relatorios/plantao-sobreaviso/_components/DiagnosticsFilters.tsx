@@ -20,6 +20,7 @@ interface FiltersProps {
     servidorId: string
     cargo: string
     regime: string
+    previsao: boolean
   }
 }
 
@@ -37,6 +38,7 @@ export function DiagnosticsFilters({ unidades, setores, servidores, cargos, init
   const [servidorId, setServidorId] = useState(initialFilters.servidorId)
   const [cargo, setCargo] = useState(initialFilters.cargo)
   const [regime, setRegime] = useState(initialFilters.regime)
+  const [previsao, setPrevisao] = useState(initialFilters.previsao)
 
   const meses = [
     'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
@@ -68,6 +70,9 @@ export function DiagnosticsFilters({ unidades, setores, servidores, cargos, init
 
     if (regime) params.set('regime', regime)
     else params.delete('regime')
+
+    if (previsao) params.set('previsao', 'true')
+    else params.delete('previsao')
 
     router.push(`${pathname}?${params.toString()}`)
   }
@@ -211,7 +216,7 @@ export function DiagnosticsFilters({ unidades, setores, servidores, cargos, init
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end pt-2 border-t border-zinc-200 dark:border-zinc-800">
         {/* Servidor */}
-        <div className="space-y-1.5 md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-1.5 md:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
           <div className="space-y-1.5">
             <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 ml-1">Servidor Específico</label>
             <div className="relative">
@@ -246,6 +251,20 @@ export function DiagnosticsFilters({ unidades, setores, servidores, cargos, init
                 <option value="sobreavisos">Apenas Sobreavisos</option>
               </select>
             </div>
+          </div>
+
+          {/* Toggle Previsao */}
+          <div className="h-[42px] flex items-center">
+            <label className="relative inline-flex items-center cursor-pointer select-none">
+              <input 
+                type="checkbox" 
+                checked={previsao} 
+                onChange={(e) => setPrevisao(e.target.checked)}
+                className="sr-only peer" 
+              />
+              <div className="w-9 h-5 bg-zinc-200 dark:bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+              <span className="ml-2 text-[10px] font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-widest leading-none">Incluir Previsões</span>
+            </label>
           </div>
         </div>
 

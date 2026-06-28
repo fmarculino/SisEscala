@@ -1,5 +1,5 @@
 import { createClient } from '@/utils/supabase/server'
-import { FileText, ArrowLeft, Printer, Search, User, MapPin, Calendar as CalendarIcon } from 'lucide-react'
+import { FileText, ArrowLeft, Printer, Search, User, MapPin, Calendar as CalendarIcon, AlertTriangle } from 'lucide-react'
 import Link from 'next/link'
 import { AcessoNegado } from '@/components/AcessoNegado'
 import { applyAccessFilters, type UserProfile } from '@/utils/permissions'
@@ -14,6 +14,7 @@ interface Props {
     unidadeId?: string
     setorId?: string
     servidorId?: string
+    previsao?: string
   }>
 }
 
@@ -32,6 +33,7 @@ export default async function FrequenciaPage({ searchParams }: Props) {
   const unidadeId = params.unidadeId
   const setorId = params.setorId
   const servidorId = params.servidorId
+  const previsao = params.previsao === 'true'
 
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -77,7 +79,7 @@ export default async function FrequenciaPage({ searchParams }: Props) {
   const daysInMonth = new Date(ano, mes, 0).getDate()
   
   if (servidorId) {
-    const { data } = await supabase
+    let scaleQuery = supabase
       .from('escala_mensal')
       .select(`
         id, status,
@@ -94,8 +96,12 @@ export default async function FrequenciaPage({ searchParams }: Props) {
       .eq('servidor_id', servidorId)
       .eq('mes', mes)
       .eq('ano', ano)
-      .eq('status', 'Fechada')
-      .single()
+
+    if (!previsao) {
+      scaleQuery = scaleQuery.eq('status', 'Fechada')
+    }
+
+    const { data } = await scaleQuery.maybeSingle()
     
     scaleData = data ? {
       ...data,
@@ -136,7 +142,14 @@ export default async function FrequenciaPage({ searchParams }: Props) {
               <FileText className="h-5 w-5" />
             </div>
             <div>
-              <h1 className="text-xl font-black tracking-tight text-zinc-900 dark:text-white uppercase">Frequência Mensal</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-black tracking-tight text-zinc-900 dark:text-white uppercase">Frequência Mensal</h1>
+                {previsao && (
+                  <span className="px-2 py-0.5 text-[9px] font-black uppercase bg-amber-500 text-white rounded-md animate-pulse">
+                    Previsão
+                  </span>
+                )}
+              </div>
               <p className="text-zinc-500 text-xs">Espelho de ponto individual.</p>
             </div>
           </div>
@@ -151,14 +164,16 @@ export default async function FrequenciaPage({ searchParams }: Props) {
               'Mês/Ano': `${meses[mes-1]} / ${ano}`,
               'Servidor': scaleData.servidores.nome,
               'Unidade': scaleData.unidades.nome,
-              'Setor': scaleData.setores.nome
+              'Setor': scaleData.setores.nome,
+              'Tipo de Relatório': previsao ? 'Previsão (Dados Preliminares)' : 'Oficial (Dados Homologados)'
             }}
             reportData={{
               servidor: scaleData.servidores.nome,
               matricula: scaleData.servidores.matricula,
               unidade: scaleData.unidades.nome,
               setor: scaleData.setores.nome,
-              rows: reportRows
+              rows: reportRows,
+              previsao
             }}
           />
         )}
@@ -169,7 +184,7 @@ export default async function FrequenciaPage({ searchParams }: Props) {
         <ReportFiltersWrapper 
           unidades={unidades || []} 
           setores={setores || []} 
-          initialFilters={{ mes, ano, unidadeId, setorId }}
+          initialFilters={{ mes, ano, unidadeId, setorId, previsao }}
         />
         
         <ServidorSelector 
@@ -178,9 +193,24 @@ export default async function FrequenciaPage({ searchParams }: Props) {
         />
       </div>
 
+      {previsao && (
+        <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30 p-4 rounded-2xl flex items-center gap-3 text-amber-800 dark:text-amber-400 text-xs font-bold leading-normal print:hidden">
+          <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 animate-bounce" />
+          <div>
+            <span className="uppercase font-black block">Aviso: Relatório Prévio Ativado</span>
+            A escala mensal deste servidor ainda está em aberto. As marcações abaixo são previsões e não correspondem ao espelho homologado oficial.
+          </div>
+        </div>
+      )}
+
       {/* Report Content */}
       {scaleData ? (
-        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-xl overflow-hidden print:shadow-none print:border-zinc-300 print:rounded-none">
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-xl overflow-hidden print:shadow-none print:border-zinc-300 print:rounded-none relative">
+          {previsao && (
+            <div className="absolute top-2 right-2 border border-amber-300 text-amber-700 bg-amber-50 text-[8px] font-black uppercase px-2 py-0.5 rounded shadow-sm z-10 print:block">
+              Previsão - Não Homologado
+            </div>
+          )}
           {/* Official Header */}
           <div className="p-8 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 print:bg-white print:border-zinc-300">
             <div className="flex justify-between items-start mb-6">

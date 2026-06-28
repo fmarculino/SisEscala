@@ -1,9 +1,16 @@
 import { createClient } from '@/utils/supabase/server'
-import { FileSpreadsheet, Download } from 'lucide-react'
+import { FileSpreadsheet, Download, AlertTriangle } from 'lucide-react'
 import { AcessoNegado } from '@/components/AcessoNegado'
+import Link from 'next/link'
 
 import { applyAccessFilters, type UserProfile } from '@/utils/permissions'
 import { ReportActions } from '@/app/(dashboard)/relatorios/_components/ReportActions'
+
+interface Props {
+  searchParams: Promise<{
+    previsao?: string
+  }>
+}
 
 interface RHReportItem {
   id: string;
@@ -23,7 +30,10 @@ interface RHReportItem {
   jornada_id: string;
 }
 
-export default async function RelatorioRHPage() {
+export default async function RelatorioRHPage({ searchParams }: Props) {
+  const params = await searchParams
+  const previsao = params.previsao === 'true'
+
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   
@@ -51,7 +61,10 @@ export default async function RelatorioRHPage() {
         dicionario_turnos(codigo, horas_computadas, tipo)
       )
     `)
-    .eq('status', 'Fechada')
+
+  if (!previsao) {
+    query = query.eq('status', 'Fechada')
+  }
 
   const { data: jornadas } = await supabase.from('jornadas').select('*')
   const { data: feriados } = await supabase.from('feriados').select('*')
@@ -74,19 +87,38 @@ export default async function RelatorioRHPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-white">Relatório Consolidado (RH)</h1>
-          <p className="mt-2 text-zinc-600 dark:text-zinc-400">
-            Resumo de horas e encargos das escalas fechadas.
+          <div className="flex items-center gap-2">
+            <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-white">Relatório Consolidado (RH)</h1>
+            {previsao && (
+              <span className="px-2.5 py-0.5 text-[10px] font-black uppercase bg-amber-500 text-white rounded-md animate-pulse">
+                Previsão
+              </span>
+            )}
+          </div>
+          <p className="mt-2 text-zinc-650 dark:text-zinc-400 text-sm">
+            {previsao 
+              ? 'Resumo de horas e encargos incluindo previsões de escalas abertas.' 
+              : 'Resumo de horas e encargos das escalas fechadas.'}
           </p>
         </div>
-        <ReportActions 
-          reportType="rh"
-          title="Relatório Consolidado (RH)"
-          filters={{
-            'Status': 'Escalas Fechadas'
-          }}
+        <div className="flex items-center gap-3">
+          <Link
+            href={`/relatorios/rh${previsao ? '' : '?previsao=true'}`}
+            className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:border-indigo-500 rounded-xl text-xs font-black uppercase text-zinc-655 dark:text-zinc-400 transition-all select-none shadow-sm cursor-pointer"
+          >
+            <div className={`w-8 h-4.5 rounded-full p-0.5 transition-colors ${previsao ? 'bg-indigo-600' : 'bg-zinc-200 dark:bg-zinc-800'}`}>
+              <div className={`bg-white w-3.5 h-3.5 rounded-full transition-transform ${previsao ? 'translate-x-3.5' : ''}`}></div>
+            </div>
+            <span>Incluir Previsões</span>
+          </Link>
+          <ReportActions 
+            reportType="rh"
+            title="Relatório Consolidado (RH)"
+            filters={{
+              'Status': previsao ? 'Previsão (Abertas + Fechadas)' : 'Escalas Fechadas'
+            }}
           reportData={reportData.map((item: RHReportItem) => {
             let chTotal = 0
             let plTotal = 0
@@ -151,7 +183,18 @@ export default async function RelatorioRHPage() {
             }
           })}
         />
+        </div>
       </div>
+
+      {previsao && (
+        <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30 p-4 rounded-2xl flex items-center gap-3 text-amber-800 dark:text-amber-400 text-xs font-bold leading-normal">
+          <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 animate-bounce" />
+          <div>
+            <span className="uppercase font-black block">Aviso: Relatório de RH Preliminar</span>
+            Os dados consolidados incluem escalas atualmente em aberto (planejadas). Estes valores não são definitivos e podem ser alterados antes do fechamento oficial das escalas do mês.
+          </div>
+        </div>
+      )}
 
       <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">

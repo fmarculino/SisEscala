@@ -26,6 +26,9 @@ export function ReportFiltersWrapper({ unidades, setores, initialFilters }: Prop
     if (filters.setorId) params.set('setorId', filters.setorId)
     else params.delete('setorId')
 
+    if (filters.previsao) params.set('previsao', 'true')
+    else params.delete('previsao')
+
     // Only push if params actually changed to avoid infinite loops or unnecessary reloads
     const currentQuery = searchParams.toString()
     const newQuery = params.toString()

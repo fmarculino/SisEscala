@@ -18,11 +18,13 @@ interface Props {
     servidorId?: string
     cargo?: string
     regime?: string
+    previsao?: string
   }>
 }
 
 export default async function PlantaoSobreavisoPage({ searchParams }: Props) {
   const params = await searchParams
+  const previsao = params.previsao === 'true'
   
   const today = new Date()
   const currentMonth = today.getMonth() + 1
@@ -104,7 +106,10 @@ export default async function PlantaoSobreavisoPage({ searchParams }: Props) {
       )
     `)
     .in('ano', yearsToFetch)
-    .eq('status', 'Fechada') // Closed scales are definitive
+  
+  if (!previsao) {
+    scaleQuery = scaleQuery.eq('status', 'Fechada')
+  }
 
   if (unidadeId) scaleQuery = scaleQuery.eq('unidade_id', unidadeId)
   if (setorId) scaleQuery = scaleQuery.eq('setor_id', setorId)
@@ -337,7 +342,14 @@ export default async function PlantaoSobreavisoPage({ searchParams }: Props) {
               <Activity className="h-5 w-5" />
             </div>
             <div>
-              <h1 className="text-xl font-black tracking-tight text-zinc-900 dark:text-white uppercase">Diagnóstico de Plantões & Sobreavisos</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-black tracking-tight text-zinc-900 dark:text-white uppercase">Diagnóstico de Plantões & Sobreavisos</h1>
+                {previsao && (
+                  <span className="px-2 py-0.5 text-[9px] font-black uppercase bg-amber-500 text-white rounded-md animate-pulse">
+                    Previsão
+                  </span>
+                )}
+              </div>
               <p className="text-zinc-500 text-xs">Análise de carga horária, fadiga de pessoal e acionamentos especiais.</p>
             </div>
           </div>
@@ -359,9 +371,20 @@ export default async function PlantaoSobreavisoPage({ searchParams }: Props) {
           setorId,
           servidorId,
           cargo,
-          regime
+          regime,
+          previsao
         }}
       />
+
+      {previsao && (
+        <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30 p-4 rounded-2xl flex items-center gap-3 text-amber-800 dark:text-amber-400 text-xs font-bold leading-normal">
+          <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 animate-bounce" />
+          <div>
+            <span className="uppercase font-black block">Aviso: Relatório de Diagnóstico Prévio</span>
+            Os dados mostrados incluem escalas atualmente abertas e em planejamento. Os alertas de fadiga e totalizadores são preliminares e mudam conforme as escalas são alteradas.
+          </div>
+        </div>
+      )}
 
       {/* KPI Overload Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

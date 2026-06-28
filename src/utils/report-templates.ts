@@ -5,6 +5,7 @@ export interface ReportConfig {
   filters: Record<string, string | number | undefined>;
   generationDate: string;
   instituicaoCabecalhoUrl?: string;
+  draft?: boolean;
 }
 
 export const getReportBaseHtml = (config: ReportConfig, content: string) => `
@@ -20,18 +21,38 @@ export const getReportBaseHtml = (config: ReportConfig, content: string) => `
       body { background: white !important; padding: 0 !important; }
       .container { max-width: none !important; width: 100% !important; box-shadow: none !important; border: none !important; }
     }
-    body { font-family: 'Inter', sans-serif; background-color: #f4f4f5; }
+    body { font-family: 'Inter', sans-serif; background-color: #f4f4f5; position: relative; }
     table { page-break-inside: auto; width: 100%; border-collapse: collapse; }
     tr { page-break-inside: avoid; page-break-after: auto; }
     thead { display: table-header-group; }
     th, td { border-bottom: 1px solid #e5e7eb; }
+    
+    .watermark {
+      position: fixed;
+      top: 55%;
+      left: 50%;
+      transform: translate(-50%, -50%) rotate(-40deg);
+      opacity: 0.04;
+      font-size: 8.5rem;
+      font-weight: 900;
+      color: #000;
+      pointer-events: none;
+      white-space: nowrap;
+      text-transform: uppercase;
+      z-index: 0;
+      letter-spacing: 0.1em;
+    }
   </style>
 </head>
-<body class="p-8">
-  <div class="max-w-6xl mx-auto bg-white shadow-2xl rounded-2xl overflow-hidden border border-zinc-200 container">
+<body class="p-8 relative">
+  ${config.draft ? '<div class="watermark no-print" style="opacity: 0.035;">PREVISÃO</div><div class="watermark hidden print:block">PREVISÃO</div>' : ''}
+  <div class="max-w-6xl mx-auto bg-white shadow-2xl rounded-2xl overflow-hidden border border-zinc-200 container relative z-10">
     <div class="bg-zinc-900 p-8 text-white flex justify-between items-center no-print">
       <div>
-        <h1 class="text-2xl font-black tracking-tight">SIS ESCALA</h1>
+        <h1 class="text-2xl font-black tracking-tight flex items-center gap-2">
+          SIS ESCALA
+          ${config.draft ? '<span class="text-[9px] font-black uppercase tracking-wider bg-amber-500 text-zinc-950 px-2 py-0.5 rounded">Previsão</span>' : ''}
+        </h1>
         <p class="text-zinc-400 text-sm uppercase font-bold tracking-widest">Relatório Consolidado</p>
       </div>
       <button onclick="window.print()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-bold transition-all shadow-lg flex items-center gap-2">
@@ -41,6 +62,11 @@ export const getReportBaseHtml = (config: ReportConfig, content: string) => `
     </div>
 
     <div class="p-8">
+      ${config.draft ? `
+        <div class="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 font-bold text-xs flex items-center gap-3">
+          <span>⚠️ <strong>DOCUMENTO PRELIMINAR:</strong> Este relatório contém dados de escalas abertas/planejadas e está sujeito a alterações até homologação final.</span>
+        </div>
+      ` : ''}
       ${config.instituicaoCabecalhoUrl ? `
         <div class="flex justify-center mb-8 border-b border-zinc-200 pb-6">
           <img src="${config.instituicaoCabecalhoUrl}" alt="Cabeçalho da Instituição" class="max-h-24 object-contain" />

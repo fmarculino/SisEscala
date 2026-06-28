@@ -38,11 +38,17 @@ export function ReportActions({ onExport, showExport = true, reportData, reportT
       return;
     }
 
+    const isDraft = 
+      filters?.['Tipo de Relatório']?.toString().includes('Previsão') || 
+      filters?.['Status']?.toString().includes('Previsão') || 
+      reportData?.previsao === true;
+
     const config: ReportConfig = {
       title: title || 'Relatório SisEscala',
       filters: filters || {},
       generationDate: new Date().toLocaleString('pt-BR'),
       instituicaoCabecalhoUrl: headerLogoUrl || undefined,
+      draft: isDraft,
     };
 
     let content = '';

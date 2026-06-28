@@ -1,5 +1,5 @@
 import { createClient } from '@/utils/supabase/server'
-import { BarChart3, Download, ArrowLeft, Printer, FileSpreadsheet } from 'lucide-react'
+import { BarChart3, Download, ArrowLeft, Printer, FileSpreadsheet, AlertTriangle } from 'lucide-react'
 import Link from 'next/link'
 import { AcessoNegado } from '@/components/AcessoNegado'
 import { applyAccessFilters, type UserProfile } from '@/utils/permissions'
@@ -12,6 +12,7 @@ interface Props {
     ano?: string
     unidadeId?: string
     setorId?: string
+    previsao?: string
   }>
 }
 
@@ -36,6 +37,7 @@ export default async function ConsolidadoPage({ searchParams }: Props) {
   const ano = Number(params.ano) || new Date().getFullYear()
   const unidadeId = params.unidadeId
   const setorId = params.setorId
+  const previsao = params.previsao === 'true'
 
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -93,7 +95,10 @@ export default async function ConsolidadoPage({ searchParams }: Props) {
     `)
     .eq('mes', mes)
     .eq('ano', ano)
-    .eq('status', 'Fechada') // Usually only closed scales go to consolidation
+  
+  if (!previsao) {
+    query = query.eq('status', 'Fechada')
+  }
   
   if (unidadeId) query = query.eq('unidade_id', unidadeId)
   if (setorId) query = query.eq('setor_id', setorId)
@@ -174,7 +179,14 @@ export default async function ConsolidadoPage({ searchParams }: Props) {
               <BarChart3 className="h-5 w-5" />
             </div>
             <div>
-              <h1 className="text-xl font-black tracking-tight text-zinc-900 dark:text-white uppercase">Consolidado de Horas</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-black tracking-tight text-zinc-900 dark:text-white uppercase">Consolidado de Horas</h1>
+                {previsao && (
+                  <span className="px-2 py-0.5 text-[9px] font-black uppercase bg-amber-500 text-white rounded-md animate-pulse">
+                    Previsão
+                  </span>
+                )}
+              </div>
               <p className="text-zinc-500 text-xs">Resumo total de CH, HE e Sobreaviso.</p>
             </div>
           </div>
@@ -187,7 +199,8 @@ export default async function ConsolidadoPage({ searchParams }: Props) {
           filters={{
             'Mês/Ano': `${mes}/${ano}`,
             'Unidade': unidades?.find((u: any) => u.id === unidadeId)?.nome || 'Todas',
-            'Setor': setores?.find((s: any) => s.id === setorId)?.nome || 'Todos'
+            'Setor': setores?.find((s: any) => s.id === setorId)?.nome || 'Todos',
+            'Tipo de Relatório': previsao ? 'Previsão (Dados Preliminares)' : 'Oficial (Dados Homologados)'
           }}
         />
       </div>
@@ -196,8 +209,18 @@ export default async function ConsolidadoPage({ searchParams }: Props) {
       <ReportFiltersWrapper 
         unidades={unidades || []} 
         setores={setores || []} 
-        initialFilters={{ mes, ano, unidadeId, setorId }}
+        initialFilters={{ mes, ano, unidadeId, setorId, previsao }}
       />
+
+      {previsao && (
+        <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30 p-4 rounded-2xl flex items-center gap-3 text-amber-800 dark:text-amber-400 text-xs font-bold leading-normal">
+          <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 animate-bounce" />
+          <div>
+            <span className="uppercase font-black block">Aviso: Relatório Prévio Ativado</span>
+            Os dados consolidados incluem escalas atualmente em aberto (planejadas). Estes valores não são definitivos e podem ser alterados antes do fechamento.
+          </div>
+        </div>
+      )}
 
       {/* Table */}
       <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-sm overflow-hidden">
