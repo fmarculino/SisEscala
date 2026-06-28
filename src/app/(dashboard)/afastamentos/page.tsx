@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { 
   Plus, Calendar as CalendarIcon, Loader2, Trash2, 
-  Search, AlertTriangle, Building2, Layers, Users, Tag, Info, Edit2
+  Search, AlertTriangle, Building2, Layers, Users, Tag, Info, Edit2,
+  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Printer
 } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { applyAccessFilters, hasSectorAccess } from '@/utils/permissions'
@@ -71,6 +72,14 @@ export default function AfastamentosPage() {
   // Search & List Filters
   const [searchTerm, setSearchTerm] = useState('')
   const [filterUnidade, setFilterUnidade] = useState('todas')
+  const [filterSetor, setFilterSetor] = useState('todos')
+  const [filterTipo, setFilterTipo] = useState('todos')
+
+  // Pagination & selection states
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false)
 
   // Modals
   const [alertModal, setAlertModal] = useState<{ isOpen: boolean, title: string, message: string, type: 'default' | 'danger' | 'success' | 'warning' }>({
@@ -578,34 +587,237 @@ export default function AfastamentosPage() {
     }
   }
 
+  // Effect to reset page when search/filters change
+  useEffect(() => {
+    setPage(1)
+  }, [searchTerm, filterUnidade, filterSetor, filterTipo])
+
   // Filter list of absences based on UI search/filters and permissions
-  const filteredAfastamentos = afastamentos.filter(a => {
-    // Verificar acesso do usuário logado (segurança adicional)
-    if (profile && profile.role !== 'super_admin') {
-      const hasAccess = hasSectorAccess(profile, a.servidores?.setor_id || '', a.servidores?.unidade_id)
-      if (!hasAccess) return false
-    }
+  const filteredAfastamentos = useMemo(() => {
+    return afastamentos.filter(a => {
+      // Verificar acesso do usuário logado (segurança adicional)
+      if (profile && profile.role !== 'super_admin') {
+        const hasAccess = hasSectorAccess(profile, a.servidores?.setor_id || '', a.servidores?.unidade_id)
+        if (!hasAccess) return false
+      }
 
-    const term = searchTerm.toLowerCase()
-    const nameMatches = (a.servidores?.nome || '').toLowerCase().includes(term)
-    const matMatches = (a.servidores?.matricula || '').toLowerCase().includes(term)
-    const unitMatches = filterUnidade === 'todas' || a.servidores?.unidades?.nome === filterUnidade
+      const term = searchTerm.toLowerCase()
+      const nameMatches = (a.servidores?.nome || '').toLowerCase().includes(term)
+      const matMatches = (a.servidores?.matricula || '').toLowerCase().includes(term)
+      
+      const unitMatches = filterUnidade === 'todas' || a.servidores?.unidade_id === filterUnidade
+      const sectorMatches = filterSetor === 'todos' || a.servidores?.setor_id === filterSetor
+      const tipoMatches = filterTipo === 'todos' || a.tipo_evento_id === filterTipo
 
-    return (nameMatches || matMatches) && unitMatches
-  })
+      return (nameMatches || matMatches) && unitMatches && sectorMatches && tipoMatches
+    })
+  }, [afastamentos, profile, searchTerm, filterUnidade, filterSetor, filterTipo])
 
-  // Get list of unique units in the database (for filter dropdown)
-  const uniqueUnits = Array.from(new Set(
-    afastamentos
-      .filter(a => {
-        if (profile && profile.role !== 'super_admin') {
-          return hasSectorAccess(profile, a.servidores?.setor_id || '', a.servidores?.unidade_id)
+  // Paginated absences calculation
+  const totalCount = filteredAfastamentos.length
+  const totalPages = Math.ceil(totalCount / pageSize)
+  
+  const paginatedAfastamentos = useMemo(() => {
+    const from = (page - 1) * pageSize
+    const to = from + pageSize
+    return filteredAfastamentos.slice(from, to)
+  }, [filteredAfastamentos, page, pageSize])
+
+  // Selection handlers for PDF
+  const handleSelectRow = (id: string, checked: boolean) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (checked) {
+        next.add(id)
+      } else {
+        next.delete(id)
+      }
+      return next
+    })
+  }
+
+  const isAllSelected = paginatedAfastamentos.length > 0 && paginatedAfastamentos.every(a => selectedIds.has(a.id))
+
+  const handleSelectAll = (checked: boolean) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      paginatedAfastamentos.forEach(a => {
+        if (checked) {
+          next.add(a.id)
+        } else {
+          next.delete(a.id)
         }
-        return true
       })
-      .map(a => a.servidores?.unidades?.nome)
-      .filter(Boolean)
-  ))
+      return next
+    })
+  }
+
+  // PDF Generator in A4 portrait
+  const handleGeneratePDF = () => {
+    setIsGeneratingPDF(true)
+    try {
+      const absencesToPrint = selectedIds.size > 0 
+        ? filteredAfastamentos.filter(a => selectedIds.has(a.id))
+        : filteredAfastamentos
+
+      if (absencesToPrint.length === 0) {
+        alert("Nenhum afastamento selecionado ou na lista filtrada para gerar o PDF.")
+        setIsGeneratingPDF(false)
+        return
+      }
+
+      const reportTitle = "Relatório de Afastamentos"
+      const generationDate = new Date().toLocaleString('pt-BR')
+      
+      const unidadeName = filterUnidade !== 'todas' 
+        ? unidades.find(u => u.id === filterUnidade)?.nome 
+        : 'Todas'
+      const setorName = filterSetor !== 'todos'
+        ? setores.find(s => s.id === filterSetor)?.nome 
+        : 'Todos'
+      const motivoName = filterTipo !== 'todos'
+        ? tiposEventos.find(t => t.id === filterTipo)?.nome
+        : 'Todos'
+      const searchDescription = searchTerm ? `"${searchTerm}"` : 'Nenhum'
+
+      const tableRows = absencesToPrint.map((a) => {
+        const periodSlots = (!a.slots || a.slots.length === 0) ? 'Dia Inteiro' : `Períodos: ${a.slots.join(', ')}`
+        const dateInicio = new Date(a.data_inicio + 'T00:00:00').toLocaleDateString('pt-BR')
+        const dateFim = new Date(a.data_fim + 'T00:00:00').toLocaleDateString('pt-BR')
+        
+        return `
+          <tr class="border-b border-zinc-200">
+            <td class="py-3 px-3 text-[10px] font-bold text-zinc-950 uppercase">
+              ${a.servidores?.nome || '---'}
+              <div class="text-[8px] text-zinc-500 font-normal mt-0.5">Matrícula: ${a.servidores?.matricula || '---'}</div>
+            </td>
+            <td class="py-3 px-3 text-[10px] text-zinc-800">
+              <div class="font-medium">${a.servidores?.unidades?.nome || 'Sem Unidade'}</div>
+              <div class="text-[8px] text-blue-600 font-bold mt-0.5">${a.servidores?.setores?.dicionario_setores?.nome || '---'}</div>
+            </td>
+            <td class="py-3 px-3 text-[10px] text-zinc-800">
+              <span class="inline-block px-2 py-0.5 rounded text-[8px] font-bold text-white uppercase" style="background-color: ${a.tipos_eventos?.cor || '#EF4444'}">
+                ${a.tipos_eventos?.nome || '---'}
+              </span>
+              <div class="text-[8px] text-zinc-500 font-normal mt-0.5">${periodSlots}</div>
+            </td>
+            <td class="py-3 px-3 text-[10px] text-zinc-800 font-bold whitespace-nowrap">
+              De: ${dateInicio}<br/>Até: ${dateFim}
+            </td>
+            <td class="py-3 px-3 text-[9px] text-zinc-500 italic max-w-[200px] break-words">
+              ${a.observacao || 'Sem observações'}
+            </td>
+          </tr>
+        `
+      }).join('')
+
+      const reportHtml = `
+        <!DOCTYPE html>
+        <html lang="pt-BR">
+        <head>
+          <meta charset="UTF-8">
+          <title>${reportTitle}</title>
+          <script src="https://cdn.tailwindcss.com"></script>
+          <style>
+            @media print {
+              .no-print { display: none !important; }
+              body { background: white !important; padding: 0 !important; }
+              .container { max-width: none !important; width: 100% !important; box-shadow: none !important; border: none !important; }
+              @page {
+                size: A4 portrait;
+                margin: 1.5cm;
+              }
+            }
+            body { font-family: 'Inter', sans-serif; background-color: #f4f4f5; }
+            table { page-break-inside: auto; }
+            tr { page-break-inside: avoid; page-break-after: auto; }
+            thead { display: table-header-group; }
+          </style>
+        </head>
+        <body class="p-8">
+          <div class="max-w-4xl mx-auto bg-white shadow-2xl rounded-2xl overflow-hidden border border-zinc-200 container">
+            <div class="bg-zinc-900 p-6 text-white flex justify-between items-center no-print">
+              <div>
+                <h1 class="text-xl font-black tracking-tight">SIS ESCALA</h1>
+                <p class="text-zinc-400 text-xs uppercase font-bold tracking-widest">Relatório de Afastamentos</p>
+              </div>
+              <button onclick="window.print()" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-bold transition-all shadow-lg flex items-center gap-2 text-sm">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"></path><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+                Imprimir / Salvar PDF
+              </button>
+            </div>
+
+            <div class="p-8">
+              <div class="flex justify-between items-start border-b-2 border-zinc-900 pb-4 mb-6">
+                <div>
+                  <h2 class="text-2xl font-black text-zinc-900 uppercase tracking-tighter">${reportTitle}</h2>
+                  <p class="text-zinc-500 text-xs font-medium">Controle de ausências e afastamentos cadastrados</p>
+                </div>
+                <div class="text-right">
+                  <p class="text-[8px] font-black text-zinc-400 uppercase tracking-widest">Emissão</p>
+                  <p class="text-sm font-bold text-zinc-900">${generationDate}</p>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-4 gap-4 mb-6 bg-zinc-50 p-4 rounded-xl border border-zinc-100 text-xs">
+                <div>
+                  <p class="text-[9px] font-black text-zinc-400 uppercase">Unidade / Setor</p>
+                  <p class="font-bold text-zinc-800">${unidadeName} / ${setorName}</p>
+                </div>
+                <div>
+                  <p class="text-[9px] font-black text-zinc-400 uppercase">Motivo</p>
+                  <p class="font-bold text-zinc-800">${motivoName}</p>
+                </div>
+                <div>
+                  <p class="text-[9px] font-black text-zinc-400 uppercase">Busca</p>
+                  <p class="font-bold text-zinc-800 truncate">${searchDescription}</p>
+                </div>
+                <div>
+                  <p class="text-[9px] font-black text-zinc-400 uppercase">Total Registros</p>
+                  <p class="font-bold text-zinc-800">${absencesToPrint.length}</p>
+                </div>
+              </div>
+
+              <table class="w-full text-left border-collapse">
+                <thead>
+                  <tr class="bg-zinc-100 border-y-2 border-zinc-900">
+                    <th class="py-2.5 px-3 text-[9px] font-black uppercase text-zinc-700">Servidor</th>
+                    <th class="py-2.5 px-3 text-[9px] font-black uppercase text-zinc-700">Unidade / Setor</th>
+                    <th class="py-2.5 px-3 text-[9px] font-black uppercase text-zinc-700">Afastamento</th>
+                    <th class="py-2.5 px-3 text-[9px] font-black uppercase text-zinc-700">Período</th>
+                    <th class="py-2.5 px-3 text-[9px] font-black uppercase text-zinc-700">Observações</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-zinc-200">
+                  ${tableRows}
+                </tbody>
+              </table>
+
+              <div class="mt-8 pt-4 border-t border-zinc-200 flex justify-between items-center text-[8px] text-zinc-400 uppercase font-bold tracking-widest">
+                <span>SisEscala - Gestão Inteligente de Escalas</span>
+                <span>Total de Afastamentos: ${absencesToPrint.length}</span>
+              </div>
+            </div>
+          </div>
+          <div class="text-center mt-6 text-zinc-400 text-[10px] no-print">
+            Este relatório foi gerado automaticamente para fins de consulta e gestão.
+          </div>
+        </body>
+        </html>
+      `
+
+      const win = window.open('', '_blank')
+      if (win) {
+        win.document.write(reportHtml)
+        win.document.close()
+      }
+    } catch (error) {
+      console.error('Erro ao gerar relatório:', error)
+      alert('Ocorreu um erro ao gerar o PDF/Impressão.')
+    } finally {
+      setIsGeneratingPDF(false)
+    }
+  }
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto pb-24">
@@ -830,14 +1042,60 @@ export default function AfastamentosPage() {
               <select 
                 className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-bold"
                 value={filterUnidade}
-                onChange={(e) => setFilterUnidade(e.target.value)}
+                onChange={(e) => {
+                  setFilterUnidade(e.target.value)
+                  setFilterSetor('todos')
+                }}
               >
                 <option value="todas">Todas as Unidades</option>
-                {uniqueUnits.map(unit => (
-                  <option key={unit} value={unit}>{unit}</option>
+                {unidades.map(u => (
+                  <option key={u.id} value={u.id}>{u.nome}</option>
                 ))}
               </select>
             </div>
+
+            <div className="flex items-center gap-2">
+              <Layers className="h-4 w-4 text-zinc-400" />
+              <select 
+                className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-bold"
+                value={filterSetor}
+                onChange={(e) => setFilterSetor(e.target.value)}
+              >
+                <option value="todos">Todos os Setores</option>
+                {setores
+                  .filter(s => filterUnidade === 'todas' || s.unidade_id === filterUnidade)
+                  .map(s => (
+                    <option key={s.id} value={s.id}>{s.nome}</option>
+                  ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Tag className="h-4 w-4 text-zinc-400" />
+              <select 
+                className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-bold"
+                value={filterTipo}
+                onChange={(e) => setFilterTipo(e.target.value)}
+              >
+                <option value="todos">Todos os Motivos</option>
+                {tiposEventos.map(t => (
+                  <option key={t.id} value={t.id}>{t.nome}</option>
+                ))}
+              </select>
+            </div>
+
+            <button
+              onClick={handleGeneratePDF}
+              disabled={isGeneratingPDF}
+              className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl px-4 py-2.5 text-sm font-bold flex items-center gap-2 transition-all shadow-lg shadow-blue-500/20 cursor-pointer ml-auto"
+            >
+              {isGeneratingPDF ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Printer className="h-4 w-4" />
+              )}
+              {selectedIds.size > 0 ? `Imprimir Selecionados (${selectedIds.size})` : 'Imprimir Todos'}
+            </button>
           </div>
 
           {/* List Table */}
@@ -846,6 +1104,14 @@ export default function AfastamentosPage() {
               <table className="w-full text-left border-collapse">
                 <thead className="bg-zinc-50 dark:bg-zinc-800/50">
                   <tr>
+                    <th className="px-6 py-4 w-10 text-center">
+                      <input
+                        type="checkbox"
+                        checked={isAllSelected}
+                        onChange={e => handleSelectAll(e.target.checked)}
+                        className="rounded border-zinc-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                      />
+                    </th>
                     <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-zinc-500 dark:text-zinc-400">Servidor</th>
                     <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-zinc-500 dark:text-zinc-400">Localização</th>
                     <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-zinc-500 dark:text-zinc-400">Afastamento</th>
@@ -856,20 +1122,20 @@ export default function AfastamentosPage() {
                 <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
                   {loading ? (
                     <tr>
-                      <td colSpan={5} className="px-6 py-20 text-center">
+                      <td colSpan={6} className="px-6 py-20 text-center">
                         <Loader2 className="h-10 w-10 animate-spin mx-auto text-blue-500 opacity-50" />
                       </td>
                     </tr>
-                  ) : filteredAfastamentos.length === 0 ? (
+                  ) : paginatedAfastamentos.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-6 py-20 text-center text-zinc-500">
+                      <td colSpan={6} className="px-6 py-20 text-center text-zinc-500">
                         <CalendarIcon className="mx-auto h-12 w-12 opacity-10 mb-4" />
                         <p className="text-sm font-bold uppercase tracking-tight">Nenhum afastamento encontrado</p>
                         <p className="text-xs mt-1">Tente ajustar seus filtros ou registre um afastamento ao lado.</p>
                       </td>
                     </tr>
                   ) : (
-                    filteredAfastamentos.map(a => (
+                    paginatedAfastamentos.map(a => (
                       <tr 
                         key={a.id} 
                         className={`transition-colors ${
@@ -878,6 +1144,14 @@ export default function AfastamentosPage() {
                             : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/30'
                         }`}
                       >
+                        <td className="px-6 py-4 text-center">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(a.id)}
+                            onChange={e => handleSelectRow(a.id, e.target.checked)}
+                            className="rounded border-zinc-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                          />
+                        </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-2.5">
                             <div className="w-8 h-8 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-zinc-500 font-bold shrink-0">
@@ -957,6 +1231,68 @@ export default function AfastamentosPage() {
                   )}
                 </tbody>
               </table>
+            </div>
+            {/* Paginação */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-6 bg-zinc-50/50 dark:bg-zinc-800/20 border-t border-zinc-100 dark:border-zinc-800/80 print:hidden select-none">
+              <div className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">
+                Mostrando <span className="text-zinc-800 dark:text-zinc-200">{totalCount === 0 ? 0 : (page - 1) * pageSize + 1}</span> - <span className="text-zinc-800 dark:text-zinc-200">{Math.min(page * pageSize, totalCount)}</span> de <span className="text-zinc-800 dark:text-zinc-200">{totalCount}</span> registros
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">Exibir</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value))
+                    setPage(1)
+                  }}
+                  className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-full px-3 py-1.5 text-xs font-bold text-blue-600 dark:text-blue-400 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer shadow-sm hover:border-zinc-300 dark:hover:border-zinc-600 transition-colors"
+                >
+                  <option value={20}>20</option>
+                  <option value={30}>30</option>
+                  <option value={50}>50</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-1">
+                <button 
+                  onClick={() => setPage(1)}
+                  disabled={page === 1}
+                  className="p-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-full hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-40 disabled:hover:bg-white dark:disabled:hover:bg-zinc-900 transition-all shadow-sm"
+                  title="Primeira página"
+                >
+                  <ChevronsLeft className="h-4 w-4 text-zinc-500 dark:text-zinc-400" />
+                </button>
+                <button 
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="p-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-full hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-40 disabled:hover:bg-white dark:disabled:hover:bg-zinc-900 transition-all shadow-sm"
+                  title="Página anterior"
+                >
+                  <ChevronLeft className="h-4 w-4 text-zinc-500 dark:text-zinc-400" />
+                </button>
+                
+                <div className="bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200 dark:border-zinc-700 rounded-full px-4 py-1.5 text-xs font-bold text-zinc-700 dark:text-zinc-300 min-w-[70px] text-center shadow-sm">
+                  {page} <span className="text-zinc-400 dark:text-zinc-500 text-[10px] font-normal mx-1">DE</span> {totalPages || 1}
+                </div>
+
+                <button 
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  disabled={page >= totalPages || totalPages === 0}
+                  className="p-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-full hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-40 disabled:hover:bg-white dark:disabled:hover:bg-zinc-900 transition-all shadow-sm"
+                  title="Próxima página"
+                >
+                  <ChevronRight className="h-4 w-4 text-zinc-500 dark:text-zinc-400" />
+                </button>
+                <button 
+                  onClick={() => setPage(totalPages)}
+                  disabled={page >= totalPages || totalPages === 0}
+                  className="p-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-full hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-40 disabled:hover:bg-white dark:disabled:hover:bg-zinc-900 transition-all shadow-sm"
+                  title="Última página"
+                >
+                  <ChevronsRight className="h-4 w-4 text-zinc-500 dark:text-zinc-400" />
+                </button>
+              </div>
             </div>
           </div>
         </div>
