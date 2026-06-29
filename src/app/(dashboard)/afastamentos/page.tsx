@@ -74,12 +74,38 @@ export default function AfastamentosPage() {
   const [filterUnidade, setFilterUnidade] = useState('todas')
   const [filterSetor, setFilterSetor] = useState('todos')
   const [filterTipo, setFilterTipo] = useState('todos')
+  const [filterMes, setFilterMes] = useState<string>(String(new Date().getMonth() + 1))
+  const [filterAno, setFilterAno] = useState<string>(String(new Date().getFullYear()))
 
   // Pagination & selection states
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false)
+
+  const meses = [
+    { value: 'todos', label: 'Todos os Meses' },
+    { value: '1', label: 'Janeiro' },
+    { value: '2', label: 'Fevereiro' },
+    { value: '3', label: 'Março' },
+    { value: '4', label: 'Abril' },
+    { value: '5', label: 'Maio' },
+    { value: '6', label: 'Junho' },
+    { value: '7', label: 'Julho' },
+    { value: '8', label: 'Agosto' },
+    { value: '9', label: 'Setembro' },
+    { value: '10', label: 'Outubro' },
+    { value: '11', label: 'Novembro' },
+    { value: '12', label: 'Dezembro' }
+  ]
+
+  const currentYear = new Date().getFullYear()
+  const anos = [
+    { value: 'todos', label: 'Todos os Anos' },
+    { value: String(currentYear - 1), label: String(currentYear - 1) },
+    { value: String(currentYear), label: String(currentYear) },
+    { value: String(currentYear + 1), label: String(currentYear + 1) }
+  ]
 
   // Modals
   const [alertModal, setAlertModal] = useState<{ isOpen: boolean, title: string, message: string, type: 'default' | 'danger' | 'success' | 'warning' }>({
@@ -636,10 +662,16 @@ export default function AfastamentosPage() {
   // Effect to reset page when search/filters change
   useEffect(() => {
     setPage(1)
-  }, [searchTerm, filterUnidade, filterSetor, filterTipo])
+  }, [searchTerm, filterUnidade, filterSetor, filterTipo, filterMes, filterAno])
 
   // Filter list of absences based on UI search/filters and permissions
   const filteredAfastamentos = useMemo(() => {
+    const filterMesVal = filterMes !== 'todos' ? parseInt(filterMes) : null
+    const filterAnoVal = filterAno !== 'todos' ? parseInt(filterAno) : null
+    
+    const monthStart = filterMesVal && filterAnoVal ? new Date(filterAnoVal, filterMesVal - 1, 1) : null
+    const monthEnd = filterMesVal && filterAnoVal ? new Date(filterAnoVal, filterMesVal, 0) : null
+
     return afastamentos.filter(a => {
       // Verificar acesso do usuário logado (segurança adicional)
       if (profile && profile.role !== 'super_admin') {
@@ -655,9 +687,21 @@ export default function AfastamentosPage() {
       const sectorMatches = filterSetor === 'todos' || a.servidores?.setor_id === filterSetor
       const tipoMatches = filterTipo === 'todos' || a.tipo_evento_id === filterTipo
 
-      return (nameMatches || matMatches) && unitMatches && sectorMatches && tipoMatches
+      let periodMatches = true
+      if (monthStart && monthEnd) {
+        const start = new Date(a.data_inicio + 'T00:00:00')
+        const end = new Date(a.data_fim + 'T00:00:00')
+        periodMatches = start <= monthEnd && end >= monthStart
+      } else if (filterAnoVal) {
+        // If only year is selected
+        const startYear = new Date(a.data_inicio + 'T00:00:00').getFullYear()
+        const endYear = new Date(a.data_fim + 'T00:00:00').getFullYear()
+        periodMatches = filterAnoVal >= startYear && filterAnoVal <= endYear
+      }
+
+      return (nameMatches || matMatches) && unitMatches && sectorMatches && tipoMatches && periodMatches
     })
-  }, [afastamentos, profile, searchTerm, filterUnidade, filterSetor, filterTipo])
+  }, [afastamentos, profile, searchTerm, filterUnidade, filterSetor, filterTipo, filterMes, filterAno])
 
   // Paginated absences calculation
   const totalCount = filteredAfastamentos.length
@@ -1126,6 +1170,28 @@ export default function AfastamentosPage() {
                 <option value="todos">Todos os Motivos</option>
                 {tiposEventos.map(t => (
                   <option key={t.id} value={t.id}>{t.nome}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <CalendarIcon className="h-4 w-4 text-zinc-400" />
+              <select 
+                className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-bold"
+                value={filterMes}
+                onChange={(e) => setFilterMes(e.target.value)}
+              >
+                {meses.map(m => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
+              </select>
+              <select 
+                className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-bold"
+                value={filterAno}
+                onChange={(e) => setFilterAno(e.target.value)}
+              >
+                {anos.map(a => (
+                  <option key={a.value} value={a.value}>{a.label}</option>
                 ))}
               </select>
             </div>

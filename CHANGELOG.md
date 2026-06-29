@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.10.1] - 2026-06-29
+
+### Added
+- **Filtro de Período na Gestão de Afastamentos**:
+  - Implementado filtro por Mês/Ano na listagem de afastamentos, com mês e ano correntes pré-selecionados por padrão.
+  - Lógica matemática de cruzamento de intervalos de datas para detectar de forma segura quais afastamentos (férias, licenças, etc.) sobrepõem o período selecionado.
+
 ## [1.10.0] - 2026-06-29
 
 ### Added

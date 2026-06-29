@@ -1,4 +1,4 @@
-# SisEscala 📅[![Version](https://img.shields.io/badge/version-1.10.0-green.svg)](https://github.com/fmarculino/SisEscala)
+# SisEscala 📅[![Version](https://img.shields.io/badge/version-1.10.1-green.svg)](https://github.com/fmarculino/SisEscala)
 [![Next.js](https://img.shields.io/badge/framework-Next.js%2015-black.svg)](https://nextjs.org/)
 [![Supabase](https://img.shields.io/badge/backend-Supabase-green.svg)](https://supabase.com/)
 [![Tailwind CSS](https://img.shields.io/badge/styling-Tailwind%20CSS-38B2AC.svg)](https://tailwindcss.com/)
