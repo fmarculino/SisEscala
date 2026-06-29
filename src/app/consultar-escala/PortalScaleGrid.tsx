@@ -85,11 +85,15 @@ export function PortalScaleGrid({ data, servidorId }: PortalScaleGridProps) {
                 const feriado = feriados.find(f => f.data === dateStr)
                 const isHoliday = !!feriado
 
+                const isPF = feriado?.isPontoFacultativo
+
                 return (
                   <th
                     key={day}
                     className={`p-1 border border-zinc-200 dark:border-zinc-700 min-w-[32px] text-center ${
-                      isHoliday ? 'bg-red-100 dark:bg-red-900/30 text-red-600' : isWE ? 'bg-zinc-200 dark:bg-zinc-700' : ''
+                      isPF ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' :
+                      isHoliday ? 'bg-red-100 dark:bg-red-900/30 text-red-600' : 
+                      isWE ? 'bg-zinc-200 dark:bg-zinc-700' : ''
                     }`}
                     title={feriado?.descricao}
                   >
@@ -133,6 +137,8 @@ export function PortalScaleGrid({ data, servidorId }: PortalScaleGridProps) {
                         const feriado = feriados.find(f => f.data === dateStr)
                         const isHoliday = !!feriado
 
+                        const isPF = feriado?.isPontoFacultativo
+
                         const activeEvent = getActiveEventForDay(em.servidor_id, day)
                         const currentTurnoId = gridData[em.servidor_id]?.[cat]?.[day]
                         const currentTurno = turnos.find((t: any) => t.id === currentTurnoId)
@@ -160,9 +166,12 @@ export function PortalScaleGrid({ data, servidorId }: PortalScaleGridProps) {
                         return (
                           <td 
                             key={day} 
-                            title={isHoliday ? `🎉 Feriado: ${feriado?.descricao}` : ''}
+                            title={isHoliday ? `${isPF ? '🎉 Ponto Facultativo' : '🎉 Feriado'}: ${feriado?.descricao}` : ''}
                             className={`p-1 border border-zinc-200 dark:border-zinc-700 text-center font-bold relative
-                              ${isHoliday ? 'bg-red-50 dark:bg-red-900/10' : isWE ? 'bg-zinc-50 dark:bg-zinc-800/50' : isMe ? 'bg-blue-50/30 dark:bg-blue-900/5' : ''}
+                              ${isPF ? 'bg-amber-50 dark:bg-amber-900/10 text-amber-700 dark:text-amber-400' : 
+                                isHoliday ? 'bg-red-50 dark:bg-red-900/10' : 
+                                isWE ? 'bg-zinc-50 dark:bg-zinc-800/50' : 
+                                isMe ? 'bg-blue-50/30 dark:bg-blue-900/5' : ''}
                               ${isMe ? 'text-blue-600 dark:text-blue-400 ring-1 ring-inset ring-blue-500/20' : ''}`}
                           >
                             {activeEvent && (

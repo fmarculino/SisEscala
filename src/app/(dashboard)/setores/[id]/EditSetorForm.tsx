@@ -198,18 +198,34 @@ export default function EditSetorForm({ setor, unidades, setoresPai, dicionario 
           </div>
 
           {/* Finais de semana e feriados flag */}
-          <div className="flex items-center gap-3 bg-zinc-50 dark:bg-zinc-800/40 p-4 rounded-2xl border border-zinc-200/50 dark:border-zinc-800/50">
-            <input 
-              type="checkbox" 
-              name="dimensionamento_fds_feriados" 
-              id="dimensionamento_fds_feriados"
-              value="true"
-              defaultChecked={setor.dimensionamento_fds_feriados !== false}
-              className="h-5 w-5 text-blue-600 rounded border-zinc-300 focus:ring-blue-500"
-            />
-            <label htmlFor="dimensionamento_fds_feriados" className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
-              Aplicar regras de dimensionamento nos finais de semana e feriados
-            </label>
+          <div className="flex flex-col gap-4 bg-zinc-50 dark:bg-zinc-800/40 p-4 rounded-2xl border border-zinc-200/50 dark:border-zinc-800/50">
+            <div className="flex items-center gap-3">
+              <input 
+                type="checkbox" 
+                name="dimensionamento_fds_feriados" 
+                id="dimensionamento_fds_feriados"
+                value="true"
+                defaultChecked={setor.dimensionamento_fds_feriados !== false}
+                className="h-5 w-5 text-blue-600 rounded border-zinc-300 focus:ring-blue-500"
+              />
+              <label htmlFor="dimensionamento_fds_feriados" className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
+                Aplicar regras de dimensionamento nos finais de semana e feriados
+              </label>
+            </div>
+
+            <div className="flex items-center gap-3 border-t border-zinc-200/50 dark:border-zinc-800/50 pt-3">
+              <input 
+                type="checkbox" 
+                name="essencial" 
+                id="essencial"
+                value="true"
+                defaultChecked={!!setor.essencial}
+                className="h-5 w-5 text-blue-600 rounded border-zinc-300 focus:ring-blue-500"
+              />
+              <label htmlFor="essencial" className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
+                Setor Essencial (não interrompe atividades em Pontos Facultativos)
+              </label>
+            </div>
           </div>
         </div>
 

@@ -40,6 +40,7 @@ export async function createSetor(formData: FormData) {
   const servidores_noite_max = parseStaffingField(formData.get('servidores_noite_max'))
 
   const dimensionamento_fds_feriados = formData.get('dimensionamento_fds_feriados') === 'true'
+  const essencial = formData.get('essencial') === 'true'
 
   const latitude = formData.get('latitude') ? parseFloat(formData.get('latitude') as string) : null
   const longitude = formData.get('longitude') ? parseFloat(formData.get('longitude') as string) : null
@@ -100,6 +101,7 @@ export async function createSetor(formData: FormData) {
     servidores_noite_ideal,
     servidores_noite_max,
     dimensionamento_fds_feriados,
+    essencial,
     latitude,
     longitude,
     raio_geofence
@@ -139,6 +141,7 @@ export async function updateSetor(id: string, formData: FormData) {
   const servidores_noite_max = parseStaffingField(formData.get('servidores_noite_max'))
 
   const dimensionamento_fds_feriados = formData.get('dimensionamento_fds_feriados') === 'true'
+  const essencial = formData.get('essencial') === 'true'
 
   const latitude = formData.get('latitude') ? parseFloat(formData.get('latitude') as string) : null
   const longitude = formData.get('longitude') ? parseFloat(formData.get('longitude') as string) : null
@@ -169,6 +172,7 @@ export async function updateSetor(id: string, formData: FormData) {
     servidores_noite_ideal,
     servidores_noite_max,
     dimensionamento_fds_feriados,
+    essencial,
     latitude,
     longitude,
     raio_geofence

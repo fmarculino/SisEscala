@@ -352,6 +352,24 @@ export async function gerarFolhaPonto(
 
     const feriadosSet = new Set(feriados?.map(f => f.data) || [])
 
+    // Fetch pontos facultativos
+    const { data: pontosFacultativos } = await supabase
+      .from('pontos_facultativos')
+      .select('id, data, descricao, inicio_liberacao_em, fim_liberacao_em, gera_he_para_essenciais')
+      .gte('data', startDate)
+      .lte('data', endDate)
+
+    const { data: pfSetores } = await supabase
+      .from('ponto_facultativo_setores')
+      .select('*')
+
+    const { data: sectorInfo } = await supabase
+      .from('setores')
+      .select('essencial')
+      .eq('id', escala.setor_id)
+      .maybeSingle()
+    const isSectorEssencial = !!sectorInfo?.essencial
+
     // Fetch absences (afastamentos)
     const { data: afastamentos } = await supabase
       .from('servidores_eventos')
@@ -466,6 +484,18 @@ export async function gerarFolhaPonto(
         return currentTotalMin >= (scheduledMin % 1440)
       }
 
+      // Check if point facultativo applies
+      const pf = pontosFacultativos?.find(p => p.data === dateStr)
+      let pfInfo = null
+      if (pf) {
+        const rule = pfSetores?.find(r => r.ponto_facultativo_id === pf.id && r.setor_id === escala.setor_id)
+        if (rule) {
+          if (rule.tipo_regra === 'incluido') pfInfo = pf
+        } else if (!isSectorEssencial) {
+          pfInfo = pf
+        }
+      }
+
       let registro: any = {
         dia: day,
         dia_semana: dayOfWeekStr,
@@ -482,6 +512,7 @@ export async function gerarFolhaPonto(
         origem_retorno_intervalo: null,
         origem_saida: null,
         feriado: !!feriadoInfo,
+        ponto_facultativo: !!pfInfo,
         afastamento: afastamento ? getAfastamentoObservacao(afastamento) : null,
         jornada_nome: activeJornada?.nome || null,
         jornada_temporaria: !!tempJourney,
@@ -491,6 +522,15 @@ export async function gerarFolhaPonto(
         registro.observacao = registro.afastamento.toUpperCase()
       } else if (registro.feriado) {
         registro.observacao = `FERIADO: ${feriadoInfo?.descricao}`.toUpperCase()
+        if (rawAfastamento) {
+          registro.observacao = `AFASTAMENTO PARCIAL: ${getAfastamentoObservacao(rawAfastamento)} | ${registro.observacao}`.toUpperCase()
+        }
+      } else if (registro.ponto_facultativo && pfInfo && !pfInfo.inicio_liberacao_em && !pfInfo.fim_liberacao_em) {
+        // Full day Ponto Facultativo
+        registro.observacao = `PONTO FACULTATIVO: ${pfInfo.descricao}`.toUpperCase()
+        if (shift) {
+          totalHorasNormais += horasNormaisDiarias
+        }
         if (rawAfastamento) {
           registro.observacao = `AFASTAMENTO PARCIAL: ${getAfastamentoObservacao(rawAfastamento)} | ${registro.observacao}`.toUpperCase()
         }
@@ -509,8 +549,15 @@ export async function gerarFolhaPonto(
       } else {
         // Work day!
         totalHorasNormais += horasNormaisDiarias
+        if (pfInfo) {
+          if (pfInfo.inicio_liberacao_em) {
+            registro.observacao = `PONTO FACULTATIVO A PARTIR DAS ${pfInfo.inicio_liberacao_em.substring(0, 5)}: ${pfInfo.descricao}`.toUpperCase()
+          } else if (pfInfo.fim_liberacao_em) {
+            registro.observacao = `PONTO FACULTATIVO ATÉ AS ${pfInfo.fim_liberacao_em.substring(0, 5)}: ${pfInfo.descricao}`.toUpperCase()
+          }
+        }
         if (rawAfastamento) {
-          registro.observacao = `AFASTAMENTO PARCIAL: ${getAfastamentoObservacao(rawAfastamento)}`.toUpperCase()
+          registro.observacao = `AFASTAMENTO PARCIAL: ${getAfastamentoObservacao(rawAfastamento)}${registro.observacao ? ' | ' + registro.observacao : ''}`.toUpperCase()
         }
 
         // Check if entry/exit was validated manually by a coordinator
@@ -554,13 +601,31 @@ export async function gerarFolhaPonto(
         // Generate seeds for deterministic fictitious times
         const seedBase = `${servidorId}-${mes}-${ano}-${day}`
 
+        // Parse ponto facultativo release/limit minutes
+        let pfInicioMin: number | null = null
+        let pfFimMin: number | null = null
+        if (pfInfo) {
+          if (pfInfo.inicio_liberacao_em) {
+            const parts = pfInfo.inicio_liberacao_em.split(':')
+            pfInicioMin = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10)
+          }
+          if (pfInfo.fim_liberacao_em) {
+            const parts = pfInfo.fim_liberacao_em.split(':')
+            pfFimMin = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10)
+          }
+        }
+
         // 1. Entrance Time
         if (hasRealEntrada && realEntradaTime) {
           registro.entrada = realEntradaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_entrada = 'real'
         } else if (shouldGenerate(officialEntradaMin)) {
+          let targetEntradaMin = officialEntradaMin
+          if (pfFimMin !== null && officialEntradaMin < pfFimMin) {
+            targetEntradaMin = pfFimMin
+          }
           const offset = getDeterministicOffset(`${seedBase}-entrada`, maxVar)
-          const genMin = (officialEntradaMin + offset + 24 * 60) % (24 * 60)
+          const genMin = (targetEntradaMin + offset + 24 * 60) % (24 * 60)
           registro.entrada = formatMinutesToTimeStr(genMin)
           registro.origem_entrada = 'ficticio'
         }
@@ -570,28 +635,39 @@ export async function gerarFolhaPonto(
           registro.saida = realSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_saida = 'real'
         } else if (shouldGenerate(officialSaidaMin)) {
+          let targetSaidaMin = officialSaidaMin
+          if (pfInicioMin !== null && officialEntradaMin < pfInicioMin) {
+            targetSaidaMin = pfInicioMin
+          }
           const offset = getDeterministicOffset(`${seedBase}-saida`, maxVar)
-          const genMin = (officialSaidaMin + offset + 24 * 60) % (24 * 60)
+          const genMin = (targetSaidaMin + offset + 24 * 60) % (24 * 60)
           registro.saida = formatMinutesToTimeStr(genMin)
           registro.origem_saida = 'ficticio'
         }
 
         // 3. Lunch Interval
         if (intervaloMinutos > 0) {
-          // Lunch out
-          if (shouldGenerate(officialSaidaIntervaloMin)) {
-            const outOffset = getDeterministicOffset(`${seedBase}-lunchout`, maxVar)
-            const genOutMin = (officialSaidaIntervaloMin + outOffset + 24 * 60) % (24 * 60)
-            registro.saida_intervalo = formatMinutesToTimeStr(genOutMin)
-            registro.origem_saida_intervalo = 'ficticio'
+          let targetSaidaMin = officialSaidaMin
+          if (pfInicioMin !== null && officialEntradaMin < pfInicioMin) {
+            targetSaidaMin = pfInicioMin
           }
+          
+          if (targetSaidaMin > officialSaidaIntervaloMin) {
+            // Lunch out
+            if (shouldGenerate(officialSaidaIntervaloMin)) {
+              const outOffset = getDeterministicOffset(`${seedBase}-lunchout`, maxVar)
+              const genOutMin = (officialSaidaIntervaloMin + outOffset + 24 * 60) % (24 * 60)
+              registro.saida_intervalo = formatMinutesToTimeStr(genOutMin)
+              registro.origem_saida_intervalo = 'ficticio'
+            }
 
-          // Lunch return
-          if (shouldGenerate(officialRetornoIntervaloMin)) {
-            const returnOffset = getDeterministicOffset(`${seedBase}-lunchreturn`, maxVar)
-            const genReturnMin = (officialRetornoIntervaloMin + returnOffset + 24 * 60) % (24 * 60)
-            registro.retorno_intervalo = formatMinutesToTimeStr(genReturnMin)
-            registro.origem_retorno_intervalo = 'ficticio'
+            // Lunch return
+            if (shouldGenerate(officialRetornoIntervaloMin)) {
+              const returnOffset = getDeterministicOffset(`${seedBase}-lunchreturn`, maxVar)
+              const genReturnMin = (officialRetornoIntervaloMin + returnOffset + 24 * 60) % (24 * 60)
+              registro.retorno_intervalo = formatMinutesToTimeStr(genReturnMin)
+              registro.origem_retorno_intervalo = 'ficticio'
+            }
           }
         }
 
@@ -606,12 +682,19 @@ export async function gerarFolhaPonto(
             scheduledExit.setDate(scheduledExit.getDate() + 1) // crosses midnight
           }
 
-          if (realExit > scheduledExit) {
+          let effectiveScheduledExit = scheduledExit
+          if (pfInfo && pfInfo.inicio_liberacao_em && pfInicioMin !== null && officialEntradaMin < pfInicioMin) {
+            const releaseHour = Math.floor(pfInicioMin / 60)
+            const releaseMin = pfInicioMin % 60
+            effectiveScheduledExit = new Date(`${resolvedAno}-${String(resolvedMes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(releaseHour).padStart(2, '0')}:${String(releaseMin).padStart(2, '0')}:00-03:00`)
+          }
+
+          if (realExit > effectiveScheduledExit) {
             // Calculate extra minutes minute-by-minute
             let extra50Min = 0
             let extra100Min = 0
             
-            const current = new Date(scheduledExit.getTime())
+            const current = new Date(effectiveScheduledExit.getTime())
             const end = new Date(realExit.getTime())
             
             // Build a quick lookup of holidays within this month
@@ -625,7 +708,12 @@ export async function gerarFolhaPonto(
               const isHoliday = feriadosSet.has(curDateStr)
               const isNight = curHour >= 22 || curHour < 5
 
-              if (isSunday || isHoliday || isNight) {
+              const isPFLiberado = pfInfo && (
+                (pfInfo.inicio_liberacao_em && pfInicioMin !== null && (localCurrent.getUTCHours() * 60 + localCurrent.getUTCMinutes()) >= pfInicioMin) ||
+                (pfInfo.fim_liberacao_em && pfFimMin !== null && (localCurrent.getUTCHours() * 60 + localCurrent.getUTCMinutes()) < pfFimMin)
+              )
+
+              if (isSunday || isHoliday || isNight || (isPFLiberado && pfInfo && pfInfo.gera_he_para_essenciais)) {
                 extra100Min++
               } else {
                 extra50Min++
