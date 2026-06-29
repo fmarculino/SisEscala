@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { autoCloseExpiredScalesAndTimesheets } from '@/utils/autoClose'
-import { Calendar, Plus, ChevronRight, Layers, Filter, Eye, EyeOff, Search, Loader2, Building2, Check, ShieldCheck } from 'lucide-react'
+import { Calendar, Plus, ChevronRight, Layers, Filter, Eye, EyeOff, Search, Loader2, Building2, Check, ShieldCheck, FileText } from 'lucide-react'
 import Link from 'next/link'
 import { Modal } from '@/components/ui/Modal'
 import { applyAccessFilters, hasSectorAccess, hasUnitAccess } from '@/utils/permissions'
@@ -18,6 +18,7 @@ export default function EscalasPage() {
   const [filterUnidade, setFilterUnidade] = useState('todas')
   const [filterMes, setFilterMes] = useState(String(new Date().getMonth() + 1))
   const [filterAno, setFilterAno] = useState(String(new Date().getFullYear()))
+  const [filterStatus, setFilterStatus] = useState('todos')
   const [currentPage, setCurrentPage] = useState(1)
   const [profile, setProfile] = useState<any>(null)
   const [linkedServidorId, setLinkedServidorId] = useState<string | null>(null)
@@ -106,7 +107,7 @@ export default function EscalasPage() {
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchTerm, filterUnidade, filterMes, filterAno, showInactive])
+  }, [searchTerm, filterUnidade, filterMes, filterAno, filterStatus, showInactive])
 
   // Trigger fetchEscalas when period filters change
   useEffect(() => {
@@ -221,6 +222,9 @@ export default function EscalasPage() {
     const matchesSearch = unitName.includes(searchTermLower) || sectorName.includes(searchTermLower)
     const matchesUnidade = filterUnidade === 'todas' || e.unidade_id === filterUnidade
     const matchesAtivo = showInactive ? true : e.ativo !== false
+    const matchesStatus = filterStatus === 'todos' || 
+      (filterStatus === 'fechada' && e.status === 'Fechada') ||
+      (filterStatus === 'previsao' && e.status !== 'Fechada')
     
     // Security layer in memory (Secondary check)
     let rolePermitted = true
@@ -235,7 +239,7 @@ export default function EscalasPage() {
       rolePermitted = e.servidor_id === linkedServidorId
     }
 
-    return matchesSearch && matchesUnidade && matchesAtivo && rolePermitted
+    return matchesSearch && matchesUnidade && matchesAtivo && matchesStatus && rolePermitted
   })
 
   const meses = [
@@ -354,6 +358,19 @@ export default function EscalasPage() {
           </select>
         </div>
 
+        <div className="flex items-center gap-2">
+          <FileText className="h-4 w-4 text-zinc-400" />
+          <select 
+            className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+          >
+            <option value="todos">Todos os Status</option>
+            <option value="previsao">Previsão</option>
+            <option value="fechada">Fechada</option>
+          </select>
+        </div>
+
         <button 
           onClick={() => setShowInactive(!showInactive)}
           className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all border ${
@@ -411,10 +428,10 @@ export default function EscalasPage() {
                       <span className="mx-3 text-zinc-300 dark:text-zinc-700">|</span>
                       <span className={`px-2 py-0.5 text-[10px] font-black uppercase rounded ${
                         item.status === 'Fechada' 
-                          ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600' 
-                          : 'bg-green-100 dark:bg-green-900/30 text-green-600'
+                          ? 'bg-zinc-100 dark:bg-zinc-805 text-zinc-500' 
+                          : 'bg-amber-100 dark:bg-amber-900/20 text-amber-600'
                       }`}>
-                        {item.status}
+                        {item.status === 'Fechada' ? 'Fechada' : 'Previsão'}
                       </span>
                     </div>
                   </div>

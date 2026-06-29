@@ -21,6 +21,8 @@ export default function FolhaPontoPage() {
   const [selectedUnidade, setSelectedUnidade] = useState('')
   const [selectedSetor, setSelectedSetor] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
+  const [filterEscalaStatus, setFilterEscalaStatus] = useState('todos')
+  const [filterFolhaStatus, setFilterFolhaStatus] = useState('todos')
 
   // Static Data
   const [unidades, setUnidades] = useState<any[]>([])
@@ -36,7 +38,7 @@ export default function FolhaPontoPage() {
   useEffect(() => {
     setSelectedFolhas(new Set())
     setCurrentPage(1)
-  }, [selectedUnidade, selectedSetor, mes, ano, searchTerm])
+  }, [selectedUnidade, selectedSetor, mes, ano, searchTerm, filterEscalaStatus, filterFolhaStatus])
 
   // Helper for batch printing minutes formatting
   const formatMinutesToTimeStr = (totalMinutes: number): string => {
@@ -193,11 +195,16 @@ export default function FolhaPontoPage() {
   }
 
   // Filter servers in memory
-  const filteredServidores = servidoresData.filter(s => 
-    s.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.matricula?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.cargo?.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  const filteredServidores = servidoresData.filter(s => {
+    const matchesSearch = s.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      s.matricula?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      s.cargo?.toLowerCase().includes(searchTerm.toLowerCase())
+
+    const matchesEscalaStatus = filterEscalaStatus === 'todos' || s.escala_status === filterEscalaStatus
+    const matchesFolhaStatus = filterFolhaStatus === 'todos' || s.folha_status === filterFolhaStatus
+
+    return matchesSearch && matchesEscalaStatus && matchesFolhaStatus
+  })
 
   const itemsPerPage = 10
   const totalItems = filteredServidores.length
@@ -495,7 +502,7 @@ export default function FolhaPontoPage() {
 
       {/* Filters Bar */}
       <div className="bg-white dark:bg-zinc-900 p-6 rounded-[2rem] border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-6">
           {/* Mês/Ano */}
           <div className="space-y-2">
             <label className="text-xs font-black text-zinc-400 uppercase tracking-widest flex items-center gap-2">
@@ -555,6 +562,41 @@ export default function FolhaPontoPage() {
               {filteredSetores.map(s => (
                 <option key={s.id} value={s.id}>{s.nome}</option>
               ))}
+            </select>
+          </div>
+
+          {/* Status Escala */}
+          <div className="space-y-2">
+            <label className="text-xs font-black text-zinc-400 uppercase tracking-widest flex items-center gap-2">
+              <Calendar className="h-3.5 w-3.5" /> Escala Mensal
+            </label>
+            <select 
+              className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-bold font-medium"
+              value={filterEscalaStatus}
+              onChange={(e) => setFilterEscalaStatus(e.target.value)}
+            >
+              <option value="todos">Todas as Escalas</option>
+              <option value="Rascunho">Rascunho</option>
+              <option value="Em Andamento">Em Andamento</option>
+              <option value="Fechada">Fechada</option>
+            </select>
+          </div>
+
+          {/* Status Folha */}
+          <div className="space-y-2">
+            <label className="text-xs font-black text-zinc-400 uppercase tracking-widest flex items-center gap-2">
+              <FileText className="h-3.5 w-3.5" /> Status Folha
+            </label>
+            <select 
+              className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-bold font-medium"
+              value={filterFolhaStatus}
+              onChange={(e) => setFilterFolhaStatus(e.target.value)}
+            >
+              <option value="todos">Todos os Status</option>
+              <option value="Não Gerada">Não Gerada</option>
+              <option value="Rascunho">Rascunho</option>
+              <option value="Gerada">Gerada</option>
+              <option value="Revisada">Definitiva</option>
             </select>
           </div>
 
