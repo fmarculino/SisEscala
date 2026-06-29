@@ -325,30 +325,19 @@ export async function gerarFolhaPonto(
       .single()
     const maxVar = configVar?.valor ? parseInt(configVar.valor as string, 10) : 15
 
-    // Fetch all active scales of this server for this month/year to collect all shifts (including across different sectors/units if any)
-    const { data: todasEscalas } = await supabase
-      .from('escala_mensal')
-      .select('id')
-      .eq('servidor_id', servidorId)
-      .eq('mes', resolvedMes)
-      .eq('ano', resolvedAno)
-      .eq('ativo', true)
-
-    const escalaIds = todasEscalas?.map((e: any) => e.id) || [escala.id]
-
-    // Fetch all shifts from escala_diaria (including Extra and Plantão) across all scales of the server
+    // Fetch all shifts from escala_diaria (including Extra and Plantão) for the specific scale of this folha
     const { data: escalaDiaria, error: diError } = await supabase
       .from('escala_diaria')
       .select('id, dia, categoria, dicionario_turnos_id, presenca_entrada_em, presenca_saida_em, presenca_confirmada, dicionario_turnos(codigo, slots)')
-      .in('escala_mensal_id', escalaIds)
+      .eq('escala_mensal_id', escala.id)
 
     if (diError) throw diError
 
-    // Fetch manual validation logs across all scales of the server
+    // Fetch manual validation logs for the specific scale of this folha
     const { data: logs } = await supabase
       .from('logs_sobreaviso')
       .select('dia, categoria, validacao_manual, motivo_acionamento')
-      .in('escala_mensal_id', escalaIds)
+      .eq('escala_mensal_id', escala.id)
 
     // Fetch holidays
     const startDate = `${resolvedAno}-${String(resolvedMes).padStart(2, '0')}-01`
@@ -765,28 +754,17 @@ export async function sincronizarFolhaPonto(folhaId: string) {
       return { error: 'Acesso negado para gerenciar esta folha.' }
     }
 
-    // Fetch all active scales of this server for this month/year to collect all shifts (including across different sectors/units if any)
-    const { data: todasEscalas } = await supabase
-      .from('escala_mensal')
-      .select('id')
-      .eq('servidor_id', folha.servidor_id)
-      .eq('mes', folha.mes)
-      .eq('ano', folha.ano)
-      .eq('ativo', true)
-
-    const escalaIds = todasEscalas?.map((e: any) => e.id) || [escala.id]
-
-    // Fetch all shifts from escala_diaria (Regular, Extra, Plantão) across all scales of the server
+    // Fetch all shifts from escala_diaria (Regular, Extra, Plantão) for the specific scale of this folha
     const { data: escalaDiaria } = await supabase
       .from('escala_diaria')
       .select('id, dia, categoria, dicionario_turnos_id, presenca_entrada_em, presenca_saida_em, presenca_confirmada, dicionario_turnos(codigo, slots)')
-      .in('escala_mensal_id', escalaIds)
+      .eq('escala_mensal_id', escala.id)
 
-    // Fetch manual validation logs across all scales of the server
+    // Fetch manual validation logs for the specific scale of this folha
     const { data: logs } = await supabase
       .from('logs_sobreaviso')
       .select('dia, categoria, validacao_manual, motivo_acionamento')
-      .in('escala_mensal_id', escalaIds)
+      .eq('escala_mensal_id', escala.id)
 
     const currentShifts = escalaDiaria || []
     const fingerprint = generateFingerprint(currentShifts.filter(d => d.categoria === 'Regular'))

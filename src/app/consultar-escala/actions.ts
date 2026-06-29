@@ -791,28 +791,17 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
 
     if (escError || !escala) throw new Error('Escala vinculada não encontrada')
 
-    // Fetch all active scales of this server for this month/year to collect all shifts (including across different sectors/units if any)
-    const { data: todasEscalas } = await supabase
-      .from('escala_mensal')
-      .select('id')
-      .eq('servidor_id', folha.servidor_id)
-      .eq('mes', folha.mes)
-      .eq('ano', folha.ano)
-      .eq('ativo', true)
-
-    const escalaIds = todasEscalas?.map((e: any) => e.id) || [escala.id]
-
-    // Fetch all shifts from escala_diaria (Regular, Extra, Plantão) across all scales of the server
+    // Fetch all shifts from escala_diaria (Regular, Extra, Plantão) for the specific scale of this folha
     const { data: escalaDiaria } = await supabase
       .from('escala_diaria')
       .select('id, dia, dicionario_turnos_id, presenca_entrada_em, presenca_saida_em, presenca_confirmada, dicionario_turnos(codigo, slots)')
-      .in('escala_mensal_id', escalaIds)
+      .eq('escala_mensal_id', escala.id)
 
-    // Fetch manual validation logs across all scales of the server
+    // Fetch manual validation logs for the specific scale of this folha
     const { data: logs } = await supabase
       .from('logs_sobreaviso')
       .select('dia, categoria, validacao_manual, motivo_acionamento')
-      .in('escala_mensal_id', escalaIds)
+      .eq('escala_mensal_id', escala.id)
 
     const currentShifts = escalaDiaria || []
     const fingerprint = generateFingerprint(currentShifts)
