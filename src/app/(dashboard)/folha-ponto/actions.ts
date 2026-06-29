@@ -301,7 +301,7 @@ export async function gerarFolhaPonto(
     // Fetch server details
     const { data: servidor, error: servError } = await supabase
       .from('servidores')
-      .select('id, nome, matricula')
+      .select('id, nome, matricula, cargo')
       .eq('id', servidorId)
       .single()
 
