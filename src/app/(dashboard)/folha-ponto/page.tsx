@@ -30,11 +30,13 @@ export default function FolhaPontoPage() {
   // Server timesheet data
   const [servidoresData, setServidoresData] = useState<any[]>([])
   const [selectedFolhas, setSelectedFolhas] = useState<Set<string>>(new Set())
+  const [currentPage, setCurrentPage] = useState(1)
 
   // Reset selected timesheets on filter changes
   useEffect(() => {
     setSelectedFolhas(new Set())
-  }, [selectedUnidade, selectedSetor, mes, ano])
+    setCurrentPage(1)
+  }, [selectedUnidade, selectedSetor, mes, ano, searchTerm])
 
   // Helper for batch printing minutes formatting
   const formatMinutesToTimeStr = (totalMinutes: number): string => {
@@ -164,7 +166,13 @@ export default function FolhaPontoPage() {
   // Bulk generation
   const handleGerarEmLote = async (forcarRascunho: boolean) => {
     setActionLoading(forcarRascunho ? 'lote-rascunho' : 'lote-definitiva')
-    const res = await gerarFolhasEmLote(mes, ano, selectedUnidade, selectedSetor, forcarRascunho)
+    const res = await gerarFolhasEmLote(
+      mes,
+      ano,
+      selectedUnidade || undefined,
+      selectedSetor || undefined,
+      forcarRascunho
+    )
     setActionLoading(null)
     if (res.error) {
       setAlertModal({
@@ -191,16 +199,32 @@ export default function FolhaPontoPage() {
     s.cargo?.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
-  // Selection handlers
-  const selectableServidores = filteredServidores.filter(s => s.folha_id !== null)
+  const itemsPerPage = 10
+  const totalItems = filteredServidores.length
+  const totalPages = Math.ceil(totalItems / itemsPerPage)
+  const paginatedServidores = filteredServidores.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+
+  const getPageNumbers = () => {
+    const range = 2
+    const pages: number[] = []
+    for (let i = Math.max(1, currentPage - range); i <= Math.min(totalPages, currentPage + range); i++) {
+      pages.push(i)
+    }
+    return pages
+  }
+
+  // Selection handlers (only affects selectable servers on the CURRENT page)
+  const selectableServidores = paginatedServidores.filter(s => s.folha_id !== null)
   const allSelected = selectableServidores.length > 0 && selectableServidores.every(s => selectedFolhas.has(s.folha_id))
   
   const handleToggleAll = () => {
+    const newSelected = new Set(selectedFolhas)
     if (allSelected) {
-      setSelectedFolhas(new Set())
+      selectableServidores.forEach(s => newSelected.delete(s.folha_id))
     } else {
-      setSelectedFolhas(new Set(selectableServidores.map(s => s.folha_id)))
+      selectableServidores.forEach(s => newSelected.add(s.folha_id))
     }
+    setSelectedFolhas(newSelected)
   }
 
   const handleImprimirSelecionadas = async () => {
@@ -550,7 +574,7 @@ export default function FolhaPontoPage() {
         </div>
 
         {/* Global Batch Actions */}
-        {selectedSetor && servidoresData.length > 0 && (
+        {servidoresData.length > 0 && (
           <div className="flex flex-col sm:flex-row sm:items-center justify-between border-t border-zinc-100 dark:border-zinc-800 pt-6 gap-4">
             <div className="flex items-center gap-2 text-xs font-bold text-zinc-500">
               <AlertCircle className="h-4 w-4 text-blue-500" />
@@ -624,7 +648,7 @@ export default function FolhaPontoPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-                {filteredServidores.map(s => {
+                {paginatedServidores.map(s => {
                   const hasScale = s.escala_mensal_id !== null
                   const hasFolha = s.folha_id !== null
 
@@ -755,6 +779,46 @@ export default function FolhaPontoPage() {
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+        
+        {/* Pagination Controls */}
+        {totalPages > 1 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between border-t border-zinc-200 dark:border-zinc-800 px-6 py-4 bg-zinc-50/50 dark:bg-zinc-900/50 gap-4">
+            <div className="text-xs font-black uppercase tracking-wider text-zinc-400">
+              Mostrando <span className="font-extrabold text-zinc-900 dark:text-white">{(currentPage - 1) * itemsPerPage + 1}</span> a <span className="font-extrabold text-zinc-900 dark:text-white">{Math.min(totalItems, currentPage * itemsPerPage)}</span> de <span className="font-extrabold text-zinc-900 dark:text-white">{totalItems}</span> servidores
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold text-xs uppercase tracking-wider transition-all hover:bg-zinc-50 dark:hover:bg-zinc-700/50 disabled:opacity-50 active:scale-95"
+              >
+                Anterior
+              </button>
+              <div className="flex items-center gap-1">
+                {getPageNumbers().map(page => (
+                  <button
+                    key={page}
+                    onClick={() => setCurrentPage(page)}
+                    className={`w-8 h-8 rounded-xl font-black text-xs transition-all active:scale-95 ${
+                      currentPage === page
+                        ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                        : 'border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700/50'
+                    }`}
+                  >
+                    {page}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold text-xs uppercase tracking-wider transition-all hover:bg-zinc-50 dark:hover:bg-zinc-700/50 disabled:opacity-50 active:scale-95"
+              >
+                Próxima
+              </button>
+            </div>
           </div>
         )}
       </div>

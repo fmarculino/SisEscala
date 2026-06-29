@@ -16,8 +16,9 @@ export default function EscalasPage() {
   const [showInactive, setShowInactive] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [filterUnidade, setFilterUnidade] = useState('todas')
-  const [filterMes, setFilterMes] = useState('todos')
-  const [filterAno, setFilterAno] = useState('todos')
+  const [filterMes, setFilterMes] = useState(String(new Date().getMonth() + 1))
+  const [filterAno, setFilterAno] = useState(String(new Date().getFullYear()))
+  const [currentPage, setCurrentPage] = useState(1)
   const [profile, setProfile] = useState<any>(null)
   const [linkedServidorId, setLinkedServidorId] = useState<string | null>(null)
   
@@ -93,14 +94,19 @@ export default function EscalasPage() {
           }
 
           // Fetch with the profile we just loaded to avoid race conditions
-          fetchEscalas(userProfile, 'todos', 'todos')
+          fetchEscalas(userProfile, String(new Date().getMonth() + 1), String(new Date().getFullYear()))
           return
         }
       }
-      fetchEscalas(undefined, 'todos', 'todos')
+      fetchEscalas(undefined, String(new Date().getMonth() + 1), String(new Date().getFullYear()))
     }
     init()
   }, [])
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchTerm, filterUnidade, filterMes, filterAno, showInactive])
 
   // Trigger fetchEscalas when period filters change
   useEffect(() => {
@@ -258,6 +264,20 @@ export default function EscalasPage() {
 
   const groupedKeys = Array.from(new Set(filteredEscalas.map(e => `${e.unidade_id}|${e.setor_id}|${e.mes}|${e.ano}`)))
 
+  const itemsPerPage = 10
+  const totalItems = groupedKeys.length
+  const totalPages = Math.ceil(totalItems / itemsPerPage)
+  const paginatedKeys = groupedKeys.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+
+  const getPageNumbers = () => {
+    const range = 2
+    const pages: number[] = []
+    for (let i = Math.max(1, currentPage - range); i <= Math.min(totalPages, currentPage + range); i++) {
+      pages.push(i)
+    }
+    return pages
+  }
+
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -350,7 +370,7 @@ export default function EscalasPage() {
       {/* List */}
       <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-xl overflow-hidden">
         <div className="divide-y divide-zinc-200 dark:divide-zinc-800">
-          {groupedKeys.map((key) => {
+          {paginatedKeys.map((key) => {
             const [uId, sId, mes, ano] = key.split('|')
             const item = filteredEscalas.find(e => 
               e.unidade_id === uId && 
@@ -431,6 +451,46 @@ export default function EscalasPage() {
             </div>
           )}
         </div>
+
+        {/* Pagination Controls */}
+        {totalPages > 1 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between border-t border-zinc-200 dark:border-zinc-800 px-6 py-4 bg-zinc-50/50 dark:bg-zinc-900/50 gap-4">
+            <div className="text-xs font-black uppercase tracking-wider text-zinc-400">
+              Mostrando <span className="font-extrabold text-zinc-900 dark:text-white">{(currentPage - 1) * itemsPerPage + 1}</span> a <span className="font-extrabold text-zinc-900 dark:text-white">{Math.min(totalItems, currentPage * itemsPerPage)}</span> de <span className="font-extrabold text-zinc-900 dark:text-white">{totalItems}</span> escalas
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold text-xs uppercase tracking-wider transition-all hover:bg-zinc-50 dark:hover:bg-zinc-700/50 disabled:opacity-50 active:scale-95"
+              >
+                Anterior
+              </button>
+              <div className="flex items-center gap-1">
+                {getPageNumbers().map(page => (
+                  <button
+                    key={page}
+                    onClick={() => setCurrentPage(page)}
+                    className={`w-8 h-8 rounded-xl font-black text-xs transition-all active:scale-95 ${
+                      currentPage === page
+                        ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                        : 'border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700/50'
+                    }`}
+                  >
+                    {page}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold text-xs uppercase tracking-wider transition-all hover:bg-zinc-50 dark:hover:bg-zinc-700/50 disabled:opacity-50 active:scale-95"
+              >
+                Próxima
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Modals */}
