@@ -94,14 +94,9 @@ export default function FolhaPontoPage() {
             }) || []
             setSetores(formatSectorsHierarchy(sData))
 
-            // Pre-select first unit & sector if available
-            if (uData && uData.length > 0) {
-              setSelectedUnidade(uData[0].id)
-              const firstSector = sData.find(s => s.unidade_id === uData[0].id)
-              if (firstSector) {
-                setSelectedSetor(firstSector.id)
-              }
-            }
+            // Do not pre-select unit/sector to show all sheets initially
+            setSelectedUnidade('')
+            setSelectedSetor('')
           }
         }
       } catch (err) {
@@ -116,14 +111,10 @@ export default function FolhaPontoPage() {
   // Auto filter sectors based on unit choice
   const filteredSetores = setores.filter(s => s.unidade_id === selectedUnidade)
 
-  // Fetch timesheet servers when unit/sector/date is selected
+  // Fetch timesheet servers when unit/sector/date is selected (unit and sector are optional)
   const fetchServidores = useCallback(async () => {
-    if (!selectedUnidade || !selectedSetor) {
-      setServidoresData([])
-      return
-    }
     setLoadingServidores(true)
-    const res = await getServidoresFolhaPonto(mes, ano, selectedUnidade, selectedSetor)
+    const res = await getServidoresFolhaPonto(mes, ano, selectedUnidade || undefined, selectedSetor || undefined)
     setLoadingServidores(false)
     if (res.error) {
       setAlertModal({
@@ -144,12 +135,7 @@ export default function FolhaPontoPage() {
   // Reset selected sector if it does not belong to the newly selected unit
   const handleUnidadeChange = (unidadeId: string) => {
     setSelectedUnidade(unidadeId)
-    const validSectors = setores.filter(s => s.unidade_id === unidadeId)
-    if (validSectors.length > 0) {
-      setSelectedSetor(validSectors[0].id)
-    } else {
-      setSelectedSetor('')
-    }
+    setSelectedSetor('')
   }
 
   // Generate individual timesheet
@@ -559,7 +545,6 @@ export default function FolhaPontoPage() {
               className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-bold"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              disabled={!selectedSetor}
             />
           </div>
         </div>
@@ -608,12 +593,6 @@ export default function FolhaPontoPage() {
           <div className="p-20 text-center">
             <Loader2 className="h-10 w-10 animate-spin mx-auto text-blue-500 opacity-50 mb-4" />
             <p className="text-zinc-500 text-sm font-bold uppercase tracking-widest">Carregando servidores...</p>
-          </div>
-        ) : !selectedSetor ? (
-          <div className="p-20 text-center text-zinc-500">
-            <FileText className="mx-auto h-16 w-16 opacity-10 mb-6" />
-            <p className="text-xl font-black uppercase tracking-tight text-zinc-400">Selecione os Filtros</p>
-            <p className="text-sm mt-2 max-w-sm mx-auto">Escolha a Unidade e o Setor acima para poder carregar a folha de ponto dos servidores correspondentes.</p>
           </div>
         ) : filteredServidores.length === 0 ? (
           <div className="p-20 text-center text-zinc-500">

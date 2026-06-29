@@ -2,7 +2,7 @@
 
 import { createClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
-import { hasSectorAccess, UserProfile } from '@/utils/permissions'
+import { hasSectorAccess, UserProfile, applyAccessFilters } from '@/utils/permissions'
 import { autoCloseExpiredScalesAndTimesheets, isCompetencyClosed } from '@/utils/autoClose'
 
 // Helper: Get user profile with unit/sector permissions
@@ -107,45 +107,59 @@ function isShiftOverlappingAfastamento(afastamento: any, shift: any): boolean {
   if (!shift || !shift.dicionario_turnos) return false
   const shiftSlots = (shift.dicionario_turnos as any).slots || []
   return shiftSlots.some((s: string) => afastamento.slots.includes(s))
-}
-
-
-// List servers for a sector/month with their scale and folha status
-export async function getServidoresFolhaPonto(mes: number, ano: number, unidadeId: string, setorId: string) {
+}// List servers for a sector/month with their scale and folha status (unit and sector are optional)
+export async function getServidoresFolhaPonto(mes: number, ano: number, unidadeId?: string, setorId?: string) {
   try {
     await autoCloseExpiredScalesAndTimesheets()
     const supabase = await createClient()
     const userProfile = await getUserProfile(supabase)
 
-    // Security check
-    if (!hasSectorAccess(userProfile, setorId, unidadeId)) {
-      return { error: 'Acesso negado a este setor/unidade.' }
+    // If unit and sector are specifically provided, we check permission for it
+    if (unidadeId && setorId) {
+      if (!hasSectorAccess(userProfile, setorId, unidadeId)) {
+        return { error: 'Acesso negado a este setor/unidade.' }
+      }
     }
 
-    // 1. Fetch servers currently allocated in this unit & sector
-    const { data: servidoresAtuais, error: servError } = await supabase
+    // 1. Fetch servers currently allocated (filtered by access permissions)
+    let queryServidores = supabase
       .from('servidores')
-      .select('id, nome, matricula, cargo')
-      .eq('unidade_id', unidadeId)
-      .eq('setor_id', setorId)
+      .select('id, nome, matricula, cargo, unidade_id, setor_id')
       .eq('status', 'Ativo')
-      .order('nome')
 
+    if (unidadeId) {
+      queryServidores = queryServidores.eq('unidade_id', unidadeId)
+    }
+    if (setorId) {
+      queryServidores = queryServidores.eq('setor_id', setorId)
+    }
+
+    queryServidores = applyAccessFilters(queryServidores, userProfile)
+
+    const { data: servidoresAtuais, error: servError } = await queryServidores
     if (servError) throw servError
 
     // 2. Fetch scales in this sector/unit/month/year to find historical servers who might have been transferred
-    const { data: escalasMes, error: escMesError } = await supabase
+    let queryEscasMes = supabase
       .from('escala_mensal')
-      .select('servidor_id, servidores(id, nome, matricula, cargo)')
-      .eq('unidade_id', unidadeId)
-      .eq('setor_id', setorId)
+      .select('servidor_id, unidade_id, setor_id, servidores(id, nome, matricula, cargo)')
       .eq('mes', mes)
       .eq('ano', ano)
 
+    if (unidadeId) {
+      queryEscasMes = queryEscasMes.eq('unidade_id', unidadeId)
+    }
+    if (setorId) {
+      queryEscasMes = queryEscasMes.eq('setor_id', setorId)
+    }
+
+    queryEscasMes = applyAccessFilters(queryEscasMes, userProfile)
+
+    const { data: escalasMes, error: escMesError } = await queryEscasMes
     if (escMesError) throw escMesError
 
     // Combine them safely using a Map to avoid duplicates
-    const servidoresMap = new Map<string, { id: string; nome: string; matricula: string | null; cargo: string | null }>()
+    const servidoresMap = new Map<string, { id: string; nome: string; matricula: string | null; cargo: string | null; unidade_id?: string | null; setor_id?: string | null }>()
     
     servidoresAtuais?.forEach(s => {
       servidoresMap.set(s.id, s)
@@ -158,7 +172,9 @@ export async function getServidoresFolhaPonto(mes: number, ano: number, unidadeI
           id: s.id,
           nome: s.nome,
           matricula: s.matricula,
-          cargo: s.cargo
+          cargo: s.cargo,
+          unidade_id: em.unidade_id,
+          setor_id: em.setor_id
         })
       }
     })
@@ -170,20 +186,27 @@ export async function getServidoresFolhaPonto(mes: number, ano: number, unidadeI
 
     const serverIds = servidores.map(s => s.id)
 
-    // 2. Fetch scales for these servers in this month
-    const { data: escalas, error: escError } = await supabase
+    // 3. Fetch scales for these servers in this month
+    let queryEscalas = supabase
       .from('escala_mensal')
-      .select('id, status, servidor_id, jornada_id, jornadas(nome)')
+      .select('id, status, servidor_id, jornada_id, jornadas(nome), unidade_id, setor_id')
       .in('servidor_id', serverIds)
-      .eq('unidade_id', unidadeId)
-      .eq('setor_id', setorId)
       .eq('mes', mes)
       .eq('ano', ano)
       .eq('ativo', true)
 
+    if (unidadeId) {
+      queryEscalas = queryEscalas.eq('unidade_id', unidadeId)
+    }
+    if (setorId) {
+      queryEscalas = queryEscalas.eq('setor_id', setorId)
+    }
+
+    queryEscalas = applyAccessFilters(queryEscalas, userProfile)
+    const { data: escalas, error: escError } = await queryEscalas
     if (escError) throw escError
 
-    // 3. Fetch existing folhas
+    // 4. Fetch existing folhas
     const { data: folhas, error: folhaError } = await supabase
       .from('folha_ponto')
       .select('id, status, servidor_id, escala_mensal_id, total_horas_normais, total_horas_extras_50, total_horas_extras_100, total_faltas, cargo')
@@ -193,9 +216,13 @@ export async function getServidoresFolhaPonto(mes: number, ano: number, unidadeI
 
     if (folhaError) throw folhaError
 
-    // 4. Map together
+    // 5. Map together
     const mapped = servidores.map(s => {
-      const escala = escalas?.find(e => e.servidor_id === s.id)
+      const escala = escalas?.find(e => 
+        e.servidor_id === s.id && 
+        (!unidadeId || e.unidade_id === unidadeId) && 
+        (!setorId || e.setor_id === setorId)
+      )
       const folha = escala ? folhas?.find(f => f.escala_mensal_id === escala.id) : null
 
       return {
@@ -223,17 +250,17 @@ export async function getServidoresFolhaPonto(mes: number, ano: number, unidadeI
 }
 
 // Generate (or regenerate) a timesheet for a server
-export async function gerarFolhaPonto(
+// Core logic to generate or regenerate a timesheet for a server (bypasses permission checks for admin/cron use)
+export async function executeGerarFolhaPonto(
+  supabase: any,
   servidorId: string,
   mes: number,
   ano: number,
-  forcarRascunho: boolean = false,
-  escalaMensalId?: string
+  targetStatus: 'Rascunho' | 'Gerada' | 'Revisada',
+  escalaMensalId?: string,
+  geradoPorId?: string | null
 ) {
   try {
-    const supabase = await createClient()
-    const userProfile = await getUserProfile(supabase)
-
     let escala: any = null
 
     if (escalaMensalId) {
@@ -291,8 +318,6 @@ export async function gerarFolhaPonto(
 
     const resolvedMes = escala.mes
     const resolvedAno = escala.ano
-    const resolvedUnidadeId = escala.unidade_id
-    const resolvedSetorId = escala.setor_id
 
     if (await isCompetencyClosed(resolvedMes, resolvedAno)) {
       return { error: 'Esta competência está encerrada e todos os dados estão congelados para auditoria.' }
@@ -306,16 +331,6 @@ export async function gerarFolhaPonto(
       .single()
 
     if (servError || !servidor) throw new Error('Servidor não encontrado')
-
-    // Security check using scale's unit and sector
-    if (!resolvedUnidadeId || !resolvedSetorId || !hasSectorAccess(userProfile, resolvedSetorId, resolvedUnidadeId)) {
-      return { error: 'Acesso negado às escalas deste servidor.' }
-    }
-
-    // Check status requirement
-    if (escala.status === 'Em Andamento' && !forcarRascunho) {
-      return { error: 'A escala do servidor está Em Andamento. Você deve gerar como Rascunho.' }
-    }
 
     // Fetch config for tolerance
     const { data: configVar } = await supabase
@@ -350,7 +365,7 @@ export async function gerarFolhaPonto(
       .gte('data', startDate)
       .lte('data', endDate)
 
-    const feriadosSet = new Set(feriados?.map(f => f.data) || [])
+    const feriadosSet = new Set(feriados?.map((f: any) => f.data) || [])
 
     // Fetch pontos facultativos
     const { data: pontosFacultativos } = await supabase
@@ -423,24 +438,24 @@ export async function gerarFolhaPonto(
     const weekDaysShort = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
     for (let day = 1; day <= daysInMonth; day++) {
-      const dateObj = new Date(ano, mes - 1, day)
+      const dateObj = new Date(resolvedAno, resolvedMes - 1, day)
       const dayOfWeekStr = weekDaysShort[dateObj.getDay()]
-      const dateStr = `${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+      const dateStr = `${resolvedAno}-${String(resolvedMes).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 
       // Resolve dynamic journey for this day
-      const tempJourney = tempJourneys?.find(tj => dateStr >= tj.data_inicio && dateStr <= tj.data_fim)
+      const tempJourney = tempJourneys?.find((tj: any) => dateStr >= tj.data_inicio && dateStr <= tj.data_fim)
       const activeJornada = tempJourney ? tempJourney.jornadas : globalJornadaDetails
       const { startHour, startMin, endHour, endMin } = activeJornada === globalJornadaDetails ? globalJornada : parseJornadaNome(activeJornada?.nome || '')
       const intervaloMinutos = activeJornada === globalJornadaDetails ? globalIntervaloMinutos : (activeJornada?.intervalo_minutos ?? 60)
       const horasNormaisDiarias = activeJornada === globalJornadaDetails ? globalHorasNormaisDiarias : (activeJornada?.horas_totais ?? 8)
 
       // Check afastamento
-      const rawAfastamento = afastamentos?.find(af => dateStr >= af.data_inicio && dateStr <= af.data_fim)
-      const shift = escalaDiaria?.find(ed => ed.dia === day && ed.categoria === 'Regular')
+      const rawAfastamento = afastamentos?.find((af: any) => dateStr >= af.data_inicio && dateStr <= af.data_fim)
+      const shift = escalaDiaria?.find((ed: any) => ed.dia === day && ed.categoria === 'Regular')
       const afastamento = isShiftOverlappingAfastamento(rawAfastamento, shift) ? rawAfastamento : null
       
       // Check holiday
-      const feriadoInfo = feriados?.find(f => f.data === dateStr)
+      const feriadoInfo = feriados?.find((f: any) => f.data === dateStr)
 
       // Check manual edits in existing record to preserve them
       const registroExistente = registrosExistentes.find((r: any) => r.dia === day)
@@ -475,20 +490,20 @@ export async function gerarFolhaPonto(
 
       // Helper function to check if we should generate time for a scheduled marker
       const shouldGenerate = (scheduledMin: number) => {
-        if (ano > currentYear) return false
-        if (ano < currentYear) return true
-        if (mes > currentMonth) return false
-        if (mes < currentMonth) return true
+        if (resolvedAno > currentYear) return false
+        if (resolvedAno < currentYear) return true
+        if (resolvedMes > currentMonth) return false
+        if (resolvedMes < currentMonth) return true
         if (day > currentDay) return false
         if (day < currentDay) return true
         return currentTotalMin >= (scheduledMin % 1440)
       }
 
       // Check if point facultativo applies
-      const pf = pontosFacultativos?.find(p => p.data === dateStr)
+      const pf = pontosFacultativos?.find((p: any) => p.data === dateStr)
       let pfInfo = null
       if (pf) {
-        const rule = pfSetores?.find(r => r.ponto_facultativo_id === pf.id && r.setor_id === escala.setor_id)
+        const rule = pfSetores?.find((r: any) => r.ponto_facultativo_id === pf.id && r.setor_id === escala.setor_id)
         if (rule) {
           if (rule.tipo_regra === 'incluido') pfInfo = pf
         } else if (!isSectorEssencial) {
@@ -561,13 +576,13 @@ export async function gerarFolhaPonto(
         }
 
         // Check if entry/exit was validated manually by a coordinator
-        const isManualEntrada = logs?.some(log => 
+        const isManualEntrada = logs?.some((log: any) => 
           log.dia === day && 
           log.categoria === 'Regular' && 
           log.validacao_manual === true && 
           log.motivo_acionamento?.toLowerCase().includes('entrada')
         )
-        const isManualSaida = logs?.some(log => 
+        const isManualSaida = logs?.some((log: any) => 
           log.dia === day && 
           log.categoria === 'Regular' && 
           log.validacao_manual === true && 
@@ -575,12 +590,12 @@ export async function gerarFolhaPonto(
         )
 
         // Check if there was presence confirmada on any shift for this day (Regular, Extra, Plantão)
-        const dayShifts = escalaDiaria?.filter(d => d.dia === day) || []
-        const allEntradas = dayShifts.map(s => s.presenca_entrada_em).filter(Boolean)
-        const allSaidas = dayShifts.map(s => s.presenca_saida_em).filter(Boolean)
+        const dayShifts = escalaDiaria?.filter((d: any) => d.dia === day) || []
+        const allEntradas = dayShifts.map((s: any) => s.presenca_entrada_em).filter(Boolean)
+        const allSaidas = dayShifts.map((s: any) => s.presenca_saida_em).filter(Boolean)
         
-        const realEntradaTime = allEntradas.length > 0 ? new Date(Math.min(...allEntradas.map(t => new Date(t).getTime()))) : null
-        const realSaidaTime = allSaidas.length > 0 ? new Date(Math.max(...allSaidas.map(t => new Date(t).getTime()))) : null
+        const realEntradaTime = allEntradas.length > 0 ? new Date(Math.min(...allEntradas.map((t: any) => new Date(t).getTime()))) : null
+        const realSaidaTime = allSaidas.length > 0 ? new Date(Math.max(...allSaidas.map((t: any) => new Date(t).getTime()))) : null
 
         const hasRealEntrada = realEntradaTime !== null && !isManualEntrada
         const hasRealSaida = realSaidaTime !== null && !isManualSaida
@@ -599,7 +614,7 @@ export async function gerarFolhaPonto(
         const officialRetornoIntervaloMin = (officialSaidaIntervaloMin + intervaloMinutos) % (24 * 60)
 
         // Generate seeds for deterministic fictitious times
-        const seedBase = `${servidorId}-${mes}-${ano}-${day}`
+        const seedBase = `${servidorId}-${resolvedMes}-${resolvedAno}-${day}`
 
         // Parse ponto facultativo release/limit minutes
         let pfInicioMin: number | null = null
@@ -703,7 +718,6 @@ export async function gerarFolhaPonto(
             const current = new Date(effectiveScheduledExit.getTime())
             const end = new Date(realExit.getTime())
             
-            // Build a quick lookup of holidays within this month
             while (current < end) {
               const localCurrent = new Date(current.getTime() - 3 * 60 * 60 * 1000)
               const curHour = localCurrent.getUTCHours()
@@ -749,14 +763,14 @@ export async function gerarFolhaPonto(
         servidor_id: servidorId,
         mes: resolvedMes,
         ano: resolvedAno,
-        status: forcarRascunho ? 'Rascunho' : 'Gerada',
+        status: targetStatus,
         registros,
         escala_fingerprint: fingerprint,
         total_horas_normais: parseFloat(totalHorasNormais.toFixed(2)),
         total_horas_extras_50: parseFloat((totalExtra50 / 60).toFixed(2)),
         total_horas_extras_100: parseFloat((totalExtra100 / 60).toFixed(2)),
         total_faltas: totalFaltas,
-        gerado_por_id: userProfile.id,
+        gerado_por_id: geradoPorId,
         gerado_em: new Date().toISOString(),
         cargo: existingFolha?.cargo || servidor.cargo
       }, { onConflict: 'escala_mensal_id' })
@@ -765,8 +779,114 @@ export async function gerarFolhaPonto(
 
     if (saveError) throw saveError
 
-    revalidatePath('/folha-ponto')
     return { success: true, folha_id: savedFolha.id }
+  } catch (error: any) {
+    console.error('Erro ao gerar folha de ponto:', error)
+    return { error: error.message }
+  }
+}
+
+// Generate (or regenerate) a timesheet for a server
+export async function gerarFolhaPonto(
+  servidorId: string,
+  mes: number,
+  ano: number,
+  forcarRascunho: boolean = false,
+  escalaMensalId?: string
+) {
+  try {
+    const supabase = await createClient()
+    const userProfile = await getUserProfile(supabase)
+
+    let escala: any = null
+
+    if (escalaMensalId) {
+      const { data: esc, error: escError } = await supabase
+        .from('escala_mensal')
+        .select('id, status, unidade_id, setor_id, mes, ano, status, jornada_id, jornadas(nome, intervalo_minutos, horas_totais)')
+        .eq('id', escalaMensalId)
+        .single()
+      if (escError) throw escError
+      escala = esc
+    } else {
+      // Find matching scale for this server, month, year
+      const { data: serverInfo } = await supabase
+        .from('servidores')
+        .select('unidade_id, setor_id')
+        .eq('id', servidorId)
+        .single()
+
+      const query = supabase
+        .from('escala_mensal')
+        .select('id, status, unidade_id, setor_id, mes, ano, status, jornada_id, jornadas(nome, intervalo_minutos, horas_totais)')
+        .eq('servidor_id', servidorId)
+        .eq('mes', mes)
+        .eq('ano', ano)
+        .eq('ativo', true)
+
+      if (serverInfo?.unidade_id && serverInfo?.setor_id) {
+        const { data: match } = await query
+          .eq('unidade_id', serverInfo.unidade_id)
+          .eq('setor_id', serverInfo.setor_id)
+          .maybeSingle()
+        if (match) {
+          escala = match
+        }
+      }
+
+      if (!escala) {
+        const { data: list } = await supabase
+          .from('escala_mensal')
+          .select('id, status, unidade_id, setor_id, mes, ano, status, jornada_id, jornadas(nome, intervalo_minutos, horas_totais)')
+          .eq('servidor_id', servidorId)
+          .eq('mes', mes)
+          .eq('ano', ano)
+          .eq('ativo', true)
+          .limit(1)
+        if (list && list.length > 0) {
+          escala = list[0]
+        }
+      }
+    }
+
+    if (!escala) {
+      return { error: 'Servidor não possui escala regular criada neste setor para o mês selecionado.' }
+    }
+
+    const resolvedMes = escala.mes
+    const resolvedAno = escala.ano
+    const resolvedUnidadeId = escala.unidade_id
+    const resolvedSetorId = escala.setor_id
+
+    if (await isCompetencyClosed(resolvedMes, resolvedAno)) {
+      return { error: 'Esta competência está encerrada e todos os dados estão congelados para auditoria.' }
+    }
+
+    // Security check using scale's unit and sector
+    if (!resolvedUnidadeId || !resolvedSetorId || !hasSectorAccess(userProfile, resolvedSetorId, resolvedUnidadeId)) {
+      return { error: 'Acesso negado às escalas deste servidor.' }
+    }
+
+    // Check status requirement
+    if (escala.status === 'Em Andamento' && !forcarRascunho) {
+      return { error: 'A escala do servidor está Em Andamento. Você deve gerar como Rascunho.' }
+    }
+
+    const res = await executeGerarFolhaPonto(
+      supabase,
+      servidorId,
+      mes,
+      ano,
+      forcarRascunho ? 'Rascunho' : 'Gerada',
+      escala.id,
+      userProfile.id
+    )
+
+    if (res.success) {
+      revalidatePath('/folha-ponto')
+    }
+
+    return res
   } catch (error: any) {
     console.error('Erro ao gerar folha de ponto:', error)
     return { error: error.message }

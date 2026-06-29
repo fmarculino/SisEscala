@@ -16,6 +16,8 @@ export default function EscalasPage() {
   const [showInactive, setShowInactive] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [filterUnidade, setFilterUnidade] = useState('todas')
+  const [filterMes, setFilterMes] = useState('todos')
+  const [filterAno, setFilterAno] = useState('todos')
   const [profile, setProfile] = useState<any>(null)
   const [linkedServidorId, setLinkedServidorId] = useState<string | null>(null)
   
@@ -57,6 +59,7 @@ export default function EscalasPage() {
     }
   }, [supabase])
 
+  // Load user profile & initial filters
   useEffect(() => {
     async function init() {
       try {
@@ -80,7 +83,6 @@ export default function EscalasPage() {
           }
           setProfile(userProfile)
 
-          // If common user, find linked server by email
           if (prof?.role === 'comum' || prof?.role === 'servidor') {
             const { data: serv } = await supabase
               .from('servidores')
@@ -91,16 +93,23 @@ export default function EscalasPage() {
           }
 
           // Fetch with the profile we just loaded to avoid race conditions
-          fetchEscalas(userProfile)
+          fetchEscalas(userProfile, 'todos', 'todos')
           return
         }
       }
-      fetchEscalas()
+      fetchEscalas(undefined, 'todos', 'todos')
     }
     init()
   }, [])
 
-  async function fetchEscalas(activeProfile?: any) {
+  // Trigger fetchEscalas when period filters change
+  useEffect(() => {
+    if (profile) {
+      fetchEscalas()
+    }
+  }, [filterMes, filterAno])
+
+  async function fetchEscalas(activeProfile?: any, mesVal?: string, anoVal?: string) {
     setLoading(true)
     let query = supabase
       .from('escala_mensal')
@@ -108,12 +117,20 @@ export default function EscalasPage() {
       .order('ano', { ascending: false })
       .order('mes', { ascending: false })
 
-    // Use passed profile or state profile
     const targetProfile = activeProfile || profile
 
-    // Apply security filters at DB level if profile is available
     if (targetProfile) {
       query = applyAccessFilters(query, targetProfile)
+    }
+
+    const currentMes = mesVal !== undefined ? mesVal : filterMes
+    const currentAno = anoVal !== undefined ? anoVal : filterAno
+
+    if (currentMes !== 'todos') {
+      query = query.eq('mes', parseInt(currentMes, 10))
+    }
+    if (currentAno !== 'todos') {
+      query = query.eq('ano', parseInt(currentAno, 10))
     }
 
     const { data, error } = await query
@@ -122,7 +139,6 @@ export default function EscalasPage() {
       console.error('Erro ao carregar escalas:', error)
     } else if (data) {
       const mapped = data.map(e => {
-        // Handle both object and array return from Supabase for sectors
         const sectorData = Array.isArray(e.setores) ? e.setores[0] : e.setores
         const dictData = sectorData ? (Array.isArray(sectorData.dicionario_setores) 
           ? sectorData.dicionario_setores[0] 
@@ -216,6 +232,30 @@ export default function EscalasPage() {
     return matchesSearch && matchesUnidade && matchesAtivo && rolePermitted
   })
 
+  const meses = [
+    { value: 'todos', label: 'Todos os Meses' },
+    { value: '1', label: 'Janeiro' },
+    { value: '2', label: 'Fevereiro' },
+    { value: '3', label: 'Março' },
+    { value: '4', label: 'Abril' },
+    { value: '5', label: 'Maio' },
+    { value: '6', label: 'Junho' },
+    { value: '7', label: 'Julho' },
+    { value: '8', label: 'Agosto' },
+    { value: '9', label: 'Setembro' },
+    { value: '10', label: 'Outubro' },
+    { value: '11', label: 'Novembro' },
+    { value: '12', label: 'Dezembro' }
+  ]
+
+  const anos = [
+    { value: 'todos', label: 'Todos os Anos' },
+    ...Array.from({ length: 5 }, (_, i) => {
+      const year = new Date().getFullYear() - 2 + i
+      return { value: String(year), label: String(year) }
+    })
+  ]
+
   const groupedKeys = Array.from(new Set(filteredEscalas.map(e => `${e.unidade_id}|${e.setor_id}|${e.mes}|${e.ano}`)))
 
   if (loading) {
@@ -268,6 +308,28 @@ export default function EscalasPage() {
             <option value="todas">Todas as Unidades</option>
             {unidades.map(u => (
               <option key={u.id} value={u.id}>{u.nome}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Calendar className="h-4 w-4 text-zinc-400" />
+          <select 
+            className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+            value={filterMes}
+            onChange={(e) => setFilterMes(e.target.value)}
+          >
+            {meses.map(m => (
+              <option key={m.value} value={m.value}>{m.label}</option>
+            ))}
+          </select>
+          <select 
+            className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+            value={filterAno}
+            onChange={(e) => setFilterAno(e.target.value)}
+          >
+            {anos.map(a => (
+              <option key={a.value} value={a.value}>{a.label}</option>
             ))}
           </select>
         </div>
