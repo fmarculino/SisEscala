@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.10.0] - 2026-06-29
+
+### Added
+- **Automação de Competências e Fechamento**:
+  - Nova rotina `autoGenerateMissingTimesheets` que gera automaticamente folhas de ponto como rascunho na virada do mês.
+  - Fechamento automatizado de escalas expiradas com geração ou promoção de folhas de ponto para o status definitivo (`Revisada`).
+- **Endpoint Cron Autenticado**:
+  - Nova rota de API `/api/cron` protegida por chave secreta (token via Bearer ou query parameter) para orquestrar rotinas do sistema.
+- **Filtros e Visualização de Escalas**:
+  - Adicionado o seletor padrão iniciando no mês/ano correntes na listagem de escalas.
+  - Nova classificação de status visual (Previsão / Fechada) com dropdown correspondente na barra de filtros.
+- **Melhorias na Folha de Ponto**:
+  - Carregamento irrestrito sem necessidade de pré-filtragem por Unidade/Setor na tela de Folha de Ponto.
+  - Geração em lote global irrestrita para coordenadores/administradores de uma única vez.
+  - Novos filtros de status de Escala Mensal e Status Folha.
+  - Lista de servidores filtrada estritamente por escalas ativas na competência.
+- **Paginação de Alta Performance**:
+  - Paginação padrão (10 itens por página) implementada nas telas de Escalas de Serviço e Folha de Ponto, com controles responsivos e redefinição de página ao filtrar.
+
 ## [1.9.0] - 2026-06-28
 
 ### Added

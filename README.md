@@ -1,4 +1,4 @@
-# SisEscala 📅[![Version](https://img.shields.io/badge/version-1.9.0-green.svg)](https://github.com/fmarculino/SisEscala)
+# SisEscala 📅[![Version](https://img.shields.io/badge/version-1.10.0-green.svg)](https://github.com/fmarculino/SisEscala)
 [![Next.js](https://img.shields.io/badge/framework-Next.js%2015-black.svg)](https://nextjs.org/)
 [![Supabase](https://img.shields.io/badge/backend-Supabase-green.svg)](https://supabase.com/)
 [![Tailwind CSS](https://img.shields.io/badge/styling-Tailwind%20CSS-38B2AC.svg)](https://tailwindcss.com/)
@@ -13,6 +13,8 @@ O sistema foca em **governança, segurança jurídica e eficiência operacional*
 
 ### 📋 Gestão de Escalas Inteligente
 - **Auto-Escala Inteligente (Fase 1)**: Motor inteligente para preenchimento de escalas com base na continuidade histórica de folgas do mês anterior (ideal para 12x36), bloqueio automático de dias de afastamento (férias, licenças) e preferências de turnos cadastradas.
+- **Automação de Competências & Cron**: Rotinas de fechamento automático de escalas vencidas e geração de folhas de ponto rascunho na virada do mês, com orquestração segura via endpoint `/api/cron` autenticado.
+- **Filtros & Paginação de Alta Performance**: Visualização de escalas e folhas de ponto com paginação padrão (10 itens por página), busca textual e filtros refinados de Mês, Ano e Status (Previsão / Fechada, Status Escala, Status Folha).
 - **Multi-categoria**: Suporte nativo para turnos **Regulares**, **Extras**, **Plantões** e **Sobreaviso**.
 - **Templates Dinâmicos**: Aplicação rápida de padrões de escala (**12x36**, **5x2**, **6x1**) com um clique.
 - **Detecção de Conflitos**: Motor de validação global que impede que um servidor seja escalado em dois locais ao mesmo tempo.
