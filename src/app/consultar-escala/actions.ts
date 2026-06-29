@@ -1084,10 +1084,14 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
           }
         }
 
-        if (hasRealEntrada) {
+        if (hasRealEntrada && currentShift.presenca_entrada_em) {
           const d = new Date(currentShift.presenca_entrada_em)
           registro.entrada = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_entrada = 'real'
+        } else if (isManualEntrada && currentShift.presenca_entrada_em) {
+          const d = new Date(currentShift.presenca_entrada_em)
+          registro.entrada = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+          registro.origem_entrada = 'manual'
         } else if (shouldGenerate(officialEntradaMin)) {
           let targetEntradaMin = officialEntradaMin
           if (pfFimMin !== null && officialEntradaMin < pfFimMin) {
@@ -1099,10 +1103,14 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
           registro.origem_entrada = 'ficticio'
         }
 
-        if (hasRealSaida) {
+        if (hasRealSaida && currentShift.presenca_saida_em) {
           const d = new Date(currentShift.presenca_saida_em)
           registro.saida = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_saida = 'real'
+        } else if (isManualSaida && currentShift.presenca_saida_em) {
+          const d = new Date(currentShift.presenca_saida_em)
+          registro.saida = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+          registro.origem_saida = 'manual'
         } else if (shouldGenerate(officialSaidaMin)) {
           let targetSaidaMin = officialSaidaMin
           if (pfInicioMin !== null && officialEntradaMin < pfInicioMin) {
@@ -1574,10 +1582,14 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
           }
         }
 
-        if (hasRealEntrada) {
+        if (hasRealEntrada && shift.presenca_entrada_em) {
           const d = new Date(shift.presenca_entrada_em)
           registro.entrada = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_entrada = 'real'
+        } else if (isManualEntrada && shift.presenca_entrada_em) {
+          const d = new Date(shift.presenca_entrada_em)
+          registro.entrada = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+          registro.origem_entrada = 'manual'
         } else if (shouldGenerate(officialEntradaMin)) {
           let targetEntradaMin = officialEntradaMin
           if (pfFimMin !== null && officialEntradaMin < pfFimMin) {
@@ -1589,10 +1601,14 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
           registro.origem_entrada = 'ficticio'
         }
 
-        if (hasRealSaida) {
+        if (hasRealSaida && shift.presenca_saida_em) {
           const d = new Date(shift.presenca_saida_em)
           registro.saida = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_saida = 'real'
+        } else if (isManualSaida && shift.presenca_saida_em) {
+          const d = new Date(shift.presenca_saida_em)
+          registro.saida = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+          registro.origem_saida = 'manual'
         } else if (shouldGenerate(officialSaidaMin)) {
           let targetSaidaMin = officialSaidaMin
           if (pfInicioMin !== null && officialEntradaMin < pfInicioMin) {

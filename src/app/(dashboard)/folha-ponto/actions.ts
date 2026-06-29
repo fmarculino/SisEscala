@@ -619,6 +619,9 @@ export async function gerarFolhaPonto(
         if (hasRealEntrada && realEntradaTime) {
           registro.entrada = realEntradaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_entrada = 'real'
+        } else if (isManualEntrada && realEntradaTime) {
+          registro.entrada = realEntradaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+          registro.origem_entrada = 'manual'
         } else if (shouldGenerate(officialEntradaMin)) {
           let targetEntradaMin = officialEntradaMin
           if (pfFimMin !== null && officialEntradaMin < pfFimMin) {
@@ -634,6 +637,9 @@ export async function gerarFolhaPonto(
         if (hasRealSaida && realSaidaTime) {
           registro.saida = realSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_saida = 'real'
+        } else if (isManualSaida && realSaidaTime) {
+          registro.saida = realSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+          registro.origem_saida = 'manual'
         } else if (shouldGenerate(officialSaidaMin)) {
           let targetSaidaMin = officialSaidaMin
           if (pfInicioMin !== null && officialEntradaMin < pfInicioMin) {
@@ -884,6 +890,24 @@ export async function sincronizarFolhaPonto(folhaId: string) {
       .eq('servidor_id', folha.servidor_id)
       .or(`data_inicio.lte.${endDate},data_fim.gte.${startDate}`)
 
+    // Fetch pontos facultativos
+    const { data: pontosFacultativos } = await supabase
+      .from('pontos_facultativos')
+      .select('id, data, descricao, inicio_liberacao_em, fim_liberacao_em, gera_he_para_essenciais')
+      .gte('data', startDate)
+      .lte('data', endDate)
+
+    const { data: pfSetores } = await supabase
+      .from('ponto_facultativo_setores')
+      .select('*')
+
+    const { data: sectorInfo } = await supabase
+      .from('setores')
+      .select('essencial')
+      .eq('id', escala.setor_id)
+      .maybeSingle()
+    const isSectorEssencial = !!sectorInfo?.essencial
+
     // Parse Jornada
     const globalJornadaDetails = escala.jornadas ? (escala.jornadas as any) : null
     const globalJornada = parseJornadaNome(globalJornadaDetails?.nome || '')
@@ -998,6 +1022,18 @@ export async function sincronizarFolhaPonto(folhaId: string) {
         return currentTotalMin >= (scheduledMin % 1440)
       }
 
+      // Check if point facultativo applies
+      const pf = pontosFacultativos?.find(p => p.data === dateStr)
+      let pfInfo = null
+      if (pf) {
+        const rule = pfSetores?.find(r => r.ponto_facultativo_id === pf.id && r.setor_id === escala.setor_id)
+        if (rule) {
+          if (rule.tipo_regra === 'incluido') pfInfo = pf
+        } else if (!isSectorEssencial) {
+          pfInfo = pf
+        }
+      }
+
       let registro: any = {
         dia: day,
         dia_semana: dayOfWeekStr,
@@ -1014,6 +1050,7 @@ export async function sincronizarFolhaPonto(folhaId: string) {
         origem_retorno_intervalo: null,
         origem_saida: null,
         feriado: !!feriadoInfo,
+        ponto_facultativo: !!pfInfo,
         afastamento: afastamento ? getAfastamentoObservacao(afastamento) : null,
         jornada_nome: activeJornada?.nome || null,
         jornada_temporaria: !!tempJourney,
@@ -1023,6 +1060,15 @@ export async function sincronizarFolhaPonto(folhaId: string) {
         registro.observacao = registro.afastamento.toUpperCase()
       } else if (registro.feriado) {
         registro.observacao = `FERIADO: ${feriadoInfo?.descricao}`.toUpperCase()
+        if (rawAfastamento) {
+          registro.observacao = `AFASTAMENTO PARCIAL: ${getAfastamentoObservacao(rawAfastamento)} | ${registro.observacao}`.toUpperCase()
+        }
+      } else if (registro.ponto_facultativo && pfInfo && !pfInfo.inicio_liberacao_em && !pfInfo.fim_liberacao_em) {
+        // Full day Ponto Facultativo
+        registro.observacao = `PONTO FACULTATIVO: ${pfInfo.descricao}`.toUpperCase()
+        if (currentShift) {
+          totalHorasNormais += horasNormaisDiarias
+        }
         if (rawAfastamento) {
           registro.observacao = `AFASTAMENTO PARCIAL: ${getAfastamentoObservacao(rawAfastamento)} | ${registro.observacao}`.toUpperCase()
         }
@@ -1039,8 +1085,15 @@ export async function sincronizarFolhaPonto(folhaId: string) {
         }
       } else {
         totalHorasNormais += horasNormaisDiarias
+        if (pfInfo) {
+          if (pfInfo.inicio_liberacao_em) {
+            registro.observacao = `PONTO FACULTATIVO A PARTIR DAS ${pfInfo.inicio_liberacao_em.substring(0, 5)}: ${pfInfo.descricao}`.toUpperCase()
+          } else if (pfInfo.fim_liberacao_em) {
+            registro.observacao = `PONTO FACULTATIVO ATÉ AS ${pfInfo.fim_liberacao_em.substring(0, 5)}: ${pfInfo.descricao}`.toUpperCase()
+          }
+        }
         if (rawAfastamento) {
-          registro.observacao = `AFASTAMENTO PARCIAL: ${getAfastamentoObservacao(rawAfastamento)}`.toUpperCase()
+          registro.observacao = `AFASTAMENTO PARCIAL: ${getAfastamentoObservacao(rawAfastamento)}${registro.observacao ? ' | ' + registro.observacao : ''}`.toUpperCase()
         }
 
         const isManualEntrada = logs?.some(log => 
@@ -1078,12 +1131,33 @@ export async function sincronizarFolhaPonto(folhaId: string) {
 
         const seedBase = `${folha.servidor_id}-${folha.mes}-${folha.ano}-${day}`
 
+        // Parse ponto facultativo release/limit minutes
+        let pfInicioMin: number | null = null
+        let pfFimMin: number | null = null
+        if (pfInfo) {
+          if (pfInfo.inicio_liberacao_em) {
+            const parts = pfInfo.inicio_liberacao_em.split(':')
+            pfInicioMin = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10)
+          }
+          if (pfInfo.fim_liberacao_em) {
+            const parts = pfInfo.fim_liberacao_em.split(':')
+            pfFimMin = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10)
+          }
+        }
+
         if (hasRealEntrada && realEntradaTime) {
           registro.entrada = realEntradaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_entrada = 'real'
+        } else if (isManualEntrada && realEntradaTime) {
+          registro.entrada = realEntradaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+          registro.origem_entrada = 'manual'
         } else if (shouldGenerate(officialEntradaMin)) {
+          let targetEntradaMin = officialEntradaMin
+          if (pfFimMin !== null && officialEntradaMin < pfFimMin) {
+            targetEntradaMin = pfFimMin
+          }
           const offset = getDeterministicOffset(`${seedBase}-entrada`, maxVar)
-          const genMin = (officialEntradaMin + offset + 24 * 60) % (24 * 60)
+          const genMin = (targetEntradaMin + offset + 24 * 60) % (24 * 60)
           registro.entrada = formatMinutesToTimeStr(genMin)
           registro.origem_entrada = 'ficticio'
         }
@@ -1091,26 +1165,40 @@ export async function sincronizarFolhaPonto(folhaId: string) {
         if (hasRealSaida && realSaidaTime) {
           registro.saida = realSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_saida = 'real'
+        } else if (isManualSaida && realSaidaTime) {
+          registro.saida = realSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+          registro.origem_saida = 'manual'
         } else if (shouldGenerate(officialSaidaMin)) {
+          let targetSaidaMin = officialSaidaMin
+          if (pfInicioMin !== null && officialEntradaMin < pfInicioMin) {
+            targetSaidaMin = pfInicioMin
+          }
           const offset = getDeterministicOffset(`${seedBase}-saida`, maxVar)
-          const genMin = (officialSaidaMin + offset + 24 * 60) % (24 * 60)
+          const genMin = (targetSaidaMin + offset + 24 * 60) % (24 * 60)
           registro.saida = formatMinutesToTimeStr(genMin)
           registro.origem_saida = 'ficticio'
         }
 
         if (intervaloMinutos > 0) {
-          if (shouldGenerate(officialSaidaIntervaloMin)) {
-            const outOffset = getDeterministicOffset(`${seedBase}-lunchout`, maxVar)
-            const genOutMin = (officialSaidaIntervaloMin + outOffset + 24 * 60) % (24 * 60)
-            registro.saida_intervalo = formatMinutesToTimeStr(genOutMin)
-            registro.origem_saida_intervalo = 'ficticio'
+          let targetSaidaMin = officialSaidaMin
+          if (pfInicioMin !== null && officialEntradaMin < pfInicioMin) {
+            targetSaidaMin = pfInicioMin
           }
 
-          if (shouldGenerate(officialRetornoIntervaloMin)) {
-            const returnOffset = getDeterministicOffset(`${seedBase}-lunchreturn`, maxVar)
-            const genReturnMin = (officialRetornoIntervaloMin + returnOffset + 24 * 60) % (24 * 60)
-            registro.retorno_intervalo = formatMinutesToTimeStr(genReturnMin)
-            registro.origem_retorno_intervalo = 'ficticio'
+          if (targetSaidaMin > officialSaidaIntervaloMin) {
+            if (shouldGenerate(officialSaidaIntervaloMin)) {
+              const outOffset = getDeterministicOffset(`${seedBase}-lunchout`, maxVar)
+              const genOutMin = (officialSaidaIntervaloMin + outOffset + 24 * 60) % (24 * 60)
+              registro.saida_intervalo = formatMinutesToTimeStr(genOutMin)
+              registro.origem_saida_intervalo = 'ficticio'
+            }
+
+            if (shouldGenerate(officialRetornoIntervaloMin)) {
+              const returnOffset = getDeterministicOffset(`${seedBase}-lunchreturn`, maxVar)
+              const genReturnMin = (officialRetornoIntervaloMin + returnOffset + 24 * 60) % (24 * 60)
+              registro.retorno_intervalo = formatMinutesToTimeStr(genReturnMin)
+              registro.origem_retorno_intervalo = 'ficticio'
+            }
           }
         }
 
