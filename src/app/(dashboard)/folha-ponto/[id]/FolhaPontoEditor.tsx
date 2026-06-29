@@ -23,7 +23,7 @@ interface FolhaPontoEditorProps {
   profile: any
   isPortal?: boolean
   onBack?: () => void
-  saveAction?: (folhaId: string, registros: any[], status?: string) => Promise<{ success?: boolean; error?: string }>
+  saveAction?: (folhaId: string, registros: any[], status?: string, cargo?: string) => Promise<{ success?: boolean; error?: string }>
   verifyDivergenceAction?: (folhaId: string) => Promise<{ divergent: boolean; affectedDays?: number[]; error?: string }>
   syncAction?: (folhaId: string) => Promise<{ success?: boolean; error?: string }>
   regenerateAction?: (servidorId: string, mes: number, ano: number, isRascunho: boolean) => Promise<{ success?: boolean; error?: string }>
@@ -84,6 +84,7 @@ export function FolhaPontoEditor({
   // Local state for table records
   const [registros, setRegistros] = useState<any[]>(folha.registros || [])
   const [status, setStatus] = useState<string>(folha.status)
+  const [cargo, setCargo] = useState<string>(folha.cargo || folha.servidores?.cargo || '')
 
   const isCompetenciaEncerrada = useMemo(() => {
     return closedPeriods.some((p: any) => p.mes === folha.mes && p.ano === folha.ano)
@@ -263,7 +264,7 @@ export function FolhaPontoEditor({
   const handleSave = async (newStatus?: string) => {
     setSaving(true)
     const targetStatus = newStatus || status
-    const res = await executeSave(folha.id, registros, targetStatus)
+    const res = await executeSave(folha.id, registros, targetStatus, cargo)
     setSaving(false)
     if (res.error) {
       setAlertModal({
@@ -642,7 +643,15 @@ export function FolhaPontoEditor({
             </div>
             <div>
               <div className="text-[9px] font-black uppercase text-zinc-400 mb-0.5">Cargo / Vínculo</div>
-              <div className="font-bold text-zinc-900 dark:text-white uppercase">{servidor.cargo || '---'}</div>
+              {isEditable && !isPortal ? (
+                <input 
+                  type="text"
+                  value={cargo}
+                  onChange={(e) => setCargo(e.target.value)}
+                  className="font-bold text-zinc-900 dark:text-white uppercase bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded px-2 py-0.5 w-full text-xs print:hidden focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                />
+              ) : null}
+              <div className={`font-bold text-zinc-900 dark:text-white uppercase ${isEditable && !isPortal ? 'hidden print:block' : ''}`}>{cargo || '---'}</div>
               <div className="text-[10px] text-zinc-500">{servidor.vinculo || '---'}</div>
             </div>
             <div>

@@ -186,7 +186,7 @@ export async function getServidoresFolhaPonto(mes: number, ano: number, unidadeI
     // 3. Fetch existing folhas
     const { data: folhas, error: folhaError } = await supabase
       .from('folha_ponto')
-      .select('id, status, servidor_id, escala_mensal_id, total_horas_normais, total_horas_extras_50, total_horas_extras_100, total_faltas')
+      .select('id, status, servidor_id, escala_mensal_id, total_horas_normais, total_horas_extras_50, total_horas_extras_100, total_faltas, cargo')
       .in('servidor_id', serverIds)
       .eq('mes', mes)
       .eq('ano', ano)
@@ -202,7 +202,7 @@ export async function getServidoresFolhaPonto(mes: number, ano: number, unidadeI
         servidor_id: s.id,
         nome: s.nome,
         matricula: s.matricula,
-        cargo: s.cargo,
+        cargo: folha?.cargo || s.cargo,
         escala_mensal_id: escala?.id || null,
         escala_status: escala?.status || 'Sem Escala',
         folha_id: folha?.id || null,
@@ -372,10 +372,10 @@ export async function gerarFolhaPonto(
     const globalIntervaloMinutos = globalJornadaDetails?.intervalo_minutos ?? 60
     const globalHorasNormaisDiarias = globalJornadaDetails?.horas_totais ?? 8
 
-    // Fetch existing folha if exists to preserve manual edits
+    // Fetch existing folha if exists to preserve manual edits and cargo
     const { data: existingFolha } = await supabase
       .from('folha_ponto')
-      .select('registros')
+      .select('registros, cargo')
       .eq('escala_mensal_id', escala.id)
       .maybeSingle()
 
@@ -663,7 +663,8 @@ export async function gerarFolhaPonto(
         total_horas_extras_100: parseFloat((totalExtra100 / 60).toFixed(2)),
         total_faltas: totalFaltas,
         gerado_por_id: userProfile.id,
-        gerado_em: new Date().toISOString()
+        gerado_em: new Date().toISOString(),
+        cargo: existingFolha?.cargo || servidor.cargo
       }, { onConflict: 'escala_mensal_id' })
       .select('id')
       .single()
@@ -1095,7 +1096,7 @@ export async function sincronizarFolhaPonto(folhaId: string) {
 }
 
 // Persist edited timesheet records from the UI editor
-export async function salvarFolhaPonto(folhaId: string, registros: any[], status?: string) {
+export async function salvarFolhaPonto(folhaId: string, registros: any[], status?: string, cargo?: string) {
   try {
     const supabase = await createClient()
     const userProfile = await getUserProfile(supabase)
@@ -1220,6 +1221,10 @@ export async function salvarFolhaPonto(folhaId: string, registros: any[], status
 
     if (status) {
       updatePayload.status = status
+    }
+
+    if (cargo !== undefined) {
+      updatePayload.cargo = cargo
     }
 
     const { error: updateError } = await supabase
