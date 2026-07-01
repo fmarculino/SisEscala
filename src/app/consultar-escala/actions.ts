@@ -461,7 +461,7 @@ export async function getFolhaPontoServidor(servidorId: string, mes: number, ano
     query = query.eq('mes', mes).eq('ano', ano)
   }
 
-  const { data: folha, error } = await query.maybeSingle()
+  let { data: folha, error } = await query.maybeSingle()
 
   if (error) {
     return { error: error.message }
@@ -476,6 +476,14 @@ export async function getFolhaPontoServidor(servidorId: string, mes: number, ano
     .select('*, unidades(*), setores(*, dicionario_setores(nome)), jornadas(*)')
     .eq('id', folha.escala_mensal_id)
     .single()
+
+  if (escala && checkIfFolhaHasPendingPastTimes(folha, escala)) {
+    await sincronizarFolhaPontoServidor(folha.id)
+    const { data: updatedFolha } = await query.maybeSingle()
+    if (updatedFolha) {
+      folha = updatedFolha
+    }
+  }
 
   const sectorData = escala ? (Array.isArray(escala.setores) ? escala.setores[0] : escala.setores) : null
   const dictData = sectorData ? (Array.isArray(sectorData.dicionario_setores)
@@ -578,6 +586,54 @@ function isShiftOverlappingAfastamento(afastamento: any, shift: any): boolean {
   if (!shift || !shift.dicionario_turnos) return false
   const shiftSlots = (shift.dicionario_turnos as any).slots || []
   return shiftSlots.some((s: string) => afastamento.slots.includes(s))
+}
+
+export function checkIfFolhaHasPendingPastTimes(folha: any, escala: any, timezone: string = 'America/Sao_Paulo'): boolean {
+  if (!folha || !folha.registros || folha.status === 'Revisada') return false
+
+  const nowLocal = new Date(new Date().toLocaleString('en-US', { timeZone: timezone }))
+  const currentYear = nowLocal.getFullYear()
+  const currentMonth = nowLocal.getMonth() + 1
+  const currentDay = nowLocal.getDate()
+
+  const hasInterval = (escala?.jornadas?.intervalo_minutos ?? 60) > 0
+
+  for (const r of folha.registros) {
+    if (r.turno_codigo && !r.feriado && !r.afastamento) {
+      const isFullDayPF = r.ponto_facultativo && 
+        !(r.observacao || '').includes('PARTIR') && 
+        !(r.observacao || '').includes('ATÉ')
+      
+      if (isFullDayPF) continue
+
+      let isPastDay = false
+      if (folha.ano < currentYear) {
+        isPastDay = true
+      } else if (folha.ano === currentYear) {
+        if (folha.mes < currentMonth) {
+          isPastDay = true
+        } else if (folha.mes === currentMonth) {
+          if (r.dia < currentDay) {
+            isPastDay = true
+          }
+        }
+      }
+
+      if (isPastDay) {
+        const hasEmptyFicticioTimes = 
+          (r.entrada === '' && r.origem_entrada !== 'manual') ||
+          (r.saida === '' && r.origem_saida !== 'manual') ||
+          (hasInterval && r.saida_intervalo === '' && r.origem_saida_intervalo !== 'manual') ||
+          (hasInterval && r.retorno_intervalo === '' && r.origem_retorno_intervalo !== 'manual')
+
+        if (hasEmptyFicticioTimes) {
+          return true
+        }
+      }
+    }
+  }
+
+  return false
 }
 
 // Server Action: Save employee's timesheet from the portal

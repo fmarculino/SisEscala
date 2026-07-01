@@ -1598,6 +1598,19 @@ export async function getFolhasPontoPrintData(folhaIds: string[]) {
         continue
       }
 
+      let finalFolha = folha
+      if (checkIfFolhaHasPendingPastTimes(folha, escala)) {
+        await sincronizarFolhaPonto(folha.id)
+        const { data: updated } = await supabase
+          .from('folha_ponto')
+          .select('*, servidores(*)')
+          .eq('id', folha.id)
+          .maybeSingle()
+        if (updated) {
+          finalFolha = updated
+        }
+      }
+
       const sectorData = Array.isArray(escala.setores) ? escala.setores[0] : escala.setores
       const dictData = sectorData ? (Array.isArray(sectorData.dicionario_setores) 
         ? sectorData.dicionario_setores[0] 
@@ -1609,7 +1622,7 @@ export async function getFolhasPontoPrintData(folhaIds: string[]) {
       } : null
 
       mappedFolhas.push({
-        ...folha,
+        ...finalFolha,
         escala: {
           ...escala,
           setores: resolvedSetor
@@ -1622,5 +1635,53 @@ export async function getFolhasPontoPrintData(folhaIds: string[]) {
     console.error('Erro em getFolhasPontoPrintData:', error)
     return { error: error.message }
   }
+}
+
+export function checkIfFolhaHasPendingPastTimes(folha: any, escala: any, timezone: string = 'America/Sao_Paulo'): boolean {
+  if (!folha || !folha.registros || folha.status === 'Revisada') return false
+
+  const nowLocal = new Date(new Date().toLocaleString('en-US', { timeZone: timezone }))
+  const currentYear = nowLocal.getFullYear()
+  const currentMonth = nowLocal.getMonth() + 1
+  const currentDay = nowLocal.getDate()
+
+  const hasInterval = (escala?.jornadas?.intervalo_minutos ?? 60) > 0
+
+  for (const r of folha.registros) {
+    if (r.turno_codigo && !r.feriado && !r.afastamento) {
+      const isFullDayPF = r.ponto_facultativo && 
+        !(r.observacao || '').includes('PARTIR') && 
+        !(r.observacao || '').includes('ATÉ')
+      
+      if (isFullDayPF) continue
+
+      let isPastDay = false
+      if (folha.ano < currentYear) {
+        isPastDay = true
+      } else if (folha.ano === currentYear) {
+        if (folha.mes < currentMonth) {
+          isPastDay = true
+        } else if (folha.mes === currentMonth) {
+          if (r.dia < currentDay) {
+            isPastDay = true
+          }
+        }
+      }
+
+      if (isPastDay) {
+        const hasEmptyFicticioTimes = 
+          (r.entrada === '' && r.origem_entrada !== 'manual') ||
+          (r.saida === '' && r.origem_saida !== 'manual') ||
+          (hasInterval && r.saida_intervalo === '' && r.origem_saida_intervalo !== 'manual') ||
+          (hasInterval && r.retorno_intervalo === '' && r.origem_retorno_intervalo !== 'manual')
+
+        if (hasEmptyFicticioTimes) {
+          return true
+        }
+      }
+    }
+  }
+
+  return false
 }
 

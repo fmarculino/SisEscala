@@ -4,6 +4,7 @@ import { hasSectorAccess } from '@/utils/permissions'
 import { FolhaPontoEditor } from './FolhaPontoEditor'
 import Link from 'next/link'
 import { ChevronLeft } from 'lucide-react'
+import { sincronizarFolhaPonto, checkIfFolhaHasPendingPastTimes } from '../actions'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -32,7 +33,7 @@ export default async function FolhaPontoDetailPage({ params }: PageProps) {
   } : null
 
   // 2. Fetch the folha_ponto row
-  const { data: folha, error: folhaError } = await supabase
+  let { data: folha, error: folhaError } = await supabase
     .from('folha_ponto')
     .select('*, servidores(*)')
     .eq('id', id)
@@ -61,6 +62,19 @@ export default async function FolhaPontoDetailPage({ params }: PageProps) {
 
   if (escError || !escala) {
     return <AcessoNegado />
+  }
+
+  // Auto-sync if there are pending past times
+  if (checkIfFolhaHasPendingPastTimes(folha, escala)) {
+    await sincronizarFolhaPonto(id)
+    const { data: updatedFolha } = await supabase
+      .from('folha_ponto')
+      .select('*, servidores(*)')
+      .eq('id', id)
+      .maybeSingle()
+    if (updatedFolha) {
+      folha = updatedFolha
+    }
   }
 
   // Handle nested sector data structure
