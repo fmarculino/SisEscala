@@ -65,7 +65,7 @@ export default async function FolhaPontoDetailPage({ params }: PageProps) {
   }
 
   // Auto-sync if there are pending past times
-  if (checkIfFolhaHasPendingPastTimes(folha, escala)) {
+  if (await checkIfFolhaHasPendingPastTimes(folha, escala)) {
     await sincronizarFolhaPonto(id)
     const { data: updatedFolha } = await supabase
       .from('folha_ponto')

@@ -477,7 +477,7 @@ export async function getFolhaPontoServidor(servidorId: string, mes: number, ano
     .eq('id', folha.escala_mensal_id)
     .single()
 
-  if (escala && checkIfFolhaHasPendingPastTimes(folha, escala)) {
+  if (escala && await checkIfFolhaHasPendingPastTimes(folha, escala)) {
     await sincronizarFolhaPontoServidor(folha.id)
     const { data: updatedFolha } = await query.maybeSingle()
     if (updatedFolha) {
@@ -588,7 +588,7 @@ function isShiftOverlappingAfastamento(afastamento: any, shift: any): boolean {
   return shiftSlots.some((s: string) => afastamento.slots.includes(s))
 }
 
-export function checkIfFolhaHasPendingPastTimes(folha: any, escala: any, timezone: string = 'America/Sao_Paulo'): boolean {
+export async function checkIfFolhaHasPendingPastTimes(folha: any, escala: any, timezone: string = 'America/Sao_Paulo'): Promise<boolean> {
   if (!folha || !folha.registros || folha.status === 'Revisada') return false
 
   const nowLocal = new Date(new Date().toLocaleString('en-US', { timeZone: timezone }))

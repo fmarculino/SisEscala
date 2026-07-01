@@ -1599,7 +1599,7 @@ export async function getFolhasPontoPrintData(folhaIds: string[]) {
       }
 
       let finalFolha = folha
-      if (checkIfFolhaHasPendingPastTimes(folha, escala)) {
+      if (await checkIfFolhaHasPendingPastTimes(folha, escala)) {
         await sincronizarFolhaPonto(folha.id)
         const { data: updated } = await supabase
           .from('folha_ponto')
@@ -1637,7 +1637,7 @@ export async function getFolhasPontoPrintData(folhaIds: string[]) {
   }
 }
 
-export function checkIfFolhaHasPendingPastTimes(folha: any, escala: any, timezone: string = 'America/Sao_Paulo'): boolean {
+export async function checkIfFolhaHasPendingPastTimes(folha: any, escala: any, timezone: string = 'America/Sao_Paulo'): Promise<boolean> {
   if (!folha || !folha.registros || folha.status === 'Revisada') return false
 
   const nowLocal = new Date(new Date().toLocaleString('en-US', { timeZone: timezone }))
