@@ -984,36 +984,7 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
       const afastamento = isShiftOverlappingAfastamento(rawAfastamento, currentShift) ? rawAfastamento : null
       const feriadoInfo = feriados?.find(f => f.data === dateStr)
 
-      const hasManualEdits = registroExistente && (
-        registroExistente.origem_entrada === 'manual' ||
-        registroExistente.origem_saida_intervalo === 'manual' ||
-        registroExistente.origem_retorno_intervalo === 'manual' ||
-        registroExistente.origem_saida === 'manual' ||
-        registroExistente.observacao.includes('FALTA') ||
-        registroExistente.observacao.includes('MANUAL')
-      )
-
-      if (hasManualEdits && !scaleChangedForDay) {
-        registrosAtualizados.push(registroExistente)
-
-        if (registroExistente.turno_codigo) {
-          totalHorasNormais += horasNormaisDiarias
-        }
-        if (registroExistente.observacao.includes('FALTA')) {
-          totalFaltas++
-        }
-
-        if (registroExistente.hora_extra_minutos) {
-          const isSunday = dateObj.getDay() === 0
-          const isHoliday = !!feriadoInfo
-          if (isSunday || isHoliday) {
-            totalExtra100 += registroExistente.hora_extra_minutos
-          } else {
-            totalExtra50 += registroExistente.hora_extra_minutos
-          }
-        }
-        continue
-      }
+      const shouldPreserve = !scaleChangedForDay
 
       // Otherwise, REGENERATE the day
       const shouldGenerate = (scheduledMin: number) => {
@@ -1140,7 +1111,11 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
           }
         }
 
-        if (hasRealEntrada && currentShift.presenca_entrada_em) {
+        // 1. Entrance Time
+        if (shouldPreserve && registroExistente?.origem_entrada === 'manual') {
+          registro.entrada = registroExistente.entrada
+          registro.origem_entrada = 'manual'
+        } else if (hasRealEntrada && currentShift.presenca_entrada_em) {
           const d = new Date(currentShift.presenca_entrada_em)
           registro.entrada = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_entrada = 'real'
@@ -1159,7 +1134,11 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
           registro.origem_entrada = 'ficticio'
         }
 
-        if (hasRealSaida && currentShift.presenca_saida_em) {
+        // 2. Exit Time
+        if (shouldPreserve && registroExistente?.origem_saida === 'manual') {
+          registro.saida = registroExistente.saida
+          registro.origem_saida = 'manual'
+        } else if (hasRealSaida && currentShift.presenca_saida_em) {
           const d = new Date(currentShift.presenca_saida_em)
           registro.saida = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_saida = 'real'
@@ -1178,6 +1157,7 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
           registro.origem_saida = 'ficticio'
         }
 
+        // 3. Lunch Interval
         if (intervaloMinutos > 0) {
           let targetSaidaMin = officialSaidaMin
           if (pfInicioMin !== null && officialEntradaMin < pfInicioMin) {
@@ -1185,14 +1165,20 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
           }
           
           if (targetSaidaMin > officialSaidaIntervaloMin) {
-            if (shouldGenerate(officialSaidaIntervaloMin)) {
+            if (shouldPreserve && registroExistente?.origem_saida_intervalo === 'manual') {
+              registro.saida_intervalo = registroExistente.saida_intervalo
+              registro.origem_saida_intervalo = 'manual'
+            } else if (shouldGenerate(officialSaidaIntervaloMin)) {
               const outOffset = getDeterministicOffset(`${seedBase}-lunchout`, maxVar)
               const genOutMin = (officialSaidaIntervaloMin + outOffset + 24 * 60) % (24 * 60)
               registro.saida_intervalo = formatMinutesToTimeStr(genOutMin)
               registro.origem_saida_intervalo = 'ficticio'
             }
 
-            if (shouldGenerate(officialRetornoIntervaloMin)) {
+            if (shouldPreserve && registroExistente?.origem_retorno_intervalo === 'manual') {
+              registro.retorno_intervalo = registroExistente.retorno_intervalo
+              registro.origem_retorno_intervalo = 'manual'
+            } else if (shouldGenerate(officialRetornoIntervaloMin)) {
               const returnOffset = getDeterministicOffset(`${seedBase}-lunchreturn`, maxVar)
               const genReturnMin = (officialRetornoIntervaloMin + returnOffset + 24 * 60) % (24 * 60)
               registro.retorno_intervalo = formatMinutesToTimeStr(genReturnMin)
@@ -1201,7 +1187,31 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
           }
         }
 
-        if (hasRealSaida && currentShift.presenca_saida_em) {
+        // Preserve manual observation if needed
+        if (shouldPreserve && registroExistente && (
+          registroExistente.observacao.includes('FALTA') ||
+          registroExistente.observacao.includes('MANUAL')
+        )) {
+          registro.observacao = registroExistente.observacao
+        }
+
+        if (registro.observacao.includes('FALTA')) {
+          totalFaltas++
+        }
+
+        // 4. Overtime Calculation (Real Exit only)
+        if (shouldPreserve && registroExistente && (registroExistente.origem_entrada === 'manual' || registroExistente.origem_saida === 'manual')) {
+          registro.hora_extra_minutos = registroExistente.hora_extra_minutos || 0
+          registro.hora_extra_tipo = registroExistente.hora_extra_tipo || null
+          
+          const isSunday = dateObj.getDay() === 0
+          const isHoliday = !!feriadoInfo
+          if (isSunday || isHoliday) {
+            totalExtra100 += registro.hora_extra_minutos
+          } else {
+            totalExtra50 += registro.hora_extra_minutos
+          }
+        } else if (hasRealSaida && currentShift.presenca_saida_em) {
           const realExit = new Date(currentShift.presenca_saida_em)
 
           const scheduledEntrance = new Date(`${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}:00-03:00`)
@@ -1484,34 +1494,7 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
 
       // Check manual edits in existing record to preserve them
       const registroExistente = registrosExistentes.find((r: any) => r.dia === day)
-      const hasManualEdits = registroExistente && (
-        registroExistente.origem_entrada === 'manual' ||
-        registroExistente.origem_saida_intervalo === 'manual' ||
-        registroExistente.origem_retorno_intervalo === 'manual' ||
-        registroExistente.origem_saida === 'manual' ||
-        registroExistente.observacao.includes('FALTA') ||
-        registroExistente.observacao.includes('MANUAL')
-      )
-
-      if (hasManualEdits) {
-        registros.push(registroExistente)
-        if (registroExistente.turno_codigo) {
-          totalHorasNormais += horasNormaisDiarias
-        }
-        if (registroExistente.observacao.includes('FALTA')) {
-          totalFaltas++
-        }
-        if (registroExistente.hora_extra_minutos) {
-          const isSunday = dateObj.getDay() === 0
-          const isHoliday = !!feriadoInfo
-          if (isSunday || isHoliday) {
-            totalExtra100 += registroExistente.hora_extra_minutos
-          } else {
-            totalExtra50 += registroExistente.hora_extra_minutos
-          }
-        }
-        continue
-      }
+      const shouldPreserve = true
 
       // Helper function to check if we should generate time for a scheduled marker
       const shouldGenerate = (scheduledMin: number) => {
@@ -1638,7 +1621,11 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
           }
         }
 
-        if (hasRealEntrada && shift.presenca_entrada_em) {
+        // 1. Entrance Time
+        if (shouldPreserve && registroExistente?.origem_entrada === 'manual') {
+          registro.entrada = registroExistente.entrada
+          registro.origem_entrada = 'manual'
+        } else if (hasRealEntrada && shift.presenca_entrada_em) {
           const d = new Date(shift.presenca_entrada_em)
           registro.entrada = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_entrada = 'real'
@@ -1657,7 +1644,11 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
           registro.origem_entrada = 'ficticio'
         }
 
-        if (hasRealSaida && shift.presenca_saida_em) {
+        // 2. Exit Time
+        if (shouldPreserve && registroExistente?.origem_saida === 'manual') {
+          registro.saida = registroExistente.saida
+          registro.origem_saida = 'manual'
+        } else if (hasRealSaida && shift.presenca_saida_em) {
           const d = new Date(shift.presenca_saida_em)
           registro.saida = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_saida = 'real'
@@ -1676,6 +1667,7 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
           registro.origem_saida = 'ficticio'
         }
 
+        // 3. Lunch Interval
         if (intervaloMinutos > 0) {
           let targetSaidaMin = officialSaidaMin
           if (pfInicioMin !== null && officialEntradaMin < pfInicioMin) {
@@ -1683,14 +1675,20 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
           }
           
           if (targetSaidaMin > officialSaidaIntervaloMin) {
-            if (shouldGenerate(officialSaidaIntervaloMin)) {
+            if (shouldPreserve && registroExistente?.origem_saida_intervalo === 'manual') {
+              registro.saida_intervalo = registroExistente.saida_intervalo
+              registro.origem_saida_intervalo = 'manual'
+            } else if (shouldGenerate(officialSaidaIntervaloMin)) {
               const outOffset = getDeterministicOffset(`${seedBase}-lunchout`, maxVar)
               const genOutMin = (officialSaidaIntervaloMin + outOffset + 24 * 60) % (24 * 60)
               registro.saida_intervalo = formatMinutesToTimeStr(genOutMin)
               registro.origem_saida_intervalo = 'ficticio'
             }
 
-            if (shouldGenerate(officialRetornoIntervaloMin)) {
+            if (shouldPreserve && registroExistente?.origem_retorno_intervalo === 'manual') {
+              registro.retorno_intervalo = registroExistente.retorno_intervalo
+              registro.origem_retorno_intervalo = 'manual'
+            } else if (shouldGenerate(officialRetornoIntervaloMin)) {
               const returnOffset = getDeterministicOffset(`${seedBase}-lunchreturn`, maxVar)
               const genReturnMin = (officialRetornoIntervaloMin + returnOffset + 24 * 60) % (24 * 60)
               registro.retorno_intervalo = formatMinutesToTimeStr(genReturnMin)
@@ -1699,7 +1697,31 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
           }
         }
 
-        if (hasRealSaida && shift.presenca_saida_em) {
+        // Preserve manual observation if needed
+        if (shouldPreserve && registroExistente && (
+          registroExistente.observacao.includes('FALTA') ||
+          registroExistente.observacao.includes('MANUAL')
+        )) {
+          registro.observacao = registroExistente.observacao
+        }
+
+        if (registro.observacao.includes('FALTA')) {
+          totalFaltas++
+        }
+
+        // 4. Overtime Calculation (Real Exit only)
+        if (shouldPreserve && registroExistente && (registroExistente.origem_entrada === 'manual' || registroExistente.origem_saida === 'manual')) {
+          registro.hora_extra_minutos = registroExistente.hora_extra_minutos || 0
+          registro.hora_extra_tipo = registroExistente.hora_extra_tipo || null
+          
+          const isSunday = dateObj.getDay() === 0
+          const isHoliday = !!feriadoInfo
+          if (isSunday || isHoliday) {
+            totalExtra100 += registro.hora_extra_minutos
+          } else {
+            totalExtra50 += registro.hora_extra_minutos
+          }
+        } else if (hasRealSaida && shift.presenca_saida_em) {
           const realExit = new Date(shift.presenca_saida_em)
 
           const scheduledEntrance = new Date(`${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}:00-03:00`)

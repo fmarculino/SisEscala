@@ -702,6 +702,18 @@ export function FolhaPontoEditor({
                 const isWeekend = r.dia_semana === 'Sáb' || r.dia_semana === 'Dom'
                 const isOffDay = r.feriado || r.afastamento || !isWorkDay
 
+                const recordJornadaNome = r.jornada_nome || jornada?.nome || ''
+                const recordHasInterval = (() => {
+                  if (!recordJornadaNome) return false
+                  const match = recordJornadaNome.match(/(\d{1,2})(?:[hH:](\d{2})?)?\s*(?:às|as|to|-|a)\s*(\d{1,2})(?:[hH:](\d{2})?)?/i)
+                  if (!match) return false
+                  const start = parseInt(match[1], 10)
+                  const end = parseInt(match[3], 10)
+                  let diff = end - start
+                  if (diff < 0) diff += 24
+                  return diff > 6
+                })()
+
                 return (
                   <tr 
                     key={r.dia} 
@@ -712,7 +724,7 @@ export function FolhaPontoEditor({
                   >
                     {/* Dia */}
                     <td className="px-3 py-2 border-r border-zinc-200 dark:border-zinc-700 text-center font-black text-zinc-950 dark:text-zinc-200">
-                      {String(r.dia).padStart(2, '0')}
+                       {String(r.dia).padStart(2, '0')}
                     </td>
                     
                     {/* Dia da semana */}
@@ -747,8 +759,8 @@ export function FolhaPontoEditor({
                     </td>
 
                     {/* Saída Intervalo */}
-                    <td className={`px-2 py-1.5 border-r border-zinc-200 dark:border-zinc-700 text-center ${isWorkDay && r.saida_intervalo ? borderClass(r.origem_saida_intervalo) : ''}`}>
-                      {isWorkDay && r.saida_intervalo && !r.afastamento && !r.feriado ? (
+                    <td className={`px-2 py-1.5 border-r border-zinc-200 dark:border-zinc-700 text-center ${isWorkDay && recordHasInterval ? borderClass(r.origem_saida_intervalo) : ''}`}>
+                      {isWorkDay && recordHasInterval && !r.afastamento && !r.feriado ? (
                         <input 
                           type="time" 
                           value={r.saida_intervalo || ''} 
@@ -762,8 +774,8 @@ export function FolhaPontoEditor({
                     </td>
 
                     {/* Retorno Intervalo */}
-                    <td className={`px-2 py-1.5 border-r border-zinc-200 dark:border-zinc-700 text-center ${isWorkDay && r.retorno_intervalo ? borderClass(r.origem_retorno_intervalo) : ''}`}>
-                      {isWorkDay && r.retorno_intervalo && !r.afastamento && !r.feriado ? (
+                    <td className={`px-2 py-1.5 border-r border-zinc-200 dark:border-zinc-700 text-center ${isWorkDay && recordHasInterval ? borderClass(r.origem_retorno_intervalo) : ''}`}>
+                      {isWorkDay && recordHasInterval && !r.afastamento && !r.feriado ? (
                         <input 
                           type="time" 
                           value={r.retorno_intervalo || ''} 

@@ -401,34 +401,7 @@ export async function executeGerarFolhaPonto(
 
       // Check manual edits in existing record to preserve them
       const registroExistente = registrosExistentes.find((r: any) => r.dia === day)
-      const hasManualEdits = registroExistente && (
-        registroExistente.origem_entrada === 'manual' ||
-        registroExistente.origem_saida_intervalo === 'manual' ||
-        registroExistente.origem_retorno_intervalo === 'manual' ||
-        registroExistente.origem_saida === 'manual' ||
-        registroExistente.observacao.includes('FALTA') ||
-        registroExistente.observacao.includes('MANUAL')
-      )
-
-      if (hasManualEdits) {
-        registros.push(registroExistente)
-        if (registroExistente.turno_codigo) {
-          totalHorasNormais += horasNormaisDiarias
-        }
-        if (registroExistente.observacao.includes('FALTA')) {
-          totalFaltas++
-        }
-        if (registroExistente.hora_extra_minutos) {
-          const isSunday = dateObj.getDay() === 0
-          const isHoliday = !!feriadoInfo
-          if (isSunday || isHoliday) {
-            totalExtra100 += registroExistente.hora_extra_minutos
-          } else {
-            totalExtra50 += registroExistente.hora_extra_minutos
-          }
-        }
-        continue
-      }
+      const shouldPreserve = true
 
       // Helper function to check if we should generate time for a scheduled marker
       const shouldGenerate = (scheduledMin: number) => {
@@ -573,7 +546,10 @@ export async function executeGerarFolhaPonto(
         }
 
         // 1. Entrance Time
-        if (hasRealEntrada && realEntradaTime) {
+        if (shouldPreserve && registroExistente?.origem_entrada === 'manual') {
+          registro.entrada = registroExistente.entrada
+          registro.origem_entrada = 'manual'
+        } else if (hasRealEntrada && realEntradaTime) {
           registro.entrada = realEntradaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_entrada = 'real'
         } else if (isManualEntrada && realEntradaTime) {
@@ -591,7 +567,10 @@ export async function executeGerarFolhaPonto(
         }
 
         // 2. Exit Time
-        if (hasRealSaida && realSaidaTime) {
+        if (shouldPreserve && registroExistente?.origem_saida === 'manual') {
+          registro.saida = registroExistente.saida
+          registro.origem_saida = 'manual'
+        } else if (hasRealSaida && realSaidaTime) {
           registro.saida = realSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_saida = 'real'
         } else if (isManualSaida && realSaidaTime) {
@@ -617,7 +596,10 @@ export async function executeGerarFolhaPonto(
           
           if (targetSaidaMin > officialSaidaIntervaloMin) {
             // Lunch out
-            if (shouldGenerate(officialSaidaIntervaloMin)) {
+            if (shouldPreserve && registroExistente?.origem_saida_intervalo === 'manual') {
+              registro.saida_intervalo = registroExistente.saida_intervalo
+              registro.origem_saida_intervalo = 'manual'
+            } else if (shouldGenerate(officialSaidaIntervaloMin)) {
               const outOffset = getDeterministicOffset(`${seedBase}-lunchout`, maxVar)
               const genOutMin = (officialSaidaIntervaloMin + outOffset + 24 * 60) % (24 * 60)
               registro.saida_intervalo = formatMinutesToTimeStr(genOutMin)
@@ -625,7 +607,10 @@ export async function executeGerarFolhaPonto(
             }
 
             // Lunch return
-            if (shouldGenerate(officialRetornoIntervaloMin)) {
+            if (shouldPreserve && registroExistente?.origem_retorno_intervalo === 'manual') {
+              registro.retorno_intervalo = registroExistente.retorno_intervalo
+              registro.origem_retorno_intervalo = 'manual'
+            } else if (shouldGenerate(officialRetornoIntervaloMin)) {
               const returnOffset = getDeterministicOffset(`${seedBase}-lunchreturn`, maxVar)
               const genReturnMin = (officialRetornoIntervaloMin + returnOffset + 24 * 60) % (24 * 60)
               registro.retorno_intervalo = formatMinutesToTimeStr(genReturnMin)
@@ -634,8 +619,31 @@ export async function executeGerarFolhaPonto(
           }
         }
 
+        // Preserve manual observation if needed
+        if (shouldPreserve && registroExistente && (
+          registroExistente.observacao.includes('FALTA') ||
+          registroExistente.observacao.includes('MANUAL')
+        )) {
+          registro.observacao = registroExistente.observacao
+        }
+
+        if (registro.observacao.includes('FALTA')) {
+          totalFaltas++
+        }
+
         // 4. Overtime Calculation (Real Exit only)
-        if (hasRealSaida && realSaidaTime) {
+        if (shouldPreserve && registroExistente && (registroExistente.origem_entrada === 'manual' || registroExistente.origem_saida === 'manual')) {
+          registro.hora_extra_minutos = registroExistente.hora_extra_minutos || 0
+          registro.hora_extra_tipo = registroExistente.hora_extra_tipo || null
+          
+          const isSunday = dateObj.getDay() === 0
+          const isHoliday = !!feriadoInfo
+          if (isSunday || isHoliday) {
+            totalExtra100 += registro.hora_extra_minutos
+          } else {
+            totalExtra50 += registro.hora_extra_minutos
+          }
+        } else if (hasRealSaida && realSaidaTime) {
           const realExit = realSaidaTime
           
           // Official scheduled exit timestamp
@@ -1059,41 +1067,7 @@ export async function sincronizarFolhaPonto(folhaId: string) {
 
       // Core logic: If day changed, or if it had no manual edits, we regenerate it.
       // If it had manual edits AND scale DID NOT change, we preserve it.
-      const hasManualEdits = registroExistente && (
-        registroExistente.origem_entrada === 'manual' ||
-        registroExistente.origem_saida_intervalo === 'manual' ||
-        registroExistente.origem_retorno_intervalo === 'manual' ||
-        registroExistente.origem_saida === 'manual' ||
-        registroExistente.observacao.includes('FALTA') || // preserve manually added observations like faltou
-        registroExistente.observacao.includes('MANUAL')
-      )
-
-      if (hasManualEdits && !scaleChangedForDay) {
-        // PRESERVE the entire record if manual edits exist and scale didn't change for this specific day
-        registrosAtualizados.push(registroExistente)
-        
-        // Recalculate totals from this preserved day
-        if (registroExistente.turno_codigo) {
-          totalHorasNormais += horasNormaisDiarias
-        }
-        if (registroExistente.observacao.includes('FALTA')) {
-          totalFaltas++
-        }
-        
-        // Count manual extra hours
-        if (registroExistente.hora_extra_minutos) {
-          // Approximate calculation based on day of week / holiday
-          const isSunday = dateObj.getDay() === 0
-          const isHoliday = !!feriadoInfo
-          if (isSunday || isHoliday) {
-            totalExtra100 += registroExistente.hora_extra_minutos
-          } else {
-            // Divide into 50% since we don't have night minute details, or keep it simple
-            totalExtra50 += registroExistente.hora_extra_minutos
-          }
-        }
-        continue
-      }
+      const shouldPreserve = !scaleChangedForDay
 
       // Otherwise, REGENERATE the day
       const shouldGenerate = (scheduledMin: number) => {
@@ -1229,7 +1203,11 @@ export async function sincronizarFolhaPonto(folhaId: string) {
           }
         }
 
-        if (hasRealEntrada && realEntradaTime) {
+        // 1. Entrance Time
+        if (shouldPreserve && registroExistente?.origem_entrada === 'manual') {
+          registro.entrada = registroExistente.entrada
+          registro.origem_entrada = 'manual'
+        } else if (hasRealEntrada && realEntradaTime) {
           registro.entrada = realEntradaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_entrada = 'real'
         } else if (isManualEntrada && realEntradaTime) {
@@ -1246,7 +1224,11 @@ export async function sincronizarFolhaPonto(folhaId: string) {
           registro.origem_entrada = 'ficticio'
         }
 
-        if (hasRealSaida && realSaidaTime) {
+        // 2. Exit Time
+        if (shouldPreserve && registroExistente?.origem_saida === 'manual') {
+          registro.saida = registroExistente.saida
+          registro.origem_saida = 'manual'
+        } else if (hasRealSaida && realSaidaTime) {
           registro.saida = realSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_saida = 'real'
         } else if (isManualSaida && realSaidaTime) {
@@ -1263,6 +1245,7 @@ export async function sincronizarFolhaPonto(folhaId: string) {
           registro.origem_saida = 'ficticio'
         }
 
+        // 3. Lunch Interval
         if (intervaloMinutos > 0) {
           let targetSaidaMin = officialSaidaMin
           if (pfInicioMin !== null && officialEntradaMin < pfInicioMin) {
@@ -1270,14 +1253,20 @@ export async function sincronizarFolhaPonto(folhaId: string) {
           }
 
           if (targetSaidaMin > officialSaidaIntervaloMin) {
-            if (shouldGenerate(officialSaidaIntervaloMin)) {
+            if (shouldPreserve && registroExistente?.origem_saida_intervalo === 'manual') {
+              registro.saida_intervalo = registroExistente.saida_intervalo
+              registro.origem_saida_intervalo = 'manual'
+            } else if (shouldGenerate(officialSaidaIntervaloMin)) {
               const outOffset = getDeterministicOffset(`${seedBase}-lunchout`, maxVar)
               const genOutMin = (officialSaidaIntervaloMin + outOffset + 24 * 60) % (24 * 60)
               registro.saida_intervalo = formatMinutesToTimeStr(genOutMin)
               registro.origem_saida_intervalo = 'ficticio'
             }
 
-            if (shouldGenerate(officialRetornoIntervaloMin)) {
+            if (shouldPreserve && registroExistente?.origem_retorno_intervalo === 'manual') {
+              registro.retorno_intervalo = registroExistente.retorno_intervalo
+              registro.origem_retorno_intervalo = 'manual'
+            } else if (shouldGenerate(officialRetornoIntervaloMin)) {
               const returnOffset = getDeterministicOffset(`${seedBase}-lunchreturn`, maxVar)
               const genReturnMin = (officialRetornoIntervaloMin + returnOffset + 24 * 60) % (24 * 60)
               registro.retorno_intervalo = formatMinutesToTimeStr(genReturnMin)
@@ -1286,7 +1275,31 @@ export async function sincronizarFolhaPonto(folhaId: string) {
           }
         }
 
-        if (hasRealSaida && realSaidaTime) {
+        // Preserve manual observation if needed
+        if (shouldPreserve && registroExistente && (
+          registroExistente.observacao.includes('FALTA') ||
+          registroExistente.observacao.includes('MANUAL')
+        )) {
+          registro.observacao = registroExistente.observacao
+        }
+
+        if (registro.observacao.includes('FALTA')) {
+          totalFaltas++
+        }
+
+        // 4. Overtime Calculation (Real Exit only)
+        if (shouldPreserve && registroExistente && (registroExistente.origem_entrada === 'manual' || registroExistente.origem_saida === 'manual')) {
+          registro.hora_extra_minutos = registroExistente.hora_extra_minutos || 0
+          registro.hora_extra_tipo = registroExistente.hora_extra_tipo || null
+          
+          const isSunday = dateObj.getDay() === 0
+          const isHoliday = !!feriadoInfo
+          if (isSunday || isHoliday) {
+            totalExtra100 += registro.hora_extra_minutos
+          } else {
+            totalExtra50 += registro.hora_extra_minutos
+          }
+        } else if (hasRealSaida && realSaidaTime) {
           const realExit = realSaidaTime
           
           const scheduledEntrance = new Date(`${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}:00-03:00`)
