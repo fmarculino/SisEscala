@@ -2989,14 +2989,28 @@ export function ScaleGrid({
                     protectedDays
                   )
 
-                  // Injetar no gridData apenas na linha Regular
-                  setGridData(prev => ({
-                    ...prev,
-                    [sId]: {
-                      ...prev[sId],
-                      'Regular': { ...templateResult }
+                  // Injetar no gridData apenas na linha Regular, preservando os dias anteriores ao dia de início
+                  setGridData(prev => {
+                    const existingRegular = prev[sId]?.['Regular'] || {}
+                    const updatedRegular = { ...existingRegular }
+
+                    // Limpa escalas do dia de início em diante e aplica as geradas pelo template
+                    for (let d = templateModal.startDay; d <= daysInMonth; d++) {
+                      if (templateResult[d]) {
+                        updatedRegular[d] = templateResult[d]
+                      } else {
+                        delete updatedRegular[d]
+                      }
                     }
-                  }))
+
+                    return {
+                      ...prev,
+                      [sId]: {
+                        ...prev[sId],
+                        'Regular': updatedRegular
+                      }
+                    }
+                  })
 
                   const workDays = countWorkDays(templateResult)
                   logAction('APLICAR_TEMPLATE', {

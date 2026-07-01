@@ -90,17 +90,6 @@ function generate12x36(
     isWorkDay = !isWorkDay
   }
 
-  // Preencher dias antes do startDay (se startDay > 1), retroagindo o padrão
-  if (config.startDay > 1) {
-    let isWork = config.startWorking
-    for (let day = config.startDay - 1; day >= 1; day--) {
-      isWork = !isWork
-      if (isWork && !protectedDays.has(day)) {
-        result[day] = config.turnoId
-      }
-    }
-  }
-
   return result
 }
 
@@ -117,7 +106,7 @@ function generate5x2(
 ): Record<number, string> {
   const result: Record<number, string> = {}
 
-  for (let day = 1; day <= daysInMonth; day++) {
+  for (let day = config.startDay; day <= daysInMonth; day++) {
     const dayOfWeek = new Date(ano, mes - 1, day).getDay() // 0=Dom, 6=Sáb
     const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5
 
@@ -141,7 +130,7 @@ function generate6x1(
   const result: Record<number, string> = {}
   const cycleLength = 7 // 6 trabalho + 1 folga
   
-  for (let day = 1; day <= daysInMonth; day++) {
+  for (let day = config.startDay; day <= daysInMonth; day++) {
     // Calcular posição no ciclo relativa ao startDay
     let offset = day - config.startDay
     // Normalizar offsets negativos
