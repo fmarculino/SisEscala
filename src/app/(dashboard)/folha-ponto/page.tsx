@@ -16,13 +16,50 @@ export default function FolhaPontoPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null)
 
   // Filters
-  const [mes, setMes] = useState<number>(new Date().getMonth() + 1)
-  const [ano, setAno] = useState<number>(new Date().getFullYear())
-  const [selectedUnidade, setSelectedUnidade] = useState('')
-  const [selectedSetor, setSelectedSetor] = useState('')
-  const [searchTerm, setSearchTerm] = useState('')
-  const [filterEscalaStatus, setFilterEscalaStatus] = useState('todos')
-  const [filterFolhaStatus, setFilterFolhaStatus] = useState('todos')
+  const [mes, setMes] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = sessionStorage.getItem('folha_ponto_filtro_mes')
+      if (saved) return parseInt(saved, 10)
+    }
+    return new Date().getMonth() + 1
+  })
+  const [ano, setAno] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = sessionStorage.getItem('folha_ponto_filtro_ano')
+      if (saved) return parseInt(saved, 10)
+    }
+    return new Date().getFullYear()
+  })
+  const [selectedUnidade, setSelectedUnidade] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('folha_ponto_filtro_unidade') || ''
+    }
+    return ''
+  })
+  const [selectedSetor, setSelectedSetor] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('folha_ponto_filtro_setor') || ''
+    }
+    return ''
+  })
+  const [searchTerm, setSearchTerm] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('folha_ponto_filtro_search') || ''
+    }
+    return ''
+  })
+  const [filterEscalaStatus, setFilterEscalaStatus] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('folha_ponto_filtro_escala_status') || 'todos'
+    }
+    return 'todos'
+  })
+  const [filterFolhaStatus, setFilterFolhaStatus] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('folha_ponto_filtro_folha_status') || 'todos'
+    }
+    return 'todos'
+  })
 
   // Static Data
   const [unidades, setUnidades] = useState<any[]>([])
@@ -33,6 +70,17 @@ export default function FolhaPontoPage() {
   const [servidoresData, setServidoresData] = useState<any[]>([])
   const [selectedFolhas, setSelectedFolhas] = useState<Set<string>>(new Set())
   const [currentPage, setCurrentPage] = useState(1)
+
+  // Save filters to sessionStorage whenever they change
+  useEffect(() => {
+    sessionStorage.setItem('folha_ponto_filtro_mes', String(mes))
+    sessionStorage.setItem('folha_ponto_filtro_ano', String(ano))
+    sessionStorage.setItem('folha_ponto_filtro_unidade', selectedUnidade)
+    sessionStorage.setItem('folha_ponto_filtro_setor', selectedSetor)
+    sessionStorage.setItem('folha_ponto_filtro_search', searchTerm)
+    sessionStorage.setItem('folha_ponto_filtro_escala_status', filterEscalaStatus)
+    sessionStorage.setItem('folha_ponto_filtro_folha_status', filterFolhaStatus)
+  }, [mes, ano, selectedUnidade, selectedSetor, searchTerm, filterEscalaStatus, filterFolhaStatus])
 
   // Reset selected timesheets on filter changes
   useEffect(() => {
@@ -98,9 +146,11 @@ export default function FolhaPontoPage() {
             }) || []
             setSetores(formatSectorsHierarchy(sData))
 
-            // Do not pre-select unit/sector to show all sheets initially
-            setSelectedUnidade('')
-            setSelectedSetor('')
+            // Restore from sessionStorage if exists, otherwise default empty
+            const savedUnidade = sessionStorage.getItem('folha_ponto_filtro_unidade') || ''
+            const savedSetor = sessionStorage.getItem('folha_ponto_filtro_setor') || ''
+            setSelectedUnidade(savedUnidade)
+            setSelectedSetor(savedSetor)
           }
         }
       } catch (err) {
