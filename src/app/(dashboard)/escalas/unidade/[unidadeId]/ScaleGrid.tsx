@@ -776,16 +776,33 @@ export function ScaleGrid({
   const handleCellChange = async (servidorId: string, categoria: RowCategory, day: number, turnoId: string) => {
     // REGRA DE DIREITO ADQUIRIDO: Se existe presença confirmada para o dia/categoria, não permite apagar o turno
     const emRecord = escalaMensal.find(x => x.servidor_id === servidorId)
-    if (!turnoId && emRecord) {
-      const hasPresence = hasPresenceForDay(servidorId, emRecord.id, categoria, day)
-      if (hasPresence) {
-        setAlertModal({
-          isOpen: true,
-          title: 'Direito Adquirido',
-          message: 'Não é possível remover o turno de um dia que já possui registro de presença ou sobreaviso concluído.',
-          type: 'warning'
-        })
-        return
+    if (!turnoId) {
+      if (emRecord) {
+        const hasPresence = hasPresenceForDay(servidorId, emRecord.id, categoria, day)
+        if (hasPresence) {
+          setAlertModal({
+            isOpen: true,
+            title: 'Direito Adquirido',
+            message: 'Não é possível remover o turno de um dia que já possui registro de presença ou sobreaviso concluído.',
+            type: 'warning'
+          })
+          return
+        }
+      }
+
+      // Impedir a remoção de Regular/Plantão se houver Extra cadastrado no mesmo dia
+      if (categoria === 'Regular' || categoria === 'Plantão') {
+        const serverRows = gridData[servidorId] || {}
+        const hasExtra = !!serverRows['Extra']?.[day]
+        if (hasExtra) {
+          setAlertModal({
+            isOpen: true,
+            title: '⚠️ Remoção Impedida',
+            message: 'Não é possível remover o plantão ou escala regular de um dia no qual há horas extras cadastradas. Remova primeiro a hora extra.',
+            type: 'warning'
+          })
+          return
+        }
       }
     }
 
@@ -842,6 +859,19 @@ export function ScaleGrid({
             isOpen: true,
             title: '⚠️ Limite Legal Excedido',
             message: 'O limite legal permitido para horas extras é de no máximo 2 horas diárias por servidor.',
+            type: 'warning'
+          })
+          return
+        }
+        // Impede horas extras se o servidor não estiver escalado em Regular ou Plantão no dia
+        const serverRows = gridData[servidorId] || {}
+        const hasRegular = !!serverRows['Regular']?.[day]
+        const hasPlantao = !!serverRows['Plantão']?.[day]
+        if (!hasRegular && !hasPlantao) {
+          setAlertModal({
+            isOpen: true,
+            title: '⚠️ Servidor Não Escalado',
+            message: 'Não é possível inserir horas extras em um dia no qual o servidor não está escalado para trabalhar (Regular ou Plantão).',
             type: 'warning'
           })
           return
@@ -2322,7 +2352,7 @@ export function ScaleGrid({
                             {/* Indicador de Compliance (Interjornada/DSR) */}
                             {(() => {
                               const cellViolations = getViolationsForCell(complianceViolations, em.servidor_id, day)
-                              if (cellViolations.length === 0 || cat !== 'Regular') return null
+                              if (cellViolations.length === 0 || (cat !== 'Regular' && cat !== 'Extra')) return null
                               return (
                                 <div 
                                   className="absolute top-0 left-0 w-0 h-0 z-20" 

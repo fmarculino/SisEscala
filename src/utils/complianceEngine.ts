@@ -9,7 +9,7 @@
  */
 
 export interface ComplianceViolation {
-  type: 'INTERJORNADA' | 'DSR'
+  type: 'INTERJORNADA' | 'DSR' | 'EXTRA_ORFA'
   servidorId: string
   dia: number
   message: string
@@ -185,6 +185,38 @@ export function checkDSR(
 }
 
 /**
+ * Verifica se existem horas extras em dias nos quais o servidor não está escalado para trabalhar (Regular ou Plantão).
+ */
+export function checkOrphanExtras(
+  gridData: GridData,
+  servidorId: string,
+  daysInMonth: number
+): ComplianceViolation[] {
+  const violations: ComplianceViolation[] = []
+  const serverData = gridData[servidorId]
+  if (!serverData) return violations
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const hasExtra = !!serverData['Extra']?.[day]
+    if (hasExtra) {
+      const hasRegular = !!serverData['Regular']?.[day]
+      const hasPlantao = !!serverData['Plantão']?.[day]
+      if (!hasRegular && !hasPlantao) {
+        violations.push({
+          type: 'EXTRA_ORFA',
+          servidorId,
+          dia: day,
+          message: `Horas extras cadastradas no dia ${day} sem o servidor estar escalado para trabalhar (Regular ou Plantão).`,
+          severity: 'warning'
+        })
+      }
+    }
+  }
+
+  return violations
+}
+
+/**
  * Executa TODAS as verificações de compliance para todos os servidores fornecidos.
  */
 export function runComplianceCheck(
@@ -200,6 +232,7 @@ export function runComplianceCheck(
   for (const servidorId of servidorIds) {
     allViolations.push(...checkInterjornada(gridData, turnos, servidorId, daysInMonth))
     allViolations.push(...checkDSR(gridData, servidorId, daysInMonth))
+    allViolations.push(...checkOrphanExtras(gridData, servidorId, daysInMonth))
   }
 
   return allViolations
