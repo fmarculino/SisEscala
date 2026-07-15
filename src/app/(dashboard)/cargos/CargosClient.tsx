@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { Briefcase, Plus, Loader2, Search, ChevronRight, Layers, EyeOff, Eye, Pencil, Check, X } from 'lucide-react'
+import { Briefcase, Plus, Loader2, Search, EyeOff, Eye, Pencil, Check, X } from 'lucide-react'
 
 interface Cargo {
   id: string
@@ -22,7 +22,6 @@ export function CargosClient({ initialCargos }: CargosClientProps) {
   const [cargos, setCargos] = useState(initialCargos)
   const [newCargo, setNewCargo] = useState('')
   const [newCodigo, setNewCodigo] = useState('')
-  const [selectedParent, setSelectedParent] = useState<string>('')
   const [loading, setLoading] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   
@@ -45,15 +44,12 @@ export function CargosClient({ initialCargos }: CargosClientProps) {
 
     setLoading(true)
     try {
-      const parent = cargos.find(c => c.id === selectedParent)
-      const nivel = parent ? parent.nivel + 1 : 1
-
       const { data, error } = await supabase
         .from('cargos')
         .insert({ 
           nome: newCargo.trim(),
-          parent_id: selectedParent || null,
-          nivel,
+          parent_id: null,
+          nivel: 1,
           ativo: true,
           codigo: newCodigo.trim() || null
         })
@@ -65,7 +61,6 @@ export function CargosClient({ initialCargos }: CargosClientProps) {
       setCargos(prev => [...prev, data].sort((a, b) => a.nome.localeCompare(b.nome)))
       setNewCargo('')
       setNewCodigo('')
-      setSelectedParent('')
     } catch (error: any) {
       alert('Erro ao cadastrar cargo: ' + error.message)
     } finally {
@@ -123,33 +118,10 @@ export function CargosClient({ initialCargos }: CargosClientProps) {
     setEditCodigo(cargo.codigo || '')
   }
 
-  // Organizar cargos hierarquicamente para a lista
-  const organizedCargos = useMemo(() => {
-    const root = cargos.filter(c => !c.parent_id)
-    const result: Cargo[] = []
-
-    const addChildren = (parentId: string, level: number) => {
-      const children = cargos.filter(c => c.parent_id === parentId)
-      children.forEach(child => {
-        result.push(child)
-        if (level < 3) addChildren(child.id, level + 1)
-      })
-    }
-
-    root.forEach(r => {
-      result.push(r)
-      addChildren(r.id, 1)
-    })
-
-    return result
-  }, [cargos])
-
-  const filteredCargos = organizedCargos.filter(c => 
+  const filteredCargos = cargos.filter(c => 
     c.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
     (c.codigo && c.codigo.toLowerCase().includes(searchTerm.toLowerCase()))
   )
-
-  const parentOptions = cargos.filter(c => c.nivel < 3 && c.ativo)
 
   // Cálculos de Paginação
   const totalItems = filteredCargos.length
@@ -176,7 +148,7 @@ export function CargosClient({ initialCargos }: CargosClientProps) {
           Gestão de Cargos
         </h1>
         <p className="mt-2 text-zinc-600 dark:text-zinc-400">
-          Hierarquia de até 3 níveis com códigos contábeis. Edite nomes ou desative categorias conforme necessário.
+          Gerenciamento simplificado de cargos e códigos contábeis. Edite nomes ou desative categorias conforme necessário.
         </p>
       </div>
 
@@ -185,22 +157,6 @@ export function CargosClient({ initialCargos }: CargosClientProps) {
         <div className="bg-white dark:bg-zinc-900 p-6 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm h-fit">
           <h2 className="text-lg font-semibold mb-4 text-zinc-900 dark:text-white">Novo Cargo</h2>
           <form onSubmit={handleAddCargo} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Cargo Pai (Opcional)</label>
-              <select
-                value={selectedParent}
-                onChange={(e) => setSelectedParent(e.target.value)}
-                className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-              >
-                <option value="">Nível Principal (Raiz)</option>
-                {parentOptions.map(c => (
-                  <option key={c.id} value={c.id}>
-                    {c.nivel === 2 ? '-- ' : ''}{c.nome}
-                  </option>
-                ))}
-              </select>
-            </div>
-
             <div>
               <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Código do Cargo</label>
               <input
@@ -253,7 +209,6 @@ export function CargosClient({ initialCargos }: CargosClientProps) {
                   <tr className="border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50 text-zinc-500 dark:text-zinc-400 text-xs font-black uppercase tracking-wider">
                     <th className="p-4 w-32">Código</th>
                     <th className="p-4">Cargo / Nome</th>
-                    <th className="p-4 w-28 text-center">Nível</th>
                     <th className="p-4 w-28 text-right">Ações</th>
                   </tr>
                 </thead>
@@ -281,9 +236,7 @@ export function CargosClient({ initialCargos }: CargosClientProps) {
                       {/* Cargo / Nome Column */}
                       <td className="p-4">
                         <div className="flex items-center gap-2">
-                          {cargo.nivel === 1 && <Briefcase className={`h-4 w-4 shrink-0 ${cargo.ativo ? 'text-blue-500' : 'text-zinc-400'}`} />}
-                          {cargo.nivel === 2 && <div className="ml-4 flex items-center gap-1 text-zinc-400 shrink-0"><ChevronRight className="h-3 w-3" /><Layers className="h-4 w-4" /></div>}
-                          {cargo.nivel === 3 && <div className="ml-10 flex items-center gap-1 text-zinc-300 shrink-0"><ChevronRight className="h-3 w-3" /><div className={`h-2 w-2 rounded-full ${cargo.ativo ? 'bg-zinc-400' : 'bg-zinc-300'}`} /></div>}
+                          <Briefcase className={`h-4 w-4 shrink-0 ${cargo.ativo ? 'text-blue-500' : 'text-zinc-400'}`} />
                           
                           {editingId === cargo.id ? (
                             <div className="flex flex-col gap-2 flex-1 max-w-sm">
@@ -312,24 +265,11 @@ export function CargosClient({ initialCargos }: CargosClientProps) {
                               </div>
                             </div>
                           ) : (
-                            <span className={`text-sm font-medium truncate ${cargo.ativo ? (cargo.nivel === 1 ? 'text-zinc-900 dark:text-white' : 'text-zinc-600 dark:text-zinc-400') : 'text-zinc-400 italic line-through'}`}>
+                            <span className={`text-sm font-medium truncate ${cargo.ativo ? 'text-zinc-900 dark:text-white' : 'text-zinc-400 italic line-through'}`}>
                               {cargo.nome}
                             </span>
                           )}
                         </div>
-                      </td>
-
-                      {/* Nível Column */}
-                      <td className="p-4 text-center">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                          cargo.nivel === 1 
-                            ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400' 
-                            : cargo.nivel === 2 
-                              ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-400' 
-                              : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-400'
-                        }`}>
-                          Nível {cargo.nivel}
-                        </span>
                       </td>
 
                       {/* Ações Column */}
@@ -359,7 +299,7 @@ export function CargosClient({ initialCargos }: CargosClientProps) {
                   ))}
                   {paginatedCargos.length === 0 && (
                     <tr>
-                      <td colSpan={4} className="p-8 text-center text-zinc-500 dark:text-zinc-400 text-sm">
+                      <td colSpan={3} className="p-8 text-center text-zinc-500 dark:text-zinc-400 text-sm">
                         Nenhum cargo encontrado.
                       </td>
                     </tr>

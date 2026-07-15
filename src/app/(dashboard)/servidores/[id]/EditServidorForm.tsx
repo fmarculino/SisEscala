@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { Save, User, Layers, Eye, EyeOff, MessageCircle, Info } from 'lucide-react'
+import { Save, User, Layers, Eye, EyeOff, MessageCircle, Info, Briefcase } from 'lucide-react'
 import { updateServidor } from '../actions'
 
 interface EditServidorFormProps {
@@ -23,34 +23,22 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
 
   const isTemporary = servidor.matricula ? /^T\d{7}$/.test(servidor.matricula) : false
 
-  // Parsing existing cargo string (Level 1 / Level 2 / Level 3)
-  const existingCargoParts = servidor.cargo ? servidor.cargo.split(' / ') : []
-  
-  // Find initial IDs based on names from existing string
-  const initialNivel1 = cargos.find(c => c.nivel === 1 && c.nome === existingCargoParts[0])?.id || ''
-  const initialNivel2 = cargos.find(c => c.nivel === 2 && c.nome === existingCargoParts[1] && c.parent_id === initialNivel1)?.id || ''
-  const initialNivel3 = cargos.find(c => c.nivel === 3 && c.nome === existingCargoParts[2] && c.parent_id === initialNivel2)?.id || ''
-
-  const [nivel1, setNivel1] = useState(initialNivel1)
-  const [nivel2, setNivel2] = useState(initialNivel2)
-  const [nivel3, setNivel3] = useState(initialNivel3)
+  // Find initial cargo ID based on cargo_id or name
+  const initialCargo = cargos.find(c => c.id === servidor.cargo_id || c.nome === (servidor.cargo || ''))?.id || ''
+  const [selectedCargo, setSelectedCargo] = useState(initialCargo)
 
   const filteredSetores = selectedUnidade 
     ? setores.filter(s => s.unidade_id === selectedUnidade)
     : setores
 
   // Lógica de filtragem de cargos (Mostra ativos + o atual caso esteja inativo)
-  const cargosNivel1 = useMemo(() => cargos.filter(c => c.nivel === 1 && (c.ativo || c.id === nivel1)), [cargos, nivel1])
-  const cargosNivel2 = useMemo(() => cargos.filter(c => c.nivel === 2 && c.parent_id === nivel1 && (c.ativo || c.id === nivel2)), [cargos, nivel1, nivel2])
-  const cargosNivel3 = useMemo(() => cargos.filter(c => c.nivel === 3 && c.parent_id === nivel2 && (c.ativo || c.id === nivel3)), [cargos, nivel2, nivel3])
+  const filteredCargos = useMemo(() => {
+    return cargos.filter(c => c.ativo || c.id === initialCargo)
+  }, [cargos, initialCargo])
 
   const cargoFinal = useMemo(() => {
-    const c1 = cargos.find(c => c.id === nivel1)?.nome || ''
-    const c2 = cargos.find(c => c.id === nivel2)?.nome || ''
-    const c3 = cargos.find(c => c.id === nivel3)?.nome || ''
-    
-    return [c1, c2, c3].filter(Boolean).join(' / ')
-  }, [cargos, nivel1, nivel2, nivel3])
+    return cargos.find(c => c.id === selectedCargo)?.nome || ''
+  }, [cargos, selectedCargo])
 
   const [showPin, setShowPin] = useState(false)
   const [currentPin, setCurrentPin] = useState(
@@ -166,56 +154,25 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
 
           <div className="sm:col-span-6 space-y-4 pt-2">
             <div className="flex items-center gap-2 text-sm font-bold text-blue-600 dark:text-blue-400">
-              <Layers className="h-4 w-4" />
-              Hierarquia de Cargo
+              <Briefcase className="h-4 w-4" />
+              Seleção de Cargo
             </div>
             
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-xs font-medium text-zinc-500 uppercase mb-1">Nível 1 (Categoria)</label>
-                <select
-                  value={nivel1}
-                  onChange={(e) => {
-                    setNivel1(e.target.value)
-                    setNivel2('')
-                    setNivel3('')
-                  }}
-                  required
-                  className="w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500"
-                >
-                  <option value="">Selecione...</option>
-                  {cargosNivel1.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-zinc-500 uppercase mb-1">Nível 2 (Especialidade)</label>
-                <select
-                  value={nivel2}
-                  onChange={(e) => {
-                    setNivel2(e.target.value)
-                    setNivel3('')
-                  }}
-                  disabled={!nivel1}
-                  className="w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500 disabled:opacity-50"
-                >
-                  <option value="">Selecione...</option>
-                  {cargosNivel2.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-zinc-500 uppercase mb-1">Nível 3 (Sub-especialidade)</label>
-                <select
-                  value={nivel3}
-                  onChange={(e) => setNivel3(e.target.value)}
-                  disabled={!nivel2}
-                  className="w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500 disabled:opacity-50"
-                >
-                  <option value="">Selecione...</option>
-                  {cargosNivel3.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-                </select>
-              </div>
+            <div>
+              <label className="block text-xs font-medium text-zinc-500 uppercase mb-1">Cargo</label>
+              <select
+                value={selectedCargo}
+                onChange={(e) => setSelectedCargo(e.target.value)}
+                required
+                className="w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500"
+              >
+                <option value="">Selecione...</option>
+                {filteredCargos.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.codigo ? `[${c.codigo}] ` : ''}{c.nome}
+                  </option>
+                ))}
+              </select>
             </div>
 
             {cargoFinal && (
