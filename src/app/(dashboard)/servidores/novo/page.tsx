@@ -1,9 +1,9 @@
 'use client'
 
 import { createServidor } from '../actions'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Save, Layers, ChevronRight, Eye, EyeOff, MessageCircle, Briefcase } from 'lucide-react'
+import { ArrowLeft, Save, Layers, ChevronRight, Eye, EyeOff, MessageCircle, Briefcase, Search, Check, ChevronsUpDown } from 'lucide-react'
 import { createClient } from '@/utils/supabase/client'
 import { applyAccessFilters } from '@/utils/permissions'
 import { formatSectorsHierarchy } from '@/utils/sectors'
@@ -27,6 +27,18 @@ export default function NovoServidorPage() {
   // Estado para seleção do cargo e busca incremental
   const [selectedCargo, setSelectedCargo] = useState('')
   const [cargoSearch, setCargoSearch] = useState('')
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   useEffect(() => {
     async function loadData() {
@@ -105,6 +117,10 @@ export default function NovoServidorPage() {
       (c.codigo && c.codigo.toLowerCase().includes(cargoSearch.toLowerCase()))
     )
   }, [cargos, cargoSearch])
+
+  const selectedCargoObj = useMemo(() => {
+    return cargos.find(c => c.id === selectedCargo)
+  }, [cargos, selectedCargo])
 
   const [showPin, setShowPin] = useState(false)
   const [currentPin, setCurrentPin] = useState('')
@@ -208,28 +224,65 @@ export default function NovoServidorPage() {
               Seleção de Cargo
             </div>
             
-            <div>
+            <div className="relative" ref={dropdownRef}>
               <label className="block text-xs font-medium text-zinc-500 uppercase mb-1">Cargo</label>
-              <input
-                type="text"
-                placeholder="🔍 Filtrar por código ou nome..."
-                value={cargoSearch}
-                onChange={(e) => setCargoSearch(e.target.value)}
-                className="w-full mb-2 rounded-md border border-zinc-300 bg-white px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500 outline-none placeholder:text-zinc-400"
-              />
-              <select
-                value={selectedCargo}
-                onChange={(e) => setSelectedCargo(e.target.value)}
-                required
-                className="w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500"
+              <button
+                type="button"
+                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                className="w-full flex items-center justify-between rounded-md border border-zinc-300 bg-white dark:bg-zinc-800 px-3 py-2 text-left text-zinc-900 dark:text-white sm:text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
               >
-                <option value="">Selecione...</option>
-                {filteredCargosForSelect.map(c => (
-                  <option key={c.id} value={c.id}>
-                    {c.codigo ? `[${c.codigo}] ` : ''}{c.nome}
-                  </option>
-                ))}
-              </select>
+                <span className="truncate">
+                  {selectedCargoObj 
+                    ? `${selectedCargoObj.codigo ? `[${selectedCargoObj.codigo}] ` : ''}${selectedCargoObj.nome}`
+                    : 'Selecione...'}
+                </span>
+                <ChevronsUpDown className="h-4 w-4 text-zinc-400 shrink-0 ml-2" />
+              </button>
+
+              {isDropdownOpen && (
+                <div className="absolute z-50 mt-1 w-full rounded-md bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-lg max-h-60 overflow-y-auto">
+                  <div className="sticky top-0 bg-white dark:bg-zinc-800 p-2 border-b border-zinc-100 dark:border-zinc-700">
+                    <div className="relative">
+                      <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-400" />
+                      <input
+                        type="text"
+                        placeholder="Buscar..."
+                        value={cargoSearch}
+                        onChange={(e) => setCargoSearch(e.target.value)}
+                        className="w-full pl-8 pr-3 py-1.5 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-md text-xs outline-none focus:ring-1 focus:ring-blue-500 text-zinc-900 dark:text-white"
+                      />
+                    </div>
+                  </div>
+                  <ul className="py-1">
+                    {filteredCargosForSelect.map(c => {
+                      const isSelected = c.id === selectedCargo
+                      return (
+                        <li
+                          key={c.id}
+                          onClick={() => {
+                            setSelectedCargo(c.id)
+                            setIsDropdownOpen(false)
+                            setCargoSearch('')
+                          }}
+                          className={`flex items-center justify-between px-3 py-2 text-xs cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-700/50 ${
+                            isSelected ? 'bg-blue-50/50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-semibold' : 'text-zinc-700 dark:text-zinc-300'
+                          }`}
+                        >
+                          <span className="truncate">
+                            {c.codigo ? `[${c.codigo}] ` : ''}{c.nome}
+                          </span>
+                          {isSelected && <Check className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 shrink-0 ml-2" />}
+                        </li>
+                      )
+                    })}
+                    {filteredCargosForSelect.length === 0 && (
+                      <li className="px-3 py-2 text-xs text-zinc-500 italic text-center">
+                        Nenhum cargo encontrado
+                      </li>
+                    )}
+                  </ul>
+                </div>
+              )}
             </div>
 
             {cargoFinal && (
