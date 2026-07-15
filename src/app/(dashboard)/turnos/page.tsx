@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
+import { AcessoNegado } from '@/components/AcessoNegado'
 import { Clock, Plus, Edit2, Info, Search, Filter, Eye, EyeOff, Loader2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
 import Link from 'next/link'
 
@@ -16,6 +17,7 @@ interface Turno {
 
 export default function TurnosPage() {
   const [turnos, setTurnos] = useState<Turno[]>([])
+  const [userRole, setUserRole] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [showInactive, setShowInactive] = useState(false)
@@ -34,14 +36,29 @@ export default function TurnosPage() {
   }, [searchTerm, showInactive, selectedTipo])
 
   async function fetchTurnos() {
+    setLoading(true)
     try {
-      const { data, error } = await supabase
-        .from('dicionario_turnos')
-        .select('*')
-        .order('codigo')
-      
-      if (error) throw error
-      setTurnos(data || [])
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', user.id)
+          .single()
+        
+        const role = profile?.role || 'servidor'
+        setUserRole(role)
+        
+        if (role === 'super_admin') {
+          const { data, error } = await supabase
+            .from('dicionario_turnos')
+            .select('*')
+            .order('codigo')
+          
+          if (error) throw error
+          setTurnos(data || [])
+        }
+      }
     } catch (error: any) {
       console.error('Erro ao carregar turnos:', error.message)
     } finally {
@@ -63,6 +80,18 @@ export default function TurnosPage() {
   const totalCount = filteredTurnos.length
   const totalPages = Math.ceil(totalCount / pageSize)
   const paginatedTurnos = filteredTurnos.slice((page - 1) * pageSize, page * pageSize)
+
+  if (loading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+      </div>
+    )
+  }
+
+  if (userRole !== 'super_admin') {
+    return <AcessoNegado />
+  }
 
   return (
     <div className="space-y-8">

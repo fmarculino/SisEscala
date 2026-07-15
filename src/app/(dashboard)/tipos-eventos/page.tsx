@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
+import { AcessoNegado } from '@/components/AcessoNegado'
 import { Plus, Tag, Loader2, Edit2, Check, X, Info, Palette } from 'lucide-react'
 
 interface TipoEvento {
@@ -14,6 +15,7 @@ interface TipoEvento {
 
 export default function TiposEventosPage() {
   const [tipos, setTipos] = useState<TipoEvento[]>([])
+  const [userRole, setUserRole] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -33,14 +35,29 @@ export default function TiposEventosPage() {
   }, [])
 
   async function fetchTipos() {
+    setLoading(true)
     try {
-      const { data, error } = await supabase
-        .from('tipos_eventos')
-        .select('*')
-        .order('nome', { ascending: true })
-      
-      if (error) throw error
-      setTipos(data || [])
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', user.id)
+          .single()
+        
+        const role = profile?.role || 'servidor'
+        setUserRole(role)
+        
+        if (role === 'super_admin') {
+          const { data, error } = await supabase
+            .from('tipos_eventos')
+            .select('*')
+            .order('nome', { ascending: true })
+          
+          if (error) throw error
+          setTipos(data || [])
+        }
+      }
     } catch (error: any) {
       alert('Erro ao carregar tipos de afastamento: ' + error.message)
     } finally {
@@ -148,6 +165,18 @@ export default function TiposEventosPage() {
     '#EC4899', // Pink
     '#71717A'  // Gray (Outros)
   ]
+
+  if (loading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+      </div>
+    )
+  }
+
+  if (userRole !== 'super_admin') {
+    return <AcessoNegado />
+  }
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto">

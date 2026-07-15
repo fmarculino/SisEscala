@@ -66,7 +66,7 @@ export default async function DashboardHome() {
       href: '/turnos', 
       icon: Clock, 
       color: 'bg-blue-500',
-      hidden: isCoord
+      hidden: userRole !== 'super_admin'
     },
     { 
       name: 'Quadro de Servidores', 

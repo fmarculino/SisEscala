@@ -1,4 +1,5 @@
 import { createClient } from '@/utils/supabase/server'
+import { AcessoNegado } from '@/components/AcessoNegado'
 import { updateTurno, toggleStatusTurno } from '../actions'
 import { StatusToggleButton } from '@/components/ui/StatusToggleButton'
 import { ArrowLeft, Save } from 'lucide-react'
@@ -11,6 +12,18 @@ export default async function EditTurnoPage({
 }) {
   const { id } = await params
   const supabase = await createClient()
+
+  // Verify access permissions
+  const { data: { user } } = await supabase.auth.getUser()
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user?.id)
+    .single()
+
+  if (profile?.role !== 'super_admin') {
+    return <AcessoNegado />
+  }
 
   const { data: turno } = await supabase
     .from('dicionario_turnos')

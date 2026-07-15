@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
+import { AcessoNegado } from '@/components/AcessoNegado'
 import { Plus, Calendar as CalendarIcon, Loader2, Check, X, Info, ShieldAlert, Clock, Layers } from 'lucide-react'
 
 interface Feriado {
@@ -33,6 +34,7 @@ interface PontoFacultativo {
 
 export default function FeriadosPage() {
   const [activeTab, setActiveTab] = useState<'feriados' | 'pontos_facultativos'>('feriados')
+  const [userRole, setUserRole] = useState<string | null>(null)
   
   // Feriados State
   const [feriados, setFeriados] = useState<Feriado[]>([])
@@ -62,11 +64,25 @@ export default function FeriadosPage() {
   async function fetchInitialData() {
     setLoading(true)
     try {
-      await Promise.all([
-        fetchFeriados(),
-        fetchPontosFacultativos(),
-        fetchSectors()
-      ])
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', user.id)
+          .single()
+        
+        const role = profile?.role || 'servidor'
+        setUserRole(role)
+        
+        if (role === 'super_admin') {
+          await Promise.all([
+            fetchFeriados(),
+            fetchPontosFacultativos(),
+            fetchSectors()
+          ])
+        }
+      }
     } catch (err) {
       console.error(err)
     } finally {
@@ -218,6 +234,18 @@ export default function FeriadosPage() {
     setSelectedSectorIds(prev => 
       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
     )
+  }
+
+  if (loading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+      </div>
+    )
+  }
+
+  if (userRole !== 'super_admin') {
+    return <AcessoNegado />
   }
 
   return (

@@ -148,7 +148,7 @@ export function Sidebar({ user }: { user?: any }) {
         // Administrador não vê Sistema
         if (group.title === 'SISTEMA') return false
         // Administrador não vê itens de configuração estrutural (apenas Super Admin)
-        const superAdminOnlyItems = ['Unidades', 'Cargos', 'Jornadas', 'Dicionário de Turnos']
+        const superAdminOnlyItems = ['Unidades', 'Cargos', 'Jornadas', 'Dicionário de Turnos', 'Feriados', 'Tipos de Afastamento']
         if (superAdminOnlyItems.includes(item.name)) return false
         return true
       }

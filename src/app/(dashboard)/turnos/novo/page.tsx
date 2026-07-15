@@ -1,13 +1,39 @@
 'use client'
 
 import { createTurno } from '../actions'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Save } from 'lucide-react'
+import { ArrowLeft, Save, Loader2 } from 'lucide-react'
+import { createClient } from '@/utils/supabase/client'
+import { AcessoNegado } from '@/components/AcessoNegado'
 
 export default function NovoTurnoPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [userRole, setUserRole] = useState<string | null>(null)
+  const [loadingRole, setLoadingRole] = useState(true)
+  const supabase = createClient()
+
+  useEffect(() => {
+    async function checkRole() {
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user) {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', user.id)
+            .single()
+          setUserRole(profile?.role || 'servidor')
+        }
+      } catch (err) {
+        console.error(err)
+      } finally {
+        setLoadingRole(false)
+      }
+    }
+    checkRole()
+  }, [])
 
   async function handleSubmit(formData: FormData) {
     setLoading(true)
@@ -16,6 +42,18 @@ export default function NovoTurnoPage() {
       setError(result.error)
       setLoading(false)
     }
+  }
+
+  if (loadingRole) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+      </div>
+    )
+  }
+
+  if (userRole !== 'super_admin') {
+    return <AcessoNegado />
   }
 
   return (
