@@ -24,8 +24,9 @@ export default function NovoServidorPage() {
   const [cargos, setCargos] = useState<Cargo[]>([])
   const [selectedUnidade, setSelectedUnidade] = useState('')
 
-  // Estado para seleção do cargo
+  // Estado para seleção do cargo e busca incremental
   const [selectedCargo, setSelectedCargo] = useState('')
+  const [cargoSearch, setCargoSearch] = useState('')
 
   useEffect(() => {
     async function loadData() {
@@ -96,6 +97,14 @@ export default function NovoServidorPage() {
   const cargoFinal = useMemo(() => {
     return cargos.find(c => c.id === selectedCargo)?.nome || ''
   }, [cargos, selectedCargo])
+
+  // Lógica de busca incremental para o select
+  const filteredCargosForSelect = useMemo(() => {
+    return cargos.filter(c => 
+      c.nome.toLowerCase().includes(cargoSearch.toLowerCase()) ||
+      (c.codigo && c.codigo.toLowerCase().includes(cargoSearch.toLowerCase()))
+    )
+  }, [cargos, cargoSearch])
 
   const [showPin, setShowPin] = useState(false)
   const [currentPin, setCurrentPin] = useState('')
@@ -201,6 +210,13 @@ export default function NovoServidorPage() {
             
             <div>
               <label className="block text-xs font-medium text-zinc-500 uppercase mb-1">Cargo</label>
+              <input
+                type="text"
+                placeholder="🔍 Filtrar por código ou nome..."
+                value={cargoSearch}
+                onChange={(e) => setCargoSearch(e.target.value)}
+                className="w-full mb-2 rounded-md border border-zinc-300 bg-white px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500 outline-none placeholder:text-zinc-400"
+              />
               <select
                 value={selectedCargo}
                 onChange={(e) => setSelectedCargo(e.target.value)}
@@ -208,7 +224,7 @@ export default function NovoServidorPage() {
                 className="w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500"
               >
                 <option value="">Selecione...</option>
-                {cargos.map(c => (
+                {filteredCargosForSelect.map(c => (
                   <option key={c.id} value={c.id}>
                     {c.codigo ? `[${c.codigo}] ` : ''}{c.nome}
                   </option>

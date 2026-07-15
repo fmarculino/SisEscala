@@ -26,6 +26,7 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
   // Find initial cargo ID based on cargo_id or name
   const initialCargo = cargos.find(c => c.id === servidor.cargo_id || c.nome === (servidor.cargo || ''))?.id || ''
   const [selectedCargo, setSelectedCargo] = useState(initialCargo)
+  const [cargoSearch, setCargoSearch] = useState('')
 
   const filteredSetores = selectedUnidade 
     ? setores.filter(s => s.unidade_id === selectedUnidade)
@@ -39,6 +40,14 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
   const cargoFinal = useMemo(() => {
     return cargos.find(c => c.id === selectedCargo)?.nome || ''
   }, [cargos, selectedCargo])
+
+  // Lógica de busca incremental para o select
+  const filteredCargosForSelect = useMemo(() => {
+    return filteredCargos.filter(c => 
+      c.nome.toLowerCase().includes(cargoSearch.toLowerCase()) ||
+      (c.codigo && c.codigo.toLowerCase().includes(cargoSearch.toLowerCase()))
+    )
+  }, [filteredCargos, cargoSearch])
 
   const [showPin, setShowPin] = useState(false)
   const [currentPin, setCurrentPin] = useState(
@@ -160,6 +169,13 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
             
             <div>
               <label className="block text-xs font-medium text-zinc-500 uppercase mb-1">Cargo</label>
+              <input
+                type="text"
+                placeholder="🔍 Filtrar por código ou nome..."
+                value={cargoSearch}
+                onChange={(e) => setCargoSearch(e.target.value)}
+                className="w-full mb-2 rounded-md border border-zinc-300 bg-white px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500 outline-none placeholder:text-zinc-400"
+              />
               <select
                 value={selectedCargo}
                 onChange={(e) => setSelectedCargo(e.target.value)}
@@ -167,7 +183,7 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
                 className="w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500"
               >
                 <option value="">Selecione...</option>
-                {filteredCargos.map(c => (
+                {filteredCargosForSelect.map(c => (
                   <option key={c.id} value={c.id}>
                     {c.codigo ? `[${c.codigo}] ` : ''}{c.nome}
                   </option>
