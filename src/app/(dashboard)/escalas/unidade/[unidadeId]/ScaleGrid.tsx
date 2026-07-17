@@ -238,6 +238,7 @@ export function ScaleGrid({
     turnoId: string
     startDay: number
     startWorking: boolean
+    validatePastDays?: boolean
   } | null>(null)
 
   // Intelligent Generator Modal State
@@ -412,6 +413,62 @@ export function ScaleGrid({
 
   const daysInMonth = useMemo(() => new Date(ano, mes, 0).getDate(), [mes, ano])
   const daysArray = useMemo(() => Array.from({ length: daysInMonth }, (_, i) => i + 1), [daysInMonth])
+
+  const getPastDaysCount = useCallback(() => {
+    const today = new Date()
+    const currentDay = today.getDate()
+    const currentMonth = today.getMonth() + 1
+    const currentYear = today.getFullYear()
+    const nMes = Number(mes)
+    const nAno = Number(ano)
+
+    if (nAno < currentYear || (nAno === currentYear && nMes < currentMonth)) {
+      return daysInMonth
+    } else if (nAno === currentYear && nMes === currentMonth) {
+      return currentDay - 1
+    }
+    return 0
+  }, [mes, ano, daysInMonth])
+
+  const getShiftStartHour = useCallback((codigo: string): number => {
+    const c = codigo.toUpperCase().trim()
+    if (c.startsWith('M') || c === 'MT' || c === 'MTN') return 7
+    if (c.startsWith('T')) return 13
+    if (c.startsWith('N')) return 19
+    if (c.includes('M')) return 7
+    if (c.includes('T')) return 13
+    if (c.includes('N')) return 19
+    const match = c.match(/^([0-9]+)\s*H\s*(?:AS|ÀS|A)\s*([0-9]+)\s*H/)
+    if (match) {
+      return parseInt(match[1], 10)
+    }
+    return 7
+  }, [])
+
+  const getShiftEndHour = useCallback((codigo: string, horasComputadas?: number): number => {
+    const c = codigo.toUpperCase().trim()
+    if (c === 'MTN') return 31
+    if (c === 'MT') return 19
+    if (c === 'MN') return 31
+    if (c === 'TN') return 31
+    if (c === 'N' || c === 'N12') return 31
+    
+    const match = c.match(/^([0-9]+)\s*H\s*(?:AS|ÀS|A)\s*([0-9]+)\s*H/)
+    if (match) {
+      let end = parseInt(match[2], 10)
+      const start = parseInt(match[1], 10)
+      if (end < start) end += 24
+      return end
+    }
+
+    if (horasComputadas) {
+      const start = getShiftStartHour(c)
+      return start + horasComputadas
+    }
+    if (c === 'M' || c.startsWith('M')) return 13
+    if (c === 'T' || c.startsWith('T')) return 19
+    return 19
+  }, [getShiftStartHour])
 
   // Motor de Compliance: validação de interjornada e DSR
   const complianceViolations = useMemo(() => {
@@ -1460,6 +1517,8 @@ export function ScaleGrid({
 
     setLoading(true)
     try {
+      const { data: { user } } = await supabase.auth.getUser()
+      const validadorId = userProfile?.id || user?.id || null
       const allInserts: any[] = []
       
       escalaMensal.forEach(em => {
@@ -1528,15 +1587,51 @@ export function ScaleGrid({
             const key = `${em.id}-${categoria}-${day}`
             const existing = existingMap.get(key)
             
+            const localPresence = presenceData[em.servidor_id]?.[categoria as RowCategory]?.[day]
+            const isLocalValidated = !!localPresence?.entrada
+
+            let ent = existing?.presenca_entrada_em || null
+            let sai = existing?.presenca_saida_em || null
+            let conf = existing?.presenca_confirmada || false
+            let confBy = existing?.confirmado_por_id || null
+
+            if (isLocalValidated) {
+              conf = true
+              if (!confBy) {
+                confBy = validadorId
+              }
+              if (!ent || !sai) {
+                const t = turnos.find(x => x.id === turnoId)
+                if (t) {
+                  const startHour = getShiftStartHour(t.codigo)
+                  const endHourVal = getShiftEndHour(t.codigo, Number(t.horas_computadas))
+                  
+                  // Construct entry ISO
+                  ent = ent || `${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(startHour).padStart(2, '0')}:00:00-03:00`
+                  
+                  // Construct exit ISO
+                  const endHourValNorm = endHourVal % 24
+                  const dateObj = new Date(ano, mes - 1, day)
+                  if (endHourVal >= 24) {
+                    dateObj.setDate(dateObj.getDate() + 1)
+                  }
+                  const endYear = dateObj.getFullYear()
+                  const endMonth = dateObj.getMonth() + 1
+                  const endDay = dateObj.getDate()
+                  sai = sai || `${endYear}-${String(endMonth).padStart(2, '0')}-${String(endDay).padStart(2, '0')}T${String(endHourValNorm).padStart(2, '0')}:00:00-03:00`
+                }
+              }
+            }
+
             const item: any = {
               escala_mensal_id: em.id,
               dia: day,
               categoria: categoria,
               dicionario_turnos_id: turnoId,
-              presenca_entrada_em: existing?.presenca_entrada_em || null,
-              presenca_saida_em: existing?.presenca_saida_em || null,
-              presenca_confirmada: existing?.presenca_confirmada || false,
-              confirmado_por_id: existing?.confirmado_por_id || null
+              presenca_entrada_em: ent,
+              presenca_saida_em: sai,
+              presenca_confirmada: conf,
+              confirmado_por_id: confBy
             }
 
             if (existing?.id) {
@@ -1990,7 +2085,8 @@ export function ScaleGrid({
                   templateType: '12x36',
                   turnoId: defaultTurnId,
                   startDay: 1,
-                  startWorking: true
+                  startWorking: true,
+                  validatePastDays: false
                 })
               }}
               disabled={loading || isClosed}
@@ -2977,6 +3073,21 @@ export function ScaleGrid({
                 </div>
               </div>
 
+              {getPastDaysCount() > 0 && (
+                <div className="flex items-center space-x-2.5 py-1 bg-purple-50/50 dark:bg-purple-950/10 p-2.5 rounded-lg border border-purple-100 dark:border-purple-900/30">
+                  <input
+                    type="checkbox"
+                    id="validatePastDays"
+                    checked={templateModal.validatePastDays || false}
+                    onChange={(e) => setTemplateModal(prev => prev ? { ...prev, validatePastDays: e.target.checked } : null)}
+                    className="h-4 w-4 rounded border-zinc-350 text-purple-600 focus:ring-purple-500 cursor-pointer"
+                  />
+                  <label htmlFor="validatePastDays" className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 cursor-pointer select-none">
+                    Validar automaticamente dias passados (dias 1 a {getPastDaysCount()})
+                  </label>
+                </div>
+              )}
+
               <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 p-3 rounded-lg">
                 <p className="text-[10px] text-purple-700 dark:text-purple-400">
                   ⚠️ Dias com presença já confirmada <strong>não serão sobrescritos</strong>. O template preenche apenas a linha <strong>Regular</strong>.
@@ -3041,6 +3152,39 @@ export function ScaleGrid({
                       }
                     }
                   })
+
+                  // Se marcado para validar dias passados, atualizar a presenceData local
+                  if (templateModal.validatePastDays) {
+                    setPresenceData(prev => {
+                      const serverPres = prev[sId] || { 'Regular': {}, 'Extra': {}, 'Plantão': {}, 'Sobreaviso': {} }
+                      const updatedRegular = { ...serverPres['Regular'] }
+
+                      const today = new Date()
+                      const currentDay = today.getDate()
+                      const currentMonth = today.getMonth() + 1
+                      const currentYear = today.getFullYear()
+                      const nMes = Number(mes)
+                      const nAno = Number(ano)
+
+                      for (let d = templateModal.startDay; d <= daysInMonth; d++) {
+                        const isPast = nAno < currentYear || 
+                                       (nAno === currentYear && nMes < currentMonth) || 
+                                       (nAno === currentYear && nMes === currentMonth && d < currentDay)
+                        
+                        if (isPast && templateResult[d] && !protectedDays.has(d)) {
+                          updatedRegular[d] = { entrada: true, saida: true }
+                        }
+                      }
+
+                      return {
+                        ...prev,
+                        [sId]: {
+                          ...prev[sId],
+                          'Regular': updatedRegular
+                        }
+                      }
+                    })
+                  }
 
                   const workDays = countWorkDays(templateResult)
                   logAction('APLICAR_TEMPLATE', {
