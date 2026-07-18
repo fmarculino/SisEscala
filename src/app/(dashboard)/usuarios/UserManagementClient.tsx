@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { Users, Plus, Shield, Building2, Pencil, X, Mail, Key, Check, AlertCircle, Loader2, GitBranch, Trash2, Power, PowerOff, Search, ChevronDown } from 'lucide-react'
+import { Users, Plus, Shield, Building2, Pencil, X, Mail, Key, Check, AlertCircle, Loader2, GitBranch, Trash2, Power, PowerOff, Search, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
 import { createUser, updateUser, resetPassword, deleteUser, toggleUserStatus } from './actions'
 import { useRouter } from 'next/navigation'
 import { Modal } from '@/components/ui/Modal'
@@ -52,6 +52,16 @@ export default function UserManagementClient({
   const [searchTerm, setSearchTerm] = useState('')
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+
+  // Filters for User List
+  const [userSearchTerm, setUserSearchTerm] = useState('')
+  const [filterRole, setFilterRole] = useState('')
+  const [filterUnidade, setFilterUnidade] = useState('')
+  const [filterSetor, setFilterSetor] = useState('')
+
+  // Pagination for User List
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
 
   // Click outside listener for searchable dropdown
   useEffect(() => {
@@ -199,6 +209,50 @@ export default function UserManagementClient({
       setIsLoading(false)
     }
   }
+
+  // Reset page when filters change
+  useEffect(() => {
+    setPage(1)
+  }, [userSearchTerm, filterRole, filterUnidade, filterSetor])
+
+  // Filter sectors based on selected unit for search filter dropdown
+  const filteredSetoresOptions = useMemo(() => {
+    if (!filterUnidade) return setores
+    return setores.filter(s => s.unidade_id === filterUnidade)
+  }, [filterUnidade, setores])
+
+  // Filter profiles based on search and selected options
+  const filteredProfiles = useMemo(() => {
+    return initialProfiles.filter(p => {
+      const cleanSearch = userSearchTerm.toLowerCase().trim()
+      const matchesSearch = !cleanSearch || 
+        p.full_name?.toLowerCase().includes(cleanSearch) || 
+        p.email?.toLowerCase().includes(cleanSearch)
+
+      const matchesRole = !filterRole || p.role === filterRole
+
+      const matchesUnidade = !filterUnidade || p.acesso_todas_unidades || p.permitted_unidades?.includes(filterUnidade)
+
+      const matchesSetor = !filterSetor || (() => {
+        if (p.acesso_todos_setores || p.acesso_todas_unidades) return true
+        if (p.permitted_setores?.includes(filterSetor)) return true
+        const sectorObj = setores.find(s => s.id === filterSetor)
+        if (sectorObj && p.permitted_unidades?.includes(sectorObj.unidade_id)) return true
+        return false
+      })()
+
+      return matchesSearch && matchesRole && matchesUnidade && matchesSetor
+    })
+  }, [initialProfiles, userSearchTerm, filterRole, filterUnidade, filterSetor, setores])
+
+  const totalCount = filteredProfiles.length
+  const totalPages = Math.ceil(totalCount / pageSize)
+
+  const paginatedProfiles = useMemo(() => {
+    const from = (page - 1) * pageSize
+    const to = from + pageSize
+    return filteredProfiles.slice(from, to)
+  }, [filteredProfiles, page, pageSize])
 
   const isEmailDuplicate = useMemo(() => {
     if (editingUser) return false
@@ -781,91 +835,235 @@ export default function UserManagementClient({
                 Usuários Cadastrados
               </h2>
             </div>
+
+            {/* Filtros de Pesquisa */}
+            <div className="p-4 bg-zinc-50/50 dark:bg-zinc-800/20 border-b border-zinc-200 dark:border-zinc-800/80 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
+                <input
+                  type="text"
+                  placeholder="Buscar por nome ou email..."
+                  value={userSearchTerm}
+                  onChange={(e) => setUserSearchTerm(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+
+              <select
+                value={filterRole}
+                onChange={(e) => setFilterRole(e.target.value)}
+                className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
+              >
+                <option value="">Todos os Níveis de Acesso</option>
+                <option value="coordenador">{ROLE_LABELS.coordenador}</option>
+                <option value="admin">{ROLE_LABELS.admin}</option>
+                <option value="super_admin">{ROLE_LABELS.super_admin}</option>
+              </select>
+
+              <select
+                value={filterUnidade}
+                onChange={(e) => {
+                  setFilterUnidade(e.target.value)
+                  setFilterSetor('') // Reset sector when unit changes
+                }}
+                className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
+              >
+                <option value="">Todas as Unidades</option>
+                {unidades.map(u => (
+                  <option key={u.id} value={u.id}>{u.nome}</option>
+                ))}
+              </select>
+
+              <div className="flex gap-2">
+                <select
+                  value={filterSetor}
+                  onChange={(e) => setFilterSetor(e.target.value)}
+                  className="flex-1 px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
+                >
+                  <option value="">Todos os Setores</option>
+                  {filteredSetoresOptions.map(s => (
+                    <option key={s.id} value={s.id}>{s.nome}</option>
+                  ))}
+                </select>
+
+                {(userSearchTerm || filterRole || filterUnidade || filterSetor) && (
+                  <button
+                    onClick={() => {
+                      setUserSearchTerm('')
+                      setFilterRole('')
+                      setFilterUnidade('')
+                      setFilterSetor('')
+                    }}
+                    className="px-3 py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs font-semibold text-zinc-600 dark:text-zinc-300 transition-colors shrink-0"
+                    title="Limpar Filtros"
+                  >
+                    Limpar
+                  </button>
+                )}
+              </div>
+            </div>
             
             <div className="divide-y divide-zinc-200 dark:divide-zinc-800">
-              {initialProfiles?.map((p) => (
-                <div key={p.id} className="p-6 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors flex items-center justify-between group">
-                  <div className="flex items-center space-x-4">
-                    <div className="h-10 w-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 font-bold">
-                      {p.full_name?.charAt(0).toUpperCase() || 'U'}
-                    </div>
-                    <div>
-                      <div className="flex items-center space-x-2">
-                        <div className={`h-2 w-2 rounded-full ${p.ativo ? 'bg-green-500' : 'bg-red-500'}`} />
-                        <h3 className={`text-sm font-medium text-zinc-900 dark:text-white ${!p.ativo ? 'opacity-50' : ''}`}>{p.full_name || 'Sem nome'}</h3>
-                      </div>
-                      <div className="flex items-center flex-wrap gap-y-1 text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-                        <Shield className="mr-1 h-3 w-3" />
-                        <span className="uppercase">{getRoleLabel(p.role)}</span>
-                        
-                        {p.isOrphaned && (
-                          <span className="ml-2 bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-[10px] font-bold border border-red-200 animate-pulse">
-                            CONFLITO DE CADASTRO (ÓRFÃO)
-                          </span>
-                        )}
-                        
-                        {(p.acesso_todas_unidades || p.unidades_nomes?.length > 0) && (
-                          <>
-                            <span className="mx-2">•</span>
-                            <Building2 className="mr-1 h-3 w-3" />
-                            {p.acesso_todas_unidades ? (
-                              <span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded text-[10px] font-bold border border-blue-100">TODAS UNIDADES</span>
-                            ) : (
-                              <span className="truncate max-w-[150px]">{p.unidades_nomes.join(', ')}</span>
-                            )}
-                          </>
-                        )}
-                        
-                        {(p.acesso_todos_setores || p.setores_nomes?.length > 0) && (
-                          <>
-                            <span className="mx-2">•</span>
-                            <GitBranch className="mr-1 h-3 w-3" />
-                            {p.acesso_todos_setores ? (
-                              <span className="bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded text-[10px] font-bold border border-purple-100">TODOS SETORES</span>
-                            ) : (
-                              <span className="truncate max-w-[150px]">{p.setores_nomes.join(', ')}</span>
-                            )}
-                          </>
-                        )}
-
-                        <span className="mx-2">•</span>
-                        <Mail className="mr-1 h-3 w-3" />
-                        {p.email}
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button
-                      onClick={() => handleEdit(p)}
-                      className="p-2 text-zinc-400 hover:text-blue-600 dark:text-zinc-500 dark:hover:text-blue-400"
-                      title="Editar usuário"
-                    >
-                      <Pencil className="h-5 w-5" />
-                    </button>
-                    
-                    {p.isOrphaned && currentUserRole === 'super_admin' ? (
-                      <button
-                        onClick={() => startDelete(p)}
-                        className="p-2 text-zinc-400 hover:text-red-600 dark:text-zinc-500 dark:hover:text-red-400"
-                        title="Excluir cadastro órfão"
-                      >
-                        <Trash2 className="h-5 w-5" />
-                      </button>
-                    ) : (
-                      currentUserRole === 'super_admin' && (
-                        <button
-                          onClick={() => handleToggleStatus(p)}
-                          className={`p-2 ${p.ativo ? 'text-zinc-400 hover:text-red-600 dark:text-zinc-500 dark:hover:text-red-400' : 'text-green-500 hover:text-green-600'}`}
-                          title={p.ativo ? 'Inativar usuário' : 'Ativar usuário'}
-                        >
-                          {p.ativo ? <Power className="h-5 w-5" /> : <PowerOff className="h-5 w-5" />}
-                        </button>
-                      )
-                    )}
-                  </div>
+              {paginatedProfiles.length === 0 ? (
+                <div className="p-12 text-center select-none">
+                  <Users className="mx-auto h-12 w-12 text-zinc-300 dark:text-zinc-600" />
+                  <h3 className="mt-4 text-sm font-bold text-zinc-900 dark:text-white uppercase tracking-wider">Nenhum usuário encontrado</h3>
+                  <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                    Experimente ajustar os filtros ou o termo de busca.
+                  </p>
                 </div>
-              ))}
+              ) : (
+                paginatedProfiles.map((p) => (
+                  <div key={p.id} className="p-6 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors flex items-center justify-between group">
+                    <div className="flex items-center space-x-4 min-w-0 flex-1">
+                      <div className="h-10 w-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 font-bold shrink-0">
+                        {p.full_name?.charAt(0).toUpperCase() || 'U'}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center space-x-2">
+                          <div className={`h-2 w-2 rounded-full shrink-0 ${p.ativo ? 'bg-green-500' : 'bg-red-500'}`} />
+                          <h3 className={`text-sm font-medium text-zinc-900 dark:text-white truncate ${!p.ativo ? 'opacity-50' : ''}`}>{p.full_name || 'Sem nome'}</h3>
+                        </div>
+                        <div className="flex items-center flex-wrap gap-y-1 text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+                          <Shield className="mr-1 h-3 w-3 shrink-0" />
+                          <span className="uppercase shrink-0">{getRoleLabel(p.role)}</span>
+                          
+                          {p.isOrphaned && (
+                            <span className="ml-2 bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-[10px] font-bold border border-red-200 animate-pulse shrink-0">
+                              CONFLITO DE CADASTRO (ÓRFÃO)
+                            </span>
+                          )}
+                          
+                          {(p.acesso_todas_unidades || p.unidades_nomes?.length > 0) && (
+                            <>
+                              <span className="mx-2">•</span>
+                              <Building2 className="mr-1 h-3 w-3 shrink-0" />
+                              {p.acesso_todas_unidades ? (
+                                <span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded text-[10px] font-bold border border-blue-100 shrink-0">TODAS UNIDADES</span>
+                              ) : (
+                                <span className="truncate max-w-[150px]">{p.unidades_nomes.join(', ')}</span>
+                              )}
+                            </>
+                          )}
+                          
+                          {(p.acesso_todos_setores || p.setores_nomes?.length > 0) && (
+                            <>
+                              <span className="mx-2">•</span>
+                              <GitBranch className="mr-1 h-3 w-3 shrink-0" />
+                              {p.acesso_todos_setores ? (
+                                <span className="bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded text-[10px] font-bold border border-purple-100 shrink-0">TODOS SETORES</span>
+                              ) : (
+                                <span className="truncate max-w-[150px]">{p.setores_nomes.join(', ')}</span>
+                              )}
+                            </>
+                          )}
+
+                          <span className="mx-2">•</span>
+                          <Mail className="mr-1 h-3 w-3 shrink-0" />
+                          <span className="truncate max-w-[150px] sm:max-w-none">{p.email}</span>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2 shrink-0">
+                      <button
+                        onClick={() => handleEdit(p)}
+                        className="p-2 text-zinc-400 hover:text-blue-600 dark:text-zinc-500 dark:hover:text-blue-400"
+                        title="Editar usuário"
+                      >
+                        <Pencil className="h-5 w-5" />
+                      </button>
+                      
+                      {p.isOrphaned && currentUserRole === 'super_admin' ? (
+                        <button
+                          onClick={() => startDelete(p)}
+                          className="p-2 text-zinc-400 hover:text-red-600 dark:text-zinc-500 dark:hover:text-red-400"
+                          title="Excluir cadastro órfão"
+                        >
+                          <Trash2 className="h-5 w-5" />
+                        </button>
+                      ) : (
+                        currentUserRole === 'super_admin' && (
+                          <button
+                            onClick={() => handleToggleStatus(p)}
+                            className={`p-2 ${p.ativo ? 'text-zinc-400 hover:text-red-600 dark:text-zinc-500 dark:hover:text-red-400' : 'text-green-500 hover:text-green-600'}`}
+                            title={p.ativo ? 'Inativar usuário' : 'Ativar usuário'}
+                          >
+                            {p.ativo ? <Power className="h-5 w-5" /> : <PowerOff className="h-5 w-5" />}
+                          </button>
+                        )
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Paginação */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-6 bg-zinc-50/50 dark:bg-zinc-800/20 border-t border-zinc-100 dark:border-zinc-800/80 print:hidden select-none">
+              <div className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">
+                Mostrando <span className="text-zinc-800 dark:text-zinc-200">{totalCount === 0 ? 0 : (page - 1) * pageSize + 1}</span> - <span className="text-zinc-800 dark:text-zinc-200">{Math.min(page * pageSize, totalCount)}</span> de <span className="text-zinc-800 dark:text-zinc-200">{totalCount}</span> registros
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">Exibir</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value))
+                    setPage(1)
+                  }}
+                  className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-full px-3 py-1.5 text-xs font-bold text-blue-600 dark:text-blue-400 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer shadow-sm hover:border-zinc-300 dark:hover:border-zinc-600 transition-colors"
+                >
+                  <option value={20}>20</option>
+                  <option value={30}>30</option>
+                  <option value={50}>50</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-1">
+                <button 
+                  type="button"
+                  onClick={() => setPage(1)}
+                  disabled={page === 1}
+                  className="p-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-full hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-40 disabled:hover:bg-white dark:disabled:hover:bg-zinc-900 transition-all shadow-sm"
+                  title="Primeira página"
+                >
+                  <ChevronsLeft className="h-4 w-4 text-zinc-500 dark:text-zinc-400" />
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="p-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-full hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-40 disabled:hover:bg-white dark:disabled:hover:bg-zinc-900 transition-all shadow-sm"
+                  title="Página anterior"
+                >
+                  <ChevronLeft className="h-4 w-4 text-zinc-500 dark:text-zinc-400" />
+                </button>
+                
+                <div className="bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200 dark:border-zinc-700 rounded-full px-4 py-1.5 text-xs font-bold text-zinc-700 dark:text-zinc-300 min-w-[70px] text-center shadow-sm">
+                  {page} <span className="text-zinc-400 dark:text-zinc-500 text-[10px] font-normal mx-1">DE</span> {totalPages || 1}
+                </div>
+
+                <button 
+                  type="button"
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  disabled={page >= totalPages || totalPages === 0}
+                  className="p-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-full hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-40 disabled:hover:bg-white dark:disabled:hover:bg-zinc-900 transition-all shadow-sm"
+                  title="Próxima página"
+                >
+                  <ChevronRight className="h-4 w-4 text-zinc-500 dark:text-zinc-400" />
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => setPage(totalPages)}
+                  disabled={page >= totalPages || totalPages === 0}
+                  className="p-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-full hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-40 disabled:hover:bg-white dark:disabled:hover:bg-zinc-900 transition-all shadow-sm"
+                  title="Última página"
+                >
+                  <ChevronsRight className="h-4 w-4 text-zinc-500 dark:text-zinc-400" />
+                </button>
+              </div>
             </div>
           </div>
         </div>
