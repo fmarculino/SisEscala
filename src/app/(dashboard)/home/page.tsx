@@ -38,11 +38,19 @@ export default async function DashboardHome() {
   // PARALLEL DATA FETCHING
   // ======================================================================
 
-  // 1. Servidores count
-  let serversQuery = supabase.from('servidores').select('*', { count: 'exact', head: true })
+  // 1. Servidores status list
+  let serversQuery = supabase.from('servidores').select('status')
   serversQuery = applyAccessFilters(serversQuery, userProfile)
 
-  // 2. Escalas do mês corrente
+  // 2. Setores count (total possible scales)
+  let sectorsQuery = supabase.from('setores').select('id', { count: 'exact', head: true }).eq('ativo', true)
+  sectorsQuery = applyAccessFilters(sectorsQuery, userProfile)
+
+  // 2b. Unidades count
+  let unitsQuery = supabase.from('unidades').select('id', { count: 'exact', head: true }).eq('ativo', true)
+  unitsQuery = applyAccessFilters(unitsQuery, userProfile, { unidadeField: 'id' })
+
+  // 3. Escalas do mês corrente
   let escalasQuery = supabase.from('escala_mensal').select(`
     id, servidor_id, unidade_id, setor_id, mes, ano, status,
     servidores(nome),
@@ -80,8 +88,12 @@ export default async function DashboardHome() {
   let sobreavisoLogsQuery = supabase.from('logs_sobreaviso').select(`
     id, servidor_id, unidade_id, escala_mensal_id, dia, status,
     data_hora_acionamento, data_hora_aceite, data_hora_chegada,
-    token_magic_link, motivo_acionamento
+    token_magic_link, motivo_acionamento, categoria,
+    escala_mensal!inner(mes, ano)
   `).eq('dia', todayDay)
+    .eq('categoria', 'Sobreaviso')
+    .eq('escala_mensal.mes', currentMonth)
+    .eq('escala_mensal.ano', currentYear)
   sobreavisoLogsQuery = applyAccessFilters(sobreavisoLogsQuery, userProfile)
 
   // 6. Historical data: last 3 months of escala_diaria for chart
@@ -112,7 +124,9 @@ export default async function DashboardHome() {
 
   // Execute all queries in parallel
   const [
-    { count: servidoresCount },
+    { data: serversData },
+    { count: setoresCount },
+    { count: unidadesCount },
     { data: escalasData },
     { data: diariaToday },
     { data: afastamentosData },
@@ -120,6 +134,8 @@ export default async function DashboardHome() {
     ...historicalResults
   ] = await Promise.all([
     serversQuery,
+    sectorsQuery,
+    unitsQuery,
     escalasQuery,
     diariaTodayQuery,
     afastamentosQuery,
@@ -137,10 +153,13 @@ export default async function DashboardHome() {
   const logs = (sobreavisoLogs || []) as any[]
 
   // --- KPIs ---
-  const totalServidores = servidoresCount || 0
+  const serversList = (serversData || []) as any[]
+  const servidoresAtivos = serversList.filter((s: any) => s.status === 'Ativo').length
+  const servidoresInativos = serversList.filter((s: any) => s.status === 'Inativo').length
+
   const escalasAbertas = escalas.filter((e: any) => e.status !== 'Fechada').length
   const escalasFechadas = escalas.filter((e: any) => e.status === 'Fechada').length
-  const totalEscalas = new Set(escalas.map((e: any) => `${e.unidade_id}|${e.setor_id}`)).size
+  const totalEscalasCriadas = new Set(escalas.map((e: any) => `${e.unidade_id}|${e.setor_id}`)).size
 
   // Em serviço hoje (todos escalados para turnos ativos/regulares/plantão/extra hoje, excluindo sobreaviso)
   const emServicoHoje = diaria.filter((d: any) => d.categoria !== 'Sobreaviso').length
@@ -261,17 +280,46 @@ export default async function DashboardHome() {
       </div>
 
       {/* ============================================================ */}
+      {/* SECTION 6 — QUICK ACTIONS */}
+      {/* ============================================================ */}
+      <div>
+        <h2 className="text-sm font-black uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-4 flex items-center gap-2">
+          <ArrowRight className="h-4 w-4 text-blue-500" />
+          Ações Rápidas
+        </h2>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          {quickActions.map((action) => (
+            <Link
+              key={action.name}
+              href={action.href}
+              className="flex flex-col items-center p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:border-blue-400/50 hover:shadow-md transition-all group text-center"
+            >
+              <div className={`h-10 w-10 rounded-lg ${action.color} flex items-center justify-center text-white mb-3 shadow-sm group-hover:scale-110 transition-transform`}>
+                <action.icon className="h-5 w-5" />
+              </div>
+              <h3 className="text-xs font-bold text-zinc-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                {action.name}
+              </h3>
+              <p className="text-[10px] text-zinc-400 mt-1 leading-tight">
+                {action.description}
+              </p>
+            </Link>
+          ))}
+        </div>
+      </div>
+
+
+      {/* ============================================================ */}
       {/* SECTION 1 — KPI CARDS */}
       {/* ============================================================ */}
       {!isCoord && (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
           {[
-            { label: 'Servidores', value: totalServidores, icon: Users, color: 'text-purple-600', bg: 'bg-purple-50 dark:bg-purple-900/20' },
-            { label: 'Em Serviço Hoje', value: emServicoHoje, icon: UserCheck, color: 'text-emerald-600', bg: 'bg-emerald-50 dark:bg-emerald-900/20' },
-            { label: 'Escalas Abertas', value: escalasAbertas, icon: Calendar, color: 'text-amber-600', bg: 'bg-amber-50 dark:bg-amber-900/20', sub: `de ${escalasAbertas + escalasFechadas}` },
-            { label: 'Afastados Agora', value: afastamentosAtivos, icon: CalendarDays, color: 'text-rose-600', bg: 'bg-rose-50 dark:bg-rose-900/20' },
-            { label: 'Sobreaviso Hoje', value: sobreavisoHoje.length, icon: Phone, color: 'text-orange-600', bg: 'bg-orange-50 dark:bg-orange-900/20' },
-            { label: 'Setores com Escala', value: totalEscalas, icon: Building2, color: 'text-blue-600', bg: 'bg-blue-50 dark:bg-blue-900/20' },
+            { label: 'Servidores', value: servidoresAtivos, icon: Users, color: 'text-purple-600', bg: 'bg-purple-50 dark:bg-purple-900/20', sub: `Hoje: ${emServicoHoje} em serviço | Inativos: ${servidoresInativos}` },
+            { label: 'Escalas Ativas', value: totalEscalasCriadas, icon: Calendar, color: 'text-amber-600', bg: 'bg-amber-50 dark:bg-amber-900/20', sub: `De ${setoresCount} setores | ${escalasFechadas} fechadas` },
+            { label: 'Afastados Agora', value: afastamentosAtivos, icon: CalendarDays, color: 'text-rose-600', bg: 'bg-rose-50 dark:bg-rose-900/20', sub: 'Ausências registradas' },
+            { label: 'Sobreaviso Hoje', value: sobreavisoHoje.length, icon: Phone, color: 'text-orange-600', bg: 'bg-orange-50 dark:bg-orange-900/20', sub: 'Plantões de prontidão' },
+            { label: 'Unidades', value: unidadesCount || 0, icon: Building2, color: 'text-blue-600', bg: 'bg-blue-50 dark:bg-blue-900/20', sub: 'Unidades cadastradas' },
           ].map((kpi, i) => (
             <div
               key={i}
@@ -286,7 +334,7 @@ export default async function DashboardHome() {
                 {kpi.label}
               </p>
               {kpi.sub && (
-                <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mt-0.5">{kpi.sub}</p>
+                <p className="text-[10px] text-zinc-500 dark:text-zinc-400 mt-1 leading-tight">{kpi.sub}</p>
               )}
             </div>
           ))}
@@ -499,34 +547,6 @@ export default async function DashboardHome() {
         <HistoricoChart data={chartData} />
       )}
 
-      {/* ============================================================ */}
-      {/* SECTION 6 — QUICK ACTIONS */}
-      {/* ============================================================ */}
-      <div>
-        <h2 className="text-sm font-black uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-4 flex items-center gap-2">
-          <ArrowRight className="h-4 w-4 text-blue-500" />
-          Ações Rápidas
-        </h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          {quickActions.map((action) => (
-            <Link
-              key={action.name}
-              href={action.href}
-              className="flex flex-col items-center p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:border-blue-400/50 hover:shadow-md transition-all group text-center"
-            >
-              <div className={`h-10 w-10 rounded-lg ${action.color} flex items-center justify-center text-white mb-3 shadow-sm group-hover:scale-110 transition-transform`}>
-                <action.icon className="h-5 w-5" />
-              </div>
-              <h3 className="text-xs font-bold text-zinc-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-                {action.name}
-              </h3>
-              <p className="text-[10px] text-zinc-400 mt-1 leading-tight">
-                {action.description}
-              </p>
-            </Link>
-          ))}
-        </div>
-      </div>
     </div>
   )
 }
