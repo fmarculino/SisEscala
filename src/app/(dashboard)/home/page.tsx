@@ -28,7 +28,8 @@ export default async function DashboardHome() {
   const userRole = profile?.role || ''
   const isCoord = userRole === 'coordenador'
 
-  const today = new Date()
+  // Obter data/hora atual no fuso horário de Brasília (America/Sao_Paulo)
+  const today = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }))
   const todayDay = today.getDate()
   const currentMonth = today.getMonth() + 1
   const currentYear = today.getFullYear()
@@ -38,7 +39,7 @@ export default async function DashboardHome() {
   // ======================================================================
 
   // 1. Servidores count
-  let serversQuery = supabase.from('servidores').select('*', { count: 'exact', head: true }).eq('ativo', true)
+  let serversQuery = supabase.from('servidores').select('*', { count: 'exact', head: true })
   serversQuery = applyAccessFilters(serversQuery, userProfile)
 
   // 2. Escalas do mês corrente
@@ -65,7 +66,10 @@ export default async function DashboardHome() {
   diariaTodayQuery = applyAccessFilters(diariaTodayQuery, userProfile, { unidadeField: 'escala_mensal.unidade_id', setorField: 'escala_mensal.setor_id' })
 
   // 4. Afastamentos ativos
-  const todayStr = today.toISOString().split('T')[0]
+  const yyyy = today.getFullYear()
+  const mm = String(today.getMonth() + 1).padStart(2, '0')
+  const dd = String(today.getDate()).padStart(2, '0')
+  const todayStr = `${yyyy}-${mm}-${dd}`
   let afastamentosQuery = supabase.from('servidores_eventos').select(`
     id, data_inicio, data_fim, observacao,
     servidores(id, nome, unidade_id),
@@ -138,8 +142,8 @@ export default async function DashboardHome() {
   const escalasFechadas = escalas.filter((e: any) => e.status === 'Fechada').length
   const totalEscalas = new Set(escalas.map((e: any) => `${e.unidade_id}|${e.setor_id}`)).size
 
-  // Em serviço hoje (presença confirmada)
-  const emServicoHoje = diaria.filter((d: any) => d.presenca_confirmada).length
+  // Em serviço hoje (todos escalados para turnos ativos/regulares/plantão/extra hoje, excluindo sobreaviso)
+  const emServicoHoje = diaria.filter((d: any) => d.categoria !== 'Sobreaviso').length
 
   // Sobreaviso agendado hoje
   const sobreavisoHoje = diaria.filter((d: any) => d.categoria === 'Sobreaviso')
