@@ -873,7 +873,7 @@ export default function AuditoriaPage() {
                               Categoria / Tipo
                             </p>
                             <p className="font-mono text-[11px] text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
-                              {log.categoria} - {log.motivo_acionamento?.includes('entrada') ? 'ENTRADA' : 'SAÍDA'} (Dia {log.dia})
+                              {log.categoria} - {log.motivo_acionamento?.toLowerCase().includes('entrada') ? 'ENTRADA' : 'SAÍDA'} (Dia {log.dia})
                             </p>
                           </div>
 

@@ -1600,15 +1600,17 @@ export function ScaleGrid({
               if (!confBy) {
                 confBy = validadorId
               }
-              if (!ent || !sai) {
-                const t = turnos.find(x => x.id === turnoId)
-                if (t) {
-                  const startHour = getShiftStartHour(t.codigo)
-                  const endHourVal = getShiftEndHour(t.codigo, Number(t.horas_computadas))
-                  
+              const t = turnos.find(x => x.id === turnoId)
+              if (t) {
+                const startHour = getShiftStartHour(t.codigo)
+                const endHourVal = getShiftEndHour(t.codigo, Number(t.horas_computadas))
+                
+                if (localPresence?.entrada && !ent) {
                   // Construct entry ISO
-                  ent = ent || `${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(startHour).padStart(2, '0')}:00:00-03:00`
-                  
+                  ent = `${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(startHour).padStart(2, '0')}:00:00-03:00`
+                }
+                
+                if (localPresence?.saida && !sai) {
                   // Construct exit ISO
                   const endHourValNorm = endHourVal % 24
                   const dateObj = new Date(ano, mes - 1, day)
@@ -1618,7 +1620,7 @@ export function ScaleGrid({
                   const endYear = dateObj.getFullYear()
                   const endMonth = dateObj.getMonth() + 1
                   const endDay = dateObj.getDate()
-                  sai = sai || `${endYear}-${String(endMonth).padStart(2, '0')}-${String(endDay).padStart(2, '0')}T${String(endHourValNorm).padStart(2, '0')}:00:00-03:00`
+                  sai = `${endYear}-${String(endMonth).padStart(2, '0')}-${String(endDay).padStart(2, '0')}T${String(endHourValNorm).padStart(2, '0')}:00:00-03:00`
                 }
               }
             }
