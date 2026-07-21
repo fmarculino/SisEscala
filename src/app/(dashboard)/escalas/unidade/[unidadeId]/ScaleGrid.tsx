@@ -1979,13 +1979,22 @@ export function ScaleGrid({
 
   const isClosed = escalaMensal[0]?.status === 'Fechada' || isInactive || isComum || !governanceLock.canEdit || isCompetenciaEncerrada
 
+  // Sort escalaMensal alphabetically by server name
+  const sortedEscalaMensal = useMemo(() => {
+    return [...escalaMensal].sort((a, b) => {
+      const nameA = a.servidores?.nome || ''
+      const nameB = b.servidores?.nome || ''
+      return nameA.localeCompare(nameB, 'pt-BR')
+    })
+  }, [escalaMensal])
+
   // Filter scales for common users
   const visibleEscalaMensal = useMemo(() => {
     if (isComum && linkedServidorId) {
-      return escalaMensal.filter(em => em.servidor_id === linkedServidorId)
+      return sortedEscalaMensal.filter(em => em.servidor_id === linkedServidorId)
     }
-    return escalaMensal
-  }, [isComum, linkedServidorId, escalaMensal])
+    return sortedEscalaMensal
+  }, [isComum, linkedServidorId, sortedEscalaMensal])
 
   return (
     <>
@@ -3012,7 +3021,7 @@ export function ScaleGrid({
                   value={templateModal.servidorId}
                   onChange={(e) => setTemplateModal(prev => prev ? { ...prev, servidorId: e.target.value } : null)}
                 >
-                  {escalaMensal.map(em => (
+                  {sortedEscalaMensal.map(em => (
                     <option key={em.servidor_id} value={em.servidor_id}>{em.servidores?.nome}</option>
                   ))}
                 </select>
