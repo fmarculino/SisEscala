@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.11.0] - 2026-07-22
+
+### Added
+- **Recuperação de Senha Segura (Esqueceu a Senha)**:
+  - Implementado o fluxo completo PKCE no Next.js App Router para recuperação de senha com Supabase Auth.
+  - Criado o manipulador de callback `/auth/callback` (`src/app/auth/callback/route.ts`) para troca segura de token por sessão e redirecionamento para a redefinição de senha (`/resetar-senha`).
+  - Liberadas as rotas de autenticação e recuperação no middleware (`src/utils/supabase/middleware.ts`).
+- **Integração SMTP Institucional (Google Workspace / Gmail + Supabase Self-Hosted)**:
+  - Configuração do serviço SMTP (`smtp.gmail.com:587`) no Coolify usando conta institucional (`informatica.sms@maraba.pa.gov.br`) e Senha de App corporativa.
+  - Mapeamento correto de variáveis de ambiente (`SMTP_*` e `GOTRUE_SMTP_*`) e alinhamento do `API_EXTERNAL_URL`.
+- **Template de E-mail Personalizado em Português**:
+  - Nova rota pública de API `/api/templates/recovery` (`src/app/api/templates/recovery/route.ts`) e template estático em `public/templates/recovery.html` com o visual oficial da Prefeitura Municipal de Marabá e Secretaria Municipal de Saúde.
+  - Layout responsivo com botão de ação em destaque (`Redefinir Minha Senha`) e código de verificação de 6 dígitos em tamanho estendido (34px, negrito).
+- **Internacionalização e Tradução de Erros**:
+  - Módulo utilitário `src/utils/auth-errors.ts` com a função `translateAuthError` para converter mensagens de erro nativas em inglês do Supabase Auth para português amigável na interface.
+
 ## [1.10.1] - 2026-06-29
 
 ### Added
