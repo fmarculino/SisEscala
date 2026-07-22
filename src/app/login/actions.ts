@@ -3,6 +3,7 @@
 import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
 import { headers } from 'next/headers'
+import { translateAuthError } from '@/utils/auth-errors'
 
 export async function login(formData: FormData) {
   const supabase = await createClient()
@@ -16,7 +17,7 @@ export async function login(formData: FormData) {
   })
 
   if (error) {
-    return { error: error.message }
+    return { error: translateAuthError(error.message) }
   }
 
   // Log successful login

@@ -2,6 +2,7 @@
 
 import { createClient } from '@/utils/supabase/server'
 import { headers } from 'next/headers'
+import { translateAuthError } from '@/utils/auth-errors'
 
 export async function resetPassword(formData: FormData) {
   const email = formData.get('email') as string
@@ -18,7 +19,7 @@ export async function resetPassword(formData: FormData) {
   })
 
   if (error) {
-    return { error: error.message }
+    return { error: translateAuthError(error.message) }
   }
 
   return { success: true }
