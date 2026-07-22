@@ -38,6 +38,7 @@ O sistema foca em **governança, segurança jurídica e eficiência operacional*
 - **Segurança Jurídica**: Alertas visuais preventivos para o coordenador antes do fechamento da folha.
 
 ### 📊 Painel de Auditoria & Relatórios Diagnósticos
+- **Comparativo Histórico em Tempo Real**: Gráfico no Painel de Controle com acompanhamento em tempo real das horas do mês vigente sem necessidade de fechamento formal da escala, escala vertical (Eixo Y), grade visual e cartões interativos de detalhamento por mês.
 - **Relatórios Consolidados**: Relatórios de frequência de ponto, consolidados de horas extras, relatórios gerenciais de distribuição e conciliação por setores.
 - **Dashboard de Performance**: Painel estatístico com gráficos dinâmicos de plantões extras e taxas de acionamento/resposta de sobreavisos por período, facilitando decisões de dimensionamento de pessoal pelo RH.
 - **Filtros Modulares**: Sistema integrado de busca e refinamento por data, servidor, cargo, unidade e setor em todo o módulo de relatórios.

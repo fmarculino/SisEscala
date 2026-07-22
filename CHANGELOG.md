@@ -5,10 +5,18 @@ All notable changes to this project will be documented in this file.
 ## [1.11.0] - 2026-07-22
 
 ### Added
+- **Painel de Controle — Gráfico de Comparativo Histórico de Horas (`HistoricoChart`)**:
+  - **Acompanhamento em Tempo Real do Mês Vigente**: Ajustada a consulta histórica em `src/app/(dashboard)/home/page.tsx` para não filtrar por status `Fechada` no mês atual, permitindo que a evolução das horas planejadas/executadas seja acompanhada dinamicamente ao longo do mês.
+  - **Escala Vertical (Eixo Y) e Linhas de Grade**: Adicionado o eixo Y no lado esquerdo do gráfico com valores dinâmicos de horas (`0h`, `2k h`, `4k h`, etc.) e linhas horizontais de grade (*gridlines*) de fundo para facilitar a leitura.
+  - **Seleção Interativa de Mês**: Adicionadas pílulas seletoras de mês (`MAI`, `JUN`, `JUL`) e suporte a clique diretamente nas colunas do gráfico, atualizando instantaneamente o detalhamento dos cartões inferiores (*Regular*, *Plantão*, *Sobreaviso*, *Extra*).
 - **Recuperação de Senha Segura (Esqueceu a Senha)**:
   - Implementado o fluxo completo PKCE no Next.js App Router para recuperação de senha com Supabase Auth.
   - Criado o manipulador de callback `/auth/callback` (`src/app/auth/callback/route.ts`) para troca segura de token por sessão e redirecionamento para a redefinição de senha (`/resetar-senha`).
   - Liberadas as rotas de autenticação e recuperação no middleware (`src/utils/supabase/middleware.ts`).
+
+### Fixed
+- **Correção da Altura das Barras Verticais no Gráfico Histórico**:
+  - Corrigido o bug visual no CSS Flexbox do componente `HistoricoChart.tsx` (ausência de `h-full` no contêiner da coluna de barras), garantindo que as barras sejam desenhadas proporcionalmente à altura total do gráfico (160px) em vez de ficarem colapsadas em 2px.
 - **Integração SMTP Institucional (Google Workspace / Gmail + Supabase Self-Hosted)**:
   - Configuração do serviço SMTP (`smtp.gmail.com:587`) no Coolify usando conta institucional (`informatica.sms@maraba.pa.gov.br`) e Senha de App corporativa.
   - Mapeamento correto de variáveis de ambiente (`SMTP_*` e `GOTRUE_SMTP_*`) e alinhamento do `API_EXTERNAL_URL`.
