@@ -39,6 +39,8 @@ export async function updateSession(request: NextRequest) {
     !user &&
     !request.nextUrl.pathname.startsWith('/login') &&
     !request.nextUrl.pathname.startsWith('/auth') &&
+    !request.nextUrl.pathname.startsWith('/esqueci-a-senha') &&
+    !request.nextUrl.pathname.startsWith('/resetar-senha') &&
     !request.nextUrl.pathname.startsWith('/sobreaviso') &&
     !request.nextUrl.pathname.startsWith('/presenca') &&
     !request.nextUrl.pathname.startsWith('/consultar-escala')
