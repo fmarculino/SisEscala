@@ -1257,8 +1257,6 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
             if (sH < startHour || (sH === startHour && sM < startMin)) {
               evalExit.setDate(evalExit.getDate() + 1)
             }
-          } else if (extraMinutesScheduled > 0) {
-            evalExit = new Date(effectiveScheduledExit.getTime() + extraMinutesScheduled * 60 * 1000)
           }
 
           if (evalExit && evalExit > effectiveScheduledExit) {
@@ -1786,8 +1784,6 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
             if (sH < startHour || (sH === startHour && sM < startMin)) {
               evalExit.setDate(evalExit.getDate() + 1)
             }
-          } else if (extraMinutesScheduled > 0) {
-            evalExit = new Date(effectiveScheduledExit.getTime() + extraMinutesScheduled * 60 * 1000)
           }
 
           if (evalExit && evalExit > effectiveScheduledExit) {

@@ -687,8 +687,6 @@ export async function executeGerarFolhaPonto(
             if (sH < startHour || (sH === startHour && sM < startMin)) {
               evalExit.setDate(evalExit.getDate() + 1)
             }
-          } else if (extraMinutesScheduled > 0) {
-            evalExit = new Date(effectiveScheduledExit.getTime() + extraMinutesScheduled * 60 * 1000)
           }
 
           if (evalExit && evalExit > effectiveScheduledExit) {
@@ -1358,8 +1356,6 @@ export async function sincronizarFolhaPonto(folhaId: string) {
             if (sH < startHour || (sH === startHour && sM < startMin)) {
               evalExit.setDate(evalExit.getDate() + 1)
             }
-          } else if (extraMinutesScheduled > 0) {
-            evalExit = new Date(effectiveScheduledExit.getTime() + extraMinutesScheduled * 60 * 1000)
           }
 
           if (evalExit && evalExit > effectiveScheduledExit) {
