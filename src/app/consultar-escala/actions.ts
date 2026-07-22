@@ -280,6 +280,20 @@ export async function logoutPortal() {
   cookieStore.delete('portal_servidor_id')
 }
 
+function getExtraHoursFromShift(extraShift: any): number {
+  if (!extraShift || !extraShift.dicionario_turnos) return 0
+  const dt = extraShift.dicionario_turnos
+  const dtObj = Array.isArray(dt) ? dt[0] : dt
+  if (dtObj?.horas_computadas && Number(dtObj.horas_computadas) > 0) {
+    return Number(dtObj.horas_computadas)
+  }
+  if (dtObj?.codigo) {
+    const val = parseFloat(String(dtObj.codigo).replace(',', '.'))
+    if (!isNaN(val) && val > 0) return val
+  }
+  return 0
+}
+
 // ============================================================
 // Portal de Solicitação de Trocas — SisEscala v0.6.0
 // ============================================================
@@ -868,7 +882,7 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
     // Fetch all shifts from escala_diaria (Regular, Extra, Plantão) for the specific scale of this folha
     const { data: escalaDiaria } = await supabase
       .from('escala_diaria')
-      .select('id, dia, dicionario_turnos_id, presenca_entrada_em, presenca_saida_em, presenca_confirmada, dicionario_turnos(codigo, slots)')
+      .select('id, dia, categoria, dicionario_turnos_id, presenca_entrada_em, presenca_saida_em, presenca_confirmada, dicionario_turnos(codigo, slots, horas_computadas)')
       .eq('escala_mensal_id', escala.id)
 
     // Fetch manual validation logs for the specific scale of this folha
@@ -878,7 +892,7 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
       .eq('escala_mensal_id', escala.id)
 
     const currentShifts = escalaDiaria || []
-    const fingerprint = generateFingerprint(currentShifts)
+    const fingerprint = generateFingerprint(currentShifts.filter(d => d.categoria === 'Regular'))
 
     const startDate = `${folha.ano}-${String(folha.mes).padStart(2, '0')}-01`
     const daysInMonth = new Date(folha.ano, folha.mes, 0).getDate()
@@ -922,12 +936,7 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
       .eq('servidor_id', folha.servidor_id)
       .or(`data_inicio.lte.${endDate},data_fim.gte.${startDate}`)
 
-    // Parse Jornada
-    const globalJornadaDetails = escala.jornadas ? (escala.jornadas as any) : null
-    const globalJornada = parseJornadaNome(globalJornadaDetails?.nome || '')
-    const globalIntervaloMinutos = globalJornadaDetails?.intervalo_minutos ?? 60
-    const globalHorasNormaisDiarias = globalJornadaDetails?.horas_totais ?? 8
-
+    // Fetch tolerance
     const { data: configVar } = await supabase
       .from('configuracoes_globais')
       .select('valor')
@@ -972,7 +981,10 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
       const intervaloMinutos = activeJornada === globalJornadaDetails ? globalIntervaloMinutos : (activeJornada?.intervalo_minutos ?? 60)
       const horasNormaisDiarias = activeJornada === globalJornadaDetails ? globalHorasNormaisDiarias : (activeJornada?.horas_totais ?? 8)
 
-      const currentShift = currentShifts.find(s => s.dia === day)
+      const currentShift = currentShifts.find(s => s.dia === day && s.categoria === 'Regular')
+      const extraShift = currentShifts.find(s => s.dia === day && s.categoria === 'Extra')
+      const extraHoursScheduled = getExtraHoursFromShift(extraShift)
+      const extraMinutesScheduled = Math.round(extraHoursScheduled * 60)
       const registroExistente = registrosExistentes.find(r => r.dia === day)
 
       const hadShift = registroExistente && registroExistente.turno_codigo !== null
@@ -1083,11 +1095,19 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
           log.motivo_acionamento?.toLowerCase().includes('saida')
         )
 
-        const hasRealEntrada = !!currentShift.presenca_entrada_em && !isManualEntrada
-        const hasRealSaida = !!currentShift.presenca_saida_em && !isManualSaida
+        const dayShifts = currentShifts.filter(d => d.dia === day)
+        const allEntradas = dayShifts.map(s => s.presenca_entrada_em).filter(Boolean)
+        const allSaidas = dayShifts.map(s => s.presenca_saida_em).filter(Boolean)
+
+        const realEntradaTime = allEntradas.length > 0 ? new Date(Math.min(...allEntradas.map(t => new Date(t).getTime()))) : null
+        const realSaidaTime = allSaidas.length > 0 ? new Date(Math.max(...allSaidas.map(t => new Date(t).getTime()))) : null
+
+        const hasRealEntrada = realEntradaTime !== null && !isManualEntrada
+        const hasRealSaida = realSaidaTime !== null && !isManualSaida
 
         const officialEntradaMin = startHour * 60 + startMin
-        let officialSaidaMin = endHour * 60 + endMin
+        const baseOfficialSaidaMin = endHour * 60 + endMin
+        let officialSaidaMin = baseOfficialSaidaMin + extraMinutesScheduled
         let totalBrutoMin = officialSaidaMin - officialEntradaMin
         if (totalBrutoMin < 0) totalBrutoMin += 24 * 60
 
@@ -1115,13 +1135,11 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
         if (shouldPreserve && registroExistente?.origem_entrada === 'manual') {
           registro.entrada = registroExistente.entrada
           registro.origem_entrada = 'manual'
-        } else if (hasRealEntrada && currentShift.presenca_entrada_em) {
-          const d = new Date(currentShift.presenca_entrada_em)
-          registro.entrada = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+        } else if (hasRealEntrada && realEntradaTime) {
+          registro.entrada = realEntradaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_entrada = 'real'
-        } else if (isManualEntrada && currentShift.presenca_entrada_em) {
-          const d = new Date(currentShift.presenca_entrada_em)
-          registro.entrada = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+        } else if (isManualEntrada && realEntradaTime) {
+          registro.entrada = realEntradaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_entrada = 'manual'
         } else if (shouldGenerate(officialEntradaMin)) {
           let targetEntradaMin = officialEntradaMin
@@ -1138,13 +1156,11 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
         if (shouldPreserve && registroExistente?.origem_saida === 'manual') {
           registro.saida = registroExistente.saida
           registro.origem_saida = 'manual'
-        } else if (hasRealSaida && currentShift.presenca_saida_em) {
-          const d = new Date(currentShift.presenca_saida_em)
-          registro.saida = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+        } else if (hasRealSaida && realSaidaTime) {
+          registro.saida = realSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_saida = 'real'
-        } else if (isManualSaida && currentShift.presenca_saida_em) {
-          const d = new Date(currentShift.presenca_saida_em)
-          registro.saida = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+        } else if (isManualSaida && realSaidaTime) {
+          registro.saida = realSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_saida = 'manual'
         } else if (shouldGenerate(officialSaidaMin)) {
           let targetSaidaMin = officialSaidaMin
@@ -1199,21 +1215,19 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
           totalFaltas++
         }
 
-        // 4. Overtime Calculation (Real Exit only)
+        // 4. Overtime Calculation
         if (shouldPreserve && registroExistente && (registroExistente.origem_entrada === 'manual' || registroExistente.origem_saida === 'manual')) {
           registro.hora_extra_minutos = registroExistente.hora_extra_minutos || 0
           registro.hora_extra_tipo = registroExistente.hora_extra_tipo || null
           
           const isSunday = dateObj.getDay() === 0
           const isHoliday = !!feriadoInfo
-          if (isSunday || isHoliday) {
+          if (isSunday || isHoliday || registro.hora_extra_tipo === '100%') {
             totalExtra100 += registro.hora_extra_minutos
           } else {
             totalExtra50 += registro.hora_extra_minutos
           }
-        } else if (hasRealSaida && currentShift.presenca_saida_em) {
-          const realExit = new Date(currentShift.presenca_saida_em)
-
+        } else {
           const scheduledEntrance = new Date(`${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}:00-03:00`)
           const scheduledExit = new Date(`${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00-03:00`)
           if (scheduledExit <= scheduledEntrance) {
@@ -1227,12 +1241,26 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
             effectiveScheduledExit = new Date(`${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(releaseHour).padStart(2, '0')}:${String(releaseMin).padStart(2, '0')}:00-03:00`)
           }
 
-          if (realExit > effectiveScheduledExit) {
+          let evalExit: Date | null = null
+
+          if (hasRealSaida && realSaidaTime) {
+            evalExit = realSaidaTime
+          } else if (registro.saida) {
+            const [sH, sM] = registro.saida.split(':').map(Number)
+            evalExit = new Date(`${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(sH).padStart(2, '0')}:${String(sM).padStart(2, '0')}:00-03:00`)
+            if (sH < startHour || (sH === startHour && sM < startMin)) {
+              evalExit.setDate(evalExit.getDate() + 1)
+            }
+          } else if (extraMinutesScheduled > 0) {
+            evalExit = new Date(effectiveScheduledExit.getTime() + extraMinutesScheduled * 60 * 1000)
+          }
+
+          if (evalExit && evalExit > effectiveScheduledExit) {
             let extra50Min = 0
             let extra100Min = 0
 
             const current = new Date(effectiveScheduledExit.getTime())
-            const end = new Date(realExit.getTime())
+            const end = new Date(evalExit.getTime())
 
             while (current < end) {
               const localCurrent = new Date(current.getTime() - 3 * 60 * 60 * 1000)
@@ -1258,6 +1286,7 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
             }
 
             registro.hora_extra_minutos = extra50Min + extra100Min
+            registro.hora_extra_tipo = extra100Min > 0 ? '100%' : '50%'
             totalExtra50 += extra50Min
             totalExtra100 += extra100Min
           }
@@ -1398,12 +1427,11 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
     const currentMinute = nowLocal.getMinutes()
     const currentTotalMin = currentHour * 60 + currentMinute
 
-    // Fetch regular shifts from escala_diaria
+    // Fetch shifts from escala_diaria
     const { data: escalaDiaria, error: diError } = await supabase
       .from('escala_diaria')
-      .select('id, dia, dicionario_turnos_id, presenca_entrada_em, presenca_saida_em, presenca_confirmada, dicionario_turnos(codigo, slots)')
+      .select('id, dia, categoria, dicionario_turnos_id, presenca_entrada_em, presenca_saida_em, presenca_confirmada, dicionario_turnos(codigo, slots, horas_computadas)')
       .eq('escala_mensal_id', escala.id)
-      .eq('categoria', 'Regular')
 
     if (diError) throw diError
 
@@ -1414,13 +1442,13 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
       .eq('escala_mensal_id', escala.id)
 
     const currentShifts = escalaDiaria || []
-    const fingerprint = generateFingerprint(currentShifts)
+    const fingerprint = generateFingerprint(currentShifts.filter(d => d.categoria === 'Regular'))
 
     // Fetch holidays
     const startDate = `${ano}-${String(mes).padStart(2, '0')}-01`
     const daysInMonth = new Date(ano, mes, 0).getDate()
     const endDate = `${ano}-${String(mes).padStart(2, '0')}-${daysInMonth}`
-
+    
     const { data: feriados } = await supabase
       .from('feriados')
       .select('data, descricao')
@@ -1489,7 +1517,10 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
 
       const rawAfastamento = afastamentos?.find(af => dateStr >= af.data_inicio && dateStr <= af.data_fim)
       const feriadoInfo = feriados?.find(f => f.data === dateStr)
-      const shift = escalaDiaria?.find(ed => ed.dia === day)
+      const shift = escalaDiaria?.find(ed => ed.dia === day && ed.categoria === 'Regular')
+      const extraShift = escalaDiaria?.find(ed => ed.dia === day && ed.categoria === 'Extra')
+      const extraHoursScheduled = getExtraHoursFromShift(extraShift)
+      const extraMinutesScheduled = Math.round(extraHoursScheduled * 60)
       const afastamento = isShiftOverlappingAfastamento(rawAfastamento, shift) ? rawAfastamento : null
 
       // Check manual edits in existing record to preserve them
@@ -1593,11 +1624,19 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
           log.motivo_acionamento?.toLowerCase().includes('saida')
         )
 
-        const hasRealEntrada = !!shift.presenca_entrada_em && !isManualEntrada
-        const hasRealSaida = !!shift.presenca_saida_em && !isManualSaida
+        const dayShifts = escalaDiaria?.filter((d: any) => d.dia === day) || []
+        const allEntradas = dayShifts.map((s: any) => s.presenca_entrada_em).filter(Boolean)
+        const allSaidas = dayShifts.map((s: any) => s.presenca_saida_em).filter(Boolean)
+
+        const realEntradaTime = allEntradas.length > 0 ? new Date(Math.min(...allEntradas.map((t: any) => new Date(t).getTime()))) : null
+        const realSaidaTime = allSaidas.length > 0 ? new Date(Math.max(...allSaidas.map((t: any) => new Date(t).getTime()))) : null
+
+        const hasRealEntrada = realEntradaTime !== null && !isManualEntrada
+        const hasRealSaida = realSaidaTime !== null && !isManualSaida
 
         const officialEntradaMin = startHour * 60 + startMin
-        let officialSaidaMin = endHour * 60 + endMin
+        const baseOfficialSaidaMin = endHour * 60 + endMin
+        let officialSaidaMin = baseOfficialSaidaMin + extraMinutesScheduled
         let totalBrutoMin = officialSaidaMin - officialEntradaMin
         if (totalBrutoMin < 0) totalBrutoMin += 24 * 60
 
@@ -1625,13 +1664,11 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
         if (shouldPreserve && registroExistente?.origem_entrada === 'manual') {
           registro.entrada = registroExistente.entrada
           registro.origem_entrada = 'manual'
-        } else if (hasRealEntrada && shift.presenca_entrada_em) {
-          const d = new Date(shift.presenca_entrada_em)
-          registro.entrada = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+        } else if (hasRealEntrada && realEntradaTime) {
+          registro.entrada = realEntradaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_entrada = 'real'
-        } else if (isManualEntrada && shift.presenca_entrada_em) {
-          const d = new Date(shift.presenca_entrada_em)
-          registro.entrada = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+        } else if (isManualEntrada && realEntradaTime) {
+          registro.entrada = realEntradaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_entrada = 'manual'
         } else if (shouldGenerate(officialEntradaMin)) {
           let targetEntradaMin = officialEntradaMin
@@ -1648,13 +1685,11 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
         if (shouldPreserve && registroExistente?.origem_saida === 'manual') {
           registro.saida = registroExistente.saida
           registro.origem_saida = 'manual'
-        } else if (hasRealSaida && shift.presenca_saida_em) {
-          const d = new Date(shift.presenca_saida_em)
-          registro.saida = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+        } else if (hasRealSaida && realSaidaTime) {
+          registro.saida = realSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_saida = 'real'
-        } else if (isManualSaida && shift.presenca_saida_em) {
-          const d = new Date(shift.presenca_saida_em)
-          registro.saida = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+        } else if (isManualSaida && realSaidaTime) {
+          registro.saida = realSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_saida = 'manual'
         } else if (shouldGenerate(officialSaidaMin)) {
           let targetSaidaMin = officialSaidaMin
@@ -1709,21 +1744,19 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
           totalFaltas++
         }
 
-        // 4. Overtime Calculation (Real Exit only)
+        // 4. Overtime Calculation
         if (shouldPreserve && registroExistente && (registroExistente.origem_entrada === 'manual' || registroExistente.origem_saida === 'manual')) {
           registro.hora_extra_minutos = registroExistente.hora_extra_minutos || 0
           registro.hora_extra_tipo = registroExistente.hora_extra_tipo || null
           
           const isSunday = dateObj.getDay() === 0
           const isHoliday = !!feriadoInfo
-          if (isSunday || isHoliday) {
+          if (isSunday || isHoliday || registro.hora_extra_tipo === '100%') {
             totalExtra100 += registro.hora_extra_minutos
           } else {
             totalExtra50 += registro.hora_extra_minutos
           }
-        } else if (hasRealSaida && shift.presenca_saida_em) {
-          const realExit = new Date(shift.presenca_saida_em)
-
+        } else {
           const scheduledEntrance = new Date(`${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}:00-03:00`)
           const scheduledExit = new Date(`${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00-03:00`)
           if (scheduledExit <= scheduledEntrance) {
@@ -1737,12 +1770,26 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
             effectiveScheduledExit = new Date(`${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(releaseHour).padStart(2, '0')}:${String(releaseMin).padStart(2, '0')}:00-03:00`)
           }
 
-          if (realExit > effectiveScheduledExit) {
+          let evalExit: Date | null = null
+
+          if (hasRealSaida && realSaidaTime) {
+            evalExit = realSaidaTime
+          } else if (registro.saida) {
+            const [sH, sM] = registro.saida.split(':').map(Number)
+            evalExit = new Date(`${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(sH).padStart(2, '0')}:${String(sM).padStart(2, '0')}:00-03:00`)
+            if (sH < startHour || (sH === startHour && sM < startMin)) {
+              evalExit.setDate(evalExit.getDate() + 1)
+            }
+          } else if (extraMinutesScheduled > 0) {
+            evalExit = new Date(effectiveScheduledExit.getTime() + extraMinutesScheduled * 60 * 1000)
+          }
+
+          if (evalExit && evalExit > effectiveScheduledExit) {
             let extra50Min = 0
             let extra100Min = 0
 
             const current = new Date(effectiveScheduledExit.getTime())
-            const end = new Date(realExit.getTime())
+            const end = new Date(evalExit.getTime())
 
             while (current < end) {
               const localCurrent = new Date(current.getTime() - 3 * 60 * 60 * 1000)
@@ -1768,6 +1815,7 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
             }
 
             registro.hora_extra_minutos = extra50Min + extra100Min
+            registro.hora_extra_tipo = extra100Min > 0 ? '100%' : '50%'
             totalExtra50 += extra50Min
             totalExtra100 += extra100Min
           }

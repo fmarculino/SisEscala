@@ -107,7 +107,23 @@ function isShiftOverlappingAfastamento(afastamento: any, shift: any): boolean {
   if (!shift || !shift.dicionario_turnos) return false
   const shiftSlots = (shift.dicionario_turnos as any).slots || []
   return shiftSlots.some((s: string) => afastamento.slots.includes(s))
-}// List servers for a sector/month with their scale and folha status (unit and sector are optional)
+}
+
+function getExtraHoursFromShift(extraShift: any): number {
+  if (!extraShift || !extraShift.dicionario_turnos) return 0
+  const dt = extraShift.dicionario_turnos
+  const dtObj = Array.isArray(dt) ? dt[0] : dt
+  if (dtObj?.horas_computadas && Number(dtObj.horas_computadas) > 0) {
+    return Number(dtObj.horas_computadas)
+  }
+  if (dtObj?.codigo) {
+    const val = parseFloat(String(dtObj.codigo).replace(',', '.'))
+    if (!isNaN(val) && val > 0) return val
+  }
+  return 0
+}
+
+// List servers for a sector/month with their scale and folha status (unit and sector are optional)
 // ONLY includes servers with active scales for the selected competency
 export async function getServidoresFolhaPonto(mes: number, ano: number, unidadeId?: string, setorId?: string) {
   try {
@@ -394,8 +410,11 @@ export async function executeGerarFolhaPonto(
       // Check afastamento
       const rawAfastamento = afastamentos?.find((af: any) => dateStr >= af.data_inicio && dateStr <= af.data_fim)
       const shift = escalaDiaria?.find((ed: any) => ed.dia === day && ed.categoria === 'Regular')
+      const extraShift = escalaDiaria?.find((ed: any) => ed.dia === day && ed.categoria === 'Extra')
+      const extraHoursScheduled = getExtraHoursFromShift(extraShift)
+      const extraMinutesScheduled = Math.round(extraHoursScheduled * 60)
       const afastamento = isShiftOverlappingAfastamento(rawAfastamento, shift) ? rawAfastamento : null
-      
+
       // Check holiday
       const feriadoInfo = feriados?.find((f: any) => f.data === dateStr)
 
@@ -517,7 +536,8 @@ export async function executeGerarFolhaPonto(
 
         // Calculate official time markers (in minutes from midnight)
         const officialEntradaMin = startHour * 60 + startMin
-        let officialSaidaMin = endHour * 60 + endMin
+        const baseOfficialSaidaMin = endHour * 60 + endMin
+        let officialSaidaMin = baseOfficialSaidaMin + extraMinutesScheduled
         let totalBrutoMin = officialSaidaMin - officialEntradaMin
         if (totalBrutoMin < 0) {
           totalBrutoMin += 24 * 60
@@ -631,22 +651,19 @@ export async function executeGerarFolhaPonto(
           totalFaltas++
         }
 
-        // 4. Overtime Calculation (Real Exit only)
+        // 4. Overtime Calculation
         if (shouldPreserve && registroExistente && (registroExistente.origem_entrada === 'manual' || registroExistente.origem_saida === 'manual')) {
           registro.hora_extra_minutos = registroExistente.hora_extra_minutos || 0
           registro.hora_extra_tipo = registroExistente.hora_extra_tipo || null
           
           const isSunday = dateObj.getDay() === 0
           const isHoliday = !!feriadoInfo
-          if (isSunday || isHoliday) {
+          if (isSunday || isHoliday || registro.hora_extra_tipo === '100%') {
             totalExtra100 += registro.hora_extra_minutos
           } else {
             totalExtra50 += registro.hora_extra_minutos
           }
-        } else if (hasRealSaida && realSaidaTime) {
-          const realExit = realSaidaTime
-          
-          // Official scheduled exit timestamp
+        } else {
           const scheduledEntrance = new Date(`${resolvedAno}-${String(resolvedMes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}:00-03:00`)
           const scheduledExit = new Date(`${resolvedAno}-${String(resolvedMes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00-03:00`)
           if (scheduledExit <= scheduledEntrance) {
@@ -660,13 +677,26 @@ export async function executeGerarFolhaPonto(
             effectiveScheduledExit = new Date(`${resolvedAno}-${String(resolvedMes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(releaseHour).padStart(2, '0')}:${String(releaseMin).padStart(2, '0')}:00-03:00`)
           }
 
-          if (realExit > effectiveScheduledExit) {
-            // Calculate extra minutes minute-by-minute
+          let evalExit: Date | null = null
+
+          if (hasRealSaida && realSaidaTime) {
+            evalExit = realSaidaTime
+          } else if (registro.saida) {
+            const [sH, sM] = registro.saida.split(':').map(Number)
+            evalExit = new Date(`${resolvedAno}-${String(resolvedMes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(sH).padStart(2, '0')}:${String(sM).padStart(2, '0')}:00-03:00`)
+            if (sH < startHour || (sH === startHour && sM < startMin)) {
+              evalExit.setDate(evalExit.getDate() + 1)
+            }
+          } else if (extraMinutesScheduled > 0) {
+            evalExit = new Date(effectiveScheduledExit.getTime() + extraMinutesScheduled * 60 * 1000)
+          }
+
+          if (evalExit && evalExit > effectiveScheduledExit) {
             let extra50Min = 0
             let extra100Min = 0
             
             const current = new Date(effectiveScheduledExit.getTime())
-            const end = new Date(realExit.getTime())
+            const end = new Date(evalExit.getTime())
             
             while (current < end) {
               const localCurrent = new Date(current.getTime() - 3 * 60 * 60 * 1000)
@@ -693,6 +723,7 @@ export async function executeGerarFolhaPonto(
             }
 
             registro.hora_extra_minutos = extra50Min + extra100Min
+            registro.hora_extra_tipo = extra100Min > 0 ? '100%' : '50%'
             totalExtra50 += extra50Min
             totalExtra100 += extra100Min
           }
@@ -1052,6 +1083,9 @@ export async function sincronizarFolhaPonto(folhaId: string) {
       const horasNormaisDiarias = activeJornada === globalJornadaDetails ? globalHorasNormaisDiarias : (activeJornada?.horas_totais ?? 8)
 
       const currentShift = currentShifts.find(s => s.dia === day && s.categoria === 'Regular')
+      const extraShift = currentShifts.find(s => s.dia === day && s.categoria === 'Extra')
+      const extraHoursScheduled = getExtraHoursFromShift(extraShift)
+      const extraMinutesScheduled = Math.round(extraHoursScheduled * 60)
       const registroExistente = registrosExistentes.find(r => r.dia === day)
 
       // Check if this day's scale actually changed (shift presence vs existing record)
@@ -1179,7 +1213,8 @@ export async function sincronizarFolhaPonto(folhaId: string) {
         const hasRealSaida = realSaidaTime !== null && !isManualSaida
 
         const officialEntradaMin = startHour * 60 + startMin
-        let officialSaidaMin = endHour * 60 + endMin
+        const baseOfficialSaidaMin = endHour * 60 + endMin
+        let officialSaidaMin = baseOfficialSaidaMin + extraMinutesScheduled
         let totalBrutoMin = officialSaidaMin - officialEntradaMin
         if (totalBrutoMin < 0) totalBrutoMin += 24 * 60
         
@@ -1287,33 +1322,52 @@ export async function sincronizarFolhaPonto(folhaId: string) {
           totalFaltas++
         }
 
-        // 4. Overtime Calculation (Real Exit only)
+        // 4. Overtime Calculation
         if (shouldPreserve && registroExistente && (registroExistente.origem_entrada === 'manual' || registroExistente.origem_saida === 'manual')) {
           registro.hora_extra_minutos = registroExistente.hora_extra_minutos || 0
           registro.hora_extra_tipo = registroExistente.hora_extra_tipo || null
           
           const isSunday = dateObj.getDay() === 0
           const isHoliday = !!feriadoInfo
-          if (isSunday || isHoliday) {
+          if (isSunday || isHoliday || registro.hora_extra_tipo === '100%') {
             totalExtra100 += registro.hora_extra_minutos
           } else {
             totalExtra50 += registro.hora_extra_minutos
           }
-        } else if (hasRealSaida && realSaidaTime) {
-          const realExit = realSaidaTime
-          
+        } else {
           const scheduledEntrance = new Date(`${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}:00-03:00`)
           const scheduledExit = new Date(`${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00-03:00`)
           if (scheduledExit <= scheduledEntrance) {
             scheduledExit.setDate(scheduledExit.getDate() + 1)
           }
 
-          if (realExit > scheduledExit) {
+          let effectiveScheduledExit = scheduledExit
+          if (pfInfo && pfInfo.inicio_liberacao_em && pfInicioMin !== null && officialEntradaMin < pfInicioMin) {
+            const releaseHour = Math.floor(pfInicioMin / 60)
+            const releaseMin = pfInicioMin % 60
+            effectiveScheduledExit = new Date(`${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(releaseHour).padStart(2, '0')}:${String(releaseMin).padStart(2, '0')}:00-03:00`)
+          }
+
+          let evalExit: Date | null = null
+
+          if (hasRealSaida && realSaidaTime) {
+            evalExit = realSaidaTime
+          } else if (registro.saida) {
+            const [sH, sM] = registro.saida.split(':').map(Number)
+            evalExit = new Date(`${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(sH).padStart(2, '0')}:${String(sM).padStart(2, '0')}:00-03:00`)
+            if (sH < startHour || (sH === startHour && sM < startMin)) {
+              evalExit.setDate(evalExit.getDate() + 1)
+            }
+          } else if (extraMinutesScheduled > 0) {
+            evalExit = new Date(effectiveScheduledExit.getTime() + extraMinutesScheduled * 60 * 1000)
+          }
+
+          if (evalExit && evalExit > effectiveScheduledExit) {
             let extra50Min = 0
             let extra100Min = 0
             
-            const current = new Date(scheduledExit.getTime())
-            const end = new Date(realExit.getTime())
+            const current = new Date(effectiveScheduledExit.getTime())
+            const end = new Date(evalExit.getTime())
             
             while (current < end) {
               const localCurrent = new Date(current.getTime() - 3 * 60 * 60 * 1000)
@@ -1324,7 +1378,12 @@ export async function sincronizarFolhaPonto(folhaId: string) {
               const isHoliday = feriadosSet.has(curDateStr)
               const isNight = curHour >= 22 || curHour < 5
 
-              if (isSunday || isHoliday || isNight) {
+              const isPFLiberado = pfInfo && (
+                (pfInfo.inicio_liberacao_em && pfInicioMin !== null && (localCurrent.getUTCHours() * 60 + localCurrent.getUTCMinutes()) >= pfInicioMin) ||
+                (pfInfo.fim_liberacao_em && pfFimMin !== null && (localCurrent.getUTCHours() * 60 + localCurrent.getUTCMinutes()) < pfFimMin)
+              )
+
+              if (isSunday || isHoliday || isNight || (isPFLiberado && pfInfo && pfInfo.gera_he_para_essenciais)) {
                 extra100Min++
               } else {
                 extra50Min++
@@ -1334,6 +1393,7 @@ export async function sincronizarFolhaPonto(folhaId: string) {
             }
 
             registro.hora_extra_minutos = extra50Min + extra100Min
+            registro.hora_extra_tipo = extra100Min > 0 ? '100%' : '50%'
             totalExtra50 += extra50Min
             totalExtra100 += extra100Min
           }
