@@ -43,22 +43,14 @@ export async function updateSession(request: NextRequest) {
     !request.nextUrl.pathname.startsWith('/resetar-senha') &&
     !request.nextUrl.pathname.startsWith('/sobreaviso') &&
     !request.nextUrl.pathname.startsWith('/presenca') &&
-    !request.nextUrl.pathname.startsWith('/consultar-escala')
+    !request.nextUrl.pathname.startsWith('/consultar-escala') &&
+    !request.nextUrl.pathname.startsWith('/api/templates')
   ) {
     // no user, potentially respond by redirecting the user to the login page
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
   }
-
-  // IMPORTANT: You *must* return the supabaseResponse object as is. If you're creating a
-  // new response object with NextResponse.next() make sure to:
-  // 1. Pass the request in it, like so:
-  //    const myNewResponse = NextResponse.next({ request })
-  // 2. Copy over the cookies, like so:
-  //    myNewResponse.cookies.setAll(supabaseResponse.cookies.getAll())
-  // 3. Change the myNewResponse object to fit your needs, but avoid mutating
-  //    the supabaseResponse object directly, else you may cause unexpected behavior.
 
   return supabaseResponse
 }
