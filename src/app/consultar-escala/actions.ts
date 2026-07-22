@@ -1209,7 +1209,7 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
           }
         }
 
-        // Preserve manual observation if needed
+      // Preserve manual observation if needed
         if (shouldPreserve && registroExistente && (
           registroExistente.observacao.includes('FALTA') ||
           registroExistente.observacao.includes('MANUAL')
@@ -1222,78 +1222,68 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
         }
 
         // 4. Overtime Calculation
-        if (shouldPreserve && registroExistente && (registroExistente.origem_entrada === 'manual' || registroExistente.origem_saida === 'manual')) {
-          registro.hora_extra_minutos = registroExistente.hora_extra_minutos || 0
-          registro.hora_extra_tipo = registroExistente.hora_extra_tipo || null
-          
-          const isSunday = dateObj.getDay() === 0
-          const isHoliday = !!feriadoInfo
-          if (isSunday || isHoliday || registro.hora_extra_tipo === '100%') {
-            totalExtra100 += registro.hora_extra_minutos
-          } else {
-            totalExtra50 += registro.hora_extra_minutos
+        const scheduledEntrance = new Date(`${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}:00-03:00`)
+        const scheduledExit = new Date(`${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00-03:00`)
+        if (scheduledExit <= scheduledEntrance) {
+          scheduledExit.setDate(scheduledExit.getDate() + 1)
+        }
+
+        let effectiveScheduledExit = scheduledExit
+        if (pfInfo && pfInfo.inicio_liberacao_em && pfInicioMin !== null && officialEntradaMin < pfInicioMin) {
+          const releaseHour = Math.floor(pfInicioMin / 60)
+          const releaseMin = pfInicioMin % 60
+          effectiveScheduledExit = new Date(`${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(releaseHour).padStart(2, '0')}:${String(releaseMin).padStart(2, '0')}:00-03:00`)
+        }
+
+        let evalExit: Date | null = null
+
+        if (hasRealSaida && realSaidaTime) {
+          evalExit = realSaidaTime
+        } else if (registro.saida) {
+          const [sH, sM] = registro.saida.split(':').map(Number)
+          evalExit = new Date(`${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(sH).padStart(2, '0')}:${String(sM).padStart(2, '0')}:00-03:00`)
+          if (sH < startHour || (sH === startHour && sM < startMin)) {
+            evalExit.setDate(evalExit.getDate() + 1)
           }
+        }
+
+        if (evalExit && evalExit > effectiveScheduledExit) {
+          let extra50Min = 0
+          let extra100Min = 0
+
+          const current = new Date(effectiveScheduledExit.getTime())
+          const end = new Date(evalExit.getTime())
+
+          while (current < end) {
+            const localCurrent = new Date(current.getTime() - 3 * 60 * 60 * 1000)
+            const curHour = localCurrent.getUTCHours()
+            const curDayOfWeek = localCurrent.getUTCDay()
+            const curDateStr = `${localCurrent.getUTCFullYear()}-${String(localCurrent.getUTCMonth() + 1).padStart(2, '0')}-${String(localCurrent.getUTCDate()).padStart(2, '0')}`
+            const isSunday = curDayOfWeek === 0
+            const isHoliday = feriadosSet.has(curDateStr)
+            const isNight = curHour >= 22 || curHour < 5
+
+            const isPFLiberado = pfInfo && (
+              (pfInfo.inicio_liberacao_em && pfInicioMin !== null && (localCurrent.getUTCHours() * 60 + localCurrent.getUTCMinutes()) >= pfInicioMin) ||
+              (pfInfo.fim_liberacao_em && pfFimMin !== null && (localCurrent.getUTCHours() * 60 + localCurrent.getUTCMinutes()) < pfFimMin)
+            )
+
+            if (isSunday || isHoliday || isNight || (isPFLiberado && pfInfo && pfInfo.gera_he_para_essenciais)) {
+              extra100Min++
+            } else {
+              extra50Min++
+            }
+
+            current.setMinutes(current.getMinutes() + 1)
+          }
+
+          registro.hora_extra_minutos = extra50Min + extra100Min
+          registro.hora_extra_tipo = extra100Min > 0 ? '100%' : '50%'
+          totalExtra50 += extra50Min
+          totalExtra100 += extra100Min
         } else {
-          const scheduledEntrance = new Date(`${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}:00-03:00`)
-          const scheduledExit = new Date(`${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00-03:00`)
-          if (scheduledExit <= scheduledEntrance) {
-            scheduledExit.setDate(scheduledExit.getDate() + 1)
-          }
-
-          let effectiveScheduledExit = scheduledExit
-          if (pfInfo && pfInfo.inicio_liberacao_em && pfInicioMin !== null && officialEntradaMin < pfInicioMin) {
-            const releaseHour = Math.floor(pfInicioMin / 60)
-            const releaseMin = pfInicioMin % 60
-            effectiveScheduledExit = new Date(`${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(releaseHour).padStart(2, '0')}:${String(releaseMin).padStart(2, '0')}:00-03:00`)
-          }
-
-          let evalExit: Date | null = null
-
-          if (hasRealSaida && realSaidaTime) {
-            evalExit = realSaidaTime
-          } else if (registro.saida) {
-            const [sH, sM] = registro.saida.split(':').map(Number)
-            evalExit = new Date(`${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(sH).padStart(2, '0')}:${String(sM).padStart(2, '0')}:00-03:00`)
-            if (sH < startHour || (sH === startHour && sM < startMin)) {
-              evalExit.setDate(evalExit.getDate() + 1)
-            }
-          }
-
-          if (evalExit && evalExit > effectiveScheduledExit) {
-            let extra50Min = 0
-            let extra100Min = 0
-
-            const current = new Date(effectiveScheduledExit.getTime())
-            const end = new Date(evalExit.getTime())
-
-            while (current < end) {
-              const localCurrent = new Date(current.getTime() - 3 * 60 * 60 * 1000)
-              const curHour = localCurrent.getUTCHours()
-              const curDayOfWeek = localCurrent.getUTCDay()
-              const curDateStr = `${localCurrent.getUTCFullYear()}-${String(localCurrent.getUTCMonth() + 1).padStart(2, '0')}-${String(localCurrent.getUTCDate()).padStart(2, '0')}`
-              const isSunday = curDayOfWeek === 0
-              const isHoliday = feriadosSet.has(curDateStr)
-              const isNight = curHour >= 22 || curHour < 5
-
-              const isPFLiberado = pfInfo && (
-                (pfInfo.inicio_liberacao_em && pfInicioMin !== null && (localCurrent.getUTCHours() * 60 + localCurrent.getUTCMinutes()) >= pfInicioMin) ||
-                (pfInfo.fim_liberacao_em && pfFimMin !== null && (localCurrent.getUTCHours() * 60 + localCurrent.getUTCMinutes()) < pfFimMin)
-              )
-
-              if (isSunday || isHoliday || isNight || (isPFLiberado && pfInfo && pfInfo.gera_he_para_essenciais)) {
-                extra100Min++
-              } else {
-                extra50Min++
-              }
-
-              current.setMinutes(current.getMinutes() + 1)
-            }
-
-            registro.hora_extra_minutos = extra50Min + extra100Min
-            registro.hora_extra_tipo = extra100Min > 0 ? '100%' : '50%'
-            totalExtra50 += extra50Min
-            totalExtra100 += extra100Min
-          }
+          registro.hora_extra_minutos = 0
+          registro.hora_extra_tipo = null
         }
       }
 
@@ -1749,78 +1739,68 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
         }
 
         // 4. Overtime Calculation
-        if (shouldPreserve && registroExistente && (registroExistente.origem_entrada === 'manual' || registroExistente.origem_saida === 'manual')) {
-          registro.hora_extra_minutos = registroExistente.hora_extra_minutos || 0
-          registro.hora_extra_tipo = registroExistente.hora_extra_tipo || null
-          
-          const isSunday = dateObj.getDay() === 0
-          const isHoliday = !!feriadoInfo
-          if (isSunday || isHoliday || registro.hora_extra_tipo === '100%') {
-            totalExtra100 += registro.hora_extra_minutos
-          } else {
-            totalExtra50 += registro.hora_extra_minutos
+        const scheduledEntrance = new Date(`${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}:00-03:00`)
+        const scheduledExit = new Date(`${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00-03:00`)
+        if (scheduledExit <= scheduledEntrance) {
+          scheduledExit.setDate(scheduledExit.getDate() + 1)
+        }
+
+        let effectiveScheduledExit = scheduledExit
+        if (pfInfo && pfInfo.inicio_liberacao_em && pfInicioMin !== null && officialEntradaMin < pfInicioMin) {
+          const releaseHour = Math.floor(pfInicioMin / 60)
+          const releaseMin = pfInicioMin % 60
+          effectiveScheduledExit = new Date(`${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(releaseHour).padStart(2, '0')}:${String(releaseMin).padStart(2, '0')}:00-03:00`)
+        }
+
+        let evalExit: Date | null = null
+
+        if (hasRealSaida && realSaidaTime) {
+          evalExit = realSaidaTime
+        } else if (registro.saida) {
+          const [sH, sM] = registro.saida.split(':').map(Number)
+          evalExit = new Date(`${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(sH).padStart(2, '0')}:${String(sM).padStart(2, '0')}:00-03:00`)
+          if (sH < startHour || (sH === startHour && sM < startMin)) {
+            evalExit.setDate(evalExit.getDate() + 1)
           }
+        }
+
+        if (evalExit && evalExit > effectiveScheduledExit) {
+          let extra50Min = 0
+          let extra100Min = 0
+
+          const current = new Date(effectiveScheduledExit.getTime())
+          const end = new Date(evalExit.getTime())
+
+          while (current < end) {
+            const localCurrent = new Date(current.getTime() - 3 * 60 * 60 * 1000)
+            const curHour = localCurrent.getUTCHours()
+            const curDayOfWeek = localCurrent.getUTCDay()
+            const curDateStr = `${localCurrent.getUTCFullYear()}-${String(localCurrent.getUTCMonth() + 1).padStart(2, '0')}-${String(localCurrent.getUTCDate()).padStart(2, '0')}`
+            const isSunday = curDayOfWeek === 0
+            const isHoliday = feriadosSet.has(curDateStr)
+            const isNight = curHour >= 22 || curHour < 5
+
+            const isPFLiberado = pfInfo && (
+              (pfInfo.inicio_liberacao_em && pfInicioMin !== null && (localCurrent.getUTCHours() * 60 + localCurrent.getUTCMinutes()) >= pfInicioMin) ||
+              (pfInfo.fim_liberacao_em && pfFimMin !== null && (localCurrent.getUTCHours() * 60 + localCurrent.getUTCMinutes()) < pfFimMin)
+            )
+
+            if (isSunday || isHoliday || isNight || (isPFLiberado && pfInfo && pfInfo.gera_he_para_essenciais)) {
+              extra100Min++
+            } else {
+              extra50Min++
+            }
+
+            current.setMinutes(current.getMinutes() + 1)
+          }
+
+          registro.hora_extra_minutos = extra50Min + extra100Min
+          registro.hora_extra_tipo = extra100Min > 0 ? '100%' : '50%'
+          totalExtra50 += extra50Min
+          totalExtra100 += extra100Min
         } else {
-          const scheduledEntrance = new Date(`${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}:00-03:00`)
-          const scheduledExit = new Date(`${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00-03:00`)
-          if (scheduledExit <= scheduledEntrance) {
-            scheduledExit.setDate(scheduledExit.getDate() + 1)
-          }
-
-          let effectiveScheduledExit = scheduledExit
-          if (pfInfo && pfInfo.inicio_liberacao_em && pfInicioMin !== null && officialEntradaMin < pfInicioMin) {
-            const releaseHour = Math.floor(pfInicioMin / 60)
-            const releaseMin = pfInicioMin % 60
-            effectiveScheduledExit = new Date(`${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(releaseHour).padStart(2, '0')}:${String(releaseMin).padStart(2, '0')}:00-03:00`)
-          }
-
-          let evalExit: Date | null = null
-
-          if (hasRealSaida && realSaidaTime) {
-            evalExit = realSaidaTime
-          } else if (registro.saida) {
-            const [sH, sM] = registro.saida.split(':').map(Number)
-            evalExit = new Date(`${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(sH).padStart(2, '0')}:${String(sM).padStart(2, '0')}:00-03:00`)
-            if (sH < startHour || (sH === startHour && sM < startMin)) {
-              evalExit.setDate(evalExit.getDate() + 1)
-            }
-          }
-
-          if (evalExit && evalExit > effectiveScheduledExit) {
-            let extra50Min = 0
-            let extra100Min = 0
-
-            const current = new Date(effectiveScheduledExit.getTime())
-            const end = new Date(evalExit.getTime())
-
-            while (current < end) {
-              const localCurrent = new Date(current.getTime() - 3 * 60 * 60 * 1000)
-              const curHour = localCurrent.getUTCHours()
-              const curDayOfWeek = localCurrent.getUTCDay()
-              const curDateStr = `${localCurrent.getUTCFullYear()}-${String(localCurrent.getUTCMonth() + 1).padStart(2, '0')}-${String(localCurrent.getUTCDate()).padStart(2, '0')}`
-              const isSunday = curDayOfWeek === 0
-              const isHoliday = feriadosSet.has(curDateStr)
-              const isNight = curHour >= 22 || curHour < 5
-
-              const isPFLiberado = pfInfo && (
-                (pfInfo.inicio_liberacao_em && pfInicioMin !== null && (localCurrent.getUTCHours() * 60 + localCurrent.getUTCMinutes()) >= pfInicioMin) ||
-                (pfInfo.fim_liberacao_em && pfFimMin !== null && (localCurrent.getUTCHours() * 60 + localCurrent.getUTCMinutes()) < pfFimMin)
-              )
-
-              if (isSunday || isHoliday || isNight || (isPFLiberado && pfInfo && pfInfo.gera_he_para_essenciais)) {
-                extra100Min++
-              } else {
-                extra50Min++
-              }
-
-              current.setMinutes(current.getMinutes() + 1)
-            }
-
-            registro.hora_extra_minutos = extra50Min + extra100Min
-            registro.hora_extra_tipo = extra100Min > 0 ? '100%' : '50%'
-            totalExtra50 += extra50Min
-            totalExtra100 += extra100Min
-          }
+          registro.hora_extra_minutos = 0
+          registro.hora_extra_tipo = null
         }
       }
 
