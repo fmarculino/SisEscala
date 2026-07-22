@@ -109,6 +109,7 @@ export default async function DashboardHome() {
 
   // For the chart, fetch escala_diaria for past 3 months
   const historicalPromises = months.map(async (m) => {
+    const isCurrentMonth = m.mes === currentMonth && m.ano === currentYear
     let q = supabase.from('escala_diaria').select(`
       categoria,
       dicionario_turnos(horas_computadas),
@@ -116,7 +117,12 @@ export default async function DashboardHome() {
     `)
       .eq('escala_mensal.mes', m.mes)
       .eq('escala_mensal.ano', m.ano)
-      .eq('escala_mensal.status', 'Fechada')
+    
+    // For past months, require 'Fechada' status. For current month, include real-time ongoing scales!
+    if (!isCurrentMonth) {
+      q = q.eq('escala_mensal.status', 'Fechada')
+    }
+
     q = applyAccessFilters(q, userProfile, { unidadeField: 'escala_mensal.unidade_id', setorField: 'escala_mensal.setor_id' })
     const { data } = await q
     return { ...m, data: data || [] }
