@@ -936,6 +936,12 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
       .eq('servidor_id', folha.servidor_id)
       .or(`data_inicio.lte.${endDate},data_fim.gte.${startDate}`)
 
+    // Parse Jornada
+    const globalJornadaDetails = escala.jornadas ? (escala.jornadas as any) : null
+    const globalJornada = parseJornadaNome(globalJornadaDetails?.nome || '')
+    const globalIntervaloMinutos = globalJornadaDetails?.intervalo_minutos ?? 60
+    const globalHorasNormaisDiarias = globalJornadaDetails?.horas_totais ?? 8
+
     // Fetch tolerance
     const { data: configVar } = await supabase
       .from('configuracoes_globais')
