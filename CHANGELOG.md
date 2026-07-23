@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.12.0] - 2026-07-23
+
+### Added
+- **Módulo de Solicitações de Férias e Licenças (`/ferias-licencas`)**:
+  - Nova tabela no banco de dados `public.solicitacoes_ferias_licencas` com migration Supabase (`20260724000000_add_solicitacoes_ferias_licencas.sql`) e políticas de segurança RLS para controle de acesso por unidade e servidor.
+  - Server actions para submissão, listagem, aprovação e indeferimento de requerimentos de férias, licenças médicas, licenças prêmio e outros afastamentos.
+  - Interface interativa de acompanhamento com busca, estatísticas e gerenciamento de solicitações por status (*Pendente*, *Aprovada*, *Indeferida*, *Cancelada*).
+  - **Componente de Impressão Timbrada (`RequerimentoPrintView.tsx`)**: Gerador de formulários oficiais com marca d'água municipal, timbre da Prefeitura de Marabá / SMS, cálculo exato de dias corridos, campos de assinatura física/digital e espaços para despachos administrativos da chefia e do RH.
+- **Dados Complementares dos Servidores (`/servidores`, `DadosComplementaresModal.tsx`)**:
+  - Tabela `public.servidores_dados_complementares` com suporte a migração de esquema.
+  - Formulário modal com suporte a dados bancários (Banco, Agência, Conta, Tipo de Conta, Chave PIX), contatos de emergência (Nome, Parentesco, Telefone), endereço residencial completo, PIS/PASEP, Título de Eleitor (Zona/Seção) e Registro no Conselho de Classe.
+- **Portal do Servidor e Consulta de Escalas Client-Side (`ConsultarEscalaClient.tsx`)**:
+  - Reformulação da experiência de consulta de escala pelo servidor (`/consultar-escala`) com suporte a busca por CPF/Matrícula e validação via PIN de 4 dígitos.
+  - Solicitação autenticada de permutas/trocas de plantão com seleção de substituto e justificativa direta no portal.
+  - Exibição integrada de espelho de ponto e frequência mensal para conferência rápida do servidor.
+- **Serviços de Processamento de Folha de Ponto**:
+  - Server actions para fechamento, conferência e exportação de folhas de ponto (`/folha-ponto`) com integração ao componente `UnitClient`.
+
 ## [1.11.0] - 2026-07-22
 
 ### Added

@@ -1,4 +1,4 @@
-# SisEscala 📅[![Version](https://img.shields.io/badge/version-1.11.0-green.svg)](https://github.com/fmarculino/SisEscala)
+# SisEscala 📅[![Version](https://img.shields.io/badge/version-1.12.0-green.svg)](https://github.com/fmarculino/SisEscala)
 [![Next.js](https://img.shields.io/badge/framework-Next.js%2015-black.svg)](https://nextjs.org/)
 [![Supabase](https://img.shields.io/badge/backend-Supabase-green.svg)](https://supabase.com/)
 [![Tailwind CSS](https://img.shields.io/badge/styling-Tailwind%20CSS-38B2AC.svg)](https://tailwindcss.com/)
@@ -10,6 +10,15 @@ O sistema foca em **governança, segurança jurídica e eficiência operacional*
 ---
 
 ## 🚀 Principais Funcionalidades
+
+### 🏖️ Gestão de Férias, Licenças & Requerimentos Oficiais
+- **Solicitações Digitais de Férias e Licenças (`/ferias-licencas`)**: Módulo dedicado para abertura, tramitação e aprovação de requerimentos de férias, licença prêmio, licença médica, entre outros.
+- **Impressão Timbrada de Requerimentos (`RequerimentoPrintView`)**: Gerador de formulário timbrado oficial com cabeçalho municipal, dados do servidor, período solicitado, assinatura digital/física e despachos da chefia imediata e RH para formalização em PDF.
+- **Histórico e Validação Automática**: Controle de status (Pendente, Aprovada, Indeferida, Cancelada) e cálculo dinâmico de dias de afastamento com sincronização no calendário de escalas.
+
+### 👤 Dados Complementares do Servidor & Dados Bancários
+- **Ficha Cadastral Ampliada (`servidores_dados_complementares`)**: Gerenciamento de informações bancárias (Banco, Agência, Conta, Tipo de Conta e Chave PIX) para folha de pagamento.
+- **Registro de Documentos e Emergência**: Coleta de PIS/PASEP, Título de Eleitor (Zona/Seção), registro no Conselho de Classe (CRM, COREN, etc.), endereço residencial completo e contatos de emergência.
 
 ### 🔐 Autenticação, Segurança & Recuperação de Senha
 - **Recuperação de Senha PKCE**: Fluxo seguro de recuperação de senha via e-mail utilizando PKCE (`/auth/callback` e `/resetar-senha`) integrado com Supabase Auth.
@@ -43,10 +52,10 @@ O sistema foca em **governança, segurança jurídica e eficiência operacional*
 - **Dashboard de Performance**: Painel estatístico com gráficos dinâmicos de plantões extras e taxas de acionamento/resposta de sobreavisos por período, facilitando decisões de dimensionamento de pessoal pelo RH.
 - **Filtros Modulares**: Sistema integrado de busca e refinamento por data, servidor, cargo, unidade e setor em todo o módulo de relatórios.
 
-### 🔄 Portal do Servidor (Autoatendimento)
-- **Consulta em Tempo Real**: O servidor acessa sua escala individual via PIN ou matrícula.
-- **Trocas de Plantão**: Fluxo completo de solicitação de trocas com justificativa e aprovação por coordenadores.
-- **Notificações**: Status de solicitações (Aprovado/Rejeitado) visíveis instantaneamente.
+### 🔄 Portal do Servidor & Consulta de Escala (`ConsultarEscalaClient`)
+- **Consulta Autenticada via PIN**: O servidor acessa sua escala individual e espelho de folha de ponto utilizando sua Matrícula/CPF e PIN individual de segurança.
+- **Solicitação de Trocas de Plantão**: Fluxo interativo no portal para pedido de substituição/permuta com validação em tempo real e encaminhamento para aprovação da coordenação.
+- **Notificações**: Status de solicitações (Aprovado/Rejeitado) visíveis instantaneamente no painel do servidor.
 
 ### 🕒 Controle de Presença (Ponto Digital)
 - **Check-in/Check-out**: Registro de entrada e saída via PIN com geolocalização (GPS).
