@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { FileText, Loader2, Search, Building2, Layers, Calendar, ChevronRight, Play, RefreshCw, AlertCircle, Printer } from 'lucide-react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { applyAccessFilters } from '@/utils/permissions'
 import { getServidoresFolhaPonto, gerarFolhaPonto, gerarFolhasEmLote, getFolhasPontoPrintData } from './actions'
 import { Modal } from '@/components/ui/Modal'
@@ -11,6 +12,7 @@ import { formatSectorsHierarchy } from '@/utils/sectors'
 
 export default function FolhaPontoPage() {
   const supabase = createClient()
+  const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [loadingServidores, setLoadingServidores] = useState(false)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
@@ -745,8 +747,20 @@ export default function FolhaPontoPage() {
                   const hasFolha = s.folha_id !== null
 
                   return (
-                    <tr key={s.servidor_id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
-                      <td className="px-6 py-4">
+                    <tr 
+                      key={s.servidor_id} 
+                      onClick={() => {
+                        if (hasFolha) {
+                          router.push(`/folha-ponto/${s.folha_id}`)
+                        }
+                      }}
+                      className={`group transition-colors ${
+                        hasFolha 
+                          ? 'cursor-pointer hover:bg-blue-50/50 dark:hover:bg-blue-900/10' 
+                          : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/30'
+                      }`}
+                    >
+                      <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
                         {hasFolha ? (
                           <input 
                             type="checkbox"
@@ -773,7 +787,9 @@ export default function FolhaPontoPage() {
                         )}
                       </td>
                       <td className="px-6 py-4">
-                        <div className="font-black text-zinc-900 dark:text-white uppercase tracking-tighter text-sm">
+                        <div className={`font-black text-zinc-900 dark:text-white uppercase tracking-tighter text-sm transition-colors ${
+                          hasFolha ? 'group-hover:text-blue-600 dark:group-hover:text-blue-400 group-hover:underline' : ''
+                        }`}>
                           {s.nome}
                         </div>
                         <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-tight mt-0.5">
@@ -824,7 +840,7 @@ export default function FolhaPontoPage() {
                           {hasFolha ? s.total_faltas : '---'}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-center">
+                      <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-center gap-2">
                           {hasFolha ? (
                             <Link 
