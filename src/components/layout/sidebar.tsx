@@ -8,7 +8,8 @@ import {
   LayoutDashboard, Users, Building2, Clock, ShieldCheck, 
   Calendar, Layers, Shield, User, Briefcase, CalendarDays, 
   ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
-  Settings, Database, Lock, FileText, Activity, HelpCircle, BookOpen
+  Settings, Database, Lock, FileText, Activity, HelpCircle, BookOpen,
+  Palmtree
 } from 'lucide-react'
 import { LogoutButton } from './LogoutButton'
 import { ThemeToggle } from '../ThemeToggle'
@@ -39,6 +40,7 @@ const menuGroups: MenuGroup[] = [
     items: [
       { name: 'Escalas', href: '/escalas', icon: Calendar },
       { name: 'Afastamentos', href: '/afastamentos', icon: CalendarDays },
+      { name: 'Férias e Licenças', href: '/ferias-licencas', icon: Palmtree },
       { name: 'Folha de Ponto', href: '/folha-ponto', icon: FileText },
     ]
   },

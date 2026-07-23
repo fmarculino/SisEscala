@@ -4,9 +4,10 @@ import { useState, useEffect, useMemo } from 'react'
 import { validatePin, getServidorEscalas, logoutPortal, findServidorByMatricula, getEscalaDetails, createSwapRequest, getSwapRequests, cancelSwapRequest, getFolhaPontoServidor, salvarFolhaPontoServidor, verificarDivergenciaEscalaServidor, sincronizarFolhaPontoServidor, gerarFolhaPontoServidor, checkFolhaPontoHabilitada } from './actions'
 import { FolhaPontoEditor } from '@/app/(dashboard)/folha-ponto/[id]/FolhaPontoEditor'
 import { createClient } from '@/utils/supabase/client'
-import { Loader2, Calendar, FileText, LogOut, Search, Lock, User, ArrowRightLeft, X, Eye, EyeOff, Printer } from 'lucide-react'
+import { Loader2, Calendar, FileText, LogOut, Search, Lock, User, ArrowRightLeft, X, Eye, EyeOff, Printer, Palmtree } from 'lucide-react'
 import { ScalePrintView } from '@/components/ScalePrintView'
 import { PortalScaleGrid } from '@/app/consultar-escala/PortalScaleGrid'
+import { PortalFeriasLicencasSection } from '@/app/consultar-escala/PortalFeriasLicencasSection'
 
 interface ConsultarEscalaClientProps {
   initialServidor: any | null
@@ -23,7 +24,7 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
 
   // Timesheet module integration states
   const [folhaHabilitada, setFolhaHabilitada] = useState(false)
-  const [viewMode, setViewMode] = useState<'escala' | 'folha'>('escala')
+  const [viewMode, setViewMode] = useState<'escala' | 'folha' | 'ferias'>('escala')
   const [folhaData, setFolhaData] = useState<any | null>(null)
   const [loadingFolha, setLoadingFolha] = useState(false)
   const [generatingPortalFolha, setGeneratingPortalFolha] = useState(false)
@@ -510,51 +511,61 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
         <div className="lg:col-span-3 print:w-full print:block print:p-0">
           {loadingEscala ? (
 <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800">
+            <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800">
               <Loader2 className="h-10 w-10 animate-spin text-blue-600 mb-4" />
               <p className="text-zinc-500">Carregando detalhes da escala...</p>
             </div>
           ) : fullEscalaData ? (
              <div className="space-y-4">
                 <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center bg-white dark:bg-zinc-900 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 gap-4 print:hidden">
-                     {folhaHabilitada ? (
-                       <div className="flex bg-zinc-100 dark:bg-zinc-800 p-1 rounded-xl w-fit">
-                         <button
-                           onClick={() => setViewMode('escala')}
-                           className={`px-4 py-2 text-xs font-black uppercase rounded-lg transition-all ${
-                             viewMode === 'escala'
-                               ? 'bg-white dark:bg-zinc-900 text-blue-600 shadow-sm'
-                               : 'text-zinc-500 hover:text-zinc-850 dark:hover:text-zinc-300'
-                           }`}
-                         >
-                           📅 Escala
-                         </button>
-                         <button
-                           onClick={handleViewFolha}
-                           className={`px-4 py-2 text-xs font-black uppercase rounded-lg transition-all ${
-                             viewMode === 'folha'
-                               ? 'bg-white dark:bg-zinc-900 text-blue-600 shadow-sm'
-                               : 'text-zinc-500 hover:text-zinc-850 dark:hover:text-zinc-300'
-                           }`}
-                         >
-                           📄 Folha de Ponto
-                         </button>
-                       </div>
-                     ) : (
-                       <div className="flex items-center gap-2">
-                         <span className="w-3 h-3 rounded-full bg-green-500 animate-pulse"></span>
-                         <span className="text-sm font-bold uppercase text-zinc-900 dark:text-white">Escala Liberada para Consulta</span>
-                       </div>
-                     )}
-                     
-                     {viewMode === 'escala' && (
-                       <button 
-                         onClick={() => window.print()}
-                         className="flex items-center justify-center gap-2 bg-zinc-900 dark:bg-white text-white dark:text-black px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider hover:opacity-90 transition-all shadow-md"
-                       >
-                         <Printer className="h-4 w-4" /> Imprimir Escala
-                       </button>
-                     )}
-                  </div>
+                        <div className="flex bg-zinc-100 dark:bg-zinc-800 p-1 rounded-xl w-fit flex-wrap gap-1">
+                          <button
+                            onClick={() => setViewMode('escala')}
+                            className={`px-4 py-2 text-xs font-black uppercase rounded-lg transition-all ${
+                              viewMode === 'escala'
+                                ? 'bg-white dark:bg-zinc-900 text-blue-600 shadow-sm'
+                                : 'text-zinc-500 hover:text-zinc-850 dark:hover:text-zinc-300'
+                            }`}
+                          >
+                            📅 Escala
+                          </button>
+                          {folhaHabilitada && (
+                            <button
+                              onClick={handleViewFolha}
+                              className={`px-4 py-2 text-xs font-black uppercase rounded-lg transition-all ${
+                                viewMode === 'folha'
+                                  ? 'bg-white dark:bg-zinc-900 text-blue-600 shadow-sm'
+                                  : 'text-zinc-500 hover:text-zinc-850 dark:hover:text-zinc-300'
+                              }`}
+                            >
+                              📄 Folha de Ponto
+                            </button>
+                          )}
+                          <button
+                            onClick={() => setViewMode('ferias')}
+                            className={`px-4 py-2 text-xs font-black uppercase rounded-lg transition-all ${
+                              viewMode === 'ferias'
+                                ? 'bg-white dark:bg-zinc-900 text-emerald-600 shadow-sm'
+                                : 'text-zinc-500 hover:text-zinc-850 dark:hover:text-zinc-300'
+                            }`}
+                          >
+                            🏖️ Férias e Licenças
+                          </button>
+                        </div>
+                      
+                      {viewMode === 'escala' && (
+                        <button 
+                          onClick={() => window.print()}
+                          className="flex items-center justify-center gap-2 bg-zinc-900 dark:bg-white text-white dark:text-black px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider hover:opacity-90 transition-all shadow-md"
+                        >
+                          <Printer className="h-4 w-4" /> Imprimir Escala
+                        </button>
+                      )}
+                   </div>
+                
+                {viewMode === 'ferias' && (
+                  <PortalFeriasLicencasSection servidor={servidor} />
+                )}
                 
                 {viewMode === 'escala' && (
                   <>

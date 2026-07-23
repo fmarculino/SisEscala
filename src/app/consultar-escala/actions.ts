@@ -1845,3 +1845,432 @@ export async function checkFolhaPontoHabilitada() {
   return data?.valor === true || data?.valor?.toString() === 'true'
 }
 
+// =========================================================================
+// FÉRIAS E LICENÇA PRÊMIO — Portal do Servidor
+// =========================================================================
+
+interface OpcaoDatas {
+  p1_inicio: string
+  p1_fim: string
+  p2_inicio?: string
+  p2_fim?: string
+}
+
+interface SugestaoFracionamento {
+  p1_inicio: string
+  p1_fim: string
+  p2_inicio: string
+  p2_fim: string
+}
+
+const MODALIDADE_DIAS: Record<string, { p1: number; p2?: number }> = {
+  integral_30: { p1: 30 },
+  fracionado_15_15: { p1: 15, p2: 15 },
+  abono_10_20: { p1: 20 },  // gozo is 20 days, 10 days are pecuniary
+  integral_90: { p1: 90 },
+  fracionado_45_45: { p1: 45, p2: 45 },
+}
+
+function addDays(dateStr: string, days: number): string {
+  const d = new Date(dateStr + 'T00:00:00')
+  d.setDate(d.getDate() + days - 1) // -1 because start date counts as day 1
+  return d.toISOString().split('T')[0]
+}
+
+function diffDays(d1: string, d2: string): number {
+  const a = new Date(d1 + 'T00:00:00')
+  const b = new Date(d2 + 'T00:00:00')
+  return Math.ceil((b.getTime() - a.getTime()) / (1000 * 60 * 60 * 24))
+}
+
+export async function getSolicitacoesServidor(servidorId: string) {
+  const supabase = await createAdminClient()
+
+  const { data, error } = await supabase
+    .from('solicitacoes_ferias_licencas')
+    .select('*')
+    .eq('servidor_id', servidorId)
+    .order('created_at', { ascending: false })
+
+  if (error) {
+    return { error: 'Erro ao buscar solicitações: ' + error.message }
+  }
+
+  return { solicitacoes: data || [] }
+}
+
+export async function getSolicitacaoHistorico(solicitacaoId: string) {
+  const supabase = await createAdminClient()
+
+  const { data, error } = await supabase
+    .from('solicitacoes_ferias_licencas_historico')
+    .select('*')
+    .eq('solicitacao_id', solicitacaoId)
+    .order('created_at', { ascending: true })
+
+  if (error) {
+    return { error: 'Erro ao buscar histórico: ' + error.message }
+  }
+
+  return { historico: data || [] }
+}
+
+export async function criarSolicitacaoPrevisao(params: {
+  servidorId: string
+  tipoBeneficio: 'ferias' | 'licenca_premio'
+  exercicio: string
+  modalidade: string
+  opcoesDatas: OpcaoDatas[]
+  sugestaoFracionamento?: SugestaoFracionamento | null
+  observacao?: string
+  adicionalTerco?: boolean
+}) {
+  const supabase = await createAdminClient()
+  const {
+    servidorId, tipoBeneficio, exercicio, modalidade,
+    opcoesDatas, sugestaoFracionamento, observacao, adicionalTerco
+  } = params
+
+  // 1. Validate servidor exists and get data
+  const { data: servidor, error: srvErr } = await supabase
+    .from('servidores')
+    .select('id, nome, matricula, cpf, rg_numero, cargo, vinculo, unidade_id, setor_id, endereco_logradouro')
+    .eq('id', servidorId)
+    .single()
+
+  if (srvErr || !servidor) {
+    return { error: 'Servidor não encontrado.' }
+  }
+
+  // 2. Validate essential personal data for requerimento
+  const camposFaltantes: string[] = []
+  if (!servidor.cpf) camposFaltantes.push('CPF')
+  if (!servidor.rg_numero) camposFaltantes.push('RG')
+  if (!servidor.cargo) camposFaltantes.push('Cargo')
+  if (!servidor.matricula) camposFaltantes.push('Matrícula')
+
+  if (camposFaltantes.length > 0) {
+    return {
+      error: `Dados cadastrais incompletos. Para solicitar férias/licença prêmio, é necessário ter preenchido: ${camposFaltantes.join(', ')}. Procure o setor de RH para atualizar seu cadastro.`
+    }
+  }
+
+  // 3. Validate modalidade matches tipo_beneficio
+  const feriasModes = ['integral_30', 'fracionado_15_15', 'abono_10_20']
+  const lpModes = ['integral_90', 'fracionado_45_45']
+  if (tipoBeneficio === 'ferias' && !feriasModes.includes(modalidade)) {
+    return { error: 'Modalidade inválida para férias.' }
+  }
+  if (tipoBeneficio === 'licenca_premio' && !lpModes.includes(modalidade)) {
+    return { error: 'Modalidade inválida para licença prêmio.' }
+  }
+
+  // 4. Validate options count (1 to 3)
+  if (!opcoesDatas || opcoesDatas.length < 1 || opcoesDatas.length > 3) {
+    return { error: 'É necessário informar entre 1 e 3 opções de datas.' }
+  }
+
+  // 5. If integral_30, must have sugestao_fracionamento
+  if (modalidade === 'integral_30' && !sugestaoFracionamento) {
+    return { error: 'Ao optar por férias integrais (30 dias), é obrigatório informar uma sugestão de fracionamento 15/15 como alternativa.' }
+  }
+
+  // 6. Get minimum advance days from config
+  const { data: configData } = await supabase
+    .from('configuracoes_globais')
+    .select('valor')
+    .eq('chave', 'antecedencia_minima_ferias_dias')
+    .single()
+  const minDias = configData?.valor ? Number(configData.valor) : 60
+
+  // 7. Validate minimum advance for all options
+  const hoje = new Date()
+  hoje.setHours(0, 0, 0, 0)
+
+  for (let i = 0; i < opcoesDatas.length; i++) {
+    const opcao = opcoesDatas[i]
+    const inicio = new Date(opcao.p1_inicio + 'T00:00:00')
+    const diffFromToday = diffDays(hoje.toISOString().split('T')[0], opcao.p1_inicio)
+
+    if (diffFromToday < minDias) {
+      return {
+        error: `A Opção ${i + 1} não respeita a antecedência mínima de ${minDias} dias. A data de início deve ser a partir de ${addDays(hoje.toISOString().split('T')[0], minDias + 1)}.`
+      }
+    }
+
+    // Validate second period if applicable
+    if (opcao.p2_inicio) {
+      const diffP2 = diffDays(hoje.toISOString().split('T')[0], opcao.p2_inicio)
+      if (diffP2 < minDias) {
+        return {
+          error: `O 2º período da Opção ${i + 1} não respeita a antecedência mínima de ${minDias} dias.`
+        }
+      }
+    }
+  }
+
+  // 8. Check for duplicate active request for same exercicio
+  const { data: existente } = await supabase
+    .from('solicitacoes_ferias_licencas')
+    .select('id, status')
+    .eq('servidor_id', servidorId)
+    .eq('tipo_beneficio', tipoBeneficio)
+    .eq('exercicio', exercicio)
+    .not('status', 'in', '("cancelado","indeferido")')
+    .limit(1)
+
+  if (existente && existente.length > 0) {
+    const tipoLabel = tipoBeneficio === 'ferias' ? 'Férias' : 'Licença Prêmio'
+    return {
+      error: `Já existe uma solicitação ativa de ${tipoLabel} para o exercício ${exercicio}. Aguarde a avaliação ou cancele a solicitação anterior.`
+    }
+  }
+
+  // 9. Check for overlapping events in servidores_eventos
+  for (let i = 0; i < opcoesDatas.length; i++) {
+    const opcao = opcoesDatas[i]
+    const { data: conflitos } = await supabase
+      .from('servidores_eventos')
+      .select('id, data_inicio, data_fim, tipos_eventos(nome)')
+      .eq('servidor_id', servidorId)
+      .lte('data_inicio', opcao.p1_fim)
+      .gte('data_fim', opcao.p1_inicio)
+      .limit(1)
+
+    if (conflitos && conflitos.length > 0) {
+      const ev = conflitos[0] as any
+      const tipoNome = ev.tipos_eventos?.nome || 'Afastamento'
+      return {
+        error: `A Opção ${i + 1} (${opcao.p1_inicio} a ${opcao.p1_fim}) conflita com ${tipoNome} já registrado (${ev.data_inicio} a ${ev.data_fim}).`
+      }
+    }
+  }
+
+  // 10. Insert the request
+  const { data: inserted, error: insertErr } = await supabase
+    .from('solicitacoes_ferias_licencas')
+    .insert({
+      servidor_id: servidorId,
+      unidade_id: servidor.unidade_id,
+      setor_id: servidor.setor_id,
+      tipo_beneficio: tipoBeneficio,
+      exercicio,
+      modalidade,
+      sugestao_fracionamento: sugestaoFracionamento || null,
+      opcoes_datas: opcoesDatas,
+      observacao_servidor: observacao || null,
+      adicional_terco: adicionalTerco !== false, // default true
+      abono_pecuniario: modalidade === 'abono_10_20',
+      status: 'aguardando_validacao',
+    })
+    .select('id')
+    .single()
+
+  if (insertErr) {
+    console.error('Erro ao criar solicitação:', insertErr)
+    return { error: 'Erro ao criar solicitação. Tente novamente.' }
+  }
+
+  // 11. Insert audit log
+  if (inserted) {
+    await supabase
+      .from('solicitacoes_ferias_licencas_historico')
+      .insert({
+        solicitacao_id: inserted.id,
+        acao: 'criada',
+        status_anterior: null,
+        status_novo: 'aguardando_validacao',
+        executado_por: null, // Portal doesn't have auth user
+        detalhes: { servidor_nome: servidor.nome, tipo_beneficio: tipoBeneficio, exercicio, modalidade },
+      })
+  }
+
+  return { success: true, id: inserted?.id }
+}
+
+export async function cancelarSolicitacaoServidor(solicitacaoId: string, servidorId: string) {
+  const supabase = await createAdminClient()
+
+  // Only allow cancellation of pending or contraproposta requests
+  const { data: sol, error: fetchErr } = await supabase
+    .from('solicitacoes_ferias_licencas')
+    .select('id, status, servidor_id')
+    .eq('id', solicitacaoId)
+    .eq('servidor_id', servidorId)
+    .single()
+
+  if (fetchErr || !sol) {
+    return { error: 'Solicitação não encontrada.' }
+  }
+
+  if (!['aguardando_validacao', 'contraproposta'].includes(sol.status)) {
+    return { error: 'Somente solicitações em aguardando validação ou contraproposta podem ser canceladas.' }
+  }
+
+  const { error: updateErr } = await supabase
+    .from('solicitacoes_ferias_licencas')
+    .update({
+      status: 'cancelado',
+      cancelado_em: new Date().toISOString(),
+      motivo_cancelamento: 'Cancelado pelo servidor.',
+    })
+    .eq('id', solicitacaoId)
+
+  if (updateErr) {
+    return { error: 'Erro ao cancelar: ' + updateErr.message }
+  }
+
+  await supabase
+    .from('solicitacoes_ferias_licencas_historico')
+    .insert({
+      solicitacao_id: solicitacaoId,
+      acao: 'cancelada',
+      status_anterior: sol.status,
+      status_novo: 'cancelado',
+      executado_por: null,
+      detalhes: { motivo: 'Cancelado pelo servidor via portal' },
+    })
+
+  return { success: true }
+}
+
+export async function aceitarContraproposta(solicitacaoId: string, servidorId: string) {
+  const supabase = await createAdminClient()
+
+  const { data: sol, error: fetchErr } = await supabase
+    .from('solicitacoes_ferias_licencas')
+    .select('*')
+    .eq('id', solicitacaoId)
+    .eq('servidor_id', servidorId)
+    .single()
+
+  if (fetchErr || !sol) {
+    return { error: 'Solicitação não encontrada.' }
+  }
+
+  if (sol.status !== 'contraproposta') {
+    return { error: 'Esta solicitação não possui contraproposta pendente.' }
+  }
+
+  // Move the contraproposta dates into the opcoes_datas as the selected option
+  const contrapropostaDatas = sol.contraproposta_datas as OpcaoDatas
+  const opcoes = (sol.opcoes_datas as OpcaoDatas[]) || []
+  opcoes.push(contrapropostaDatas)
+
+  const { error: updateErr } = await supabase
+    .from('solicitacoes_ferias_licencas')
+    .update({
+      status: 'aguardando_validacao',
+      opcoes_datas: opcoes,
+      observacao_servidor: (sol.observacao_servidor || '') + '\n[Contraproposta aceita pelo servidor]',
+    })
+    .eq('id', solicitacaoId)
+
+  if (updateErr) {
+    return { error: 'Erro ao aceitar contraproposta: ' + updateErr.message }
+  }
+
+  await supabase
+    .from('solicitacoes_ferias_licencas_historico')
+    .insert({
+      solicitacao_id: solicitacaoId,
+      acao: 'aceita_contraproposta',
+      status_anterior: 'contraproposta',
+      status_novo: 'aguardando_validacao',
+      executado_por: null,
+      detalhes: { contraproposta_aceita: contrapropostaDatas },
+    })
+
+  return { success: true }
+}
+
+export async function rejeitarContraproposta(solicitacaoId: string, servidorId: string) {
+  const supabase = await createAdminClient()
+
+  const { data: sol, error: fetchErr } = await supabase
+    .from('solicitacoes_ferias_licencas')
+    .select('id, status, servidor_id')
+    .eq('id', solicitacaoId)
+    .eq('servidor_id', servidorId)
+    .single()
+
+  if (fetchErr || !sol) {
+    return { error: 'Solicitação não encontrada.' }
+  }
+
+  if (sol.status !== 'contraproposta') {
+    return { error: 'Esta solicitação não possui contraproposta pendente.' }
+  }
+
+  const { error: updateErr } = await supabase
+    .from('solicitacoes_ferias_licencas')
+    .update({
+      status: 'cancelado',
+      cancelado_em: new Date().toISOString(),
+      motivo_cancelamento: 'Servidor rejeitou a contraproposta do coordenador.',
+    })
+    .eq('id', solicitacaoId)
+
+  if (updateErr) {
+    return { error: 'Erro ao rejeitar contraproposta: ' + updateErr.message }
+  }
+
+  await supabase
+    .from('solicitacoes_ferias_licencas_historico')
+    .insert({
+      solicitacao_id: solicitacaoId,
+      acao: 'rejeitada_contraproposta',
+      status_anterior: 'contraproposta',
+      status_novo: 'cancelado',
+      executado_por: null,
+      detalhes: { motivo: 'Servidor rejeitou a contraproposta' },
+    })
+
+  return { success: true }
+}
+
+export async function getDadosRequerimento(solicitacaoId: string, servidorId: string) {
+  const supabase = await createAdminClient()
+
+  const { data: sol, error: solErr } = await supabase
+    .from('solicitacoes_ferias_licencas')
+    .select('*')
+    .eq('id', solicitacaoId)
+    .eq('servidor_id', servidorId)
+    .eq('status', 'deferido')
+    .single()
+
+  if (solErr || !sol) {
+    return { error: 'Solicitação deferida não encontrada.' }
+  }
+
+  const { data: servidor, error: srvErr } = await supabase
+    .from('servidores')
+    .select(`
+      id, nome, matricula, cpf, rg_numero, rg_orgao_emissor,
+      cargo, vinculo, email, telefone,
+      endereco_logradouro, endereco_numero, bairro, cep, municipio_residencia,
+      unidade_id, setor_id,
+      unidades(nome),
+      setores(dicionario_setores(nome))
+    `)
+    .eq('id', servidorId)
+    .single()
+
+  if (srvErr || !servidor) {
+    return { error: 'Dados do servidor não encontrados.' }
+  }
+
+  // Get institutional header config
+  const { data: configCab } = await supabase
+    .from('configuracoes_globais')
+    .select('valor')
+    .eq('chave', 'instituicao_cabecalho_url')
+    .single()
+
+  return {
+    solicitacao: sol,
+    servidor,
+    logoUrl: configCab?.valor || null,
+  }
+}

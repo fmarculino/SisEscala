@@ -258,6 +258,130 @@ export interface Database {
           created_at?: string
         }
       }
+      solicitacoes_ferias_licencas: {
+        Row: {
+          id: string
+          servidor_id: string
+          unidade_id: string | null
+          setor_id: string | null
+          tipo_beneficio: 'ferias' | 'licenca_premio'
+          exercicio: string
+          modalidade: 'integral_30' | 'fracionado_15_15' | 'abono_10_20' | 'integral_90' | 'fracionado_45_45'
+          sugestao_fracionamento: Json | null
+          opcoes_datas: Json
+          status: 'aguardando_validacao' | 'deferido' | 'indeferido' | 'contraproposta' | 'cancelado'
+          opcao_selecionada: number | null
+          periodo_deferido_p1_inicio: string | null
+          periodo_deferido_p1_fim: string | null
+          periodo_deferido_p2_inicio: string | null
+          periodo_deferido_p2_fim: string | null
+          abono_pecuniario: boolean
+          adicional_terco: boolean
+          observacao_servidor: string | null
+          parecer_coordenador: string | null
+          contraproposta_datas: Json | null
+          validado_por: string | null
+          validado_em: string | null
+          eventos_gerados_ids: string[] | null
+          cancelado_por: string | null
+          cancelado_em: string | null
+          motivo_cancelamento: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          servidor_id: string
+          unidade_id?: string | null
+          setor_id?: string | null
+          tipo_beneficio: 'ferias' | 'licenca_premio'
+          exercicio: string
+          modalidade: 'integral_30' | 'fracionado_15_15' | 'abono_10_20' | 'integral_90' | 'fracionado_45_45'
+          sugestao_fracionamento?: Json | null
+          opcoes_datas: Json
+          status?: 'aguardando_validacao' | 'deferido' | 'indeferido' | 'contraproposta' | 'cancelado'
+          opcao_selecionada?: number | null
+          periodo_deferido_p1_inicio?: string | null
+          periodo_deferido_p1_fim?: string | null
+          periodo_deferido_p2_inicio?: string | null
+          periodo_deferido_p2_fim?: string | null
+          abono_pecuniario?: boolean
+          adicional_terco?: boolean
+          observacao_servidor?: string | null
+          parecer_coordenador?: string | null
+          contraproposta_datas?: Json | null
+          validado_por?: string | null
+          validado_em?: string | null
+          eventos_gerados_ids?: string[] | null
+          cancelado_por?: string | null
+          cancelado_em?: string | null
+          motivo_cancelamento?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          servidor_id?: string
+          unidade_id?: string | null
+          setor_id?: string | null
+          tipo_beneficio?: 'ferias' | 'licenca_premio'
+          exercicio?: string
+          modalidade?: 'integral_30' | 'fracionado_15_15' | 'abono_10_20' | 'integral_90' | 'fracionado_45_45'
+          sugestao_fracionamento?: Json | null
+          opcoes_datas?: Json
+          status?: 'aguardando_validacao' | 'deferido' | 'indeferido' | 'contraproposta' | 'cancelado'
+          opcao_selecionada?: number | null
+          periodo_deferido_p1_inicio?: string | null
+          periodo_deferido_p1_fim?: string | null
+          periodo_deferido_p2_inicio?: string | null
+          periodo_deferido_p2_fim?: string | null
+          abono_pecuniario?: boolean
+          adicional_terco?: boolean
+          observacao_servidor?: string | null
+          parecer_coordenador?: string | null
+          contraproposta_datas?: Json | null
+          validado_por?: string | null
+          validado_em?: string | null
+          eventos_gerados_ids?: string[] | null
+          cancelado_por?: string | null
+          cancelado_em?: string | null
+          motivo_cancelamento?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      solicitacoes_ferias_licencas_historico: {
+        Row: {
+          id: string
+          solicitacao_id: string
+          acao: string
+          status_anterior: string | null
+          status_novo: string
+          executado_por: string | null
+          detalhes: Json | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          solicitacao_id: string
+          acao: string
+          status_anterior?: string | null
+          status_novo: string
+          executado_por?: string | null
+          detalhes?: Json | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          solicitacao_id?: string
+          acao?: string
+          status_anterior?: string | null
+          status_novo?: string
+          executado_por?: string | null
+          detalhes?: Json | null
+          created_at?: string
+        }
+      }
     }
   }
 }
