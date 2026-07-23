@@ -510,7 +510,6 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
         {/* Scale View */}
         <div className="lg:col-span-3 print:w-full print:block print:p-0">
           {loadingEscala ? (
-<div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800">
             <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800">
               <Loader2 className="h-10 w-10 animate-spin text-blue-600 mb-4" />
               <p className="text-zinc-500">Carregando detalhes da escala...</p>
