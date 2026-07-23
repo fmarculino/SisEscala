@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { 
   getSolicitacoesServidor, criarSolicitacaoPrevisao, 
   cancelarSolicitacaoServidor, aceitarContraproposta, 
@@ -65,6 +65,10 @@ export function PortalFeriasLicencasSection({ servidor }: PortalFeriasLicencasSe
   const [ineligibleData, setIneligibleData] = useState<{ camposFaltantes: string[]; mensagem?: string } | null>(null)
   const [checkingAptidao, setCheckingAptidao] = useState(false)
 
+  // Modal Submission Error State
+  const [modalError, setModalError] = useState<string | null>(null)
+  const [showSubmissionErrorModal, setShowSubmissionErrorModal] = useState(false)
+
   // New Request Form State
   const [showModal, setShowModal] = useState(false)
   const [step, setStep] = useState(1)
@@ -93,6 +97,13 @@ export function PortalFeriasLicencasSection({ servidor }: PortalFeriasLicencasSe
   // Requerimento Print State
   const [printData, setPrintData] = useState<{ solicitacao: any; servidor: any; logoUrl: string | null } | null>(null)
   const [loadingPrint, setLoadingPrint] = useState(false)
+
+  // Min date limit (60 days in advance)
+  const minDateLimit = useMemo(() => {
+    const d = new Date()
+    d.setDate(d.getDate() + 60)
+    return d.toISOString().split('T')[0]
+  }, [])
 
   // Check eligibility and start request
   async function handleStartNovaSolicitacao() {
@@ -151,12 +162,15 @@ export function PortalFeriasLicencasSection({ servidor }: PortalFeriasLicencasSe
     setP1Inicio3(''); setP2Inicio3('')
     setSugP1Inicio(''); setSugP2Inicio('')
     setError(null)
+    setModalError(null)
+    setShowSubmissionErrorModal(false)
   }
 
   // Handle Submit
   async function handleSubmit() {
     setSubmitting(true)
     setError(null)
+    setModalError(null)
 
     // Build options
     const dur = MODALIDADE_DIAS[modalidade]
@@ -211,7 +225,8 @@ export function PortalFeriasLicencasSection({ servidor }: PortalFeriasLicencasSe
     setSubmitting(false)
 
     if (res.error) {
-      setError(res.error)
+      setModalError(res.error)
+      setShowSubmissionErrorModal(true)
     } else {
       setSuccess('Solicitação criada com sucesso! Aguarde validação da coordenação.')
       setShowModal(false)
@@ -480,6 +495,22 @@ export function PortalFeriasLicencasSection({ servidor }: PortalFeriasLicencasSe
             <span className={step === 3 ? 'text-emerald-600 dark:text-emerald-400 font-black' : ''}>3. Sugestão de Datas</span>
           </div>
 
+          {/* Inline Error Alert inside active modal */}
+          {modalError && (
+            <div className="p-3.5 rounded-xl bg-red-50 dark:bg-red-900/20 text-xs text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 flex justify-between items-start gap-2 animate-in fade-in duration-200">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-red-500 mt-0.5" />
+                <div>
+                  <p className="font-bold">Pendência na solicitação:</p>
+                  <p className="mt-0.5 leading-relaxed">{modalError}</p>
+                </div>
+              </div>
+              <button onClick={() => setModalError(null)} className="text-red-400 hover:text-red-600 font-bold p-0.5">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+
           {/* STEP 1: Tipo & Exercício */}
           {step === 1 && (
             <div className="space-y-4">
@@ -606,7 +637,7 @@ export function PortalFeriasLicencasSection({ servidor }: PortalFeriasLicencasSe
             <div className="space-y-4">
               <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl text-xs text-amber-800 dark:text-amber-300">
                 <p className="font-bold">⚠️ Regra de Antecedência Mínima (60 dias):</p>
-                <p className="mt-0.5">As solicitações devem ser enviadas com pelo menos 60 dias de antecedência do início do usufruto.</p>
+                <p className="mt-0.5">As solicitações devem ser enviadas com pelo menos 60 dias de antecedência. Data mínima recomendada: <strong>{formatDate(minDateLimit)}</strong>.</p>
               </div>
 
               <div className="flex items-center justify-between">
@@ -628,13 +659,13 @@ export function PortalFeriasLicencasSection({ servidor }: PortalFeriasLicencasSe
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[11px] text-zinc-500 font-bold mb-1">1º Período - Data Início *</label>
-                    <input type="date" value={p1Inicio1} onChange={e => setP1Inicio1(e.target.value)} className="w-full px-3 py-2 rounded-lg border text-xs bg-white dark:bg-zinc-800 font-medium" />
-                    {p1Inicio1 && <p className="text-[10px] text-zinc-400 mt-1">Fim calculated: {formatDate(addDays(p1Inicio1, dur.p1))}</p>}
+                    <input type="date" min={minDateLimit} value={p1Inicio1} onChange={e => setP1Inicio1(e.target.value)} className="w-full px-3 py-2 rounded-lg border text-xs bg-white dark:bg-zinc-800 font-medium" />
+                    {p1Inicio1 && <p className="text-[10px] text-zinc-400 mt-1">Fim calculado: {formatDate(addDays(p1Inicio1, dur.p1))}</p>}
                   </div>
                   {dur.p2 && (
                     <div>
                       <label className="block text-[11px] text-zinc-500 font-bold mb-1">2º Período - Data Início *</label>
-                      <input type="date" value={p2Inicio1} onChange={e => setP2Inicio1(e.target.value)} className="w-full px-3 py-2 rounded-lg border text-xs bg-white dark:bg-zinc-800 font-medium" />
+                      <input type="date" min={minDateLimit} value={p2Inicio1} onChange={e => setP2Inicio1(e.target.value)} className="w-full px-3 py-2 rounded-lg border text-xs bg-white dark:bg-zinc-800 font-medium" />
                       {p2Inicio1 && <p className="text-[10px] text-zinc-400 mt-1">Fim calculado: {formatDate(addDays(p2Inicio1, dur.p2))}</p>}
                     </div>
                   )}
@@ -648,13 +679,13 @@ export function PortalFeriasLicencasSection({ servidor }: PortalFeriasLicencasSe
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-[11px] text-zinc-500 font-bold mb-1">1º Período - Data Início *</label>
-                      <input type="date" value={p1Inicio2} onChange={e => setP1Inicio2(e.target.value)} className="w-full px-3 py-2 rounded-lg border text-xs bg-white dark:bg-zinc-800 font-medium" />
+                      <input type="date" min={minDateLimit} value={p1Inicio2} onChange={e => setP1Inicio2(e.target.value)} className="w-full px-3 py-2 rounded-lg border text-xs bg-white dark:bg-zinc-800 font-medium" />
                       {p1Inicio2 && <p className="text-[10px] text-zinc-400 mt-1">Fim calculado: {formatDate(addDays(p1Inicio2, dur.p1))}</p>}
                     </div>
                     {dur.p2 && (
                       <div>
                         <label className="block text-[11px] text-zinc-500 font-bold mb-1">2º Período - Data Início *</label>
-                        <input type="date" value={p2Inicio2} onChange={e => setP2Inicio2(e.target.value)} className="w-full px-3 py-2 rounded-lg border text-xs bg-white dark:bg-zinc-800 font-medium" />
+                        <input type="date" min={minDateLimit} value={p2Inicio2} onChange={e => setP2Inicio2(e.target.value)} className="w-full px-3 py-2 rounded-lg border text-xs bg-white dark:bg-zinc-800 font-medium" />
                         {p2Inicio2 && <p className="text-[10px] text-zinc-400 mt-1">Fim calculado: {formatDate(addDays(p2Inicio2, dur.p2))}</p>}
                       </div>
                     )}
@@ -669,13 +700,13 @@ export function PortalFeriasLicencasSection({ servidor }: PortalFeriasLicencasSe
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-[11px] text-zinc-500 font-bold mb-1">1º Período - Data Início *</label>
-                      <input type="date" value={p1Inicio3} onChange={e => setP1Inicio3(e.target.value)} className="w-full px-3 py-2 rounded-lg border text-xs bg-white dark:bg-zinc-800 font-medium" />
+                      <input type="date" min={minDateLimit} value={p1Inicio3} onChange={e => setP1Inicio3(e.target.value)} className="w-full px-3 py-2 rounded-lg border text-xs bg-white dark:bg-zinc-800 font-medium" />
                       {p1Inicio3 && <p className="text-[10px] text-zinc-400 mt-1">Fim calculado: {formatDate(addDays(p1Inicio3, dur.p1))}</p>}
                     </div>
                     {dur.p2 && (
                       <div>
                         <label className="block text-[11px] text-zinc-500 font-bold mb-1">2º Período - Data Início *</label>
-                        <input type="date" value={p2Inicio3} onChange={e => setP2Inicio3(e.target.value)} className="w-full px-3 py-2 rounded-lg border text-xs bg-white dark:bg-zinc-800 font-medium" />
+                        <input type="date" min={minDateLimit} value={p2Inicio3} onChange={e => setP2Inicio3(e.target.value)} className="w-full px-3 py-2 rounded-lg border text-xs bg-white dark:bg-zinc-800 font-medium" />
                         {p2Inicio3 && <p className="text-[10px] text-zinc-400 mt-1">Fim calculado: {formatDate(addDays(p2Inicio3, dur.p2))}</p>}
                       </div>
                     )}
@@ -692,11 +723,11 @@ export function PortalFeriasLicencasSection({ servidor }: PortalFeriasLicencasSe
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-[11px] text-amber-800 font-bold mb-1">Sugestão 1º Período (15d) *</label>
-                      <input type="date" value={sugP1Inicio} onChange={e => setSugP1Inicio(e.target.value)} className="w-full px-3 py-2 rounded-lg border text-xs bg-white dark:bg-zinc-800 font-medium" />
+                      <input type="date" min={minDateLimit} value={sugP1Inicio} onChange={e => setSugP1Inicio(e.target.value)} className="w-full px-3 py-2 rounded-lg border text-xs bg-white dark:bg-zinc-800 font-medium" />
                     </div>
                     <div>
                       <label className="block text-[11px] text-amber-800 font-bold mb-1">Sugestão 2º Período (15d) *</label>
-                      <input type="date" value={sugP2Inicio} onChange={e => setSugP2Inicio(e.target.value)} className="w-full px-3 py-2 rounded-lg border text-xs bg-white dark:bg-zinc-800 font-medium" />
+                      <input type="date" min={minDateLimit} value={sugP2Inicio} onChange={e => setSugP2Inicio(e.target.value)} className="w-full px-3 py-2 rounded-lg border text-xs bg-white dark:bg-zinc-800 font-medium" />
                     </div>
                   </div>
                 </div>
@@ -782,6 +813,42 @@ export function PortalFeriasLicencasSection({ servidor }: PortalFeriasLicencasSe
               className="px-5 py-2.5 bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 rounded-xl text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-all shadow-sm"
             >
               Entendido
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* MODAL: Erro na Validação da Solicitação (Sobreposto z-110) */}
+      <Modal
+        isOpen={showSubmissionErrorModal}
+        onClose={() => setShowSubmissionErrorModal(false)}
+        title="Não foi possível enviar a solicitação"
+        type="danger"
+        zIndexClass="z-[110]"
+      >
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-xl">
+            <AlertTriangle className="h-6 w-6 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+            <div className="text-xs text-red-900 dark:text-red-200 space-y-1.5">
+              <p className="font-bold text-sm">Pendência identificada:</p>
+              <p className="leading-relaxed font-medium">{modalError}</p>
+            </div>
+          </div>
+
+          <div className="p-3.5 bg-zinc-50 dark:bg-zinc-800/60 rounded-xl border border-zinc-200 dark:border-zinc-700/60 text-xs text-zinc-600 dark:text-zinc-300">
+            <p className="font-bold text-zinc-800 dark:text-zinc-200 mb-1 flex items-center gap-1.5">
+              <Info className="h-4 w-4 text-blue-500" />
+              O que fazer agora?
+            </p>
+            <p>Sua solicitação continua aberta com todas as informações preenchidas. Clique em <strong>Corrigir Solicitação</strong> para ajustar as datas/campos e tentar novamente.</p>
+          </div>
+
+          <div className="flex justify-end pt-2">
+            <button
+              onClick={() => setShowSubmissionErrorModal(false)}
+              className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-all shadow-md active:scale-95"
+            >
+              Corrigir Solicitação
             </button>
           </div>
         </div>

@@ -10,6 +10,7 @@ interface ModalProps {
   children: ReactNode
   footer?: ReactNode
   type?: 'default' | 'danger' | 'warning' | 'success'
+  zIndexClass?: string
 }
 
 export function Modal({ 
@@ -18,7 +19,8 @@ export function Modal({
   title, 
   children, 
   footer,
-  type = 'default' 
+  type = 'default',
+  zIndexClass = 'z-[100]'
 }: ModalProps) {
   if (!isOpen) return null
 
@@ -30,7 +32,7 @@ export function Modal({
   }
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className={`fixed inset-0 ${zIndexClass} flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200`}>
       <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-zinc-200 dark:border-zinc-800 animate-in zoom-in-95 duration-200">
         <div className="px-6 py-4 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
           <h3 className={`text-lg font-bold ${typeColors[type]}`}>{title}</h3>
