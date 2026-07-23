@@ -41,7 +41,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; 
   cancelado: { label: 'Cancelado', color: 'text-zinc-500', bg: 'bg-zinc-50 border-zinc-200', icon: XCircle },
 }
 
-function formatDate(dateStr: string | null): string {
+function formatDate(dateStr: string | null | undefined): string {
   if (!dateStr) return '—'
   const [y, m, d] = dateStr.split('-')
   return `${d}/${m}/${y}`

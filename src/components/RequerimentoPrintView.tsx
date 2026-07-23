@@ -14,7 +14,7 @@ const MODALIDADE_LABELS: Record<string, string> = {
   fracionado_45_45: 'Fracionado (45 + 45 dias)',
 }
 
-function formatDate(dateStr: string | null): string {
+function formatDate(dateStr: string | null | undefined): string {
   if (!dateStr) return '___/___/______'
   const [y, m, d] = dateStr.split('-')
   return `${d}/${m}/${y}`

@@ -47,7 +47,7 @@ function addDays(dateStr: string, days: number): string {
   return d.toISOString().split('T')[0]
 }
 
-function formatDate(dateStr: string | null): string {
+function formatDate(dateStr: string | null | undefined): string {
   if (!dateStr) return '—'
   const [y, m, d] = dateStr.split('-')
   return `${d}/${m}/${y}`
