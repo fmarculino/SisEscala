@@ -4,13 +4,14 @@ import { useState, useEffect, useCallback } from 'react'
 import { 
   getSolicitacoesServidor, criarSolicitacaoPrevisao, 
   cancelarSolicitacaoServidor, aceitarContraproposta, 
-  rejeitarContraproposta, getDadosRequerimento 
+  rejeitarContraproposta, getDadosRequerimento,
+  verificarElegibilidadeServidorFerias
 } from './actions'
 import { RequerimentoPrintView } from '@/components/RequerimentoPrintView'
 import { Modal } from '@/components/ui/Modal'
 import { 
   Palmtree, Plus, Loader2, Calendar, CheckCircle, XCircle, 
-  Clock, MessageSquare, Printer, AlertTriangle, Info, FileText, ChevronRight, X
+  Clock, MessageSquare, Printer, AlertTriangle, Info, FileText, ChevronRight, X, ShieldAlert
 } from 'lucide-react'
 
 interface PortalFeriasLicencasSectionProps {
@@ -59,6 +60,11 @@ export function PortalFeriasLicencasSection({ servidor }: PortalFeriasLicencasSe
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
 
+  // Ineligibility Modal State
+  const [showIneligibleModal, setShowIneligibleModal] = useState(false)
+  const [ineligibleData, setIneligibleData] = useState<{ camposFaltantes: string[]; mensagem?: string } | null>(null)
+  const [checkingAptidao, setCheckingAptidao] = useState(false)
+
   // New Request Form State
   const [showModal, setShowModal] = useState(false)
   const [step, setStep] = useState(1)
@@ -87,6 +93,32 @@ export function PortalFeriasLicencasSection({ servidor }: PortalFeriasLicencasSe
   // Requerimento Print State
   const [printData, setPrintData] = useState<{ solicitacao: any; servidor: any; logoUrl: string | null } | null>(null)
   const [loadingPrint, setLoadingPrint] = useState(false)
+
+  // Check eligibility and start request
+  async function handleStartNovaSolicitacao() {
+    if (!servidor) return
+    setCheckingAptidao(true)
+    setError(null)
+    const res = await verificarElegibilidadeServidorFerias(servidor.id)
+    setCheckingAptidao(false)
+
+    if (res.error) {
+      setError(res.error)
+      return
+    }
+
+    if (!res.apto) {
+      setIneligibleData({
+        camposFaltantes: res.camposFaltantes || [],
+        mensagem: res.mensagem,
+      })
+      setShowIneligibleModal(true)
+      return
+    }
+
+    resetForm()
+    setShowModal(true)
+  }
 
   // Load requests
   const loadData = useCallback(async () => {
@@ -261,10 +293,12 @@ export function PortalFeriasLicencasSection({ servidor }: PortalFeriasLicencasSe
           </p>
         </div>
         <button
-          onClick={() => { resetForm(); setShowModal(true) }}
-          className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-all shadow-md active:scale-95"
+          onClick={handleStartNovaSolicitacao}
+          disabled={checkingAptidao}
+          className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-all shadow-md active:scale-95 disabled:opacity-75"
         >
-          <Plus className="h-4 w-4" /> Nova Solicitação
+          {checkingAptidao ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+          Nova Solicitação
         </button>
       </div>
 
@@ -595,7 +629,7 @@ export function PortalFeriasLicencasSection({ servidor }: PortalFeriasLicencasSe
                   <div>
                     <label className="block text-[11px] text-zinc-500 font-bold mb-1">1º Período - Data Início *</label>
                     <input type="date" value={p1Inicio1} onChange={e => setP1Inicio1(e.target.value)} className="w-full px-3 py-2 rounded-lg border text-xs bg-white dark:bg-zinc-800 font-medium" />
-                    {p1Inicio1 && <p className="text-[10px] text-zinc-400 mt-1">Fim calculado: {formatDate(addDays(p1Inicio1, dur.p1))}</p>}
+                    {p1Inicio1 && <p className="text-[10px] text-zinc-400 mt-1">Fim calculated: {formatDate(addDays(p1Inicio1, dur.p1))}</p>}
                   </div>
                   {dur.p2 && (
                     <div>
@@ -693,6 +727,63 @@ export function PortalFeriasLicencasSection({ servidor }: PortalFeriasLicencasSe
               </div>
             </div>
           )}
+        </div>
+      </Modal>
+
+      {/* MODAL: Inelegibilidade / Dados Cadastrais Incompletos */}
+      <Modal
+        isOpen={showIneligibleModal}
+        onClose={() => setShowIneligibleModal(false)}
+        title="Dados Cadastrais Incompletos"
+        type="warning"
+      >
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 p-3.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl">
+            <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div className="text-xs text-amber-900 dark:text-amber-200 space-y-1">
+              <p className="font-bold">Atenção: Não é possível solicitar férias ou licença no momento.</p>
+              <p>Para gerar o requerimento oficial com validade jurídica, seus dados cadastrais essenciais precisam estar atualizados no sistema.</p>
+            </div>
+          </div>
+
+          <div>
+            <h4 className="text-xs font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <ShieldAlert className="h-4 w-4 text-red-500" />
+              Campos ausentes no seu cadastro:
+            </h4>
+            <div className="space-y-1.5">
+              {ineligibleData?.camposFaltantes.map((campo, i) => (
+                <div key={i} className="flex items-center gap-2 px-3 py-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/40 rounded-lg text-xs font-semibold text-red-700 dark:text-red-300">
+                  <XCircle className="h-4 w-4 shrink-0 text-red-500" />
+                  <span>{campo}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="p-4 bg-zinc-50 dark:bg-zinc-800/60 rounded-xl border border-zinc-200 dark:border-zinc-700/60 text-xs space-y-2">
+            <p className="font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
+              <Info className="h-4 w-4 text-blue-500" />
+              Orientações para Regularização:
+            </p>
+            <ol className="list-decimal list-inside text-zinc-600 dark:text-zinc-400 space-y-1.5 pl-1">
+              <li>Procure o <strong>Setor de RH / Gestão de Pessoas</strong> da sua unidade ou Secretaria de Saúde.</li>
+              <li>Apresente seus documentos pessoais (RG, CPF, Comprovante de Matrícula/Portaria).</li>
+              <li>Solicite a atualização da sua ficha de cadastro no <strong>SisEscala</strong>.</li>
+            </ol>
+            <p className="text-[11px] text-zinc-400 dark:text-zinc-500 italic pt-1 border-t border-zinc-200/60 dark:border-zinc-700/60">
+              Assim que os dados forem gravados pelo RH, a opção de Nova Solicitação será liberada imediatamente para você.
+            </p>
+          </div>
+
+          <div className="flex justify-end pt-2">
+            <button
+              onClick={() => setShowIneligibleModal(false)}
+              className="px-5 py-2.5 bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 rounded-xl text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-all shadow-sm"
+            >
+              Entendido
+            </button>
+          </div>
         </div>
       </Modal>
     </div>

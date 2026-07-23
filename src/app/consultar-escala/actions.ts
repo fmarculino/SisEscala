@@ -1915,6 +1915,36 @@ export async function getSolicitacaoHistorico(solicitacaoId: string) {
   return { historico: data || [] }
 }
 
+export async function verificarElegibilidadeServidorFerias(servidorId: string) {
+  const supabase = await createAdminClient()
+
+  const { data: servidor, error: srvErr } = await supabase
+    .from('servidores')
+    .select('id, nome, cpf, rg_numero, cargo, matricula')
+    .eq('id', servidorId)
+    .single()
+
+  if (srvErr || !servidor) {
+    return { error: 'Servidor não encontrado.' }
+  }
+
+  const camposFaltantes: string[] = []
+  if (!servidor.cpf || !servidor.cpf.trim()) camposFaltantes.push('CPF')
+  if (!servidor.rg_numero || !servidor.rg_numero.trim()) camposFaltantes.push('RG')
+  if (!servidor.cargo || !servidor.cargo.trim()) camposFaltantes.push('Cargo')
+  if (!servidor.matricula || !servidor.matricula.trim()) camposFaltantes.push('Matrícula')
+
+  if (camposFaltantes.length > 0) {
+    return {
+      apto: false,
+      camposFaltantes,
+      mensagem: `Dados cadastrais incompletos. Para solicitar férias/licença prêmio, é necessário ter preenchido: ${camposFaltantes.join(', ')}. Procure o setor de RH para atualizar seu cadastro.`
+    }
+  }
+
+  return { apto: true }
+}
+
 export async function criarSolicitacaoPrevisao(params: {
   servidorId: string
   tipoBeneficio: 'ferias' | 'licenca_premio'
@@ -1931,28 +1961,22 @@ export async function criarSolicitacaoPrevisao(params: {
     opcoesDatas, sugestaoFracionamento, observacao, adicionalTerco
   } = params
 
-  // 1. Validate servidor exists and get data
+  // 1. Validate eligibility
+  const elegivel = await verificarElegibilidadeServidorFerias(servidorId)
+  if (elegivel.error) return { error: elegivel.error }
+  if (!elegivel.apto) {
+    return { error: elegivel.mensagem || 'Dados cadastrais incompletos. Procure o setor de RH.' }
+  }
+
+  // 2. Fetch servidor details for request creation
   const { data: servidor, error: srvErr } = await supabase
     .from('servidores')
-    .select('id, nome, matricula, cpf, rg_numero, cargo, vinculo, unidade_id, setor_id, endereco_logradouro')
+    .select('id, nome, unidade_id, setor_id')
     .eq('id', servidorId)
     .single()
 
   if (srvErr || !servidor) {
     return { error: 'Servidor não encontrado.' }
-  }
-
-  // 2. Validate essential personal data for requerimento
-  const camposFaltantes: string[] = []
-  if (!servidor.cpf) camposFaltantes.push('CPF')
-  if (!servidor.rg_numero) camposFaltantes.push('RG')
-  if (!servidor.cargo) camposFaltantes.push('Cargo')
-  if (!servidor.matricula) camposFaltantes.push('Matrícula')
-
-  if (camposFaltantes.length > 0) {
-    return {
-      error: `Dados cadastrais incompletos. Para solicitar férias/licença prêmio, é necessário ter preenchido: ${camposFaltantes.join(', ')}. Procure o setor de RH para atualizar seu cadastro.`
-    }
   }
 
   // 3. Validate modalidade matches tipo_beneficio
