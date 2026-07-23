@@ -3,10 +3,11 @@
 import { createServidor } from '../actions'
 import { useState, useEffect, useMemo, useRef } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Save, Layers, ChevronRight, Eye, EyeOff, MessageCircle, Briefcase, Search, Check, ChevronsUpDown } from 'lucide-react'
+import { ArrowLeft, Save, Layers, ChevronRight, Eye, EyeOff, MessageCircle, Briefcase, Search, Check, ChevronsUpDown, FileText, User } from 'lucide-react'
 import { createClient } from '@/utils/supabase/client'
 import { applyAccessFilters } from '@/utils/permissions'
 import { formatSectorsHierarchy } from '@/utils/sectors'
+import { DadosComplementaresSection } from '@/components/servidores/DadosComplementaresSection'
 
 interface Cargo {
   id: string
@@ -17,6 +18,7 @@ interface Cargo {
 }
 
 export default function NovoServidorPage() {
+  const [formTab, setFormTab] = useState<'principal' | 'complementar'>('principal')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [unidades, setUnidades] = useState<any[]>([])
@@ -163,7 +165,36 @@ export default function NovoServidorPage() {
       </div>
 
       <form action={handleSubmit} className="space-y-6 bg-white dark:bg-zinc-900 p-8 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-6">
+        {/* Navigation Tabs */}
+        <div className="flex border-b border-zinc-200 dark:border-zinc-800 pb-2">
+          <button
+            type="button"
+            onClick={() => setFormTab('principal')}
+            className={`flex items-center gap-2 px-6 py-3 border-b-2 font-bold text-sm transition-all ${
+              formTab === 'principal'
+                ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                : 'border-transparent text-zinc-500 hover:text-zinc-800 hover:border-zinc-300 dark:hover:text-zinc-300'
+            }`}
+          >
+            <User className="h-4 w-4" />
+            Cadastro Principal
+          </button>
+          <button
+            type="button"
+            onClick={() => setFormTab('complementar')}
+            className={`flex items-center gap-2 px-6 py-3 border-b-2 font-bold text-sm transition-all ${
+              formTab === 'complementar'
+                ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                : 'border-transparent text-zinc-500 hover:text-zinc-800 hover:border-zinc-300 dark:hover:text-zinc-300'
+            }`}
+          >
+            <FileText className="h-4 w-4" />
+            Dados Complementares
+          </button>
+        </div>
+
+        {/* Tab 1: Cadastro Principal */}
+        <div className={formTab === 'principal' ? 'grid grid-cols-1 gap-6 sm:grid-cols-6 animate-in fade-in' : 'hidden'}>
           <div className="sm:col-span-2">
             <label htmlFor="nome" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
               Nome Completo
@@ -466,6 +497,11 @@ export default function NovoServidorPage() {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Tab 2: Dados Complementares */}
+        <div className={formTab === 'complementar' ? 'block animate-in fade-in' : 'hidden'}>
+          <DadosComplementaresSection />
         </div>
 
         {error && (

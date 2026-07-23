@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { Save, User, Layers, Eye, EyeOff, MessageCircle, Info, Briefcase, Search, Check, ChevronsUpDown } from 'lucide-react'
+import { Save, User, Layers, Eye, EyeOff, MessageCircle, Info, Briefcase, Search, Check, ChevronsUpDown, FileText } from 'lucide-react'
 import { updateServidor } from '../actions'
+import { DadosComplementaresSection } from '@/components/servidores/DadosComplementaresSection'
 
 interface EditServidorFormProps {
   id: string
@@ -14,6 +15,7 @@ interface EditServidorFormProps {
 }
 
 export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSuperAdmin = false }: EditServidorFormProps) {
+  const [formTab, setFormTab] = useState<'principal' | 'complementar'>('principal')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selectedUnidade, setSelectedUnidade] = useState(servidor.unidade_id || '')
@@ -107,15 +109,45 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
       </div>
       
       <form action={handleSubmit} className="space-y-6">
-        {isTemporary && (
-          <div className="p-4 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-900/30 rounded-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
-            <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse flex-shrink-0" />
-            <div className="text-xs text-amber-800 dark:text-amber-300 font-medium">
-              Este servidor possui uma <strong>Matrícula Temporária</strong>. Lembre-se de atualizá-la para a matrícula definitiva assim que gerada pela folha de pagamento.
+        {/* Navigation Tabs */}
+        <div className="flex border-b border-zinc-200 dark:border-zinc-800">
+          <button
+            type="button"
+            onClick={() => setFormTab('principal')}
+            className={`flex items-center gap-2 px-6 py-3 border-b-2 font-bold text-sm transition-all ${
+              formTab === 'principal'
+                ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                : 'border-transparent text-zinc-500 hover:text-zinc-800 hover:border-zinc-300 dark:hover:text-zinc-300'
+            }`}
+          >
+            <User className="h-4 w-4" />
+            Cadastro Principal
+          </button>
+          <button
+            type="button"
+            onClick={() => setFormTab('complementar')}
+            className={`flex items-center gap-2 px-6 py-3 border-b-2 font-bold text-sm transition-all ${
+              formTab === 'complementar'
+                ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                : 'border-transparent text-zinc-500 hover:text-zinc-800 hover:border-zinc-300 dark:hover:text-zinc-300'
+            }`}
+          >
+            <FileText className="h-4 w-4" />
+            Dados Complementares
+          </button>
+        </div>
+
+        {/* Tab 1: Cadastro Principal */}
+        <div className={formTab === 'principal' ? 'space-y-6 animate-in fade-in' : 'hidden'}>
+          {isTemporary && (
+            <div className="p-4 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-900/30 rounded-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
+              <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse flex-shrink-0" />
+              <div className="text-xs text-amber-800 dark:text-amber-300 font-medium">
+                Este servidor possui uma <strong>Matrícula Temporária</strong>. Lembre-se de atualizá-la para a matrícula definitiva assim que gerada pela folha de pagamento.
+              </div>
             </div>
-          </div>
-        )}
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-6">
+          )}
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-6">
           <div className="sm:col-span-2">
             <label htmlFor="nome" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
               Nome Completo
@@ -506,6 +538,12 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
               </div>
             </div>
           )}
+        </div>
+        </div>
+
+        {/* Tab 2: Dados Complementares */}
+        <div className={formTab === 'complementar' ? 'block animate-in fade-in' : 'hidden'}>
+          <DadosComplementaresSection servidor={servidor} />
         </div>
 
         {error && (

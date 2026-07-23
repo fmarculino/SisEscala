@@ -4,6 +4,35 @@ import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 
+function extractDadosComplementares(formData: FormData) {
+  return {
+    data_nascimento: (formData.get('data_nascimento') as string)?.trim() || null,
+    sexo: (formData.get('sexo') as string)?.trim() || null,
+    nacionalidade: (formData.get('nacionalidade') as string)?.trim() || null,
+    naturalidade: (formData.get('naturalidade') as string)?.trim() || null,
+    nome_mae: (formData.get('nome_mae') as string)?.trim() || null,
+    nome_pai: (formData.get('nome_pai') as string)?.trim() || null,
+    escolaridade: (formData.get('escolaridade') as string)?.trim() || null,
+    estado_civil: (formData.get('estado_civil') as string)?.trim() || null,
+    nome_conjuge: (formData.get('nome_conjuge') as string)?.trim() || null,
+    endereco_logradouro: (formData.get('endereco_logradouro') as string)?.trim() || null,
+    endereco_numero: (formData.get('endereco_numero') as string)?.trim() || null,
+    bairro: (formData.get('bairro') as string)?.trim() || null,
+    cep: (formData.get('cep') as string)?.trim() || null,
+    municipio_residencia: (formData.get('municipio_residencia') as string)?.trim() || null,
+    telefone_residencial: (formData.get('telefone_residencial') as string)?.trim() || null,
+    rg_numero: (formData.get('rg_numero') as string)?.trim() || null,
+    rg_orgao_emissor: (formData.get('rg_orgao_emissor') as string)?.trim() || null,
+    rg_data_emissao: (formData.get('rg_data_emissao') as string)?.trim() || null,
+    pis_pasep: (formData.get('pis_pasep') as string)?.trim() || null,
+    registro_profissional: (formData.get('registro_profissional') as string)?.trim() || null,
+    registro_profissional_orgao: (formData.get('registro_profissional_orgao') as string)?.trim() || null,
+    data_admissao_hmm: (formData.get('data_admissao_hmm') as string)?.trim() || null,
+    data_admissao_pmm: (formData.get('data_admissao_pmm') as string)?.trim() || null,
+    observacao: (formData.get('observacao') as string)?.trim() || null,
+  }
+}
+
 export async function createServidor(formData: FormData) {
   const supabase = await createClient()
 
@@ -64,6 +93,8 @@ export async function createServidor(formData: FormData) {
 
   const ignora_janela_presenca = formData.has('ignora_janela_presenca') ? formData.get('ignora_janela_presenca') === 'true' : false
 
+  const dadosComplementares = extractDadosComplementares(formData)
+
   const { error } = await supabase.from('servidores').insert({
     nome,
     matricula: matriculaFinal,
@@ -78,6 +109,7 @@ export async function createServidor(formData: FormData) {
     ignora_janela_presenca,
     preferenca_turno,
     carga_horaria_semanal: isNaN(carga_horaria_semanal) ? 40 : carga_horaria_semanal,
+    ...dadosComplementares,
   })
 
   if (error) {
@@ -392,6 +424,8 @@ export async function updateServidor(id: string, formData: FormData) {
     }
   }
 
+  const dadosComplementares = extractDadosComplementares(formData)
+
   const updateData: any = {
     nome,
     matricula: matriculaFinal,
@@ -404,6 +438,7 @@ export async function updateServidor(id: string, formData: FormData) {
     telefone: telefone || null,
     preferenca_turno,
     carga_horaria_semanal: isNaN(carga_horaria_semanal) ? 40 : carga_horaria_semanal,
+    ...dadosComplementares,
   }
 
   if (pin_acesso !== '****') {

@@ -106,10 +106,43 @@ export interface Database {
           id: string
           nome: string
           matricula: string | null
+          cpf: string | null
+          cargo: string | null
+          vinculo: string | null
           unidade_id: string | null
           setor_id: string | null
+          email: string | null
+          telefone: string | null
+          pin_acesso: string | null
+          ignora_janela_presenca?: boolean | null
           preferenca_turno: 'M' | 'T' | 'N' | 'Flexivel' | null
           carga_horaria_semanal: number | null
+          status?: string | null
+          motivo_inativacao?: string | null
+          data_nascimento?: string | null
+          sexo?: string | null
+          nacionalidade?: string | null
+          naturalidade?: string | null
+          nome_mae?: string | null
+          nome_pai?: string | null
+          escolaridade?: string | null
+          estado_civil?: string | null
+          nome_conjuge?: string | null
+          endereco_logradouro?: string | null
+          endereco_numero?: string | null
+          bairro?: string | null
+          cep?: string | null
+          municipio_residencia?: string | null
+          telefone_residencial?: string | null
+          rg_numero?: string | null
+          rg_orgao_emissor?: string | null
+          rg_data_emissao?: string | null
+          pis_pasep?: string | null
+          registro_profissional?: string | null
+          registro_profissional_orgao?: string | null
+          data_admissao_hmm?: string | null
+          data_admissao_pmm?: string | null
+          observacao?: string | null
         }
       }
       escala_mensal: {
