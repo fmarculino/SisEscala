@@ -436,7 +436,7 @@ export async function getProgramacaoAnualSetor(filters: {
       *,
       servidores(id, nome, matricula, cargo, vinculo)
     `)
-    .in('status', ['deferido', 'aguardando_validacao', 'contraproposta'])
+    .in('status', ['deferido', 'aguardando_validacao', 'contraproposta', 'indeferido', 'cancelado'])
     .order('created_at', { ascending: true })
 
   if (filters.unidadeId && filters.unidadeId !== 'todas') {

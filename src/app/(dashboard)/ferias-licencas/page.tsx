@@ -60,7 +60,7 @@ export default function FeriasLicencasPage() {
   // Filters
   const [filterUnidade, setFilterUnidade] = useState('todas')
   const [filterSetor, setFilterSetor] = useState('todos')
-  const [filterStatus, setFilterStatus] = useState('aguardando_validacao')
+  const [filterStatus, setFilterStatus] = useState('todos')
   const [searchTerm, setSearchTerm] = useState('')
 
   // Active tab
@@ -134,20 +134,20 @@ export default function FeriasLicencasPage() {
 
   const loadSolicitacoes = useCallback(async () => {
     setLoading(true)
+    // Busca todas as solicitações para a unidade/setor para alimentar contadores de alerta e histórico
     const result = await getSolicitacoesPendentes({
       unidadeId: filterUnidade !== 'todas' ? filterUnidade : undefined,
       setorId: filterSetor !== 'todos' ? filterSetor : undefined,
-      status: filterStatus !== 'todos' ? filterStatus : undefined,
     })
     if (result.solicitacoes) {
       setSolicitacoes(result.solicitacoes)
     }
     setLoading(false)
-  }, [filterUnidade, filterSetor, filterStatus])
+  }, [filterUnidade, filterSetor])
 
   useEffect(() => {
     if (profile) loadSolicitacoes()
-  }, [filterUnidade, filterSetor, filterStatus, profile])
+  }, [filterUnidade, filterSetor, profile])
 
   const loadProgramacao = useCallback(async () => {
     setLoadingProg(true)
@@ -166,16 +166,30 @@ export default function FeriasLicencasPage() {
     if (activeTab === 'programacao' && profile) loadProgramacao()
   }, [activeTab, progAno, filterUnidade, filterSetor, profile])
 
-  // Filtered solicitacoes by search
+  // Filtered solicitacoes by status and search
   const filteredSolicitacoes = useMemo(() => {
-    if (!searchTerm) return solicitacoes
-    const term = searchTerm.toLowerCase()
-    return solicitacoes.filter((s: any) => {
-      const nome = s.servidores?.nome?.toLowerCase() || ''
-      const mat = s.servidores?.matricula?.toLowerCase() || ''
-      return nome.includes(term) || mat.includes(term)
-    })
-  }, [solicitacoes, searchTerm])
+    let list = solicitacoes
+    if (filterStatus !== 'todos') {
+      if (filterStatus === 'contraproposta') {
+        list = list.filter((s: any) => 
+          s.status === 'contraproposta' || 
+          Boolean(s.contraproposta_datas) || 
+          (s.observacao_servidor && s.observacao_servidor.includes('[Contraproposta'))
+        )
+      } else {
+        list = list.filter((s: any) => s.status === filterStatus)
+      }
+    }
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase()
+      list = list.filter((s: any) => {
+        const nome = s.servidores?.nome?.toLowerCase() || ''
+        const mat = s.servidores?.matricula?.toLowerCase() || ''
+        return nome.includes(term) || mat.includes(term)
+      })
+    }
+    return list
+  }, [solicitacoes, filterStatus, searchTerm])
 
   // Filtered setores by selected unit
   const filteredSetores = useMemo(() => {
@@ -469,9 +483,23 @@ export default function FeriasLicencasPage() {
                         </p>
                       )}
                       {sol.parecer_coordenador && (
-                        <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                          <strong>Parecer:</strong> {sol.parecer_coordenador}
-                        </p>
+                        <div className={`p-3 rounded-lg border text-sm ${
+                          sol.status === 'indeferido' ? 'border-red-200 bg-red-50 text-red-900 dark:bg-red-900/20 dark:text-red-200 dark:border-red-800' :
+                          sol.status === 'contraproposta' ? 'border-blue-200 bg-blue-50 text-blue-900 dark:bg-blue-900/20 dark:text-blue-200 dark:border-blue-800' :
+                          'border-zinc-200 bg-zinc-50 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200'
+                        }`}>
+                          <p className="font-semibold mb-0.5">
+                            {sol.status === 'indeferido' ? '❌ Parecer do Indeferimento:' :
+                             sol.status === 'contraproposta' ? '💬 Justificativa da Contraproposta:' :
+                             '📝 Parecer do Coordenador:'}
+                          </p>
+                          <p className="text-xs leading-relaxed">{sol.parecer_coordenador}</p>
+                          {sol.validado_em && (
+                            <p className="text-[10px] opacity-75 mt-1">
+                              Avaliado em: {formatDate(sol.validado_em.split('T')[0])}
+                            </p>
+                          )}
+                        </div>
                       )}
                       {sol.abono_pecuniario && (
                         <p className="text-sm text-amber-600">💰 Abono pecuniário de 10 dias solicitado</p>
@@ -593,65 +621,102 @@ export default function FeriasLicencasPage() {
       )}
 
       {/* TAB: Alertas */}
-      {activeTab === 'alertas' && (
-        <div className="space-y-4">
-          <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-6">
-            <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
-              <Bell className="h-5 w-5 text-amber-500" />
-              Pendências e Alertas
-            </h3>
-            <div className="space-y-3">
-              {/* Pending for > 15 days */}
-              {solicitacoes.filter(s => {
-                if (s.status !== 'aguardando_validacao') return false
-                const created = new Date(s.created_at)
-                const diff = (Date.now() - created.getTime()) / (1000 * 60 * 60 * 24)
-                return diff > 15
-              }).length > 0 && (
-                <div className="p-4 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/20">
-                  <p className="font-semibold text-amber-800 dark:text-amber-300">⚠️ Solicitações pendentes há mais de 15 dias</p>
-                  <p className="text-sm text-amber-700 dark:text-amber-400 mt-1">
-                    {solicitacoes.filter(s => {
-                      if (s.status !== 'aguardando_validacao') return false
-                      const created = new Date(s.created_at)
-                      return (Date.now() - created.getTime()) / (1000 * 60 * 60 * 24) > 15
-                    }).length} solicitação(ões) aguardando validação há mais de 15 dias.
-                  </p>
-                </div>
-              )}
+      {activeTab === 'alertas' && (() => {
+        const pendingCount = solicitacoes.filter(s => s.status === 'aguardando_validacao').length
+        const deferidasCount = solicitacoes.filter(s => s.status === 'deferido').length
+        const indeferidasCount = solicitacoes.filter(s => s.status === 'indeferido').length
+        
+        const contrapropostasTotais = solicitacoes.filter((s: any) => 
+          s.status === 'contraproposta' || 
+          Boolean(s.contraproposta_datas) || 
+          (s.observacao_servidor && s.observacao_servidor.includes('[Contraproposta'))
+        )
+        const contrapropostasTotaisCount = contrapropostasTotais.length
+        const contrapropostasAbertasCount = solicitacoes.filter(s => s.status === 'contraproposta').length
+        const contrapropostasDeferidasCount = solicitacoes.filter(s => 
+          s.status === 'deferido' && (
+            Boolean(s.contraproposta_datas) || 
+            (s.observacao_servidor && s.observacao_servidor.includes('[Contraproposta'))
+          )
+        ).length
 
-              {/* No pending */}
-              {solicitacoes.filter(s => s.status === 'aguardando_validacao').length === 0 && (
-                <div className="p-4 rounded-lg border border-green-200 bg-green-50 dark:bg-green-900/20">
-                  <p className="text-green-800 dark:text-green-300">✅ Nenhuma solicitação pendente de avaliação.</p>
-                </div>
-              )}
+        return (
+          <div className="space-y-4">
+            <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-6">
+              <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
+                <Bell className="h-5 w-5 text-amber-500" />
+                Pendências e Alertas
+              </h3>
+              <div className="space-y-3">
+                {/* Pending for > 15 days */}
+                {solicitacoes.filter(s => {
+                  if (s.status !== 'aguardando_validacao') return false
+                  const created = new Date(s.created_at)
+                  const diff = (Date.now() - created.getTime()) / (1000 * 60 * 60 * 24)
+                  return diff > 15
+                }).length > 0 && (
+                  <div className="p-4 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/20">
+                    <p className="font-semibold text-amber-800 dark:text-amber-300">⚠️ Solicitações pendentes há mais de 15 dias</p>
+                    <p className="text-sm text-amber-700 dark:text-amber-400 mt-1">
+                      {solicitacoes.filter(s => {
+                        if (s.status !== 'aguardando_validacao') return false
+                        const created = new Date(s.created_at)
+                        return (Date.now() - created.getTime()) / (1000 * 60 * 60 * 24) > 15
+                      }).length} solicitação(ões) aguardando validação há mais de 15 dias.
+                    </p>
+                  </div>
+                )}
 
-              <div className="p-4 rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-900/20">
-                <p className="font-semibold text-blue-800 dark:text-blue-300">📊 Resumo do Período</p>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-3">
-                  <div className="text-center">
-                    <p className="text-2xl font-bold text-amber-600">{solicitacoes.filter(s => s.status === 'aguardando_validacao').length}</p>
-                    <p className="text-xs text-zinc-500">Pendentes</p>
+                {/* No pending */}
+                {pendingCount === 0 && (
+                  <div className="p-4 rounded-lg border border-green-200 bg-green-50 dark:bg-green-900/20">
+                    <p className="text-green-800 dark:text-green-300">✅ Nenhuma solicitação pendente de avaliação.</p>
                   </div>
-                  <div className="text-center">
-                    <p className="text-2xl font-bold text-green-600">{solicitacoes.filter(s => s.status === 'deferido').length}</p>
-                    <p className="text-xs text-zinc-500">Deferidas</p>
+                )}
+
+                {/* Contrapropostas info box */}
+                {contrapropostasTotaisCount > 0 && (
+                  <div className="p-4 rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-900/20">
+                    <p className="font-semibold text-blue-800 dark:text-blue-300">💬 Contrapropostas de Datas no Período</p>
+                    <p className="text-sm text-blue-700 dark:text-blue-400 mt-1">
+                      {contrapropostasTotaisCount} solicitação(ões) envolveu(ram) ajuste/contraproposta de datas pela chefia.
+                      {contrapropostasDeferidasCount > 0 ? ` (${contrapropostasDeferidasCount} aceita(s) e deferida(s))` : ''}
+                      {contrapropostasAbertasCount > 0 ? ` (${contrapropostasAbertasCount} aguardando resposta do servidor)` : ''}
+                    </p>
                   </div>
-                  <div className="text-center">
-                    <p className="text-2xl font-bold text-red-600">{solicitacoes.filter(s => s.status === 'indeferido').length}</p>
-                    <p className="text-xs text-zinc-500">Indeferidas</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-2xl font-bold text-blue-600">{solicitacoes.filter(s => s.status === 'contraproposta').length}</p>
-                    <p className="text-xs text-zinc-500">Contrapropostas</p>
+                )}
+
+                <div className="p-4 rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-900/20">
+                  <p className="font-semibold text-blue-800 dark:text-blue-300">📊 Resumo do Período</p>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-3">
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-amber-600">{pendingCount}</p>
+                      <p className="text-xs text-zinc-500 font-medium">Pendentes</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-green-600">{deferidasCount}</p>
+                      <p className="text-xs text-zinc-500 font-medium">Deferidas</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-red-600">{indeferidasCount}</p>
+                      <p className="text-xs text-zinc-500 font-medium">Indeferidas</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-blue-600">{contrapropostasTotaisCount}</p>
+                      <p className="text-xs text-zinc-500 font-medium">Contrapropostas</p>
+                      <p className="text-[10px] text-zinc-500 font-medium mt-0.5">
+                        {contrapropostasDeferidasCount > 0 && `${contrapropostasDeferidasCount} Deferida(s)`}
+                        {contrapropostasDeferidasCount > 0 && contrapropostasAbertasCount > 0 && ' • '}
+                        {contrapropostasAbertasCount > 0 && `${contrapropostasAbertasCount} Em Aberto`}
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* MODAL: Avaliação */}
       <Modal
