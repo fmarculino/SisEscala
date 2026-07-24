@@ -1,12 +1,15 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import { User } from 'lucide-react'
+import { createClient } from '@/utils/supabase/client'
 
 interface FichaServidorPrintViewProps {
   servidor: any
   unidades: any[]
   setores: any[]
   cargos: any[]
+  logoUrl?: string | null
 }
 
 function formatDate(dateStr: string | null | undefined): string {
@@ -20,8 +23,30 @@ export function FichaServidorPrintView({
   servidor,
   unidades,
   setores,
-  cargos
+  cargos,
+  logoUrl
 }: FichaServidorPrintViewProps) {
+  const [headerLogoUrl, setHeaderLogoUrl] = useState<string>(logoUrl || '')
+
+  useEffect(() => {
+    if (logoUrl) {
+      setHeaderLogoUrl(logoUrl)
+      return
+    }
+    async function fetchHeaderLogo() {
+      const supabase = createClient()
+      const { data } = await supabase
+        .from('configuracoes_globais')
+        .select('valor')
+        .eq('chave', 'instituicao_cabecalho_url')
+        .single()
+      if (data?.valor) {
+        setHeaderLogoUrl(data.valor)
+      }
+    }
+    fetchHeaderLogo()
+  }, [logoUrl])
+
   if (!servidor) return null
 
   const unidadeNome = unidades.find(u => u.id === servidor.unidade_id)?.nome || 'Não informada'
@@ -36,9 +61,13 @@ export function FichaServidorPrintView({
       {/* Document Header */}
       <div className="flex items-center justify-between border-b-2 border-zinc-800 pb-4 mb-6">
         <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-full border-2 border-zinc-800 flex items-center justify-center font-black text-xl bg-zinc-100">
-            PMM
-          </div>
+          {headerLogoUrl ? (
+            <img src={headerLogoUrl} alt="Logo Prefeitura Municipal de Marabá" className="h-16 max-w-[220px] object-contain" />
+          ) : (
+            <div className="w-16 h-16 rounded-full border-2 border-zinc-800 flex items-center justify-center font-black text-xl bg-zinc-100 shrink-0">
+              PMM
+            </div>
+          )}
           <div>
             <h1 className="text-base font-bold uppercase tracking-wider">Prefeitura Municipal de Marabá</h1>
             <h2 className="text-xs font-semibold text-zinc-700 uppercase">Secretaria Municipal de Saúde — SMS</h2>
