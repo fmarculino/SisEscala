@@ -2033,20 +2033,27 @@ export async function criarSolicitacaoPrevisao(params: {
     }
   }
 
-  // 8. Check for duplicate active request for same exercicio
-  const { data: existente } = await supabase
+  // 8. Check for duplicate active request for same exercicio & tipo_beneficio
+  const { data: existente, error: dupErr } = await supabase
     .from('solicitacoes_ferias_licencas')
     .select('id, status')
     .eq('servidor_id', servidorId)
     .eq('tipo_beneficio', tipoBeneficio)
-    .eq('exercicio', exercicio)
-    .not('status', 'in', '("cancelado","indeferido")')
+    .eq('exercicio', exercicio.trim())
+    .in('status', ['aguardando_validacao', 'deferido', 'contraproposta'])
     .limit(1)
 
+  if (dupErr) {
+    console.error('Erro ao verificar solicitação duplicada:', dupErr)
+    return { error: 'Erro ao verificar solicitações prévias do servidor.' }
+  }
+
   if (existente && existente.length > 0) {
+    const statusAtual = existente[0].status
+    const statusLabel = statusAtual === 'deferido' ? 'deferida' : statusAtual === 'contraproposta' ? 'em contraproposta' : 'em análise'
     const tipoLabel = tipoBeneficio === 'ferias' ? 'Férias' : 'Licença Prêmio'
     return {
-      error: `Já existe uma solicitação ativa de ${tipoLabel} para o exercício ${exercicio}. Aguarde a avaliação ou cancele a solicitação anterior.`
+      error: `Já existe uma solicitação de ${tipoLabel} (${statusLabel}) para o exercício ${exercicio.trim()}. Não é permitido registrar nova solicitação para o mesmo exercício.`
     }
   }
 

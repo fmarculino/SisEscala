@@ -105,6 +105,17 @@ export function PortalFeriasLicencasSection({ servidor }: PortalFeriasLicencasSe
     return d.toISOString().split('T')[0]
   }, [])
 
+  // Check if active request already exists for the entered exercise and benefit type
+  const solicExistente = useMemo(() => {
+    if (!exercicio.trim()) return null
+    const exTrimmed = exercicio.trim().toLowerCase()
+    return solicitacoes.find(s => 
+      s.tipo_beneficio === tipoBeneficio &&
+      s.exercicio?.trim().toLowerCase() === exTrimmed &&
+      ['aguardando_validacao', 'deferido', 'contraproposta'].includes(s.status)
+    )
+  }, [solicitacoes, tipoBeneficio, exercicio])
+
   // Check eligibility and start request
   async function handleStartNovaSolicitacao() {
     if (!servidor) return
@@ -559,12 +570,27 @@ export function PortalFeriasLicencasSection({ servidor }: PortalFeriasLicencasSe
                 <p className="text-[10px] text-zinc-400 mt-1">Informe o período aquisitivo de referência do benefício.</p>
               </div>
 
+              {solicExistente && (
+                <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-300 space-y-1 animate-in fade-in duration-200">
+                  <div className="flex items-center gap-1.5 font-bold text-amber-800 dark:text-amber-200">
+                    <ShieldAlert className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                    <span>Exercício com solicitação ativa ou deferida</span>
+                  </div>
+                  <p className="leading-relaxed">
+                    Você já possui uma solicitação de <strong>{tipoBeneficio === 'ferias' ? 'Férias' : 'Licença Prêmio'}</strong>{' '}
+                    <span className="underline decoration-amber-500 font-semibold">
+                      {solicExistente.status === 'deferido' ? 'deferida' : solicExistente.status === 'contraproposta' ? 'em contraproposta' : 'em análise'}
+                    </span> para o {tipoBeneficio === 'ferias' ? 'exercício' : 'quinquênio'} <strong>{exercicio.trim()}</strong>. Não é permitido cadastrar uma nova solicitação para o mesmo período aquisitivo.
+                  </p>
+                </div>
+              )}
+
               <div className="flex justify-end pt-2">
                 <button
                   type="button"
-                  disabled={!exercicio.trim()}
+                  disabled={!exercicio.trim() || !!solicExistente}
                   onClick={() => setStep(2)}
-                  className="px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-emerald-700 disabled:opacity-50"
+                  className="px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >Próximo Passo →</button>
               </div>
             </div>

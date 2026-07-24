@@ -1,9 +1,11 @@
 'use client'
 
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { Save, User, Layers, Eye, EyeOff, MessageCircle, Info, Briefcase, Search, Check, ChevronsUpDown, FileText } from 'lucide-react'
+import { Save, User, Layers, Eye, EyeOff, MessageCircle, Info, Briefcase, Search, Check, ChevronsUpDown, FileText, Printer, Camera } from 'lucide-react'
 import { updateServidor } from '../actions'
 import { DadosComplementaresSection } from '@/components/servidores/DadosComplementaresSection'
+import { WebcamPhotoCaptureModal } from '@/components/servidores/WebcamPhotoCaptureModal'
+import { FichaServidorPrintView } from '@/components/servidores/FichaServidorPrintView'
 
 interface EditServidorFormProps {
   id: string
@@ -20,6 +22,8 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
   const [error, setError] = useState<string | null>(null)
   const [selectedUnidade, setSelectedUnidade] = useState(servidor.unidade_id || '')
   const [selectedSetor, setSelectedSetor] = useState(servidor.setor_id || '')
+  const [fotoUrl, setFotoUrl] = useState<string>(servidor.foto_url || '')
+  const [showWebcamModal, setShowWebcamModal] = useState(false)
 
   const isLotaçãoChanged = selectedUnidade !== (servidor.unidade_id || '') || selectedSetor !== (servidor.setor_id || '')
 
@@ -88,6 +92,7 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
     formData.set('cargo', cargoFinal)
     formData.set('pin_acesso', currentPin)
     formData.set('cpf', currentCpf)
+    formData.set('foto_url', fotoUrl)
     if (isSuperAdmin) {
       const checkbox = document.getElementById('ignora_janela_presenca') as HTMLInputElement
       formData.set('ignora_janela_presenca', checkbox?.checked ? 'true' : 'false')
@@ -99,41 +104,107 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
     }
   }
 
+  const mergedServidor = useMemo(() => ({
+    ...servidor,
+    foto_url: fotoUrl
+  }), [servidor, fotoUrl])
+
   return (
     <div className="rounded-2xl bg-white p-8 shadow-xl dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
-      <div className="flex items-center space-x-4 mb-6">
-        <div className="rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20 text-blue-600">
-          <User className="h-6 w-6" />
+      {/* Printable Ficha Cadastral Component */}
+      <FichaServidorPrintView
+        servidor={mergedServidor}
+        unidades={unidades}
+        setores={setores}
+        cargos={cargos}
+      />
+
+      {/* Webcam Photo Capture Modal */}
+      <WebcamPhotoCaptureModal
+        isOpen={showWebcamModal}
+        onClose={() => setShowWebcamModal(false)}
+        onPhotoCaptured={(newPhotoDataUrl) => setFotoUrl(newPhotoDataUrl)}
+        currentPhotoUrl={fotoUrl}
+      />
+
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+        <div className="flex items-center space-x-4">
+          <div className="relative group shrink-0">
+            <div className="w-16 h-16 rounded-2xl bg-blue-50 dark:bg-blue-900/20 border-2 border-blue-200 dark:border-blue-800 overflow-hidden flex items-center justify-center shadow-sm">
+              {fotoUrl ? (
+                <img src={fotoUrl} alt={servidor.nome} className="w-full h-full object-cover" />
+              ) : (
+                <User className="h-8 w-8 text-blue-600 dark:text-blue-400" />
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowWebcamModal(true)}
+              className="absolute -bottom-1 -right-1 p-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-md transition-all active:scale-95 print:hidden"
+              title="Fotografar via Webcam / Alterar Foto"
+            >
+              <Camera className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          <div>
+            <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Editar Servidor: {servidor.nome}</h1>
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 font-mono">
+                Matrícula: {servidor.matricula || 'Sem Matrícula'}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowWebcamModal(true)}
+                className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-bold flex items-center gap-1 print:hidden"
+              >
+                <Camera className="h-3 w-3" />
+                {fotoUrl ? 'Alterar Foto (Webcam)' : 'Fotografar Servidor (Webcam)'}
+              </button>
+            </div>
+          </div>
         </div>
-        <h1 className="text-2xl font-bold">Editar Servidor: {servidor.nome}</h1>
       </div>
       
       <form action={handleSubmit} className="space-y-6">
-        {/* Navigation Tabs */}
-        <div className="flex border-b border-zinc-200 dark:border-zinc-800">
+        <input type="hidden" name="foto_url" value={fotoUrl} />
+
+        {/* Navigation Tabs Header */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-zinc-200 dark:border-zinc-800 gap-2 pb-1 sm:pb-0">
+          <div className="flex border-b sm:border-b-0 border-zinc-200 dark:border-zinc-800 w-full sm:w-auto">
+            <button
+              type="button"
+              onClick={() => setFormTab('principal')}
+              className={`flex items-center gap-2 px-6 py-3 border-b-2 font-bold text-sm transition-all ${
+                formTab === 'principal'
+                  ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                  : 'border-transparent text-zinc-500 hover:text-zinc-800 hover:border-zinc-300 dark:hover:text-zinc-300'
+              }`}
+            >
+              <User className="h-4 w-4" />
+              Cadastro Principal
+            </button>
+            <button
+              type="button"
+              onClick={() => setFormTab('complementar')}
+              className={`flex items-center gap-2 px-6 py-3 border-b-2 font-bold text-sm transition-all ${
+                formTab === 'complementar'
+                  ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                  : 'border-transparent text-zinc-500 hover:text-zinc-800 hover:border-zinc-300 dark:hover:text-zinc-300'
+              }`}
+            >
+              <FileText className="h-4 w-4" />
+              Dados Complementares
+            </button>
+          </div>
+
           <button
             type="button"
-            onClick={() => setFormTab('principal')}
-            className={`flex items-center gap-2 px-6 py-3 border-b-2 font-bold text-sm transition-all ${
-              formTab === 'principal'
-                ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
-                : 'border-transparent text-zinc-500 hover:text-zinc-800 hover:border-zinc-300 dark:hover:text-zinc-300'
-            }`}
+            onClick={() => window.print()}
+            className="flex items-center gap-2 px-4 py-2 my-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold uppercase tracking-wider rounded-xl transition-all shadow-md active:scale-95 print:hidden self-end sm:self-auto"
           >
-            <User className="h-4 w-4" />
-            Cadastro Principal
-          </button>
-          <button
-            type="button"
-            onClick={() => setFormTab('complementar')}
-            className={`flex items-center gap-2 px-6 py-3 border-b-2 font-bold text-sm transition-all ${
-              formTab === 'complementar'
-                ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
-                : 'border-transparent text-zinc-500 hover:text-zinc-800 hover:border-zinc-300 dark:hover:text-zinc-300'
-            }`}
-          >
-            <FileText className="h-4 w-4" />
-            Dados Complementares
+            <Printer className="h-4 w-4" />
+            Imprimir Ficha Cadastral (PDF)
           </button>
         </div>
 

@@ -30,6 +30,7 @@ function extractDadosComplementares(formData: FormData) {
     data_admissao_hmm: (formData.get('data_admissao_hmm') as string)?.trim() || null,
     data_admissao_pmm: (formData.get('data_admissao_pmm') as string)?.trim() || null,
     observacao: (formData.get('observacao') as string)?.trim() || null,
+    foto_url: (formData.get('foto_url') as string)?.trim() || null,
   }
 }
 
