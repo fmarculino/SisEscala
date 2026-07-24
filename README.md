@@ -1,4 +1,4 @@
-# SisEscala 📅[![Version](https://img.shields.io/badge/version-1.12.0-green.svg)](https://github.com/fmarculino/SisEscala)
+# SisEscala 📅[![Version](https://img.shields.io/badge/version-1.13.0-green.svg)](https://github.com/fmarculino/SisEscala)
 [![Next.js](https://img.shields.io/badge/framework-Next.js%2015-black.svg)](https://nextjs.org/)
 [![Supabase](https://img.shields.io/badge/backend-Supabase-green.svg)](https://supabase.com/)
 [![Tailwind CSS](https://img.shields.io/badge/styling-Tailwind%20CSS-38B2AC.svg)](https://tailwindcss.com/)
@@ -11,14 +11,15 @@ O sistema foca em **governança, segurança jurídica e eficiência operacional*
 
 ## 🚀 Principais Funcionalidades
 
+### 📄 Ficha Cadastral em PDF, Webcam & Dados Bancários
+- **Ficha Cadastral Timbrada (`FichaServidorPrintView.tsx`)**: Gerador de Ficha Cadastral em PDF/Impressão com timbre oficial da Prefeitura de Marabá / SMS, foto 3x4, dados funcionais/pessoais/bancários e assinaturas físicas e digitais do servidor e RH.
+- **Captura via Webcam (`WebcamPhotoCaptureModal.tsx`)**: Captura de foto do servidor com câmera HTML5 em tempo real (1:1 crop, preview e refazer sem tela preta) e lightbox preview em alta resolução.
+- **Dados Bancários Completos**: Seção dedicada para controle de Banco, Agência, Conta Corrente, Tipo de Conta e Chave PIX para folha de pagamento.
+- **Importação CSV Inteligente (`/servidores/importar`)**: Leitor flexível com suporte a delimitadores `,` e `;`, modelo baixável `.csv` e mapeamento dinâmico de todas as colunas do servidor.
+
 ### 🏖️ Gestão de Férias, Licenças & Requerimentos Oficiais
 - **Solicitações Digitais de Férias e Licenças (`/ferias-licencas`)**: Módulo dedicado para abertura, tramitação e aprovação de requerimentos de férias, licença prêmio, licença médica, entre outros.
-- **Impressão Timbrada de Requerimentos (`RequerimentoPrintView`)**: Gerador de formulário timbrado oficial com cabeçalho municipal, dados do servidor, período solicitado, assinatura digital/física e despachos da chefia imediata e RH para formalização em PDF.
-- **Histórico e Validação Automática**: Controle de status (Pendente, Aprovada, Indeferida, Cancelada) e cálculo dinâmico de dias de afastamento com sincronização no calendário de escalas.
-
-### 👤 Dados Complementares do Servidor & Dados Bancários
-- **Ficha Cadastral Ampliada (`servidores_dados_complementares`)**: Gerenciamento de informações bancárias (Banco, Agência, Conta, Tipo de Conta e Chave PIX) para folha de pagamento.
-- **Registro de Documentos e Emergência**: Coleta de PIS/PASEP, Título de Eleitor (Zona/Seção), registro no Conselho de Classe (CRM, COREN, etc.), endereço residencial completo e contatos de emergência.
+- **Validação de Duplicidade & Rastreamento**: Trava de duplicidade para o mesmo exercício e histórico de solicitações indeferidas e contrapropostas deferidas no Painel de Alertas.
 
 ### 🔐 Autenticação, Segurança & Recuperação de Senha
 - **Recuperação de Senha PKCE**: Fluxo seguro de recuperação de senha via e-mail utilizando PKCE (`/auth/callback` e `/resetar-senha`) integrado com Supabase Auth.

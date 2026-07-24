@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.13.0] - 2026-07-24
+
+### Added
+- **Ficha Cadastral do Servidor em PDF/Impressão (`FichaServidorPrintView.tsx`)**:
+  - Emissão de Ficha Cadastral oficial timbrada em 4 blocos com Dados Pessoais, Funcionais, Endereço e Dados Bancários.
+  - Carregamento automático da logo oficial da Prefeitura Municipal de Marabá / SMS (`configuracoes_globais`).
+  - Áreas para foto 3x4 e campos para assinatura física/digital do servidor e da chefia/RH.
+  - Botão verde `📄 Imprimir Ficha Cadastral (PDF)` integrado no cabeçalho da tela de cadastro de servidores.
+- **Captura de Foto via Webcam & Preview High-Res**:
+  - Modal interativo (`WebcamPhotoCaptureModal.tsx`) para captura de foto do servidor via webcam com streaming HTML5 em tempo real, enquadramento 1:1, captura instantânea, preview e opção de refazer foto sem tela preta.
+  - Lightbox modal (`PhotoPreviewModal.tsx`) para pré-visualização da foto do servidor em alta resolução ao clicar no avatar.
+- **Dados Bancários Completos & Migração SQL**:
+  - Seção **5. Dados Bancários (para Folha de Pagamento)** na aba *Dados Complementares* com Banco, Agência, Conta Corrente, Tipo de Conta e Chave PIX.
+  - Arquivo de migração SQL `supabase/migrations/20260724020000_add_dados_bancarios_to_servidores.sql`.
+  - Tratamento de resiliência e fallback no salvamento (`actions.ts`) para lidar com atualizações de schema do Supabase.
+- **Importação de Servidores via CSV Ampliada (`/servidores/importar`)**:
+  - Parser flexível com suporte automático a delimitadores vírgula (`,`) e ponto e vírgula (`;`), aspas e caracteres especiais.
+  - Mapeamento dinâmico de cabeçalhos insensitive a maiúsculas/acentos para inclusão de todos os dados cadastrais básicos e complementares.
+  - Botão **"Baixar Modelo CSV Exemplo"** com download instantâneo do modelo `.csv` pré-formatado.
+- **Módulo Férias e Licenças — Validações e Alertas (`/ferias-licencas`)**:
+  - Bloqueio de duplicidade em solicitações para o mesmo exercício se houver solicitação ativa/deferida.
+  - Exibição de solicitações indeferidas com destaque em vermelho para o **❌ Parecer do Indeferimento** e data de avaliação.
+  - Correção exata dos contadores do **Resumo do Período** na aba Alertas para Pendentes, Deferidas, Indeferidas e Contrapropostas (incluindo contrapropostas aceitas/deferidas).
+
 ## [1.12.0] - 2026-07-23
 
 ### Added
