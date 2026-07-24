@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { User, Home, FileText, Calendar, MapPin, Search, Loader2 } from 'lucide-react'
+import { User, Home, FileText, Calendar, MapPin, Search, Loader2, CreditCard } from 'lucide-react'
 
 interface DadosComplementaresSectionProps {
   servidor?: any
@@ -482,6 +482,89 @@ export function DadosComplementaresSection({ servidor }: DadosComplementaresSect
               defaultValue={servidor?.observacao || ''}
               placeholder="Anotações gerais sobre o servidor..."
               className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white sm:text-sm"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* 5. Dados Bancários (Folha de Pagamento) */}
+      <div className="space-y-4 pt-2">
+        <div className="flex items-center gap-2 pb-2 border-b border-zinc-200 dark:border-zinc-800 text-sm font-bold text-blue-600 dark:text-blue-400">
+          <CreditCard className="h-4 w-4" />
+          <span>5. Dados Bancários (para Folha de Pagamento)</span>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-6">
+          <div className="sm:col-span-2">
+            <label htmlFor="banco_nome" className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+              Instituição Bancária / Banco
+            </label>
+            <input
+              type="text"
+              id="banco_nome"
+              name="banco_nome"
+              defaultValue={servidor?.banco_nome || ''}
+              placeholder="ex: BANCO DO BRASIL, CAIXA, ITAÚ"
+              className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white sm:text-sm uppercase"
+            />
+          </div>
+
+          <div className="sm:col-span-1">
+            <label htmlFor="agencia_numero" className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+              Agência (Nº)
+            </label>
+            <input
+              type="text"
+              id="agencia_numero"
+              name="agencia_numero"
+              defaultValue={servidor?.agencia_numero || ''}
+              placeholder="ex: 0123-4"
+              className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white sm:text-sm font-mono"
+            />
+          </div>
+
+          <div className="sm:col-span-1">
+            <label htmlFor="conta_numero" className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+              Conta (Nº)
+            </label>
+            <input
+              type="text"
+              id="conta_numero"
+              name="conta_numero"
+              defaultValue={servidor?.conta_numero || ''}
+              placeholder="ex: 12345-6"
+              className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white sm:text-sm font-mono"
+            />
+          </div>
+
+          <div className="sm:col-span-2">
+            <label htmlFor="conta_tipo" className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+              Tipo de Conta
+            </label>
+            <select
+              id="conta_tipo"
+              name="conta_tipo"
+              defaultValue={servidor?.conta_tipo || 'Corrente'}
+              className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white sm:text-sm"
+            >
+              <option value="Corrente">Conta Corrente</option>
+              <option value="Salário">Conta Salário</option>
+              <option value="Poupança">Conta Poupança</option>
+              <option value="Pagamento">Conta de Pagamento</option>
+            </select>
+          </div>
+
+          <div className="sm:col-span-6">
+            <label htmlFor="chave_pix" className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+              Chave PIX
+            </label>
+            <input
+              type="text"
+              id="chave_pix"
+              name="chave_pix"
+              defaultValue={servidor?.chave_pix || ''}
+              placeholder="CPF, E-mail, Telefone ou Chave Aleatória PIX"
+              className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white sm:text-sm font-mono"
             />
           </div>
         </div>

@@ -231,31 +231,29 @@ export function FichaServidorPrintView({
         </div>
 
         {/* 4. DADOS BANCÁRIOS */}
-        {(servidor.banco_nome || servidor.agencia_numero || servidor.chave_pix) && (
-          <div className="border border-zinc-800 rounded overflow-hidden">
-            <div className="bg-zinc-800 text-white px-3 py-1 font-bold uppercase tracking-wider text-[11px]">
-              4. Dados Bancários
+        <div className="border border-zinc-800 rounded overflow-hidden">
+          <div className="bg-zinc-800 text-white px-3 py-1 font-bold uppercase tracking-wider text-[11px]">
+            4. Dados Bancários (Folha de Pagamento)
+          </div>
+          <div className="p-3 grid grid-cols-4 gap-2">
+            <div>
+              <span className="text-zinc-500 font-bold uppercase text-[10px] block">Banco:</span>
+              <span className="font-semibold">{servidor.banco_nome || '—'}</span>
             </div>
-            <div className="p-3 grid grid-cols-4 gap-2">
-              <div>
-                <span className="text-zinc-500 font-bold uppercase text-[10px] block">Banco:</span>
-                <span className="font-semibold">{servidor.banco_nome || '—'}</span>
-              </div>
-              <div>
-                <span className="text-zinc-500 font-bold uppercase text-[10px] block">Agência:</span>
-                <span className="font-mono">{servidor.agencia_numero || '—'}</span>
-              </div>
-              <div>
-                <span className="text-zinc-500 font-bold uppercase text-[10px] block">Conta Corrente:</span>
-                <span className="font-mono">{servidor.conta_numero || '—'} ({servidor.conta_tipo || 'Corrente'})</span>
-              </div>
-              <div>
-                <span className="text-zinc-500 font-bold uppercase text-[10px] block">Chave PIX:</span>
-                <span className="font-mono">{servidor.chave_pix || '—'}</span>
-              </div>
+            <div>
+              <span className="text-zinc-500 font-bold uppercase text-[10px] block">Agência:</span>
+              <span className="font-mono">{servidor.agencia_numero || '—'}</span>
+            </div>
+            <div>
+              <span className="text-zinc-500 font-bold uppercase text-[10px] block">Conta Corrente / Tipo:</span>
+              <span className="font-mono">{servidor.conta_numero ? `${servidor.conta_numero} (${servidor.conta_tipo || 'Corrente'})` : '—'}</span>
+            </div>
+            <div>
+              <span className="text-zinc-500 font-bold uppercase text-[10px] block">Chave PIX:</span>
+              <span className="font-mono">{servidor.chave_pix || '—'}</span>
             </div>
           </div>
-        )}
+        </div>
 
         {/* Termo de Responsabilidade */}
         <div className="p-3 bg-zinc-50 border border-zinc-300 rounded text-[10px] text-zinc-700 leading-tight">
