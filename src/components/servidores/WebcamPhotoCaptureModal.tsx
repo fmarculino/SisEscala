@@ -157,6 +157,9 @@ export function WebcamPhotoCaptureModal({
     setCapturedPhoto(null)
     if (!stream) {
       startCamera()
+    } else if (videoRef.current) {
+      videoRef.current.srcObject = stream
+      videoRef.current.play().catch(() => {})
     }
   }
 
@@ -181,30 +184,38 @@ export function WebcamPhotoCaptureModal({
 
         {/* Video / Snapshot Display */}
         <div className="relative aspect-square w-full max-w-sm mx-auto bg-black rounded-2xl overflow-hidden shadow-inner flex items-center justify-center border-2 border-zinc-200 dark:border-zinc-800">
-          {capturedPhoto ? (
-            <img
-              src={capturedPhoto}
-              alt="Foto capturada"
-              className="w-full h-full object-cover animate-in zoom-in-95 duration-200"
-            />
-          ) : stream ? (
-            <div className="relative w-full h-full">
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                muted
-                className="w-full h-full object-cover transform -scale-x-100" // Mirror view
-              />
-              {/* Profile Framing Guide Overlay */}
+          {/* Always rendered video element to preserve stream reference */}
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            className={`w-full h-full object-cover transform -scale-x-100 ${capturedPhoto || !stream ? 'hidden' : 'block'}`}
+          />
+
+          {/* Profile Framing Guide Overlay */}
+          {stream && !capturedPhoto && (
+            <>
               <div className="absolute inset-0 border-[3px] border-emerald-500/60 rounded-full m-8 pointer-events-none shadow-[0_0_0_9999px_rgba(0,0,0,0.4)]" />
               <div className="absolute top-3 left-0 right-0 text-center pointer-events-none">
                 <span className="bg-black/60 text-white text-[11px] font-bold px-3 py-1 rounded-full backdrop-blur-sm">
                   Posicione o rosto dentro do círculo
                 </span>
               </div>
-            </div>
-          ) : cameraError ? (
+            </>
+          )}
+
+          {/* Captured Snapshot Display */}
+          {capturedPhoto && (
+            <img
+              src={capturedPhoto}
+              alt="Foto capturada"
+              className="w-full h-full object-cover animate-in zoom-in-95 duration-200"
+            />
+          )}
+
+          {/* Camera Error Display */}
+          {!stream && cameraError && (
             <div className="p-6 text-center text-zinc-400 space-y-3">
               <AlertCircle className="h-10 w-10 text-amber-500 mx-auto" />
               <p className="text-xs font-semibold text-zinc-300">{cameraError}</p>
@@ -217,7 +228,10 @@ export function WebcamPhotoCaptureModal({
                 Carregar Imagem do Computador
               </button>
             </div>
-          ) : (
+          )}
+
+          {/* Camera Loading Display */}
+          {!stream && !cameraError && (
             <div className="text-center text-zinc-400 p-6">
               <Camera className="h-10 w-10 animate-bounce text-zinc-500 mx-auto mb-2" />
               <p className="text-xs font-semibold">Iniciando câmera...</p>

@@ -1,11 +1,12 @@
 'use client'
 
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { Save, User, Layers, Eye, EyeOff, MessageCircle, Info, Briefcase, Search, Check, ChevronsUpDown, FileText, Printer, Camera } from 'lucide-react'
+import { Save, User, Layers, Eye, EyeOff, MessageCircle, Info, Briefcase, Search, Check, ChevronsUpDown, FileText, Printer, Camera, ZoomIn } from 'lucide-react'
 import { updateServidor } from '../actions'
 import { DadosComplementaresSection } from '@/components/servidores/DadosComplementaresSection'
 import { WebcamPhotoCaptureModal } from '@/components/servidores/WebcamPhotoCaptureModal'
 import { FichaServidorPrintView } from '@/components/servidores/FichaServidorPrintView'
+import { PhotoPreviewModal } from '@/components/servidores/PhotoPreviewModal'
 
 interface EditServidorFormProps {
   id: string
@@ -24,6 +25,7 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
   const [selectedSetor, setSelectedSetor] = useState(servidor.setor_id || '')
   const [fotoUrl, setFotoUrl] = useState<string>(servidor.foto_url || '')
   const [showWebcamModal, setShowWebcamModal] = useState(false)
+  const [showPhotoPreviewModal, setShowPhotoPreviewModal] = useState(false)
 
   const isLotaçãoChanged = selectedUnidade !== (servidor.unidade_id || '') || selectedSetor !== (servidor.setor_id || '')
 
@@ -127,16 +129,35 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
         currentPhotoUrl={fotoUrl}
       />
 
+      {/* Photo Preview Modal (Ampliar Foto) */}
+      <PhotoPreviewModal
+        isOpen={showPhotoPreviewModal}
+        onClose={() => setShowPhotoPreviewModal(false)}
+        photoUrl={fotoUrl}
+        servidorNome={servidor.nome}
+        matricula={servidor.matricula}
+        cargo={cargoFinal}
+        onOpenWebcam={() => setShowWebcamModal(true)}
+      />
+
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div className="flex items-center space-x-4">
           <div className="relative group shrink-0">
-            <div className="w-16 h-16 rounded-2xl bg-blue-50 dark:bg-blue-900/20 border-2 border-blue-200 dark:border-blue-800 overflow-hidden flex items-center justify-center shadow-sm">
+            <button
+              type="button"
+              onClick={() => setShowPhotoPreviewModal(true)}
+              className="w-16 h-16 rounded-2xl bg-blue-50 dark:bg-blue-900/20 border-2 border-blue-200 dark:border-blue-800 overflow-hidden flex items-center justify-center shadow-sm hover:opacity-90 hover:ring-2 hover:ring-blue-500/40 transition-all cursor-pointer block relative group/avatar"
+              title="Clique para ampliar foto do servidor"
+            >
               {fotoUrl ? (
                 <img src={fotoUrl} alt={servidor.nome} className="w-full h-full object-cover" />
               ) : (
                 <User className="h-8 w-8 text-blue-600 dark:text-blue-400" />
               )}
-            </div>
+              <div className="absolute inset-0 bg-black/30 opacity-0 group-hover/avatar:opacity-100 transition-opacity flex items-center justify-center text-white">
+                <ZoomIn className="h-5 w-5" />
+              </div>
+            </button>
             <button
               type="button"
               onClick={() => setShowWebcamModal(true)}
