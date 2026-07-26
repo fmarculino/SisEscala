@@ -59,10 +59,16 @@ export default async function DashboardHome() {
   `).eq('mes', currentMonth).eq('ano', currentYear)
   escalasQuery = applyAccessFilters(escalasQuery, userProfile)
 
-  // 3. Escala diária de hoje (para KPIs e sobreaviso)
+  // 3. Escala diária de hoje e ontem (para capturar turnos noturnos em andamento)
+  const yesterday = new Date(today)
+  yesterday.setDate(yesterday.getDate() - 1)
+  const yesterdayDay = yesterday.getDate()
+  const yesterdayMonth = yesterday.getMonth() + 1
+  const yesterdayYear = yesterday.getFullYear()
+
   let diariaTodayQuery = supabase.from('escala_diaria').select(`
     id, dia, categoria, presenca_confirmada, presenca_entrada_em, presenca_saida_em,
-    dicionario_turnos(id, codigo, horas_computadas, tipo),
+    dicionario_turnos(id, codigo, horas_computadas, tipo, slots),
     escala_mensal!inner(
       id, servidor_id, unidade_id, setor_id, mes, ano, status,
       servidores(id, nome, telefone),
@@ -72,6 +78,21 @@ export default async function DashboardHome() {
     .eq('escala_mensal.mes', currentMonth)
     .eq('escala_mensal.ano', currentYear)
   diariaTodayQuery = applyAccessFilters(diariaTodayQuery, userProfile, { unidadeField: 'escala_mensal.unidade_id', setorField: 'escala_mensal.setor_id' })
+
+  // Query sobreaviso de ontem para verificar turnos que cruzam a meia-noite (N12, D24)
+  let diariaYesterdaySobreavisoQuery = supabase.from('escala_diaria').select(`
+    id, dia, categoria, presenca_confirmada, presenca_entrada_em, presenca_saida_em,
+    dicionario_turnos(id, codigo, horas_computadas, tipo, slots),
+    escala_mensal!inner(
+      id, servidor_id, unidade_id, setor_id, mes, ano, status,
+      servidores(id, nome, telefone),
+      unidades(id, nome)
+    )
+  `).eq('dia', yesterdayDay)
+    .eq('categoria', 'Sobreaviso')
+    .eq('escala_mensal.mes', yesterdayMonth)
+    .eq('escala_mensal.ano', yesterdayYear)
+  diariaYesterdaySobreavisoQuery = applyAccessFilters(diariaYesterdaySobreavisoQuery, userProfile, { unidadeField: 'escala_mensal.unidade_id', setorField: 'escala_mensal.setor_id' })
 
   // 4. Afastamentos ativos
   const yyyy = today.getFullYear()
@@ -84,7 +105,7 @@ export default async function DashboardHome() {
     tipos_eventos(nome, cor)
   `).lte('data_inicio', todayStr).gte('data_fim', todayStr)
 
-  // 5. Logs de sobreaviso de hoje (para status dos acionamentos)
+  // 5. Logs de sobreaviso de hoje e ontem (para status dos acionamentos)
   let sobreavisoLogsQuery = supabase.from('logs_sobreaviso').select(`
     id, servidor_id, unidade_id, escala_mensal_id, dia, status,
     data_hora_acionamento, data_hora_aceite, data_hora_chegada,
@@ -95,6 +116,17 @@ export default async function DashboardHome() {
     .eq('escala_mensal.mes', currentMonth)
     .eq('escala_mensal.ano', currentYear)
   sobreavisoLogsQuery = applyAccessFilters(sobreavisoLogsQuery, userProfile)
+
+  let sobreavisoLogsYesterdayQuery = supabase.from('logs_sobreaviso').select(`
+    id, servidor_id, unidade_id, escala_mensal_id, dia, status,
+    data_hora_acionamento, data_hora_aceite, data_hora_chegada,
+    token_magic_link, motivo_acionamento, categoria,
+    escala_mensal!inner(mes, ano)
+  `).eq('dia', yesterdayDay)
+    .eq('categoria', 'Sobreaviso')
+    .eq('escala_mensal.mes', yesterdayMonth)
+    .eq('escala_mensal.ano', yesterdayYear)
+  sobreavisoLogsYesterdayQuery = applyAccessFilters(sobreavisoLogsYesterdayQuery, userProfile)
 
   // 6. Historical data: last 3 months of escala_diaria for chart
   const months: { mes: number; ano: number; label: string }[] = []
@@ -135,8 +167,10 @@ export default async function DashboardHome() {
     { count: unidadesCount },
     { data: escalasData },
     { data: diariaToday },
+    { data: diariaYesterdaySobreaviso },
     { data: afastamentosData },
-    { data: sobreavisoLogs },
+    { data: sobreavisoLogsToday },
+    { data: sobreavisoLogsYesterday },
     ...historicalResults
   ] = await Promise.all([
     serversQuery,
@@ -144,8 +178,10 @@ export default async function DashboardHome() {
     unitsQuery,
     escalasQuery,
     diariaTodayQuery,
+    diariaYesterdaySobreavisoQuery,
     afastamentosQuery,
     sobreavisoLogsQuery,
+    sobreavisoLogsYesterdayQuery,
     ...historicalPromises
   ])
 
@@ -155,8 +191,10 @@ export default async function DashboardHome() {
 
   const escalas = (escalasData || []) as any[]
   const diaria = (diariaToday || []) as any[]
+  const diariaYesterday = (diariaYesterdaySobreaviso || []) as any[]
   const afastamentos = (afastamentosData || []) as any[]
-  const logs = (sobreavisoLogs || []) as any[]
+  const logsToday = (sobreavisoLogsToday || []) as any[]
+  const logsYesterday = (sobreavisoLogsYesterday || []) as any[]
 
   // --- KPIs ---
   const serversList = (serversData || []) as any[]
@@ -170,19 +208,73 @@ export default async function DashboardHome() {
   // Em serviço hoje (todos escalados para turnos ativos/regulares/plantão/extra hoje, excluindo sobreaviso)
   const emServicoHoje = diaria.filter((d: any) => d.categoria !== 'Sobreaviso').length
 
-  // Sobreaviso agendado hoje
-  const sobreavisoHoje = diaria.filter((d: any) => d.categoria === 'Sobreaviso')
-
   // Afastamentos ativos count
   const afastamentosAtivos = afastamentos.length
 
-  // --- SOBREAVISO PANEL DATA ---
-  const sobreavisoPanel = sobreavisoHoje.map((d: any) => {
+  // Helper para calcular a janela exata de horário de um turno de sobreaviso
+  function getShiftWindow(dia: number, mes: number, ano: number, turno: any) {
+    const codigo = (turno?.codigo || '').toUpperCase()
+    const slots = Array.isArray(turno?.slots) ? turno.slots : []
+
+    let startHour = 7
+    let endHour = 19
+    let isCrossMidnight = false
+
+    if (codigo === 'N12' || codigo === 'SN' || (slots.length > 0 && slots[0] === 'N')) {
+      startHour = 19
+      endHour = 7
+      isCrossMidnight = true
+    } else if (codigo === 'MTNS' || codigo === 'D24' || (slots.includes('M') && slots.includes('T') && slots.includes('N'))) {
+      startHour = 7
+      endHour = 7
+      isCrossMidnight = true
+    } else if (codigo === 'M6' || codigo === 'M' || (slots.length === 1 && slots[0] === 'M')) {
+      startHour = 7
+      endHour = 13
+    } else if (codigo === 'T6' || codigo === 'T' || (slots.length === 1 && slots[0] === 'T')) {
+      startHour = 13
+      endHour = 19
+    } else if (codigo === 'T4') {
+      startHour = 14
+      endHour = 18
+    } else if (codigo === 'D12' || codigo === 'SD' || (slots.includes('M') && slots.includes('T'))) {
+      startHour = 7
+      endHour = 19
+    }
+
+    const startTime = new Date(ano, mes - 1, dia, startHour, 0, 0)
+    const endTime = new Date(ano, mes - 1, isCrossMidnight ? dia + 1 : dia, endHour, 0, 0)
+
+    return { startTime, endTime, startHour, endHour, isCrossMidnight }
+  }
+
+  // Processar itens de sobreaviso combinando ontem e hoje
+  const rawSobreavisoToday = diaria.filter((d: any) => d.categoria === 'Sobreaviso').map(d => ({ ...d, isYesterday: false }))
+  const rawSobreavisoYesterday = diariaYesterday.map(d => ({ ...d, isYesterday: true }))
+
+  const rawSobreavisoItems = [...rawSobreavisoYesterday, ...rawSobreavisoToday]
+
+  const sobreavisoPanelAll = rawSobreavisoItems.map((d: any) => {
     const em = d.escala_mensal
     const servidor = em?.servidores
     const unidade = em?.unidades
     const turno = d.dicionario_turnos
-    const log = logs.find((l: any) => l.servidor_id === em?.servidor_id && l.dia === todayDay)
+    const log = d.isYesterday
+      ? logsYesterday.find((l: any) => l.servidor_id === em?.servidor_id && l.dia === d.dia)
+      : logsToday.find((l: any) => l.servidor_id === em?.servidor_id && l.dia === d.dia)
+
+    const { startTime, endTime, startHour } = getShiftWindow(d.dia, em?.mes, em?.ano, turno)
+
+    const isAtivoAgora = today >= startTime && today < endTime
+    const isFuturo = today < startTime
+    const isEncerrado = today >= endTime
+
+    const startStr = `${String(startHour).padStart(2, '0')}:00`
+    const timeStatusText = isAtivoAgora
+      ? 'Ativo Agora'
+      : isFuturo
+      ? `Inicia às ${startStr}`
+      : 'Encerrado'
 
     return {
       servidorNome: servidor?.nome || 'Desconhecido',
@@ -197,8 +289,29 @@ export default async function DashboardHome() {
       logToken: log?.token_magic_link || null,
       escalaMensalId: em?.id,
       servidorId: em?.servidor_id,
+      dia: d.dia,
+      mes: em?.mes,
+      ano: em?.ano,
+      startTime,
+      endTime,
+      isAtivoAgora,
+      isFuturo,
+      isEncerrado,
+      timeStatusText,
     }
   })
+
+  // Filtrar fora os plantões de ontem que já se encerraram (ex: encerraram às 07:00 da manhã)
+  const sobreavisoPanel = sobreavisoPanelAll.filter(item => !item.isEncerrado)
+
+  // Ordenar: primeiro os ativos agora, depois os futuros organizados pelo horário de início
+  sobreavisoPanel.sort((a, b) => {
+    if (a.isAtivoAgora && !b.isAtivoAgora) return -1
+    if (!a.isAtivoAgora && b.isAtivoAgora) return 1
+    return a.startTime.getTime() - b.startTime.getTime()
+  })
+
+  const sobreavisoAtivosCount = sobreavisoPanel.filter(item => item.isAtivoAgora).length
 
   // --- ESCALAS STATUS GRID ---
   type EscalaStatusItem = { unidadeNome: string; setorNome: string; status: string; unidadeId: string; setorId: string }
@@ -324,7 +437,7 @@ export default async function DashboardHome() {
             { label: 'Servidores', value: servidoresAtivos, icon: Users, color: 'text-purple-600', bg: 'bg-purple-50 dark:bg-purple-900/20', sub: `Hoje: ${emServicoHoje} em serviço | Inativos: ${servidoresInativos}` },
             { label: 'Escalas Ativas', value: totalEscalasCriadas, icon: Calendar, color: 'text-amber-600', bg: 'bg-amber-50 dark:bg-amber-900/20', sub: `De ${setoresCount} setores | ${escalasFechadas} fechadas` },
             { label: 'Afastados Agora', value: afastamentosAtivos, icon: CalendarDays, color: 'text-rose-600', bg: 'bg-rose-50 dark:bg-rose-900/20', sub: 'Ausências registradas' },
-            { label: 'Sobreaviso Hoje', value: sobreavisoHoje.length, icon: Phone, color: 'text-orange-600', bg: 'bg-orange-50 dark:bg-orange-900/20', sub: 'Plantões de prontidão' },
+            { label: 'Sobreaviso Hoje', value: sobreavisoAtivosCount, icon: Phone, color: 'text-orange-600', bg: 'bg-orange-50 dark:bg-orange-900/20', sub: `${sobreavisoAtivosCount} ativo(s) agora | ${sobreavisoPanel.length} total` },
             { label: 'Unidades', value: unidadesCount || 0, icon: Building2, color: 'text-blue-600', bg: 'bg-blue-50 dark:bg-blue-900/20', sub: 'Unidades cadastradas' },
           ].map((kpi, i) => (
             <div
@@ -361,7 +474,7 @@ export default async function DashboardHome() {
                 Sobreaviso Ativo Hoje
               </h2>
               <p className="text-xs text-amber-600/70 dark:text-amber-400/60">
-                {sobreavisoPanel.length} servidor{sobreavisoPanel.length !== 1 ? 'es' : ''} escalado{sobreavisoPanel.length !== 1 ? 's' : ''}
+                <span className="font-bold text-amber-800 dark:text-amber-200">{sobreavisoAtivosCount} ativo{sobreavisoAtivosCount !== 1 ? 's' : ''} agora</span> • {sobreavisoPanel.length} escalado{sobreavisoPanel.length !== 1 ? 's' : ''}
               </p>
             </div>
           </div>
@@ -385,17 +498,45 @@ export default async function DashboardHome() {
             {sobreavisoPanel.map((item, i) => (
               <div
                 key={i}
-                className="flex items-center justify-between bg-white dark:bg-zinc-900 rounded-xl p-4 border border-amber-100 dark:border-zinc-800 shadow-sm hover:shadow-md transition-shadow"
+                className={`flex items-center justify-between bg-white dark:bg-zinc-900 rounded-xl p-4 border transition-all ${
+                  item.isAtivoAgora
+                    ? 'border-emerald-400/80 dark:border-emerald-700/80 shadow-md ring-1 ring-emerald-500/20'
+                    : 'border-amber-100 dark:border-zinc-800 shadow-sm hover:shadow-md'
+                }`}
               >
                 <div className="flex items-center gap-4 flex-1 min-w-0">
-                  <div className="w-9 h-9 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
-                    <Users className="h-4 w-4 text-amber-700 dark:text-amber-400" />
+                  <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${
+                    item.isAtivoAgora
+                      ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
+                      : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'
+                  }`}>
+                    <Users className="h-4 w-4" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold text-zinc-900 dark:text-white truncate">
-                      {item.servidorNome}
-                    </p>
-                    <p className="text-[10px] text-zinc-500 dark:text-zinc-400 flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-bold text-zinc-900 dark:text-white truncate">
+                        {item.servidorNome}
+                      </p>
+                      {/* Real-time Time Window Badge */}
+                      <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                        item.isAtivoAgora
+                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
+                          : 'bg-amber-100/80 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+                      }`}>
+                        {item.isAtivoAgora ? (
+                          <>
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                            Ativo Agora
+                          </>
+                        ) : (
+                          <>
+                            <Clock className="h-2.5 w-2.5" />
+                            {item.timeStatusText}
+                          </>
+                        )}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-zinc-500 dark:text-zinc-400 flex items-center gap-2 mt-0.5">
                       <span className="flex items-center gap-1">
                         <Building2 className="h-3 w-3" /> {item.unidadeNome}
                       </span>
@@ -407,32 +548,38 @@ export default async function DashboardHome() {
                 </div>
 
                 <div className="flex items-center gap-3 flex-shrink-0">
-                  {/* Status Badge */}
-                  <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                    item.logStatus === 'Chegou'
-                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                      : item.logStatus === 'Aceito'
-                      ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-                      : item.logStatus === 'Aguardando'
-                      ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                      : item.logStatus === 'Recusado' || item.logStatus === 'Timeout'
-                      ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                      : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'
-                  }`}>
-                    {item.logStatus === 'Chegou' && <CheckCircle2 className="h-3 w-3" />}
-                    {item.logStatus === 'Aguardando' && <Clock className="h-3 w-3" />}
-                    {(item.logStatus === 'Recusado' || item.logStatus === 'Timeout') && <AlertTriangle className="h-3 w-3" />}
-                    {item.logStatus || 'Sem acionamento'}
-                  </span>
+                  {/* Log Status Badge (se acionado) */}
+                  {item.logStatus && (
+                    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                      item.logStatus === 'Chegou'
+                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                        : item.logStatus === 'Aceito'
+                        ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                        : item.logStatus === 'Aguardando'
+                        ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                        : item.logStatus === 'Recusado' || item.logStatus === 'Timeout'
+                        ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                        : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'
+                    }`}>
+                      {item.logStatus === 'Chegou' && <CheckCircle2 className="h-3 w-3" />}
+                      {item.logStatus === 'Aguardando' && <Clock className="h-3 w-3" />}
+                      {(item.logStatus === 'Recusado' || item.logStatus === 'Timeout') && <AlertTriangle className="h-3 w-3" />}
+                      {item.logStatus}
+                    </span>
+                  )}
 
                   {/* Action: Link to scale grid to trigger sobreaviso */}
                   <Link
-                    href={`/escalas/unidade/${item.unidadeId}?setor=${item.setorId}&mes=${currentMonth}&ano=${currentYear}`}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold uppercase tracking-wider shadow-sm hover:shadow-md transition-all"
+                    href={`/escalas/unidade/${item.unidadeId}?setor=${item.setorId}&mes=${item.mes}&ano=${item.ano}`}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider shadow-sm hover:shadow-md transition-all ${
+                      item.isAtivoAgora
+                        ? 'bg-amber-500 hover:bg-amber-600 text-white'
+                        : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-zinc-300'
+                    }`}
                     title="Ir para a escala deste servidor para acionar sobreaviso"
                   >
                     <Zap className="h-3 w-3" />
-                    {item.logStatus ? 'Ver Escala' : 'Acionar'}
+                    {item.logStatus ? 'Ver Escala' : item.isAtivoAgora ? 'Acionar' : 'Ver Escala'}
                   </Link>
                 </div>
               </div>
