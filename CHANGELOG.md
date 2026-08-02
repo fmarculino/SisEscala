@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.16.5] - 2026-08-02
+
+### Fixed
+- **Restrição Estrita de Acionamentos à Janela Ativa do Turno**:
+  - Implementada validação da janela de horário do plantão (`isShiftActiveNow`) em `ScaleGrid.tsx`.
+  - Para dias passados (ex: dia 1º) ou fora do horário do turno, a criação de novos acionamentos é completamente bloqueada.
+  - Ao clicar em dias passados com acionamentos, o modal de histórico abre exclusivamente em modo de consulta do histórico registrado.
+
 ## [1.16.4] - 2026-08-02
 
 ### Fixed

@@ -3198,13 +3198,31 @@ export function ScaleGrid({
               })()}
             </div>
 
-            {/* Ação para Novo Acionamento / Trava de Deslocamento */}
+            {/* Ação para Novo Acionamento / Trava de Deslocamento e Janela Ativa */}
             {(() => {
               const dayLogs = logsSobreaviso.filter((l: any) => 
                 l.servidor_id === sobreavisoHistoryModal.servidorId && l.dia === sobreavisoHistoryModal.dia
               )
               const latestLog = dayLogs[dayLogs.length - 1]
               const isInTransitOrWaiting = latestLog?.status === 'Aceito' || latestLog?.status === 'Aguardando'
+
+              const isShiftActiveNow = (() => {
+                const now = new Date()
+                const turnoMatch = turnos.find(t => t.id === sobreavisoHistoryModal.turnoId)
+                let startHour = 7
+                let endHour = 16
+                let endDayOffset = 0
+                const code = turnoMatch?.codigo || ''
+                if (code.startsWith('MTN')) { startHour = 7; endHour = 7; endDayOffset = 1 }
+                else if (code.startsWith('N')) { startHour = 19; endHour = 7; endDayOffset = 1 }
+                else if (code.startsWith('T')) { startHour = 13; endHour = 19; endDayOffset = 0 }
+                else if (code.startsWith('M') && !code.startsWith('MT')) { startHour = 7; endHour = 13; endDayOffset = 0 }
+                else if (code.startsWith('D') || code.startsWith('MT')) { startHour = 7; endHour = (code === 'MT') ? 16 : 19; endDayOffset = 0 }
+
+                const start = new Date(ano, mes - 1, sobreavisoHistoryModal.dia, startHour, 0, 0)
+                const end = new Date(ano, mes - 1, sobreavisoHistoryModal.dia + endDayOffset, endHour, 0, 0)
+                return now >= start && now < end
+              })()
 
               return (
                 <div className="space-y-3 pt-2 border-t border-zinc-100 dark:border-zinc-800">
@@ -3215,10 +3233,17 @@ export function ScaleGrid({
                     </div>
                   )}
 
+                  {!isShiftActiveNow && !isInTransitOrWaiting && (
+                    <div className="p-3 bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl text-xs text-zinc-600 dark:text-zinc-400 font-medium flex items-center gap-2">
+                      <Info className="h-4 w-4 text-zinc-500 flex-shrink-0" />
+                      <span>O período deste plantão de sobreaviso encerrou ou está fora da janela ativa. Exibindo apenas a consulta do histórico dos acionamentos.</span>
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between gap-3">
                     <button
                       type="button"
-                      disabled={isInTransitOrWaiting}
+                      disabled={isInTransitOrWaiting || !isShiftActiveNow}
                       onClick={() => {
                         const s = sobreavisoHistoryModal
                         setSobreavisoHistoryModal(null)
