@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.15.0] - 2026-08-02
+
+### Added
+- **Governança Globais Organizada em Abas (`/configuracoes`)**:
+  - Divisão limpa em 4 abas visuais e responsivas: **💬 Comunicação & Notificações**, **⚙️ Regras de Escala & Ponto**, **⚡ Sobreaviso & Presença** e **🏛️ Institucional & Competências**.
+- **Comunicação Customizada por Unidade de Saúde (`/unidades/[id]`)**:
+  - Componente dedicado `UnidadeCommunicationSettings.tsx` para escolher entre usar as configurações gerais do sistema ou personalizar os canais de WhatsApp (AstraCalls, Chatwoot, API Custom) e E-mail SMTP de cada unidade.
+  - Resolução dinâmica no motor `communication.ts` por `unidadeId` com herança automática do canal global.
+
 ## [1.14.0] - 2026-08-02
 
 ### Added

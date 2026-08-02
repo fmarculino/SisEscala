@@ -113,7 +113,32 @@ export async function updateUnidade(id: string, formData: FormData) {
     return { error: error.message }
   }
 
+  // Processar e salvar as configurações de comunicação da unidade (se enviadas)
+  const comunicacaoRaw = formData.get('configuracoes_comunicacao') as string
+  if (comunicacaoRaw) {
+    try {
+      const parsedConfig = JSON.parse(comunicacaoRaw)
+      
+      // 1. Tentar salvar na coluna da tabela unidades (se a coluna existir no schema)
+      try {
+        await supabase.from('unidades').update({ configuracoes_comunicacao: parsedConfig }).eq('id', id)
+      } catch (errCol) {
+        // Ignora silenciosamente caso a coluna ainda não exista
+      }
+
+      // 2. Salvar na chave global de contingência
+      await supabase.from('configuracoes_globais').upsert({
+        chave: `unidade_comunicacao_${id}`,
+        valor: parsedConfig,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'chave' })
+    } catch (e) {
+      console.warn('Erro ao salvar configuracoes_comunicacao da unidade:', e)
+    }
+  }
+
   revalidatePath('/unidades')
+  revalidatePath(`/unidades/${id}`)
   redirect('/unidades')
 }
 

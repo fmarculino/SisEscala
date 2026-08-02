@@ -6,6 +6,7 @@ import nodemailer from 'nodemailer'
 export interface WhatsAppSendParams {
   phone: string
   message: string
+  unidadeId?: string
   overrideConfigs?: Record<string, any>
 }
 
@@ -14,6 +15,7 @@ export interface EmailSendParams {
   subject: string
   html?: string
   text?: string
+  unidadeId?: string
   overrideConfigs?: Record<string, any>
 }
 
@@ -71,11 +73,21 @@ function formatPhoneForWhatsApp(phone: string): string {
 }
 
 /**
- * Envia uma mensagem via WhatsApp de acordo com as configurações ativas
+ * Envia uma mensagem via WhatsApp de acordo com as configurações ativas (globais ou da unidade)
  */
-export async function sendWhatsAppMessageAction({ phone, message, overrideConfigs }: WhatsAppSendParams): Promise<WhatsAppResult> {
+export async function sendWhatsAppMessageAction({ phone, message, unidadeId, overrideConfigs }: WhatsAppSendParams): Promise<WhatsAppResult> {
   const dbConfigs = await getCommunicationConfigs()
-  const configs = { ...dbConfigs, ...(overrideConfigs || {}) }
+
+  let unidadeConfigs: Record<string, any> = {}
+  if (unidadeId) {
+    const unitKey = `unidade_comunicacao_${unidadeId}`
+    const unitRaw = dbConfigs[unitKey]
+    if (unitRaw && (typeof unitRaw === 'object') && unitRaw.usar_global === false) {
+      unidadeConfigs = unitRaw
+    }
+  }
+
+  const configs = { ...dbConfigs, ...unidadeConfigs, ...(overrideConfigs || {}) }
   const cleanPhone = formatPhoneForWhatsApp(phone)
 
   if (!cleanPhone) {
@@ -366,10 +378,21 @@ export async function sendWhatsAppMessageAction({ phone, message, overrideConfig
 }
 
 /**
- * Envia um e-mail utilizando as configurações de SMTP ativas
+ * Envia um e-mail utilizando as configurações de SMTP ativas (globais ou da unidade)
  */
-export async function sendEmailAction({ to, subject, html, text }: EmailSendParams): Promise<EmailResult> {
-  const configs = await getCommunicationConfigs()
+export async function sendEmailAction({ to, subject, html, text, unidadeId, overrideConfigs }: EmailSendParams): Promise<EmailResult> {
+  const dbConfigs = await getCommunicationConfigs()
+
+  let unidadeConfigs: Record<string, any> = {}
+  if (unidadeId) {
+    const unitKey = `unidade_comunicacao_${unidadeId}`
+    const unitRaw = dbConfigs[unitKey]
+    if (unitRaw && (typeof unitRaw === 'object') && unitRaw.usar_global === false) {
+      unidadeConfigs = unitRaw
+    }
+  }
+
+  const configs = { ...dbConfigs, ...unidadeConfigs, ...(overrideConfigs || {}) }
 
   const habilitado = configs['email_smtp_habilitado'] !== 'false'
   if (!habilitado) {

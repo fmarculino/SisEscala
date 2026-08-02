@@ -5,6 +5,7 @@ import { ArrowLeft, Save, Building2 } from 'lucide-react'
 import Link from 'next/link'
 import { GeoLocationPicker } from '@/components/GeoLocationPicker'
 import { LogoUploadManager } from '@/components/LogoUploadManager'
+import { UnidadeCommunicationSettings } from '@/components/UnidadeCommunicationSettings'
 
 export default async function EditUnidadePage({
   params,
@@ -19,6 +20,14 @@ export default async function EditUnidadePage({
     .select('*')
     .eq('id', id)
     .single()
+
+  const { data: comConfig } = await supabase
+    .from('configuracoes_globais')
+    .select('valor')
+    .eq('chave', `unidade_comunicacao_${id}`)
+    .maybeSingle()
+
+  const initialComunicacao = comConfig?.valor || unidade?.configuracoes_comunicacao || null
 
   if (!unidade) {
     return <div>Unidade não encontrada</div>
@@ -109,6 +118,8 @@ export default async function EditUnidadePage({
               defaultLong={unidade.longitude} 
               defaultRaio={unidade.raio_geofence} 
             />
+
+            <UnidadeCommunicationSettings initialConfig={initialComunicacao} />
           </div>
 
           <div className="pt-4">

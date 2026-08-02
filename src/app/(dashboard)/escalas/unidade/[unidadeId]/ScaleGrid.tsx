@@ -2915,7 +2915,7 @@ export function ScaleGrid({
                         setWaFallbackUrl('')
 
                         try {
-                          const res = await sendWhatsAppMessageAction({ phone, message: textMessage })
+                          const res = await sendWhatsAppMessageAction({ phone, message: textMessage, unidadeId: unidadeId })
                           if (res.success) {
                             setAlertModal({
                               isOpen: true,
