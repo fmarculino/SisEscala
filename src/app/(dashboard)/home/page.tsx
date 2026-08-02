@@ -2,7 +2,7 @@ import { createClient } from '@/utils/supabase/server'
 import {
   Users, Building2, Calendar, ArrowRight, Clock, Phone,
   AlertTriangle, CheckCircle2, CalendarDays, BarChart3,
-  ShieldCheck, FileText, Zap, UserCheck, Activity, TrendingUp
+  ShieldCheck, FileText, Zap, UserCheck, Activity, TrendingUp, Navigation2
 } from 'lucide-react'
 import Link from 'next/link'
 import { applyAccessFilters } from '@/utils/permissions'
@@ -560,21 +560,22 @@ export default async function DashboardHome() {
 
                   {/* Log Status Badge (se acionado) */}
                   {item.logStatus && (
-                    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                      item.logStatus === 'Chegou'
-                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                        : item.logStatus === 'Aceito'
-                        ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                    <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                      item.logStatus === 'Aceito'
+                        ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/30 animate-pulse'
+                        : item.logStatus === 'Chegou'
+                        ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border border-blue-300 dark:border-blue-800'
                         : item.logStatus === 'Aguardando'
-                        ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                        ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
                         : item.logStatus === 'Recusado' || item.logStatus === 'Timeout'
-                        ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                        : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'
+                        ? 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300 border border-red-300 dark:border-red-800'
+                        : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
                     }`}>
+                      {item.logStatus === 'Aceito' && <Navigation2 className="h-3 w-3 fill-current" />}
                       {item.logStatus === 'Chegou' && <CheckCircle2 className="h-3 w-3" />}
                       {item.logStatus === 'Aguardando' && <Clock className="h-3 w-3" />}
                       {(item.logStatus === 'Recusado' || item.logStatus === 'Timeout') && <AlertTriangle className="h-3 w-3" />}
-                      {item.logStatus}
+                      {item.logStatus === 'Aceito' ? 'Em Deslocamento' : item.logStatus === 'Chegou' ? 'No Local' : item.logStatus}
                     </span>
                   )}
 

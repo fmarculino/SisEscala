@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.16.1] - 2026-08-02
+
+### Added
+- **Destaque do Status `Em Deslocamento` no Dashboard (`/home`)**:
+  - Quando um servidor aceita o chamado (`Aceito`), o card **SOBREAVISO ATIVO HOJE** passa a destacar com badge animada o status **🚗 Em Deslocamento**.
+- **Trava de Segurança contra Acionamentos Duplicados em Deslocamento (`ScaleGrid.tsx`)**:
+  - Enquanto o servidor estiver com status `Aceito` (Em Deslocamento) ou `Aguardando`, o botão para criar um novo acionamento no mesmo dia permanece travado com aviso explicativo. Um novo chamado só é liberado após a confirmação de chegada no local (`Chegou`) ou encerramento do chamado anterior.
+
 ## [1.16.0] - 2026-08-02
 
 ### Added

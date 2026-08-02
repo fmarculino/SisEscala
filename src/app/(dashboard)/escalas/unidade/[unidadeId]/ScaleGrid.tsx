@@ -3160,35 +3160,55 @@ export function ScaleGrid({
               })()}
             </div>
 
-            {/* Ação para Novo Acionamento */}
-            <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  const s = sobreavisoHistoryModal
-                  setSobreavisoHistoryModal(null)
-                  setTriggerModal({
-                    isOpen: true,
-                    servidorId: s.servidorId,
-                    servidorNome: s.servidorNome,
-                    turnoId: s.turnoId,
-                    escalaMensalId: s.escalaMensalId,
-                    dia: s.dia
-                  })
-                }}
-                className="py-2.5 px-4 bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all flex items-center gap-2"
-              >
-                <Zap className="h-4 w-4" /> Novo Acionamento neste Dia
-              </button>
-              
-              <button
-                type="button"
-                onClick={() => setSobreavisoHistoryModal(null)}
-                className="py-2.5 px-4 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-bold text-xs uppercase tracking-wider rounded-xl transition-all"
-              >
-                Fechar
-              </button>
-            </div>
+            {/* Ação para Novo Acionamento / Trava de Deslocamento */}
+            {(() => {
+              const dayLogs = logsSobreaviso.filter((l: any) => 
+                l.servidor_id === sobreavisoHistoryModal.servidorId && l.dia === sobreavisoHistoryModal.dia
+              )
+              const latestLog = dayLogs[dayLogs.length - 1]
+              const isInTransitOrWaiting = latestLog?.status === 'Aceito' || latestLog?.status === 'Aguardando'
+
+              return (
+                <div className="space-y-3 pt-2 border-t border-zinc-100 dark:border-zinc-800">
+                  {isInTransitOrWaiting && (
+                    <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl text-xs text-amber-800 dark:text-amber-300 font-medium flex items-center gap-2">
+                      <Navigation2 className="h-4 w-4 text-amber-600 flex-shrink-0 animate-pulse" />
+                      <span>O servidor já aceitou o chamado e está em deslocamento (ou aguardando). Aguarde a chegada no local para um novo acionamento.</span>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between gap-3">
+                    <button
+                      type="button"
+                      disabled={isInTransitOrWaiting}
+                      onClick={() => {
+                        const s = sobreavisoHistoryModal
+                        setSobreavisoHistoryModal(null)
+                        setTriggerModal({
+                          isOpen: true,
+                          servidorId: s.servidorId,
+                          servidorNome: s.servidorNome,
+                          turnoId: s.turnoId,
+                          escalaMensalId: s.escalaMensalId,
+                          dia: s.dia
+                        })
+                      }}
+                      className="py-2.5 px-4 bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Zap className="h-4 w-4" /> Novo Acionamento neste Dia
+                    </button>
+                    
+                    <button
+                      type="button"
+                      onClick={() => setSobreavisoHistoryModal(null)}
+                      className="py-2.5 px-4 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-bold text-xs uppercase tracking-wider rounded-xl transition-all"
+                    >
+                      Fechar
+                    </button>
+                  </div>
+                </div>
+              )
+            })()}
           </div>
         </div>
       )}
