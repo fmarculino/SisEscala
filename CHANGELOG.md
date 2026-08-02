@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.16.0] - 2026-08-02
+
+### Added
+- **Reenvio de Notificação pelo Indicador Laranja (`Aguardando`)**:
+  - Clicar na bolinha laranja de status pendente na célula de sobreaviso (`ScaleGrid.tsx`) reabre diretamente o modal de disparo com o link de aceite, permitindo reenviar a notificação via WhatsApp (API/Web) ou copiar a mensagem sem criar registros duplicados.
+- **Suporte e Exibição de Múltiplos Acionamentos no Mesmo Dia**:
+  - Novo modal `sobreavisoHistoryModal` na Grade de Escala que lista todos os acionamentos ocorridos no dia para aquele servidor, permitindo reenviar notificações, validar chamados individuais ou realizar novos acionamentos.
+  - Badge numérico (ex: `2x`, `3x`) nas células com múltiplos chamados no dia.
+  - Exibição de badge com contadores de chamados no card **SOBREAVISO ATIVO HOJE** no Dashboard (`/home`).
+
 ## [1.15.1] - 2026-08-02
 
 ### Fixed

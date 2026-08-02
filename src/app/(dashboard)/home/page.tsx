@@ -259,9 +259,11 @@ export default async function DashboardHome() {
     const servidor = em?.servidores
     const unidade = em?.unidades
     const turno = d.dicionario_turnos
-    const log = d.isYesterday
-      ? logsYesterday.find((l: any) => l.servidor_id === em?.servidor_id && l.dia === d.dia)
-      : logsToday.find((l: any) => l.servidor_id === em?.servidor_id && l.dia === d.dia)
+    const serverLogs = d.isYesterday
+      ? logsYesterday.filter((l: any) => l.servidor_id === em?.servidor_id && l.dia === d.dia)
+      : logsToday.filter((l: any) => l.servidor_id === em?.servidor_id && l.dia === d.dia)
+
+    const log = serverLogs[serverLogs.length - 1] || null
 
     const { startTime, endTime, startHour } = getShiftWindow(d.dia, em?.mes, em?.ano, turno)
 
@@ -287,6 +289,7 @@ export default async function DashboardHome() {
       logStatus: log?.status || null,
       logId: log?.id || null,
       logToken: log?.token_magic_link || null,
+      allLogs: serverLogs,
       escalaMensalId: em?.id,
       servidorId: em?.servidor_id,
       dia: d.dia,
@@ -548,6 +551,13 @@ export default async function DashboardHome() {
                 </div>
 
                 <div className="flex items-center gap-3 flex-shrink-0">
+                  {/* Badge de Múltiplos Acionamentos (se houver mais de 1 no dia) */}
+                  {item.allLogs && item.allLogs.length > 1 && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800" title={`${item.allLogs.length} chamados registrados para este servidor no mesmo dia`}>
+                      ⚡ {item.allLogs.length} Chamados
+                    </span>
+                  )}
+
                   {/* Log Status Badge (se acionado) */}
                   {item.logStatus && (
                     <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${

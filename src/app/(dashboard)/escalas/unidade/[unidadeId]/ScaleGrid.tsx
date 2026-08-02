@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { 
   Save, Loader2, Info, Zap, Lock, Unlock, FileText, Plus, UserPlus, Users, 
-  CheckCircle, Trash2, Globe, X, Copy, Check, Clock, Navigation2,
+  CheckCircle, Trash2, Globe, X, Copy, Check, Clock, Navigation2, Send,
   ShieldCheck, ShieldAlert, AlertTriangle, LayoutTemplate,
   ChevronLeft, ChevronRight, Sparkles
 } from 'lucide-react'
@@ -229,6 +229,16 @@ export function ScaleGrid({
     escalaMensalId: string;
     isReverting: boolean;
   } | null>(null)
+
+  const [sobreavisoHistoryModal, setSobreavisoHistoryModal] = useState<{
+    isOpen: boolean
+    servidorId: string
+    servidorNome: string
+    dia: number
+    escalaMensalId: string
+    turnoId: string
+  } | null>(null)
+
   const [externalOccupancy, setExternalOccupancy] = useState<any[]>([])
 
   // Template Modal State
@@ -2331,6 +2341,8 @@ export function ScaleGrid({
                           ? getStatusForDay(day, em.id, 'Sobreaviso') 
                           : { status: null, reason: null, log: null }
 
+                        const cellLogs = logsSobreaviso.filter((l: any) => l.escala_mensal_id === em.id && l.dia === day)
+
                         // Check for REAL external conflicts (different unit/sector)
                         const realExternalShifts = (externalOccupancy || []).filter((o: any) => 
                           o && o.servidor_id === em.servidor_id && 
@@ -2498,10 +2510,37 @@ export function ScaleGrid({
                             {/* Indicadores de Status em Tempo Real (Sobreaviso) - Somente se houver turno escalado */}
                             {cat === 'Sobreaviso' && turnoId && (
                               <>
+                                {/* Bolinha Laranja: Clique para Reabrir o Modal de Disparo / Cópia de Link */}
                                 {effectiveStatus === 'Aguardando' && (
-                                  <div className="absolute -top-1 -right-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-amber-500 text-white z-20 shadow-sm border border-white dark:border-zinc-800" title="Aguardando Aceite">
-                                    <Clock className="h-2 w-2" />
-                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      const pendingLog = cellLogs.find((l: any) => l.status === 'Aguardando') || cellLogs[cellLogs.length - 1]
+                                      if (pendingLog) {
+                                        const link = `${window.location.origin}/sobreaviso/${pendingLog.token_magic_link}`
+                                        setMotivo(pendingLog.motivo_acionamento || '')
+                                        setGeneratedLink(link)
+                                        const servidorMatch = escalaMensal.find(emItem => emItem.servidor_id === em.servidor_id)?.servidores || todosServidoresSetor.find(s => s.id === em.servidor_id)
+                                        const phone = servidorMatch?.telefone || ''
+                                        const cleanPhone = phone.replace(/\D/g, '')
+                                        const fallback = `https://api.whatsapp.com/send?phone=${cleanPhone.startsWith('55') ? cleanPhone : '55' + cleanPhone}&text=${encodeURIComponent(`Olá *${em.servidores?.nome || 'Servidor'}*, você foi acionado(a) para um chamado de Sobreaviso.\n\n*Motivo:*\n${pendingLog.motivo_acionamento || ''}\n\n*Para confirmar seu aceite, acesse o link abaixo:*\n${link}`)}`
+                                        setWaFallbackUrl(fallback)
+                                        setTriggerModal({
+                                          isOpen: true,
+                                          servidorId: em.servidor_id,
+                                          servidorNome: em.servidores?.nome || 'Servidor',
+                                          turnoId: turno.id,
+                                          escalaMensalId: em.id,
+                                          dia: day
+                                        })
+                                      }
+                                    }}
+                                    className="absolute -top-1 -right-1 flex h-4 w-4 cursor-pointer items-center justify-center rounded-full bg-amber-500 text-white z-30 shadow-md border border-white dark:border-zinc-800 hover:scale-110 transition-transform" 
+                                    title="Aguardando Aceite - Clique para reenviar mensagem ou copiar o link"
+                                  >
+                                    <Clock className="h-2.5 w-2.5" />
+                                  </button>
                                 )}
                                 {effectiveStatus === 'Aceito' && (
                                   <div className="absolute -top-1 -right-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-emerald-500 text-white z-20 shadow-sm border border-white dark:border-zinc-800 animate-pulse" title="Em Deslocamento">
@@ -2512,6 +2551,28 @@ export function ScaleGrid({
                                   <div className="absolute -top-1 -left-1 flex h-3 w-3 items-center justify-center rounded-full bg-blue-500 text-white z-20 shadow-sm border border-white dark:border-zinc-800" title="Servidor chegou">
                                     <Check className="h-2 w-2" />
                                   </div>
+                                )}
+
+                                {/* Badge de Múltiplos Acionamentos no mesmo dia (ex: 2x, 3x) */}
+                                {cellLogs.length > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setSobreavisoHistoryModal({
+                                        isOpen: true,
+                                        servidorId: em.servidor_id,
+                                        servidorNome: em.servidores?.nome || 'Servidor',
+                                        dia: day,
+                                        escalaMensalId: em.id,
+                                        turnoId: turno.id
+                                      })
+                                    }}
+                                    className="absolute bottom-0 right-0 flex h-3.5 px-1 items-center justify-center rounded-full bg-purple-600 text-white text-[8px] font-black z-30 shadow-sm border border-white dark:border-zinc-800 hover:scale-110 transition-transform"
+                                    title={`${cellLogs.length} chamados de sobreaviso neste dia. Clique para ver o histórico.`}
+                                  >
+                                    {cellLogs.length}x
+                                  </button>
                                 )}
                               </>
                             )}
@@ -2528,7 +2589,7 @@ export function ScaleGrid({
                                 disabled={loading}
                                 className="absolute -top-1 -right-1 hidden group-hover:flex h-3 w-3 items-center justify-center rounded-full bg-orange-500 text-white z-30 hover:bg-orange-600 transition-colors shadow-sm"
                               >
-                                <span title="Acionar Sobreaviso">
+                                <span title="Acionar Novo Sobreaviso">
                                   <Zap className="h-2 w-2 fill-current" />
                                 </span>
                               </button>
@@ -2976,6 +3037,157 @@ export function ScaleGrid({
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Histórico de Acionamentos de Sobreaviso do Dia */}
+      {sobreavisoHistoryModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-6 animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-purple-100 dark:bg-purple-900/30 text-purple-600 rounded-2xl">
+                  <Zap className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-zinc-900 dark:text-white uppercase tracking-tight">
+                    Histórico de Acionamentos (Dia {sobreavisoHistoryModal.dia})
+                  </h3>
+                  <p className="text-xs text-zinc-500 font-medium">{sobreavisoHistoryModal.servidorNome}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setSobreavisoHistoryModal(null)}
+                className="p-2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Lista de Chamados Registrados para o dia */}
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+              {(() => {
+                const dayLogs = logsSobreaviso.filter((l: any) => 
+                  l.servidor_id === sobreavisoHistoryModal.servidorId && l.dia === sobreavisoHistoryModal.dia
+                )
+
+                if (dayLogs.length === 0) {
+                  return (
+                    <div className="text-center py-6 text-xs text-zinc-500 font-bold uppercase tracking-wider">
+                      Nenhum acionamento registrado neste dia.
+                    </div>
+                  )
+                }
+
+                return dayLogs.map((log: any, idx: number) => {
+                  const link = `${window.location.origin}/sobreaviso/${log.token_magic_link}`
+                  const createdStr = log.created_at ? new Date(log.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '—'
+                  const acceptedStr = log.data_hora_aceite ? new Date(log.data_hora_aceite).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : null
+                  const arrivedStr = log.data_hora_chegada ? new Date(log.data_hora_chegada).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : null
+
+                  return (
+                    <div key={log.id || idx} className="p-4 bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700/60 rounded-2xl space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-black uppercase tracking-wider text-purple-700 dark:text-purple-400">
+                          Chamado #{idx + 1} — {createdStr}
+                        </span>
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                          log.status === 'Chegou'
+                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                            : log.status === 'Aceito'
+                            ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
+                            : log.status === 'Aguardando'
+                            ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                            : 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300'
+                        }`}>
+                          {log.status}
+                        </span>
+                      </div>
+
+                      {log.motivo_acionamento && (
+                        <p className="text-xs text-zinc-700 dark:text-zinc-300 font-medium italic bg-white dark:bg-zinc-900 p-2.5 rounded-xl border border-zinc-100 dark:border-zinc-800">
+                          "{log.motivo_acionamento}"
+                        </p>
+                      )}
+
+                      <div className="grid grid-cols-2 gap-2 text-[10px] text-zinc-500 font-bold">
+                        <div>Aceite: <span className="text-zinc-800 dark:text-zinc-200">{acceptedStr || 'Pendente'}</span></div>
+                        <div>Chegada: <span className="text-zinc-800 dark:text-zinc-200">{arrivedStr || 'Pendente'}</span></div>
+                      </div>
+
+                      {/* Botões de Ação para este Chamado */}
+                      <div className="flex items-center gap-2 pt-1">
+                        {log.status === 'Aguardando' && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSobreavisoHistoryModal(null)
+                              setMotivo(log.motivo_acionamento || '')
+                              setGeneratedLink(link)
+                              setTriggerModal({
+                                isOpen: true,
+                                servidorId: sobreavisoHistoryModal.servidorId,
+                                servidorNome: sobreavisoHistoryModal.servidorNome,
+                                turnoId: sobreavisoHistoryModal.turnoId,
+                                escalaMensalId: sobreavisoHistoryModal.escalaMensalId,
+                                dia: sobreavisoHistoryModal.dia
+                              })
+                            }}
+                            className="flex-1 py-1.5 px-3 bg-amber-500 hover:bg-amber-600 text-white font-bold text-[10px] uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1"
+                          >
+                            <Send className="h-3 w-3" /> Reenviar Notificação
+                          </button>
+                        )}
+
+                        {(log.status === 'Timeout' || log.status === 'Recusado') && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSobreavisoHistoryModal(null)
+                              handleManualOverride(log.id)
+                            }}
+                            className="flex-1 py-1.5 px-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-[10px] uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1"
+                          >
+                            <Check className="h-3 w-3" /> Validar Este Chamado
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })
+              })()}
+            </div>
+
+            {/* Ação para Novo Acionamento */}
+            <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  const s = sobreavisoHistoryModal
+                  setSobreavisoHistoryModal(null)
+                  setTriggerModal({
+                    isOpen: true,
+                    servidorId: s.servidorId,
+                    servidorNome: s.servidorNome,
+                    turnoId: s.turnoId,
+                    escalaMensalId: s.escalaMensalId,
+                    dia: s.dia
+                  })
+                }}
+                className="py-2.5 px-4 bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all flex items-center gap-2"
+              >
+                <Zap className="h-4 w-4" /> Novo Acionamento neste Dia
+              </button>
+              
+              <button
+                type="button"
+                onClick={() => setSobreavisoHistoryModal(null)}
+                className="py-2.5 px-4 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-bold text-xs uppercase tracking-wider rounded-xl transition-all"
+              >
+                Fechar
+              </button>
             </div>
           </div>
         </div>
