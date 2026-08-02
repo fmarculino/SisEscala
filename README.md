@@ -1,4 +1,4 @@
-# SisEscala 📅[![Version](https://img.shields.io/badge/version-1.13.0-green.svg)](https://github.com/fmarculino/SisEscala)
+# SisEscala 📅[![Version](https://img.shields.io/badge/version-1.14.0-green.svg)](https://github.com/fmarculino/SisEscala)
 [![Next.js](https://img.shields.io/badge/framework-Next.js%2015-black.svg)](https://nextjs.org/)
 [![Supabase](https://img.shields.io/badge/backend-Supabase-green.svg)](https://supabase.com/)
 [![Tailwind CSS](https://img.shields.io/badge/styling-Tailwind%20CSS-38B2AC.svg)](https://tailwindcss.com/)
@@ -10,6 +10,12 @@ O sistema foca em **governança, segurança jurídica e eficiência operacional*
 ---
 
 ## 🚀 Principais Funcionalidades
+
+### 💬 Comunicação Unificada: WhatsApp (Multi-Provedor) & E-mail (SMTP)
+- **Integração WhatsApp API Multi-Provedor**: Suporte nativo ao **AstraCalls API**, **Chatwoot API** e **API HTTP Genérica Customizada** (com template JSON de payload e headers flexíveis para conectar a qualquer gateway como Evolution API, Z-API, WPPConnect, etc.).
+- **Fallback Inteligente de Contingência**: Transição automática ou assistida para **WhatsApp Web / App (`wa.me`)** caso ocorra qualquer instabilidade ou erro na API do WhatsApp.
+- **Governança de Comunicação (`/configuracoes`)**: Painel visual de gestão de credenciais e parâmetros de WhatsApp e Servidor de E-mail (SMTP) armazenados em `configuracoes_globais`, com modais de teste em tempo real antes de salvar.
+- **Notificação de Acionamento e PIN**: Envio automático de acionamentos de sobreaviso (`ScaleGrid.tsx`) e PIN de acesso do servidor (`/servidores`).
 
 ### 📄 Ficha Cadastral em PDF, Webcam & Dados Bancários
 - **Ficha Cadastral Timbrada (`FichaServidorPrintView.tsx`)**: Gerador de Ficha Cadastral em PDF/Impressão com timbre oficial da Prefeitura de Marabá / SMS, foto 3x4, dados funcionais/pessoais/bancários e assinaturas físicas e digitais do servidor e RH.

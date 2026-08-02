@@ -1,12 +1,13 @@
 'use client'
 
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { Save, User, Layers, Eye, EyeOff, MessageCircle, Info, Briefcase, Search, Check, ChevronsUpDown, FileText, Printer, Camera, ZoomIn } from 'lucide-react'
+import { Save, User, Layers, Eye, EyeOff, MessageCircle, Info, Briefcase, Search, Check, ChevronsUpDown, FileText, Printer, Camera, ZoomIn, Loader2 } from 'lucide-react'
 import { updateServidor } from '../actions'
 import { DadosComplementaresSection } from '@/components/servidores/DadosComplementaresSection'
 import { WebcamPhotoCaptureModal } from '@/components/servidores/WebcamPhotoCaptureModal'
 import { FichaServidorPrintView } from '@/components/servidores/FichaServidorPrintView'
 import { PhotoPreviewModal } from '@/components/servidores/PhotoPreviewModal'
+import { sendWhatsAppMessageAction } from '@/app/actions/communication'
 
 interface EditServidorFormProps {
   id: string
@@ -82,11 +83,31 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
   const [currentTelefone, setCurrentTelefone] = useState(servidor.telefone || '')
   const [currentCpf, setCurrentCpf] = useState(servidor.cpf || '')
 
-  const sharePinWhatsApp = () => {
+  const [waSending, setWaSending] = useState(false)
+
+  const sharePinWhatsApp = async () => {
     if (!currentPin) return
-    const phone = currentTelefone.replace(/\D/g, '')
-    const message = encodeURIComponent(`Olá *${servidor.nome}*, seu PIN de acesso ao Portal do Servidor SisEscala é: *${currentPin}*`)
-    window.open(`https://wa.me/55${phone}?text=${message}`, '_blank')
+    const phone = currentTelefone
+    const message = `Olá *${servidor.nome || 'Servidor'}*, seu PIN de acesso ao Portal do Servidor SisEscala é: *${currentPin}*`
+
+    setWaSending(true)
+    try {
+      const res = await sendWhatsAppMessageAction({ phone, message })
+      if (res.success) {
+        alert('PIN de acesso enviado com sucesso para o WhatsApp do servidor!')
+      } else {
+        if (res.fallbackUrl) {
+          window.open(res.fallbackUrl, '_blank')
+        } else {
+          alert('Aviso sobre envio de WhatsApp: ' + (res.error || 'Falha ao conectar na API.'))
+        }
+      }
+    } catch (err: any) {
+      const cleanPhone = phone.replace(/\D/g, '')
+      window.open(`https://api.whatsapp.com/send?phone=55${cleanPhone}&text=${encodeURIComponent(message)}`, '_blank')
+    } finally {
+      setWaSending(false)
+    }
   }
 
   const handleSubmit = async (formData: FormData) => {

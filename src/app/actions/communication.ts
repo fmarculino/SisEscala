@@ -1,0 +1,424 @@
+'use server'
+
+import { createAdminClient } from '@/utils/supabase/server'
+import nodemailer from 'nodemailer'
+
+export interface WhatsAppSendParams {
+  phone: string
+  message: string
+}
+
+export interface EmailSendParams {
+  to: string
+  subject: string
+  html?: string
+  text?: string
+}
+
+export interface WhatsAppResult {
+  success: boolean
+  mode?: string
+  error?: string
+  fallbackUrl?: string
+  canFallback?: boolean
+  isManualMode?: boolean
+  data?: any
+}
+
+export interface EmailResult {
+  success: boolean
+  error?: string
+  messageId?: string
+}
+
+// Auxiliar para carregar dicionário de configurações globais do banco
+async function getCommunicationConfigs() {
+  try {
+    const supabase = await createAdminClient()
+    const { data, error } = await supabase
+      .from('configuracoes_globais')
+      .select('chave, valor')
+
+    if (error || !data) {
+      return {}
+    }
+
+    const configs: Record<string, any> = {}
+    data.forEach(item => {
+      configs[item.chave] = item.valor
+    })
+    return configs
+  } catch (err) {
+    console.error('Erro ao buscar configurações de comunicação:', err)
+    return {}
+  }
+}
+
+/**
+ * Função utilitária para formatar telefone para WhatsApp (DDI 55 + DDD + Número)
+ */
+function formatPhoneForWhatsApp(phone: string): string {
+  let clean = phone.replace(/\D/g, '')
+  if (!clean) return ''
+  
+  // Se tem 10 ou 11 dígitos (ex: 94984396075), adiciona DDI do Brasil 55
+  if (clean.length === 10 || clean.length === 11) {
+    clean = `55${clean}`
+  }
+  return clean
+}
+
+/**
+ * Envia uma mensagem via WhatsApp de acordo com as configurações ativas
+ */
+export async function sendWhatsAppMessageAction({ phone, message }: WhatsAppSendParams): Promise<WhatsAppResult> {
+  const configs = await getCommunicationConfigs()
+  const cleanPhone = formatPhoneForWhatsApp(phone)
+
+  if (!cleanPhone) {
+    return {
+      success: false,
+      error: 'Telefone inválido ou não informado.'
+    }
+  }
+
+  const modo = configs['whatsapp_modo'] || 'api_astracall'
+  const fallbackPermitido = configs['whatsapp_permitir_fallback'] !== 'false'
+  const fallbackUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(message)}`
+
+  // Modo Manual (WhatsApp Web)
+  if (modo === 'manual') {
+    return {
+      success: false,
+      isManualMode: true,
+      fallbackUrl,
+      error: 'O sistema está configurado para envio manual via WhatsApp Web.'
+    }
+  }
+
+  // 1. Modo AstraCalls API (Padrão)
+  if (modo === 'api_astracall') {
+    let baseUrl = (configs['whatsapp_astracall_url'] || 'https://astracall.atb.app.br').trim()
+    if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1)
+
+    const sid = (configs['whatsapp_astracall_sid'] || 'default').trim()
+    const apiKey = (configs['whatsapp_astracall_key'] || '').trim()
+
+    const endpoint = `${baseUrl}/api/sessions/${encodeURIComponent(sid)}/messages/text`
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    }
+    if (apiKey) {
+      headers['X-API-Key'] = apiKey
+    }
+
+    try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 12000)
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          to: cleanPhone,
+          text: message
+        }),
+        signal: controller.signal
+      })
+      clearTimeout(timeoutId)
+
+      let resData: any = null
+      const resText = await response.text()
+      try {
+        resData = JSON.parse(resText)
+      } catch {
+        resData = resText
+      }
+
+      if (response.ok) {
+        return {
+          success: true,
+          mode: 'api_astracall',
+          data: resData
+        }
+      } else {
+        const errorDetail = typeof resData === 'object' && resData?.message ? resData.message : (typeof resData === 'string' ? resData : `Status HTTP ${response.status}`)
+        return {
+          success: false,
+          mode: 'api_astracall',
+          error: `AstraCalls API Error (${response.status}): ${errorDetail}`,
+          fallbackUrl,
+          canFallback: fallbackPermitido
+        }
+      }
+    } catch (err: any) {
+      const errorMsg = err.name === 'AbortError' ? 'Tempo limite (timeout) excedido ao conectar com a API AstraCalls.' : err.message || 'Erro de conexão de rede'
+      return {
+        success: false,
+        mode: 'api_astracall',
+        error: `Erro ao conectar na API AstraCalls: ${errorMsg}`,
+        fallbackUrl,
+        canFallback: fallbackPermitido
+      }
+    }
+  }
+
+  // 2. Modo Chatwoot API
+  if (modo === 'api_chatwoot') {
+    let baseUrl = (configs['whatsapp_chatwoot_url'] || '').trim()
+    if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1)
+
+    const accountId = (configs['whatsapp_chatwoot_account_id'] || '').trim()
+    const inboxId = (configs['whatsapp_chatwoot_inbox_id'] || '').trim()
+    const token = (configs['whatsapp_chatwoot_token'] || '').trim()
+
+    if (!baseUrl || !accountId || !token) {
+      return {
+        success: false,
+        mode: 'api_chatwoot',
+        error: 'Configurações do Chatwoot incompletas (URL, Account ID e Token são obrigatórios).',
+        fallbackUrl,
+        canFallback: fallbackPermitido
+      }
+    }
+
+    const endpoint = `${baseUrl}/api/v1/accounts/${accountId}/conversations`
+
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'api_access_token': token
+        },
+        body: JSON.stringify({
+          source_id: cleanPhone,
+          inbox_id: inboxId || undefined,
+          message: {
+            content: message
+          }
+        })
+      })
+
+      if (response.ok) {
+        return {
+          success: true,
+          mode: 'api_chatwoot',
+          data: await response.json()
+        }
+      } else {
+        const errorText = await response.text()
+        return {
+          success: false,
+          mode: 'api_chatwoot',
+          error: `Chatwoot API Error (${response.status}): ${errorText}`,
+          fallbackUrl,
+          canFallback: fallbackPermitido
+        }
+      }
+    } catch (err: any) {
+      return {
+        success: false,
+        mode: 'api_chatwoot',
+        error: `Erro ao conectar com Chatwoot: ${err.message}`,
+        fallbackUrl,
+        canFallback: fallbackPermitido
+      }
+    }
+  }
+
+  // 3. Modo API HTTP Genérica / Customizada
+  if (modo === 'api_custom') {
+    const customUrl = (configs['whatsapp_custom_url'] || '').trim()
+    const method = (configs['whatsapp_custom_method'] || 'POST').trim().toUpperCase()
+    const rawHeaders = (configs['whatsapp_custom_headers'] || '').trim()
+    const rawPayload = (configs['whatsapp_custom_payload'] || '{"to": "{{phone}}", "text": "{{message}}"}').trim()
+
+    if (!customUrl) {
+      return {
+        success: false,
+        mode: 'api_custom',
+        error: 'URL da API Customizada não foi configurada.',
+        fallbackUrl,
+        canFallback: fallbackPermitido
+      }
+    }
+
+    // Processar Headers
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    }
+
+    if (rawHeaders) {
+      try {
+        if (rawHeaders.startsWith('{')) {
+          Object.assign(headers, JSON.parse(rawHeaders))
+        } else {
+          // Formato linha a linha "Header-Name: Value"
+          rawHeaders.split('\n').forEach((line: string) => {
+            const parts = line.split(':')
+            if (parts.length >= 2) {
+              const k = parts[0].trim()
+              const v = parts.slice(1).join(':').trim()
+              if (k && v) headers[k] = v
+            }
+          })
+        }
+      } catch (err) {
+        console.warn('Erro ao processar headers customizados do WhatsApp:', err)
+      }
+    }
+
+    // Substituir marcadores {{phone}} e {{message}}
+    const processedUrl = customUrl.replace(/\{\{phone\}\}/g, cleanPhone).replace(/\{\{message\}\}/g, encodeURIComponent(message))
+    
+    let processedBody: any = undefined
+    if (method !== 'GET' && method !== 'HEAD') {
+      const jsonBodyString = rawPayload
+        .replace(/\{\{phone\}\}/g, cleanPhone)
+        .replace(/\{\{message\}\}/g, JSON.stringify(message).slice(1, -1)) // escapa caracteres especiais no JSON
+      
+      try {
+        processedBody = JSON.stringify(JSON.parse(jsonBodyString))
+      } catch {
+        processedBody = jsonBodyString
+      }
+    }
+
+    try {
+      const response = await fetch(processedUrl, {
+        method,
+        headers,
+        body: processedBody
+      })
+
+      const resText = await response.text()
+      let resData: any = resText
+      try { resData = JSON.parse(resText) } catch {}
+
+      if (response.ok) {
+        return {
+          success: true,
+          mode: 'api_custom',
+          data: resData
+        }
+      } else {
+        return {
+          success: false,
+          mode: 'api_custom',
+          error: `API Customizada Error (${response.status}): ${typeof resData === 'string' ? resData : JSON.stringify(resData)}`,
+          fallbackUrl,
+          canFallback: fallbackPermitido
+        }
+      }
+    } catch (err: any) {
+      return {
+        success: false,
+        mode: 'api_custom',
+        error: `Erro ao conectar na API Customizada: ${err.message}`,
+        fallbackUrl,
+        canFallback: fallbackPermitido
+      }
+    }
+  }
+
+  return {
+    success: false,
+    error: `Modo de WhatsApp desconhecido: ${modo}`,
+    fallbackUrl,
+    canFallback: fallbackPermitido
+  }
+}
+
+/**
+ * Envia um e-mail utilizando as configurações de SMTP ativas
+ */
+export async function sendEmailAction({ to, subject, html, text }: EmailSendParams): Promise<EmailResult> {
+  const configs = await getCommunicationConfigs()
+
+  const habilitado = configs['email_smtp_habilitado'] !== 'false'
+  if (!habilitado) {
+    return {
+      success: false,
+      error: 'O envio de e-mails via SMTP está desabilitado nas configurações do sistema.'
+    }
+  }
+
+  const host = (configs['email_smtp_host'] || '').trim()
+  const porta = parseInt(configs['email_smtp_porta'] || '587', 10)
+  const usuario = (configs['email_smtp_usuario'] || '').trim()
+  const senha = (configs['email_smtp_senha'] || '').trim()
+  const seguranca = configs['email_smtp_seguranca'] || 'tls'
+  const remetenteEmail = (configs['email_smtp_remetente_email'] || usuario).trim()
+  const remetenteNome = (configs['email_smtp_remetente_nome'] || 'SisEscala').trim()
+
+  if (!host || !usuario) {
+    return {
+      success: false,
+      error: 'Configurações de SMTP incompletas. Informe o Servidor Host e Usuário em Configurações.'
+    }
+  }
+
+  try {
+    const isSecure = seguranca === 'ssl' || porta === 465
+
+    const transporter = nodemailer.createTransport({
+      host,
+      port: porta,
+      secure: isSecure,
+      auth: {
+        user: usuario,
+        pass: senha
+      },
+      tls: {
+        rejectUnauthorized: false // Flexibilidade para ambientes corporativos com certificados autoassinados
+      }
+    })
+
+    const fromAddress = remetenteNome ? `"${remetenteNome}" <${remetenteEmail}>` : remetenteEmail
+
+    const info = await transporter.sendMail({
+      from: fromAddress,
+      to,
+      subject,
+      text: text || html?.replace(/<[^>]*>?/gm, ''),
+      html: html || `<p>${text}</p>`
+    })
+
+    return {
+      success: true,
+      messageId: info.messageId
+    }
+  } catch (err: any) {
+    console.error('Erro ao enviar e-mail via SMTP:', err)
+    return {
+      success: false,
+      error: err.message || 'Falha ao conectar no servidor SMTP.'
+    }
+  }
+}
+
+/**
+ * Ação de teste para validar a integração do WhatsApp
+ */
+export async function testWhatsAppConnectionAction(phone: string): Promise<WhatsAppResult> {
+  const message = `🤖 *Teste SisEscala - Saúde Marabá*\n\nConexão com a API de WhatsApp configurada e validada com sucesso em ${new Date().toLocaleString('pt-BR')}!`
+  return await sendWhatsAppMessageAction({ phone, message })
+}
+
+/**
+ * Ação de teste para validar as configurações do Servidor de E-mail (SMTP)
+ */
+export async function testEmailConnectionAction(toEmail: string): Promise<EmailResult> {
+  const subject = `[SisEscala] Teste de Configuração de E-mail (SMTP)`
+  const html = `
+    <div style="font-family: Arial, sans-serif; padding: 20px; color: #111827;">
+      <h2 style="color: #2563eb;">Conexão SMTP Confirmada com Sucesso! 🎉</h2>
+      <p>Este é um e-mail de teste disparado pelo <strong>SisEscala (Gestão de Escalas)</strong> para validar as credenciais do servidor SMTP.</p>
+      <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
+      <p style="font-size: 12px; color: #6b7280;">Data/Hora do Teste: ${new Date().toLocaleString('pt-BR')}</p>
+    </div>
+  `
+  return await sendEmailAction({ to: toEmail, subject, html })
+}

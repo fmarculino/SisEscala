@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.14.0] - 2026-08-02
+
+### Added
+- **Integração Flexível de WhatsApp (Multi-Provedor)**:
+  - Serviço unificado em `src/app/actions/communication.ts` com suporte nativo aos provedores **AstraCalls API** (`POST /api/sessions/{sid}/messages/text` com `X-API-Key`), **Chatwoot API** e **API HTTP Genérica Customizável** (suporte a Evolution API, Z-API, etc. com headers e template JSON configuráveis).
+  - Suporte a envio de mensagens via modo manual tradicional (WhatsApp Web / App).
+- **Mecanismo de Fallback Inteligente (Contingência Garantida)**:
+  - Detecção automática de falhas ou desconexões na API do WhatsApp com transição suave e geração proeminente do botão **"Enviar via WhatsApp Web (Manual)"**.
+- **Governança de Comunicação em Configurações (`/configuracoes`)**:
+  - Painéis visuais para gestão de credenciais e parâmetros de WhatsApp e E-mail SMTP na tabela `configuracoes_globais`.
+  - Modais interativos de teste em tempo real (**"Testar Conexão WhatsApp"** e **"Testar Envio de E-mail"**) com relatório do status HTTP retornado.
+- **Atualização dos Fluxos de Disparo**:
+  - Integração do envio automático no modal de **Acionar Sobreaviso** (`ScaleGrid.tsx`) e no compartilhamento de **PIN do Servidor** (`EditServidorForm.tsx` & `novo/page.tsx`).
+
 ## [1.13.0] - 2026-07-24
 
 ### Added

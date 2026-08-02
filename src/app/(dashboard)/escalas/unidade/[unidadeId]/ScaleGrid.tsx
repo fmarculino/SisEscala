@@ -16,6 +16,7 @@ import { runComplianceCheck, getViolationsForCell, type ComplianceViolation } fr
 import { generateTemplate, TEMPLATE_OPTIONS, type TemplateType, countWorkDays } from '@/utils/scaleTemplates'
 import { generateIntelligentScale } from '@/utils/intelligentScaleGenerator'
 import { SwapRequestPanel } from '@/components/SwapRequestPanel'
+import { sendWhatsAppMessageAction } from '@/app/actions/communication'
 
 interface ScaleGridProps {
   unidadeId: string
@@ -248,6 +249,11 @@ export function ScaleGrid({
     respectEvents: boolean
     respectPreferences: boolean
   } | null>(null)
+
+  // WhatsApp Sending State para Sobreaviso
+  const [waSending, setWaSending] = useState(false)
+  const [waError, setWaError] = useState('')
+  const [waFallbackUrl, setWaFallbackUrl] = useState('')
 
   const fetchOccupancy = useCallback(async (servidorIds: string[]) => {
     if (servidorIds.length === 0) return
@@ -2897,18 +2903,70 @@ export function ScaleGrid({
                     </button>
                     
                     <button 
-                      onClick={() => {
+                      onClick={async () => {
                         const tempoAceite = configsGlobais.find(c => c.chave === 'sobreaviso_tempo_aceite_minutos')?.valor || '30'
-                        // Formatação usando Markdown do WhatsApp (* para negrito)
-                        const text = encodeURIComponent(`Olá *${triggerModal.servidorNome}*, você foi acionado(a) para um chamado de Sobreaviso.\n\n*Motivo:*\n${motivo}\n\n*Você tem ${tempoAceite} minutos para aceitar esse chamado.*\n\n*Para confirmar seu aceite, acesse o link abaixo:*\n${generatedLink}`)
-                        window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank')
+                        const textMessage = `Olá *${triggerModal.servidorNome}*, você foi acionado(a) para um chamado de Sobreaviso.\n\n*Motivo:*\n${motivo}\n\n*Você tem ${tempoAceite} minutos para aceitar esse chamado.*\n\n*Para confirmar seu aceite, acesse o link abaixo:*\n${generatedLink}`
+                        
+                        const servidorMatch = escalaMensal.find(em => em.servidor_id === triggerModal.servidorId)?.servidores || todosServidoresSetor.find(s => s.id === triggerModal.servidorId)
+                        const phone = servidorMatch?.telefone || ''
+
+                        setWaSending(true)
+                        setWaError('')
+                        setWaFallbackUrl('')
+
+                        try {
+                          const res = await sendWhatsAppMessageAction({ phone, message: textMessage })
+                          if (res.success) {
+                            setAlertModal({
+                              isOpen: true,
+                              title: 'Notificação Enviada',
+                              message: 'A mensagem de sobreaviso foi enviada com sucesso para o WhatsApp do servidor!',
+                              type: 'success'
+                            })
+                          } else {
+                            if (res.fallbackUrl) {
+                              setWaFallbackUrl(res.fallbackUrl)
+                            }
+                            setWaError(res.error || 'O envio automático via API falhou.')
+                          }
+                        } catch (err: any) {
+                          setWaError('Falha ao conectar com o serviço de WhatsApp.')
+                          const cleanPhone = phone.replace(/\D/g, '')
+                          setWaFallbackUrl(`https://api.whatsapp.com/send?phone=55${cleanPhone}&text=${encodeURIComponent(textMessage)}`)
+                        } finally {
+                          setWaSending(false)
+                        }
                       }}
-                      className="w-full px-4 py-2 rounded-lg bg-green-600 text-white font-bold hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+                      disabled={waSending}
+                      className="w-full px-4 py-2 rounded-lg bg-green-600 text-white font-bold hover:bg-green-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
                     >
-                      Enviar via WhatsApp
+                      {waSending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                      {waSending ? 'Enviando Mensagem...' : 'Enviar via WhatsApp'}
                     </button>
+
+                    {/* Exibição de Erro e Fallback Manual */}
+                    {waError && (
+                      <div className="p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/40 rounded-lg text-xs space-y-2">
+                        <p className="text-red-700 dark:text-red-400 font-medium">{waError}</p>
+                        {waFallbackUrl && (
+                          <a
+                            href={waFallbackUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="block w-full py-2 px-3 bg-green-600 hover:bg-green-700 text-white text-center font-bold rounded-md text-[11px] uppercase tracking-wider transition-colors"
+                          >
+                            Enviar via WhatsApp Web (Manual)
+                          </a>
+                        )}
+                      </div>
+                    )}
+
                     <button 
-                      onClick={handleCloseModal}
+                      onClick={() => {
+                        setWaError('')
+                        setWaFallbackUrl('')
+                        handleCloseModal()
+                      }}
                       className="w-full px-4 py-2 rounded-lg text-zinc-600 dark:text-zinc-400 text-xs hover:underline"
                     >
                       Fechar

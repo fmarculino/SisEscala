@@ -2,8 +2,13 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { Save, Loader2, Settings, Clock, Shield, Bell, Database, Zap, Lock, CheckSquare, Calendar, FileText, Image, Unlock } from 'lucide-react'
+import { 
+  Save, Loader2, Settings, Clock, Shield, Bell, Database, Zap, Lock, 
+  CheckSquare, Calendar, FileText, Image, Unlock, MessageSquare, Mail, 
+  Send, Eye, EyeOff, CheckCircle2, XCircle, Info, Sparkles, Server, Key
+} from 'lucide-react'
 import { toggleCompetencyClosure } from '@/utils/autoClose'
+import { testWhatsAppConnectionAction, testEmailConnectionAction } from '@/app/actions/communication'
 
 export default function ConfigPage() {
   const supabase = createClient()
@@ -16,6 +21,21 @@ export default function ConfigPage() {
   const [lockMonth, setLockMonth] = useState(new Date().getMonth() + 1)
   const [lockYear, setLockYear] = useState(new Date().getFullYear())
   const [togglingLock, setTogglingLock] = useState(false)
+
+  // Estados de visualização de senhas/chaves
+  const [showSmtpPass, setShowSmtpPass] = useState(false)
+  const [showWaApiKey, setShowWaApiKey] = useState(false)
+
+  // Estados dos Modais de Teste
+  const [showWaTestModal, setShowWaTestModal] = useState(false)
+  const [waTestPhone, setWaTestPhone] = useState('')
+  const [waTesting, setWaTesting] = useState(false)
+  const [waTestResult, setWaTestResult] = useState<any>(null)
+
+  const [showEmailTestModal, setShowEmailTestModal] = useState(false)
+  const [emailTestAddress, setEmailTestAddress] = useState('')
+  const [emailTesting, setEmailTesting] = useState(false)
+  const [emailTestResult, setEmailTestResult] = useState<any>(null)
 
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -125,7 +145,6 @@ export default function ConfigPage() {
       alert('Erro ao salvar: ' + error.message)
     } else {
       setOriginalConfigs(JSON.parse(JSON.stringify(configs)))
-      // Trigger a brief success state or notification would be better than an alert
       alert('Configurações aplicadas com sucesso!')
     }
     setSaving(false)
@@ -144,6 +163,42 @@ export default function ConfigPage() {
     })
   }
 
+  // Executar teste de WhatsApp
+  const handleRunWaTest = async () => {
+    if (!waTestPhone) {
+      alert('Por favor, informe um número de telefone com DDD.')
+      return
+    }
+    setWaTesting(true)
+    setWaTestResult(null)
+    try {
+      const res = await testWhatsAppConnectionAction(waTestPhone)
+      setWaTestResult(res)
+    } catch (err: any) {
+      setWaTestResult({ success: false, error: err.message || 'Erro inesperado' })
+    } finally {
+      setWaTesting(false)
+    }
+  }
+
+  // Executar teste de E-mail
+  const handleRunEmailTest = async () => {
+    if (!emailTestAddress) {
+      alert('Por favor, informe o e-mail de destino para o teste.')
+      return
+    }
+    setEmailTesting(true)
+    setEmailTestResult(null)
+    try {
+      const res = await testEmailConnectionAction(emailTestAddress)
+      setEmailTestResult(res)
+    } catch (err: any) {
+      setEmailTestResult({ success: false, error: err.message || 'Erro inesperado' })
+    } finally {
+      setEmailTesting(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -151,6 +206,8 @@ export default function ConfigPage() {
       </div>
     )
   }
+
+  const currentWaModo = getConfig('whatsapp_modo')?.valor || 'api_astracall'
 
   return (
     <div className="p-8 max-w-5xl mx-auto space-y-8 pb-32">
@@ -182,6 +239,367 @@ export default function ConfigPage() {
       </div>
 
       <div className="grid gap-8">
+        {/* ========================================================================= */}
+        {/* NOVO: INTEGRAÇÃO FLEXÍVEL DE WHATSAPP */}
+        {/* ========================================================================= */}
+        <div className="bg-white dark:bg-zinc-900 rounded-[2rem] border border-green-200 dark:border-green-900/40 p-8 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-green-500/5 rounded-bl-full pointer-events-none" />
+          <div className="space-y-8">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="p-4 bg-green-100 dark:bg-green-900/30 rounded-2xl text-green-600">
+                  <MessageSquare className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-zinc-900 dark:text-white uppercase tracking-tight">Integração WhatsApp (Multi-Provedor)</h3>
+                  <p className="text-sm text-zinc-500 leading-relaxed">Configure o envio automático via AstraCalls, Chatwoot ou qualquer API HTTP customizada com suporte a fallback manual.</p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowWaTestModal(true)}
+                className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-black text-xs uppercase tracking-wider bg-green-600 text-white hover:bg-green-700 transition-all shadow-md shadow-green-600/20 shrink-0"
+              >
+                <Send className="h-4 w-4" />
+                Testar Conexão WhatsApp
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              {/* Seleção do Modo / Provedor */}
+              <div className="space-y-2">
+                <label className="text-xs font-black text-zinc-400 uppercase tracking-widest block">Provedor / Modo de Envio</label>
+                <select 
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-green-500 outline-none font-bold transition-all"
+                  value={currentWaModo}
+                  onChange={(e) => updateConfig('whatsapp_modo', e.target.value)}
+                >
+                  <option value="api_astracall">Automático via AstraCalls API (Recomendado)</option>
+                  <option value="api_chatwoot">Automático via Chatwoot API</option>
+                  <option value="api_custom">Automático via API HTTP Genérica (Customizada)</option>
+                  <option value="manual">Manual (Apenas WhatsApp Web / Desktop)</option>
+                </select>
+              </div>
+
+              {/* Contingência e Fallback */}
+              <div className="space-y-2">
+                <label className="text-xs font-black text-zinc-400 uppercase tracking-widest block">Contingência de Falha (Fallback)</label>
+                <select 
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-green-500 outline-none font-bold transition-all"
+                  value={getConfig('whatsapp_permitir_fallback')?.valor !== undefined ? String(getConfig('whatsapp_permitir_fallback')?.valor) : 'true'}
+                  onChange={(e) => updateConfig('whatsapp_permitir_fallback', e.target.value)}
+                >
+                  <option value="true">Permitir Botão "WhatsApp Web" se a API falhar (Recomendado)</option>
+                  <option value="false">Desabilitar Fallback (Exibir apenas erro)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* CAMPOS ESPECÍFICOS DO ASTRACALLS */}
+            {currentWaModo === 'api_astracall' && (
+              <div className="p-6 bg-green-50/50 dark:bg-green-950/20 border border-green-200/60 dark:border-green-900/40 rounded-2xl space-y-6">
+                <div className="flex items-center gap-2 text-xs font-black text-green-700 dark:text-green-400 uppercase tracking-wider">
+                  <Server className="h-4 w-4" /> Parâmetros da API AstraCalls
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">URL Base da API</label>
+                    <input 
+                      type="text"
+                      placeholder="https://astracall.atb.app.br"
+                      className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-green-500 outline-none font-bold"
+                      value={getConfig('whatsapp_astracall_url')?.valor || ''}
+                      onChange={(e) => updateConfig('whatsapp_astracall_url', e.target.value)}
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">ID da Sessão / Conta (sid)</label>
+                    <input 
+                      type="text"
+                      placeholder="default"
+                      className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-green-500 outline-none font-bold"
+                      value={getConfig('whatsapp_astracall_sid')?.valor || ''}
+                      onChange={(e) => updateConfig('whatsapp_astracall_sid', e.target.value)}
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Chave de API (X-API-Key)</label>
+                    <div className="relative">
+                      <input 
+                        type={showWaApiKey ? 'text' : 'password'}
+                        placeholder="Opicional se desligada na API"
+                        className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-green-500 outline-none font-bold pr-10"
+                        value={getConfig('whatsapp_astracall_key')?.valor || ''}
+                        onChange={(e) => updateConfig('whatsapp_astracall_key', e.target.value)}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowWaApiKey(!showWaApiKey)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600"
+                      >
+                        {showWaApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* CAMPOS ESPECÍFICOS DO CHATWOOT */}
+            {currentWaModo === 'api_chatwoot' && (
+              <div className="p-6 bg-sky-50/50 dark:bg-sky-950/20 border border-sky-200/60 dark:border-sky-900/40 rounded-2xl space-y-6">
+                <div className="flex items-center gap-2 text-xs font-black text-sky-700 dark:text-sky-400 uppercase tracking-wider">
+                  <Server className="h-4 w-4" /> Parâmetros do Chatwoot API
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">URL do Chatwoot</label>
+                    <input 
+                      type="text"
+                      placeholder="https://chatwoot.atb.app.br"
+                      className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-sky-500 outline-none font-bold"
+                      value={getConfig('whatsapp_chatwoot_url')?.valor || ''}
+                      onChange={(e) => updateConfig('whatsapp_chatwoot_url', e.target.value)}
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Account ID</label>
+                    <input 
+                      type="text"
+                      placeholder="ex: 1"
+                      className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-sky-500 outline-none font-bold"
+                      value={getConfig('whatsapp_chatwoot_account_id')?.valor || ''}
+                      onChange={(e) => updateConfig('whatsapp_chatwoot_account_id', e.target.value)}
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Inbox ID</label>
+                    <input 
+                      type="text"
+                      placeholder="ex: 6"
+                      className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-sky-500 outline-none font-bold"
+                      value={getConfig('whatsapp_chatwoot_inbox_id')?.valor || ''}
+                      onChange={(e) => updateConfig('whatsapp_chatwoot_inbox_id', e.target.value)}
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">User Access Token</label>
+                    <input 
+                      type="password"
+                      placeholder="Token do agente"
+                      className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-sky-500 outline-none font-bold"
+                      value={getConfig('whatsapp_chatwoot_token')?.valor || ''}
+                      onChange={(e) => updateConfig('whatsapp_chatwoot_token', e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* CAMPOS ESPECÍFICOS DE API GENÉRICA / CUSTOMIZADA */}
+            {currentWaModo === 'api_custom' && (
+              <div className="p-6 bg-purple-50/50 dark:bg-purple-950/20 border border-purple-200/60 dark:border-purple-900/40 rounded-2xl space-y-6">
+                <div className="flex items-center gap-2 text-xs font-black text-purple-700 dark:text-purple-400 uppercase tracking-wider">
+                  <Sparkles className="h-4 w-4" /> Parâmetros de API HTTP Customizada (Evolution, Z-API, WPPConnect, etc.)
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="md:col-span-2 space-y-1">
+                    <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Endpoint URL</label>
+                    <input 
+                      type="text"
+                      placeholder="https://api.meuservidor.com/v1/send-message"
+                      className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-purple-500 outline-none font-bold"
+                      value={getConfig('whatsapp_custom_url')?.valor || ''}
+                      onChange={(e) => updateConfig('whatsapp_custom_url', e.target.value)}
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Método HTTP</label>
+                    <select 
+                      className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-purple-500 outline-none font-bold"
+                      value={getConfig('whatsapp_custom_method')?.valor || 'POST'}
+                      onChange={(e) => updateConfig('whatsapp_custom_method', e.target.value)}
+                    >
+                      <option value="POST">POST</option>
+                      <option value="PUT">PUT</option>
+                      <option value="GET">GET</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Headers Personalizados (Formato Key: Value)</label>
+                    <textarea 
+                      rows={3}
+                      placeholder="apikey: 123456&#10;Authorization: Bearer token123"
+                      className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl p-3 text-xs font-mono focus:ring-2 focus:ring-purple-500 outline-none"
+                      value={getConfig('whatsapp_custom_headers')?.valor || ''}
+                      onChange={(e) => updateConfig('whatsapp_custom_headers', e.target.value)}
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Template de Payload JSON (Use {"{{phone}}"} e {"{{message}}"})</label>
+                    <textarea 
+                      rows={3}
+                      placeholder='{"number": "{{phone}}", "text": "{{message}}"}'
+                      className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl p-3 text-xs font-mono focus:ring-2 focus:ring-purple-500 outline-none"
+                      value={getConfig('whatsapp_custom_payload')?.valor || '{"to": "{{phone}}", "text": "{{message}}"}'}
+                      onChange={(e) => updateConfig('whatsapp_custom_payload', e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ========================================================================= */}
+        {/* NOVO: CONFIGURAÇÃO DE SERVIDOR DE E-MAIL (SMTP) */}
+        {/* ========================================================================= */}
+        <div className="bg-white dark:bg-zinc-900 rounded-[2rem] border border-blue-200 dark:border-blue-900/40 p-8 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 rounded-bl-full pointer-events-none" />
+          <div className="space-y-8">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="p-4 bg-blue-100 dark:bg-blue-900/30 rounded-2xl text-blue-600">
+                  <Mail className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-zinc-900 dark:text-white uppercase tracking-tight">Servidor de E-mail (SMTP)</h3>
+                  <p className="text-sm text-zinc-500 leading-relaxed">Gerencie o servidor de e-mail utilizado para notificações, redefinição de senhas e alertas do SisEscala.</p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowEmailTestModal(true)}
+                className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-black text-xs uppercase tracking-wider bg-blue-600 text-white hover:bg-blue-700 transition-all shadow-md shadow-blue-600/20 shrink-0"
+              >
+                <Send className="h-4 w-4" />
+                Testar Envio de E-mail
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="space-y-2">
+                <label className="text-xs font-black text-zinc-400 uppercase tracking-widest block">Status do SMTP</label>
+                <select 
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold transition-all"
+                  value={getConfig('email_smtp_habilitado')?.valor !== undefined ? String(getConfig('email_smtp_habilitado')?.valor) : 'true'}
+                  onChange={(e) => updateConfig('email_smtp_habilitado', e.target.value)}
+                >
+                  <option value="true">Habilitado</option>
+                  <option value="false">Desabilitado</option>
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-black text-zinc-400 uppercase tracking-widest block">Servidor SMTP (Host)</label>
+                <input 
+                  type="text"
+                  placeholder="smtp.gmail.com"
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold"
+                  value={getConfig('email_smtp_host')?.valor || ''}
+                  onChange={(e) => updateConfig('email_smtp_host', e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-black text-zinc-400 uppercase tracking-widest block">Porta SMTP</label>
+                <input 
+                  type="number"
+                  placeholder="587"
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold"
+                  value={getConfig('email_smtp_porta')?.valor || '587'}
+                  onChange={(e) => updateConfig('email_smtp_porta', e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="space-y-2">
+                <label className="text-xs font-black text-zinc-400 uppercase tracking-widest block">Segurança / Criptografia</label>
+                <select 
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold transition-all"
+                  value={getConfig('email_smtp_seguranca')?.valor || 'tls'}
+                  onChange={(e) => updateConfig('email_smtp_seguranca', e.target.value)}
+                >
+                  <option value="tls">STARTTLS / TLS (Porta 587)</option>
+                  <option value="ssl">SSL (Porta 465)</option>
+                  <option value="none">Nenhuma (Porta 25)</option>
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-black text-zinc-400 uppercase tracking-widest block">Usuário SMTP</label>
+                <input 
+                  type="text"
+                  placeholder="usuario@maraba.pa.gov.br"
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold"
+                  value={getConfig('email_smtp_usuario')?.valor || ''}
+                  onChange={(e) => updateConfig('email_smtp_usuario', e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-black text-zinc-400 uppercase tracking-widest block">Senha SMTP</label>
+                <div className="relative">
+                  <input 
+                    type={showSmtpPass ? 'text' : 'password'}
+                    placeholder="••••••••••••"
+                    className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold pr-10"
+                    value={getConfig('email_smtp_senha')?.valor || ''}
+                    onChange={(e) => updateConfig('email_smtp_senha', e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowSmtpPass(!showSmtpPass)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600"
+                  >
+                    {showSmtpPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <label className="text-xs font-black text-zinc-400 uppercase tracking-widest block">E-mail do Remetente (From)</label>
+                <input 
+                  type="email"
+                  placeholder="sisescala@maraba.pa.gov.br"
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold"
+                  value={getConfig('email_smtp_remetente_email')?.valor || ''}
+                  onChange={(e) => updateConfig('email_smtp_remetente_email', e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-black text-zinc-400 uppercase tracking-widest block">Nome de Exibição do Remetente</label>
+                <input 
+                  type="text"
+                  placeholder="SisEscala - Saúde Marabá"
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold"
+                  value={getConfig('email_smtp_remetente_nome')?.valor || ''}
+                  onChange={(e) => updateConfig('email_smtp_remetente_nome', e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Inativação Automática */}
         <div className="bg-white dark:bg-zinc-900 rounded-[2rem] border border-zinc-200 dark:border-zinc-800 p-8 shadow-sm hover:shadow-md transition-shadow">
           <div className="flex flex-col md:flex-row md:items-center gap-8">
@@ -284,7 +702,7 @@ export default function ConfigPage() {
                   <input 
                     type="number" 
                     className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold transition-all pr-12"
-                    value={getConfig('sobreaviso_tempo_accite_minutos')?.valor || getConfig('sobreaviso_tempo_aceite_minutos')?.valor || ''}
+                    value={getConfig('sobreaviso_tempo_aceite_minutos')?.valor || getConfig('sobreaviso_tempo_accite_minutos')?.valor || ''}
                     onChange={(e) => updateConfig('sobreaviso_tempo_aceite_minutos', e.target.value)}
                   />
                   <div className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-zinc-400 uppercase">min</div>
@@ -633,36 +1051,154 @@ export default function ConfigPage() {
             </div>
           </div>
         </div>
+      </div>
 
-        {/* Placeholders com design premium */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 opacity-60">
-          <div className="bg-zinc-100 dark:bg-zinc-800/50 rounded-[2rem] p-8 flex items-center justify-between group cursor-not-allowed border border-dashed border-zinc-300 dark:border-zinc-700">
-            <div className="flex items-center gap-6">
-              <div className="p-4 bg-white dark:bg-zinc-800 rounded-2xl text-zinc-400 shadow-sm">
-                <Shield className="h-6 w-6" />
+      {/* MODAL DE TESTE DE WHATSAPP */}
+      {showWaTestModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-6 animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-green-100 dark:bg-green-900/30 rounded-xl text-green-600">
+                  <MessageSquare className="h-5 w-5" />
+                </div>
+                <h3 className="font-black text-zinc-900 dark:text-white uppercase tracking-tight">Testar Conexão WhatsApp</h3>
               </div>
-              <div>
-                <h3 className="font-bold text-zinc-900 dark:text-white uppercase tracking-tight">Segurança Avançada</h3>
-                <p className="text-xs text-zinc-500">MFA e auditoria detalhada.</p>
-              </div>
+              <button 
+                onClick={() => { setShowWaTestModal(false); setWaTestResult(null); }}
+                className="text-zinc-400 hover:text-zinc-600 font-black text-sm p-1"
+              >
+                ✕
+              </button>
             </div>
-            <span className="text-[10px] font-black uppercase tracking-widest bg-zinc-200 dark:bg-zinc-800 px-3 py-1 rounded-full text-zinc-500">Breve</span>
-          </div>
 
-          <div className="bg-zinc-100 dark:bg-zinc-800/50 rounded-[2rem] p-8 flex items-center justify-between group cursor-not-allowed border border-dashed border-zinc-300 dark:border-zinc-700">
-            <div className="flex items-center gap-6">
-              <div className="p-4 bg-white dark:bg-zinc-800 rounded-2xl text-zinc-400 shadow-sm">
-                <Database className="h-6 w-6" />
+            <div className="space-y-4">
+              <p className="text-xs text-zinc-500">Informe um número de telefone (com DDD) para receber uma mensagem de teste e validar o provedor configurado.</p>
+              
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block">Telefone Destino (com DDD)</label>
+                <input 
+                  type="text"
+                  placeholder="(94) 98439-6075"
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm font-bold focus:ring-2 focus:ring-green-500 outline-none"
+                  value={waTestPhone}
+                  onChange={(e) => setWaTestPhone(e.target.value)}
+                />
               </div>
-              <div>
-                <h3 className="font-bold text-zinc-900 dark:text-white uppercase tracking-tight">Arquivamento</h3>
-                <p className="text-xs text-zinc-500">Backup automático em nuvem.</p>
-              </div>
+
+              <button
+                type="button"
+                onClick={handleRunWaTest}
+                disabled={waTesting}
+                className="w-full flex items-center justify-center gap-2 py-3.5 px-4 bg-green-600 text-white font-black text-xs uppercase tracking-wider rounded-xl hover:bg-green-700 transition-all shadow-md shadow-green-600/20 disabled:opacity-50"
+              >
+                {waTesting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                {waTesting ? 'Disparando Teste...' : 'Enviar Mensagem de Teste'}
+              </button>
+
+              {/* RESULTADO DO TESTE */}
+              {waTestResult && (
+                <div className={`p-4 rounded-2xl border text-xs font-semibold space-y-2 animate-in fade-in ${
+                  waTestResult.success 
+                    ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900/40 text-emerald-800 dark:text-emerald-300'
+                    : 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900/40 text-red-800 dark:text-red-300'
+                }`}>
+                  <div className="flex items-center gap-2 font-bold uppercase tracking-wider">
+                    {waTestResult.success ? <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" /> : <XCircle className="h-4 w-4 text-red-600 shrink-0" />}
+                    {waTestResult.success ? 'Envio Realizado com Sucesso!' : 'Falha na Integração de WhatsApp'}
+                  </div>
+                  {waTestResult.error && (
+                    <p className="font-mono text-[11px] bg-red-100/50 dark:bg-red-900/20 p-2 rounded-lg break-all">
+                      {waTestResult.error}
+                    </p>
+                  )}
+                  {waTestResult.fallbackUrl && (
+                    <div className="pt-2">
+                      <a 
+                        href={waTestResult.fallbackUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg font-bold text-[11px] uppercase tracking-wider"
+                      >
+                        Abrir WhatsApp Web (Fallback)
+                      </a>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-            <span className="text-[10px] font-black uppercase tracking-widest bg-zinc-200 dark:bg-zinc-800 px-3 py-1 rounded-full text-zinc-500">Breve</span>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* MODAL DE TESTE DE E-MAIL */}
+      {showEmailTestModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-6 animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-blue-100 dark:bg-blue-900/30 rounded-xl text-blue-600">
+                  <Mail className="h-5 w-5" />
+                </div>
+                <h3 className="font-black text-zinc-900 dark:text-white uppercase tracking-tight">Testar Envio de E-mail (SMTP)</h3>
+              </div>
+              <button 
+                onClick={() => { setShowEmailTestModal(false); setEmailTestResult(null); }}
+                className="text-zinc-400 hover:text-zinc-600 font-black text-sm p-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <p className="text-xs text-zinc-500">Informe um e-mail de destino para testar a comunicação e autenticação com o servidor SMTP configurado.</p>
+              
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block">E-mail Destino</label>
+                <input 
+                  type="email"
+                  placeholder="seuemail@exemplo.com"
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none"
+                  value={emailTestAddress}
+                  onChange={(e) => setEmailTestAddress(e.target.value)}
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={handleRunEmailTest}
+                disabled={emailTesting}
+                className="w-full flex items-center justify-center gap-2 py-3.5 px-4 bg-blue-600 text-white font-black text-xs uppercase tracking-wider rounded-xl hover:bg-blue-700 transition-all shadow-md shadow-blue-600/20 disabled:opacity-50"
+              >
+                {emailTesting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                {emailTesting ? 'Disparando E-mail...' : 'Enviar E-mail de Teste'}
+              </button>
+
+              {/* RESULTADO DO TESTE */}
+              {emailTestResult && (
+                <div className={`p-4 rounded-2xl border text-xs font-semibold space-y-2 animate-in fade-in ${
+                  emailTestResult.success 
+                    ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900/40 text-emerald-800 dark:text-emerald-300'
+                    : 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900/40 text-red-800 dark:text-red-300'
+                }`}>
+                  <div className="flex items-center gap-2 font-bold uppercase tracking-wider">
+                    {emailTestResult.success ? <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" /> : <XCircle className="h-4 w-4 text-red-600 shrink-0" />}
+                    {emailTestResult.success ? 'E-mail Enviado com Sucesso!' : 'Falha na Conexão SMTP'}
+                  </div>
+                  {emailTestResult.messageId && (
+                    <p className="text-[11px]">Message ID: <span className="font-mono">{emailTestResult.messageId}</span></p>
+                  )}
+                  {emailTestResult.error && (
+                    <p className="font-mono text-[11px] bg-red-100/50 dark:bg-red-900/20 p-2 rounded-lg break-all">
+                      {emailTestResult.error}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

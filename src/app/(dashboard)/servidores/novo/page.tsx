@@ -8,6 +8,7 @@ import { createClient } from '@/utils/supabase/client'
 import { applyAccessFilters } from '@/utils/permissions'
 import { formatSectorsHierarchy } from '@/utils/sectors'
 import { DadosComplementaresSection } from '@/components/servidores/DadosComplementaresSection'
+import { sendWhatsAppMessageAction } from '@/app/actions/communication'
 
 interface Cargo {
   id: string
@@ -129,12 +130,27 @@ export default function NovoServidorPage() {
   const [currentTelefone, setCurrentTelefone] = useState('')
   const [currentCpf, setCurrentCpf] = useState('')
 
-  const sharePinWhatsApp = () => {
+  const sharePinWhatsApp = async () => {
     if (!currentPin) return
-    const phone = currentTelefone.replace(/\D/g, '')
+    const phone = currentTelefone
     const nome = (document.getElementById('nome') as HTMLInputElement)?.value || 'Servidor'
-    const message = encodeURIComponent(`Olá *${nome}*, seu PIN de acesso ao Portal do Servidor SisEscala é: *${currentPin}*`)
-    window.open(`https://wa.me/55${phone}?text=${message}`, '_blank')
+    const message = `Olá *${nome}*, seu PIN de acesso ao Portal do Servidor SisEscala é: *${currentPin}*`
+
+    try {
+      const res = await sendWhatsAppMessageAction({ phone, message })
+      if (res.success) {
+        alert('PIN de acesso enviado com sucesso para o WhatsApp do servidor!')
+      } else {
+        if (res.fallbackUrl) {
+          window.open(res.fallbackUrl, '_blank')
+        } else {
+          alert('Aviso sobre envio de WhatsApp: ' + (res.error || 'Falha ao conectar na API.'))
+        }
+      }
+    } catch (err: any) {
+      const cleanPhone = phone.replace(/\D/g, '')
+      window.open(`https://api.whatsapp.com/send?phone=55${cleanPhone}&text=${encodeURIComponent(message)}`, '_blank')
+    }
   }
 
   async function handleSubmit(formData: FormData) {
