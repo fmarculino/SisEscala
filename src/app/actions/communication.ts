@@ -101,10 +101,8 @@ export async function sendWhatsAppMessageAction({ phone, message }: WhatsAppSend
     let baseUrl = (configs['whatsapp_astracall_url'] || 'https://astracall.atb.app.br').trim()
     if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1)
 
-    const sid = (configs['whatsapp_astracall_sid'] || 'default').trim()
+    let sid = (configs['whatsapp_astracall_sid'] || 'default').trim()
     const apiKey = (configs['whatsapp_astracall_key'] || '').trim()
-
-    const endpoint = `${baseUrl}/api/sessions/${encodeURIComponent(sid)}/messages/text`
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json'
@@ -113,7 +111,9 @@ export async function sendWhatsAppMessageAction({ phone, message }: WhatsAppSend
       headers['X-API-Key'] = apiKey
     }
 
-    try {
+    // Função interna para realizar a chamada de envio de texto no AstraCalls
+    const attemptSend = async (sessionSid: string) => {
+      const endpoint = `${baseUrl}/api/sessions/${encodeURIComponent(sessionSid)}/messages/text`
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 12000)
 
@@ -130,24 +130,54 @@ export async function sendWhatsAppMessageAction({ phone, message }: WhatsAppSend
 
       let resData: any = null
       const resText = await response.text()
-      try {
-        resData = JSON.parse(resText)
-      } catch {
-        resData = resText
+      try { resData = JSON.parse(resText) } catch { resData = resText }
+
+      return { ok: response.ok, status: response.status, data: resData }
+    }
+
+    try {
+      // 1ª Tentativa com o SID fornecido
+      let res = await attemptSend(sid)
+
+      // Se falhou (404/400/503), tentar auto-buscar o ID real da sessão conectada via GET /api/sessions
+      if (!res.ok) {
+        try {
+          const sessionsRes = await fetch(`${baseUrl}/api/sessions`, { headers })
+          if (sessionsRes.ok) {
+            const sessionsJson = await sessionsRes.json()
+            const sessionsList = Array.isArray(sessionsJson?.sessions) ? sessionsJson.sessions : (Array.isArray(sessionsJson) ? sessionsJson : [])
+            
+            // Procurar por match exato de ID, nome, parte do nome ou primeira sessão conectada (open/paired)
+            const matchedSession = sessionsList.find((s: any) => 
+              s.id === sid || 
+              s.name === sid || 
+              (s.name && s.name.toLowerCase() === sid.toLowerCase())
+            ) || sessionsList.find((s: any) => 
+              (s.state === 'open' || s.paired === true) && (s.name && (s.name.includes(sid) || sid.includes(s.name)))
+            ) || sessionsList.find((s: any) => s.state === 'open' || s.paired === true)
+
+            if (matchedSession && matchedSession.id && matchedSession.id !== sid) {
+              console.log(`[AstraCalls Auto-Resolution] Mapeando SID "${sid}" -> "${matchedSession.id}" (${matchedSession.name})`)
+              res = await attemptSend(matchedSession.id)
+            }
+          }
+        } catch (autoErr) {
+          console.warn('[AstraCalls Auto-Resolution] Não foi possível consultar GET /api/sessions:', autoErr)
+        }
       }
 
-      if (response.ok) {
+      if (res.ok) {
         return {
           success: true,
           mode: 'api_astracall',
-          data: resData
+          data: res.data
         }
       } else {
-        const errorDetail = typeof resData === 'object' && resData?.message ? resData.message : (typeof resData === 'string' ? resData : `Status HTTP ${response.status}`)
+        const errorDetail = typeof res.data === 'object' && res.data?.message ? res.data.message : (typeof res.data === 'string' ? res.data : `Status HTTP ${res.status}`)
         return {
           success: false,
           mode: 'api_astracall',
-          error: `AstraCalls API Error (${response.status}): ${errorDetail}`,
+          error: `AstraCalls API Error (${res.status}): ${errorDetail}`,
           fallbackUrl,
           canFallback: fallbackPermitido
         }

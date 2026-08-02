@@ -319,11 +319,12 @@ export default function ConfigPage() {
                     <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">ID da Sessão / Conta (sid)</label>
                     <input 
                       type="text"
-                      placeholder="default"
+                      placeholder="ex: 779e6715b98c20b23a2ad18c97d390c6 ou inbox2_acc6"
                       className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-green-500 outline-none font-bold"
                       value={getConfig('whatsapp_astracall_sid')?.valor || ''}
                       onChange={(e) => updateConfig('whatsapp_astracall_sid', e.target.value)}
                     />
+                    <p className="text-[10px] text-zinc-400">ID da conta no painel Astra (ex: <code className="font-mono bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">779e6715...</code>) ou o nome da conta (<code className="font-mono bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">inbox2_acc6</code>).</p>
                   </div>
 
                   <div className="space-y-1">
@@ -331,7 +332,7 @@ export default function ConfigPage() {
                     <div className="relative">
                       <input 
                         type={showWaApiKey ? 'text' : 'password'}
-                        placeholder="Opicional se desligada na API"
+                        placeholder="Deixe em branco se a API não exige chave"
                         className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-green-500 outline-none font-bold pr-10"
                         value={getConfig('whatsapp_astracall_key')?.valor || ''}
                         onChange={(e) => updateConfig('whatsapp_astracall_key', e.target.value)}
@@ -344,6 +345,7 @@ export default function ConfigPage() {
                         {showWaApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </button>
                     </div>
+                    <p className="text-[10px] text-zinc-400">Definida em <code className="font-mono bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">WACALLS_API_KEY</code> no servidor Astra. Se a autenticação estiver desligada no Astra, deixe em branco.</p>
                   </div>
                 </div>
               </div>
