@@ -2543,9 +2543,35 @@ export function ScaleGrid({
                                   </button>
                                 )}
                                 {effectiveStatus === 'Aceito' && (
-                                  <div className="absolute -top-1 -right-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-emerald-500 text-white z-20 shadow-sm border border-white dark:border-zinc-800 animate-pulse" title="Em Deslocamento">
-                                    <Navigation2 className="h-2 w-2 fill-current" />
-                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      const activeLog = cellLogs.find((l: any) => l.status === 'Aceito') || cellLogs[cellLogs.length - 1]
+                                      if (activeLog) {
+                                        const link = `${window.location.origin}/sobreaviso/${activeLog.token_magic_link}`
+                                        setMotivo(activeLog.motivo_acionamento || '')
+                                        setGeneratedLink(link)
+                                        const servidorMatch = escalaMensal.find(emItem => emItem.servidor_id === em.servidor_id)?.servidores || todosServidoresSetor.find(s => s.id === em.servidor_id)
+                                        const phone = servidorMatch?.telefone || ''
+                                        const cleanPhone = phone.replace(/\D/g, '')
+                                        const fallback = `https://api.whatsapp.com/send?phone=${cleanPhone.startsWith('55') ? cleanPhone : '55' + cleanPhone}&text=${encodeURIComponent(`Olá *${em.servidores?.nome || 'Servidor'}*, você foi acionado(a) para um chamado de Sobreaviso.\n\n*Motivo:*\n${activeLog.motivo_acionamento || ''}\n\n*Para confirmar seu aceite, acesse o link abaixo:*\n${link}`)}`
+                                        setWaFallbackUrl(fallback)
+                                        setTriggerModal({
+                                          isOpen: true,
+                                          servidorId: em.servidor_id,
+                                          servidorNome: em.servidores?.nome || 'Servidor',
+                                          turnoId: turno.id,
+                                          escalaMensalId: em.id,
+                                          dia: day
+                                        })
+                                      }
+                                    }}
+                                    className="absolute -top-1 -right-1 flex h-4 w-4 cursor-pointer items-center justify-center rounded-full bg-emerald-500 text-white z-30 shadow-md border border-white dark:border-zinc-800 animate-pulse hover:scale-110 transition-transform" 
+                                    title="Em Deslocamento (Aceito) - Clique para reenviar mensagem ou copiar o link"
+                                  >
+                                    <Navigation2 className="h-2.5 w-2.5 fill-current" />
+                                  </button>
                                 )}
                                 {effectiveStatus === 'Chegou' && (
                                   <div className="absolute -top-1 -left-1 flex h-3 w-3 items-center justify-center rounded-full bg-blue-500 text-white z-20 shadow-sm border border-white dark:border-zinc-800" title="Servidor chegou">
@@ -3119,13 +3145,20 @@ export function ScaleGrid({
 
                       {/* Botões de Ação para este Chamado */}
                       <div className="flex items-center gap-2 pt-1">
-                        {log.status === 'Aguardando' && (
+                        {(log.status === 'Aguardando' || log.status === 'Aceito') && (
                           <button
                             type="button"
                             onClick={() => {
                               setSobreavisoHistoryModal(null)
                               setMotivo(log.motivo_acionamento || '')
                               setGeneratedLink(link)
+                              
+                              const servidorMatch = escalaMensal.find(emItem => emItem.servidor_id === sobreavisoHistoryModal.servidorId)?.servidores || todosServidoresSetor.find(s => s.id === sobreavisoHistoryModal.servidorId)
+                              const phone = servidorMatch?.telefone || ''
+                              const cleanPhone = phone.replace(/\D/g, '')
+                              const fallback = `https://api.whatsapp.com/send?phone=${cleanPhone.startsWith('55') ? cleanPhone : '55' + cleanPhone}&text=${encodeURIComponent(`Olá *${sobreavisoHistoryModal.servidorNome}*, você foi acionado(a) para um chamado de Sobreaviso.\n\n*Motivo:*\n${log.motivo_acionamento || ''}\n\n*Para confirmar seu aceite, acesse o link abaixo:*\n${link}`)}`
+                              setWaFallbackUrl(fallback)
+
                               setTriggerModal({
                                 isOpen: true,
                                 servidorId: sobreavisoHistoryModal.servidorId,
@@ -3135,9 +3168,13 @@ export function ScaleGrid({
                                 dia: sobreavisoHistoryModal.dia
                               })
                             }}
-                            className="flex-1 py-1.5 px-3 bg-amber-500 hover:bg-amber-600 text-white font-bold text-[10px] uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1"
+                            className={`flex-1 py-1.5 px-3 font-bold text-[10px] uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1 ${
+                              log.status === 'Aceito'
+                                ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                                : 'bg-amber-500 hover:bg-amber-600 text-white'
+                            }`}
                           >
-                            <Send className="h-3 w-3" /> Reenviar Notificação
+                            <Send className="h-3 w-3" /> Reenviar Notificação / Link
                           </button>
                         )}
 

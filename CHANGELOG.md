@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.16.2] - 2026-08-02
+
+### Fixed
+- **Ocultação Estrita do Ícone do Raio (`Zap`) em Deslocamento**:
+  - Garantido que o botão flutuante de novo acionamento (`Zap`) é 100% ocultado na grade da escala (`ScaleGrid.tsx`) se o servidor estiver com chamado em status `Aceito` (Em Deslocamento) ou `Aguardando`.
+  - A célula exibe a badge com a bolinha verde animada `Navigation2` (Em Deslocamento), que ao ser clicada reabre a janela de disparo de notificação.
+- **Reenvio de Notificação Habilitado para Chamados `ACEITO`**:
+  - No modal de histórico de acionamentos (`sobreavisoHistoryModal`), o card do chamado ativo com status **`ACEITO`** passa a exibir o botão **"📲 Reenviar Notificação / Link"**, que reabre a janela completa com as 3 opções (WhatsApp API Automático, WhatsApp Web Manual e Copiar Link).
+
 ## [1.16.1] - 2026-08-02
 
 ### Added
