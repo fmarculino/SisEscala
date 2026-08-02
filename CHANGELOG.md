@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.15.1] - 2026-08-02
+
+### Fixed
+- **Tratamento Automático do 9º Dígito do WhatsApp (Brasil DDDs >= 31)**:
+  - Formatação inteligente em `communication.ts` (`getWhatsAppPhoneVariants`): converte automaticamente números de 13 dígitos com DDD >= 31 (`55` + `DDD` + `9` + `8 dígitos`) para o padrão oficial do WhatsApp de 12 dígitos (`55` + `DDD` + `8 dígitos`), com suporte a retry secundário automático.
+- **Melhoria no Modal de Acionamento de Sobreaviso (`ScaleGrid.tsx`)**:
+  - Disponibilizado o botão **"💬 Abrir no WhatsApp Web / App (Manual)"** sempre visível e funcional para contingência imediata caso a notificação via API precise ser re-enviada.
+
 ## [1.15.0] - 2026-08-02
 
 ### Added

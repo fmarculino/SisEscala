@@ -61,15 +61,47 @@ async function getCommunicationConfigs() {
 /**
  * Função utilitária para formatar telefone para WhatsApp (DDI 55 + DDD + Número)
  */
-function formatPhoneForWhatsApp(phone: string): string {
+/**
+ * Função utilitária para formatar telefone para WhatsApp no Brasil (trata a regra do 9º dígito em DDDs >= 31)
+ */
+function getWhatsAppPhoneVariants(phone: string): { primary: string; secondary?: string } {
   let clean = phone.replace(/\D/g, '')
-  if (!clean) return ''
-  
-  // Se tem 10 ou 11 dígitos (ex: 94984396075), adiciona DDI do Brasil 55
+  if (!clean) return { primary: '' }
+
   if (clean.length === 10 || clean.length === 11) {
-    clean = `55${clean}`
+    clean = '55' + clean
   }
-  return clean
+
+  // Regra do Brasil (55)
+  if (clean.startsWith('55') && clean.length === 13) {
+    const ddd = parseInt(clean.substring(2, 4), 10)
+    // Para DDDs >= 31 (ex: 94, 81, 91, 71, 31, etc.), o JID do WhatsApp costuma ser registrado SEM o 9º dígito (12 dígitos)
+    if (ddd >= 31 && clean[4] === '9') {
+      const without9 = clean.substring(0, 4) + clean.substring(5)
+      return {
+        primary: without9,
+        secondary: clean
+      }
+    }
+  }
+
+  // Se tiver 12 dígitos e DDD >= 31, a variante secundária é com o 9 (13 dígitos)
+  if (clean.startsWith('55') && clean.length === 12) {
+    const ddd = parseInt(clean.substring(2, 4), 10)
+    if (ddd >= 31) {
+      const with9 = clean.substring(0, 4) + '9' + clean.substring(4)
+      return {
+        primary: clean,
+        secondary: with9
+      }
+    }
+  }
+
+  return { primary: clean }
+}
+
+function formatPhoneForWhatsApp(phone: string): string {
+  return getWhatsAppPhoneVariants(phone).primary
 }
 
 /**
@@ -88,7 +120,8 @@ export async function sendWhatsAppMessageAction({ phone, message, unidadeId, ove
   }
 
   const configs = { ...dbConfigs, ...unidadeConfigs, ...(overrideConfigs || {}) }
-  const cleanPhone = formatPhoneForWhatsApp(phone)
+  const phoneVariants = getWhatsAppPhoneVariants(phone)
+  const cleanPhone = phoneVariants.primary
 
   if (!cleanPhone) {
     return {
@@ -127,7 +160,7 @@ export async function sendWhatsAppMessageAction({ phone, message, unidadeId, ove
     }
 
     // Função interna para realizar a chamada de envio de texto no AstraCalls
-    const attemptSend = async (sessionSid: string) => {
+    const attemptSend = async (sessionSid: string, destinationPhone: string) => {
       const endpoint = `${baseUrl}/api/sessions/${encodeURIComponent(sessionSid)}/messages/text`
 
       const controller = new AbortController()
@@ -137,7 +170,7 @@ export async function sendWhatsAppMessageAction({ phone, message, unidadeId, ove
         method: 'POST',
         headers,
         body: JSON.stringify({
-          to: cleanPhone,
+          to: destinationPhone,
           text: message
         }),
         signal: controller.signal
@@ -152,10 +185,19 @@ export async function sendWhatsAppMessageAction({ phone, message, unidadeId, ove
     }
 
     try {
-      // 1ª Tentativa com o SID fornecido
-      let res = await attemptSend(sid)
+      // 1ª Tentativa com o número primário (sem o 9º dígito para DDD >= 31)
+      let res = await attemptSend(sid, phoneVariants.primary)
 
-      // Se falhou (404/400/503), tentar auto-buscar o ID real da sessão conectada via GET /api/sessions
+      // Se falhou e temos uma variante secundária (com o 9º dígito), tentar a variante
+      if (!res.ok && phoneVariants.secondary) {
+        console.log(`[AstraCalls 9th Digit Retry] Tentando variante secundária: ${phoneVariants.secondary}`)
+        const retryRes = await attemptSend(sid, phoneVariants.secondary)
+        if (retryRes.ok) {
+          res = retryRes
+        }
+      }
+
+      // Se falhou por causa do SID (404/400/503), tentar auto-buscar o ID real da sessão conectada
       if (!res.ok) {
         try {
           const sessionsRes = await fetch(`${baseUrl}/api/sessions`, { headers })
@@ -163,7 +205,6 @@ export async function sendWhatsAppMessageAction({ phone, message, unidadeId, ove
             const sessionsJson = await sessionsRes.json()
             const sessionsList = Array.isArray(sessionsJson?.sessions) ? sessionsJson.sessions : (Array.isArray(sessionsJson) ? sessionsJson : [])
             
-            // Procurar por match exato de ID, nome, parte do nome ou primeira sessão conectada (open/paired)
             const matchedSession = sessionsList.find((s: any) => 
               s.id === sid || 
               s.name === sid || 
@@ -173,8 +214,10 @@ export async function sendWhatsAppMessageAction({ phone, message, unidadeId, ove
             ) || sessionsList.find((s: any) => s.state === 'open' || s.paired === true)
 
             if (matchedSession && matchedSession.id && matchedSession.id !== sid) {
-              console.log(`[AstraCalls Auto-Resolution] Mapeando SID "${sid}" -> "${matchedSession.id}" (${matchedSession.name})`)
-              res = await attemptSend(matchedSession.id)
+              res = await attemptSend(matchedSession.id, phoneVariants.primary)
+              if (!res.ok && phoneVariants.secondary) {
+                res = await attemptSend(matchedSession.id, phoneVariants.secondary)
+              }
             }
           }
         } catch (autoErr) {

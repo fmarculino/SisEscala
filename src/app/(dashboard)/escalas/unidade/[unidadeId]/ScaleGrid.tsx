@@ -2912,15 +2912,18 @@ export function ScaleGrid({
 
                         setWaSending(true)
                         setWaError('')
-                        setWaFallbackUrl('')
+                        
+                        const cleanPhone = phone.replace(/\D/g, '')
+                        const fallback = `https://api.whatsapp.com/send?phone=${cleanPhone.startsWith('55') ? cleanPhone : '55' + cleanPhone}&text=${encodeURIComponent(textMessage)}`
+                        setWaFallbackUrl(fallback)
 
                         try {
                           const res = await sendWhatsAppMessageAction({ phone, message: textMessage, unidadeId: unidadeId })
                           if (res.success) {
                             setAlertModal({
                               isOpen: true,
-                              title: 'Notificação Enviada',
-                              message: 'A mensagem de sobreaviso foi enviada com sucesso para o WhatsApp do servidor!',
+                              title: 'Notificação Disparada',
+                              message: 'A mensagem de sobreaviso foi enviada via API para o WhatsApp do servidor! Você também pode clicar no botão manual abaixo caso prefira enviar via WhatsApp Web.',
                               type: 'success'
                             })
                           } else {
@@ -2931,33 +2934,32 @@ export function ScaleGrid({
                           }
                         } catch (err: any) {
                           setWaError('Falha ao conectar com o serviço de WhatsApp.')
-                          const cleanPhone = phone.replace(/\D/g, '')
-                          setWaFallbackUrl(`https://api.whatsapp.com/send?phone=55${cleanPhone}&text=${encodeURIComponent(textMessage)}`)
                         } finally {
                           setWaSending(false)
                         }
                       }}
                       disabled={waSending}
-                      className="w-full px-4 py-2 rounded-lg bg-green-600 text-white font-bold hover:bg-green-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                      className="w-full px-4 py-2.5 rounded-xl bg-green-600 text-white font-bold hover:bg-green-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 text-sm shadow-md shadow-green-600/20"
                     >
                       {waSending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                      {waSending ? 'Enviando Mensagem...' : 'Enviar via WhatsApp'}
+                      {waSending ? 'Disparando Notificação...' : 'Enviar via WhatsApp (Automático)'}
                     </button>
 
-                    {/* Exibição de Erro e Fallback Manual */}
+                    {/* Botão de Envio via WhatsApp Web (Manual / Contingência) */}
+                    <a
+                      href={waFallbackUrl || `https://api.whatsapp.com/send?phone=&text=${encodeURIComponent(`Olá ${triggerModal.servidorNome}, acesse: ${generatedLink}`)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block w-full py-2.5 px-4 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-center font-bold rounded-xl text-xs uppercase tracking-wider transition-all"
+                    >
+                      💬 Abrir no WhatsApp Web / App (Manual)
+                    </a>
+
+                    {/* Exibição de Erro caso a API falhe */}
                     {waError && (
-                      <div className="p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/40 rounded-lg text-xs space-y-2">
-                        <p className="text-red-700 dark:text-red-400 font-medium">{waError}</p>
-                        {waFallbackUrl && (
-                          <a
-                            href={waFallbackUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="block w-full py-2 px-3 bg-green-600 hover:bg-green-700 text-white text-center font-bold rounded-md text-[11px] uppercase tracking-wider transition-colors"
-                          >
-                            Enviar via WhatsApp Web (Manual)
-                          </a>
-                        )}
+                      <div className="p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/40 rounded-xl text-xs space-y-1">
+                        <p className="text-red-700 dark:text-red-400 font-bold">{waError}</p>
+                        <p className="text-zinc-500 text-[10px]">Utilize o botão manual acima para enviar a mensagem diretamente pelo WhatsApp Web.</p>
                       </div>
                     )}
 
