@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.16.3] - 2026-08-02
+
+### Fixed
+- **Otimização de Deployment Docker no Coolify (`next.config.js`)**:
+  - Habilitada a opção `output: 'standalone'` no `next.config.js`, gerando o build enxuto para containers Docker/Coolify. Evita estouro de memória durante a coleta de traces do Nixpacks (erro exit code 255 em servidores de deploy).
+
 ## [1.16.2] - 2026-08-02
 
 ### Fixed
