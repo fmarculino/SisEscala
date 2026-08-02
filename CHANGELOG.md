@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.16.4] - 2026-08-02
+
+### Fixed
+- **Resolução Definitiva do Status Atual da Célula (`latestLog`)**:
+  - A checagem da célula de sobreaviso (`ScaleGrid.tsx`) foi atualizada para extrair o status do **último chamado ativo registrado no dia** (`latestLog`), corrigindo cenários com múltiplos acionamentos (ex: Chamado 1 `Chegou`, Chamado 2 `Timeout`, Chamado 3 `Aceito`).
+  - O ícone do raio flutuante (`Zap`) é 100% ocultado e a célula exibe a bolinha de status ativo (verde para `Aceito`/Em Deslocamento ou laranja para `Aguardando`).
+  - Clicar na bolinha abre diretamente o modal completo com o link preenchido e as 3 opções de reenvio (WhatsApp API Automático, WhatsApp Web Manual e Copiar Link).
+
 ## [1.16.3] - 2026-08-02
 
 ### Fixed

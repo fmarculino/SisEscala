@@ -2342,6 +2342,8 @@ export function ScaleGrid({
                           : { status: null, reason: null, log: null }
 
                         const cellLogs = logsSobreaviso.filter((l: any) => l.escala_mensal_id === em.id && l.dia === day)
+                        const latestLog = cellLogs.length > 0 ? cellLogs[cellLogs.length - 1] : logForDay
+                        const currentOvercallStatus = latestLog ? latestLog.status : effectiveStatus
 
                         // Check for REAL external conflicts (different unit/sector)
                         const realExternalShifts = (externalOccupancy || []).filter((o: any) => 
@@ -2375,10 +2377,9 @@ export function ScaleGrid({
                           .map(os => os.descricao_conflito)
                           .join(' | ')
 
-                        const isFailed = effectiveStatus === 'Falhou'
+                        const isFailed = currentOvercallStatus === 'Falhou' || effectiveStatus === 'Falhou'
                         // Hide trigger button if currently pending (Accepted/Waiting)
-                        // It SHOULD return if failed or arrived (as requested by user)
-                        if (effectiveStatus === 'Aceito' || effectiveStatus === 'Aguardando') {
+                        if (currentOvercallStatus === 'Aceito' || currentOvercallStatus === 'Aguardando' || effectiveStatus === 'Aceito' || effectiveStatus === 'Aguardando') {
                           isTriggerAllowed = false
                         }
                         const isDisregarded = isFailed && desconsiderarFalha
@@ -2511,7 +2512,7 @@ export function ScaleGrid({
                             {cat === 'Sobreaviso' && turnoId && (
                               <>
                                 {/* Bolinha Laranja: Clique para Reabrir o Modal de Disparo / Cópia de Link */}
-                                {effectiveStatus === 'Aguardando' && (
+                                {(currentOvercallStatus === 'Aguardando' || effectiveStatus === 'Aguardando') && (
                                   <button
                                     type="button"
                                     onClick={(e) => {
@@ -2542,7 +2543,7 @@ export function ScaleGrid({
                                     <Clock className="h-2.5 w-2.5" />
                                   </button>
                                 )}
-                                {effectiveStatus === 'Aceito' && (
+                                {(currentOvercallStatus === 'Aceito' || (effectiveStatus === 'Aceito' && currentOvercallStatus !== 'Aguardando')) && (
                                   <button
                                     type="button"
                                     onClick={(e) => {
@@ -2573,7 +2574,7 @@ export function ScaleGrid({
                                     <Navigation2 className="h-2.5 w-2.5 fill-current" />
                                   </button>
                                 )}
-                                {effectiveStatus === 'Chegou' && (
+                                {(currentOvercallStatus === 'Chegou' || effectiveStatus === 'Chegou') && (
                                   <div className="absolute -top-1 -left-1 flex h-3 w-3 items-center justify-center rounded-full bg-blue-500 text-white z-20 shadow-sm border border-white dark:border-zinc-800" title="Servidor chegou">
                                     <Check className="h-2 w-2" />
                                   </div>
