@@ -6,6 +6,7 @@ import nodemailer from 'nodemailer'
 export interface WhatsAppSendParams {
   phone: string
   message: string
+  overrideConfigs?: Record<string, any>
 }
 
 export interface EmailSendParams {
@@ -13,6 +14,7 @@ export interface EmailSendParams {
   subject: string
   html?: string
   text?: string
+  overrideConfigs?: Record<string, any>
 }
 
 export interface WhatsAppResult {
@@ -71,8 +73,9 @@ function formatPhoneForWhatsApp(phone: string): string {
 /**
  * Envia uma mensagem via WhatsApp de acordo com as configurações ativas
  */
-export async function sendWhatsAppMessageAction({ phone, message }: WhatsAppSendParams): Promise<WhatsAppResult> {
-  const configs = await getCommunicationConfigs()
+export async function sendWhatsAppMessageAction({ phone, message, overrideConfigs }: WhatsAppSendParams): Promise<WhatsAppResult> {
+  const dbConfigs = await getCommunicationConfigs()
+  const configs = { ...dbConfigs, ...(overrideConfigs || {}) }
   const cleanPhone = formatPhoneForWhatsApp(phone)
 
   if (!cleanPhone) {
@@ -109,11 +112,16 @@ export async function sendWhatsAppMessageAction({ phone, message }: WhatsAppSend
     }
     if (apiKey) {
       headers['X-API-Key'] = apiKey
+      headers['x-api-key'] = apiKey
     }
 
     // Função interna para realizar a chamada de envio de texto no AstraCalls
     const attemptSend = async (sessionSid: string) => {
-      const endpoint = `${baseUrl}/api/sessions/${encodeURIComponent(sessionSid)}/messages/text`
+      let endpoint = `${baseUrl}/api/sessions/${encodeURIComponent(sessionSid)}/messages/text`
+      if (apiKey) {
+        endpoint += `?apiKey=${encodeURIComponent(apiKey)}`
+      }
+
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 12000)
 
@@ -432,9 +440,9 @@ export async function sendEmailAction({ to, subject, html, text }: EmailSendPara
 /**
  * Ação de teste para validar a integração do WhatsApp
  */
-export async function testWhatsAppConnectionAction(phone: string): Promise<WhatsAppResult> {
+export async function testWhatsAppConnectionAction(phone: string, overrideConfigs?: Record<string, any>): Promise<WhatsAppResult> {
   const message = `🤖 *Teste SisEscala - Saúde Marabá*\n\nConexão com a API de WhatsApp configurada e validada com sucesso em ${new Date().toLocaleString('pt-BR')}!`
-  return await sendWhatsAppMessageAction({ phone, message })
+  return await sendWhatsAppMessageAction({ phone, message, overrideConfigs })
 }
 
 /**

@@ -172,7 +172,10 @@ export default function ConfigPage() {
     setWaTesting(true)
     setWaTestResult(null)
     try {
-      const res = await testWhatsAppConnectionAction(waTestPhone)
+      const overrideConfigs: Record<string, any> = {}
+      configs.forEach(c => { overrideConfigs[c.chave] = c.valor })
+
+      const res = await testWhatsAppConnectionAction(waTestPhone, overrideConfigs)
       setWaTestResult(res)
     } catch (err: any) {
       setWaTestResult({ success: false, error: err.message || 'Erro inesperado' })
