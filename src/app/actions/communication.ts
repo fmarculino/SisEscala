@@ -112,15 +112,11 @@ export async function sendWhatsAppMessageAction({ phone, message, overrideConfig
     }
     if (apiKey) {
       headers['X-API-Key'] = apiKey
-      headers['x-api-key'] = apiKey
     }
 
     // Função interna para realizar a chamada de envio de texto no AstraCalls
     const attemptSend = async (sessionSid: string) => {
-      let endpoint = `${baseUrl}/api/sessions/${encodeURIComponent(sessionSid)}/messages/text`
-      if (apiKey) {
-        endpoint += `?apiKey=${encodeURIComponent(apiKey)}`
-      }
+      const endpoint = `${baseUrl}/api/sessions/${encodeURIComponent(sessionSid)}/messages/text`
 
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 12000)
