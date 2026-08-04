@@ -1,7 +1,7 @@
 # Relatório Técnico de Atualizações SisEscala v1.19.2
 
 ## 📌 Resumo Executivo
-Esta versão corrige a herança do horário inicial (`start_hour`) das jornadas regulares de trabalho nas funções de presença (`fn_confirmar_presenca` e `fn_confirmar_presenca_manual`), solucionando divergências de janela de presença para jornadas como `08H ÀS 18H`, `18H ÀS 06H` e `12H ÀS 18H`.
+Esta versão corrige a herança do horário inicial (`start_hour`) das jornadas regulares de trabalho nas funções de presença (`fn_confirmar_presenca` e `fn_confirmar_presenca_manual`), solucionando divergências de janela de presença para jornadas como `08H ÀS 18H`, `18H ÀS 06H` e `12H ÀS 18H`. Além disso, implementa a função automatizada de reconciliação para restaurar os horários reais gravados na tabela de auditoria (`logs_tentativas_presenca`) na folha de ponto (`escala_diaria`).
 
 ---
 
@@ -19,9 +19,18 @@ Esta versão corrige a herança do horário inicial (`start_hour`) das jornadas 
 - Preservado o agrupamento em blocos contíguos (`MT` 06h/07h-18h + `N` 18h-06h + `Extra` 06h-07h), unificando os 3 turnos em uma única jornada contínua (~25h), garantindo que a entrada seja gravada no início do plantão diurno e a saída no final da hora extra do dia seguinte.
 - **Conformidade Regra `AGENTS.md`**: Mantida a subconsulta dinâmica de alinhamento da categoria `Extra`.
 
+### 3. Reconciliação Automática dos Horários de Ponto (`logs_tentativas_presenca`)
+- **Arquivo / Migração**: `supabase/migrations/20260804090000_reconcile_denied_attempt_logs_to_presence.sql`
+- **Função Criada**: `public.fn_reconciliar_presencas_negadas(p_data date)`
+- **Funcionamento**:
+  1. Varre os logs auditados da tabela `logs_tentativas_presenca` filtrados por recusa de janela na data parametrizada.
+  2. Extrai o menor `created_at` (horário físico real em que o servidor esteve no terminal na manhã) e define como `presenca_entrada_em`.
+  3. Ajusta o `presenca_saida_em` com o horário final registrado na tarde/noite e atualiza `presenca_confirmada = true`.
+
 ---
 
 ## 📋 Resumo das Migrações
 | Arquivo | Descrição |
 |---|---|
 | `20260804080000_fix_shift_n_18h_jornada_start.sql` | Herança de `start_hour` por `j.nome` para categorias Regular e Plantão |
+| `20260804090000_reconcile_denied_attempt_logs_to_presence.sql` | Reconciliação automática dos carimbos reais da auditoria para a folha de ponto |
