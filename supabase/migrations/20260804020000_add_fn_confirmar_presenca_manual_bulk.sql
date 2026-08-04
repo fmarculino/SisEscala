@@ -92,8 +92,8 @@ BEGIN
         v_target_timestamp := v_start_timestamp_local AT TIME ZONE v_timezone;
         
         UPDATE public.escala_diaria
-        SET presenca_entrada_em = v_target_timestamp,
-            presenca_entrada_manual = true,
+        SET presenca_entrada_em = COALESCE(presenca_entrada_em, v_target_timestamp),
+            presenca_entrada_manual = CASE WHEN presenca_entrada_em IS NULL THEN true ELSE presenca_entrada_manual END,
             confirmado_por_id = p_validador_id,
             presenca_confirmada = true
         WHERE escala_mensal_id = p_escala_mensal_id AND dia = p_dia AND categoria = p_categoria::public.escala_categoria;
@@ -103,8 +103,8 @@ BEGIN
         v_target_timestamp := v_start_timestamp_local AT TIME ZONE v_timezone;
         
         UPDATE public.escala_diaria
-        SET presenca_intervalo_saida_em = v_target_timestamp,
-            presenca_intervalo_saida_manual = true,
+        SET presenca_intervalo_saida_em = COALESCE(presenca_intervalo_saida_em, v_target_timestamp),
+            presenca_intervalo_saida_manual = CASE WHEN presenca_intervalo_saida_em IS NULL THEN true ELSE presenca_intervalo_saida_manual END,
             confirmado_por_id = p_validador_id,
             presenca_confirmada = true
         WHERE escala_mensal_id = p_escala_mensal_id AND dia = p_dia AND categoria = p_categoria::public.escala_categoria;
@@ -118,8 +118,8 @@ BEGIN
         END IF;
         
         UPDATE public.escala_diaria
-        SET presenca_intervalo_retorno_em = v_target_timestamp,
-            presenca_intervalo_retorno_manual = true,
+        SET presenca_intervalo_retorno_em = COALESCE(presenca_intervalo_retorno_em, v_target_timestamp),
+            presenca_intervalo_retorno_manual = CASE WHEN presenca_intervalo_retorno_em IS NULL THEN true ELSE presenca_intervalo_retorno_manual END,
             confirmado_por_id = p_validador_id,
             presenca_confirmada = true
         WHERE escala_mensal_id = p_escala_mensal_id AND dia = p_dia AND categoria = p_categoria::public.escala_categoria;
@@ -145,8 +145,8 @@ BEGIN
         v_target_timestamp := v_end_timestamp_local AT TIME ZONE v_timezone;
         
         UPDATE public.escala_diaria
-        SET presenca_saida_em = v_target_timestamp,
-            presenca_saida_manual = true,
+        SET presenca_saida_em = COALESCE(presenca_saida_em, v_target_timestamp),
+            presenca_saida_manual = CASE WHEN presenca_saida_em IS NULL THEN true ELSE presenca_saida_manual END,
             confirmado_por_id = p_validador_id,
             presenca_confirmada = true
         WHERE escala_mensal_id = p_escala_mensal_id AND dia = p_dia AND categoria = p_categoria::public.escala_categoria;
@@ -176,9 +176,9 @@ BEGIN
         SET presenca_entrada_em = COALESCE(presenca_entrada_em, v_target_timestamp),
             presenca_entrada_manual = CASE WHEN presenca_entrada_em IS NULL THEN true ELSE presenca_entrada_manual END,
             presenca_intervalo_saida_em = COALESCE(presenca_intervalo_saida_em, (make_timestamp(v_ano, v_mes, p_dia, v_start_hour + 4, 0, 0)) AT TIME ZONE v_timezone),
-            presenca_intervalo_saida_manual = true,
+            presenca_intervalo_saida_manual = CASE WHEN presenca_intervalo_saida_em IS NULL THEN true ELSE presenca_intervalo_saida_manual END,
             presenca_intervalo_retorno_em = COALESCE(presenca_intervalo_retorno_em, (make_timestamp(v_ano, v_mes, p_dia, v_start_hour + 4, 0, 0) + (v_intervalo_minutos || ' minutes')::interval) AT TIME ZONE v_timezone),
-            presenca_intervalo_retorno_manual = true,
+            presenca_intervalo_retorno_manual = CASE WHEN presenca_intervalo_retorno_em IS NULL THEN true ELSE presenca_intervalo_retorno_manual END,
             presenca_saida_em = COALESCE(presenca_saida_em, v_end_timestamp_local AT TIME ZONE v_timezone),
             presenca_saida_manual = CASE WHEN presenca_saida_em IS NULL THEN true ELSE presenca_saida_manual END,
             confirmado_por_id = p_validador_id,
@@ -194,7 +194,7 @@ BEGIN
         SET presenca_entrada_em = COALESCE(presenca_entrada_em, v_target_timestamp),
             presenca_entrada_manual = CASE WHEN presenca_entrada_em IS NULL THEN true ELSE presenca_entrada_manual END,
             presenca_intervalo_saida_em = COALESCE(presenca_intervalo_saida_em, (make_timestamp(v_ano, v_mes, p_dia, v_start_hour + 4, 0, 0)) AT TIME ZONE v_timezone),
-            presenca_intervalo_saida_manual = true,
+            presenca_intervalo_saida_manual = CASE WHEN presenca_intervalo_saida_em IS NULL THEN true ELSE presenca_intervalo_saida_manual END,
             confirmado_por_id = p_validador_id,
             presenca_confirmada = true
         WHERE escala_mensal_id = p_escala_mensal_id AND dia = p_dia AND categoria = p_categoria::public.escala_categoria;
@@ -220,7 +220,7 @@ BEGIN
 
         UPDATE public.escala_diaria
         SET presenca_intervalo_retorno_em = COALESCE(presenca_intervalo_retorno_em, (make_timestamp(v_ano, v_mes, p_dia, v_start_hour + 4, 0, 0) + (v_intervalo_minutos || ' minutes')::interval) AT TIME ZONE v_timezone),
-            presenca_intervalo_retorno_manual = true,
+            presenca_intervalo_retorno_manual = CASE WHEN presenca_intervalo_retorno_em IS NULL THEN true ELSE presenca_intervalo_retorno_manual END,
             presenca_saida_em = COALESCE(presenca_saida_em, v_end_timestamp_local AT TIME ZONE v_timezone),
             presenca_saida_manual = CASE WHEN presenca_saida_em IS NULL THEN true ELSE presenca_saida_manual END,
             confirmado_por_id = p_validador_id,

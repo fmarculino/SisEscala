@@ -304,7 +304,7 @@ export function DiagnosticsCharts({ monthlyTrend, cargoDistribution, totalSobrea
             <h3 className="font-black text-zinc-900 dark:text-white uppercase text-xs tracking-widest">Taxa de Acionamento</h3>
           </div>
           <p className="text-xs text-zinc-500 leading-relaxed">
-            Mede o percentual de horas de sobreaviso planejadas que foram convertidas em trabalho efetivo.
+            Mede o percentual de horas de sobreaviso previstas que foram convertidas em trabalho efetivo.
           </p>
         </div>
 

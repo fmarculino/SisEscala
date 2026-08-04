@@ -64,7 +64,7 @@ export const getReportBaseHtml = (config: ReportConfig, content: string) => `
     <div class="p-8">
       ${config.draft ? `
         <div class="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 font-bold text-xs flex items-center gap-3">
-          <span>⚠️ <strong>DOCUMENTO PRELIMINAR:</strong> Este relatório contém dados de escalas abertas/planejadas e está sujeito a alterações até homologação final.</span>
+          <span>⚠️ <strong>DOCUMENTO PRELIMINAR:</strong> Este relatório contém dados de escalas abertas/previstas e está sujeito a alterações até homologação final.</span>
         </div>
       ` : ''}
       ${config.instituicaoCabecalhoUrl ? `

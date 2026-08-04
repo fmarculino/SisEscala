@@ -60,7 +60,7 @@ export default function HelpPage() {
                 <Table className="h-4 w-4" /> Transparência
               </h3>
               <p className="text-xs text-emerald-800/80 dark:text-emerald-300/80">
-                Visualização clara entre "Planejado" (previsão) e "Validado" (realidade para pagamento).
+                Visualização clara entre "Previsão" e "Validado" (realidade para pagamento).
               </p>
             </div>
           </div>

@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.19.0] - 2026-08-04
+
+### Added
+- **Validação em Massa de Presença em Multi-Níveis**:
+  - **Nível 1 (Ação Rápida por Célula / Meio Período)**: Suporte no modal da célula a validações rápidas por batida individual, dia completo, 1º período (Manhã) ou 2º período (Tarde).
+  - **Nível 2 (Validação por Servidor e Período)**: Adicionado ícone de atalho (`<CheckSquare />`) ao lado do nome do servidor para validação rápida por período de dias.
+  - **Nível 3 (Validação Global em Massa)**: Adicionado botão **`⚡ Validar em Massa`** no topo da grade abrindo modal global para selecionar múltiplos servidores e categorias por intervalo de datas.
+- **Exigência de Justificativa Obrigatória para Ajustes Manuais**:
+  - Toda validação manual executada por Gestores/Administradores exige justificativa obrigatória registrada nos logs do sistema.
+- **Validação Manual de Sobreaviso Pendente ou Falhado**:
+  - Permitida a validação manual de chamados de sobreaviso no modal de histórico com justificativa obrigatória, retornando o horário à carga computada do servidor.
+- **Alerta de Tentativas Negadas pelo Terminal**:
+  - Leitura dos registros de `logs_tentativas_presenca` com selo ⚠️ e tooltip informando horários e motivos de recusa pelo terminal físico de ponto.
+
+### Changed
+- **Atualização da Nomenclatura para "PREVISÃO" e "PREV"**:
+  - Alterada a denominação da coluna e totalizadores de `PLANEJADO` para `PREVISÃO` (e de `PLAN` para `PREV`) na grade de escalas (`ScaleGrid.tsx`), relatórios e central de ajuda.
+
+### Fixed
+- **Preservação Integral de Batidas Reais de Servidores**:
+  - Atualizada a função SQL `fn_confirmar_presenca_manual` com `COALESCE` em todas as etapas de batidas para que horários marcados nos terminais de ponto não sejam sobrescritos durante a validação em massa, preenchendo e justificando exclusivamente os horários faltantes.
+- **Contagem do Rodapé de Sobreaviso ("Servidores por Turno")**:
+  - Ajustada a função `shiftTotals` em `ScaleGrid.tsx` para contabilizar corretamente a presença de servidores de sobreaviso escalados no rodapé `SERVIDORES POR TURNO -> SOBREAVISO`, impedindo que um chamado com falha transmitisse a impressão de dia desatendido.
+
 ## [1.18.0] - 2026-08-04
 
 ### Added

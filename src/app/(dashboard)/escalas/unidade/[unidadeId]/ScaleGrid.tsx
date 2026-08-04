@@ -3056,7 +3056,7 @@ export function ScaleGrid({
                               <td rowSpan={4} className="sticky right-[296px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-blue-50 dark:bg-blue-900 text-blue-900 dark:text-blue-100">
                                 <div className="flex flex-col h-full divide-y divide-blue-200 dark:divide-blue-800">
                                   <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
-                                    <span className="text-[6px] uppercase leading-none">Plan</span>
+                                    <span className="text-[6px] uppercase leading-none">Prev</span>
                                     <span className="text-[10px] leading-tight">{totals.p_ch}</span>
                                   </div>
                                   <div className="flex-1 flex flex-col justify-center p-1 bg-blue-100/50 dark:bg-blue-800/30">
@@ -3069,7 +3069,7 @@ export function ScaleGrid({
                               <td rowSpan={4} className="sticky right-[258px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-indigo-50 dark:bg-indigo-900 text-indigo-900 dark:text-indigo-100">
                                 <div className="flex flex-col h-full divide-y divide-indigo-200 dark:divide-indigo-800">
                                   <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
-                                    <span className="text-[6px] uppercase leading-none">Plan</span>
+                                    <span className="text-[6px] uppercase leading-none">Prev</span>
                                     <span className="text-[10px] leading-tight">{totals.p_he100}</span>
                                   </div>
                                   <div className="flex-1 flex flex-col justify-center p-1 bg-indigo-100/50 dark:bg-indigo-800/30">
@@ -3082,7 +3082,7 @@ export function ScaleGrid({
                               <td rowSpan={4} className="sticky right-[220px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-indigo-50 dark:bg-indigo-900 text-indigo-900 dark:text-indigo-100">
                                 <div className="flex flex-col h-full divide-y divide-indigo-200 dark:divide-indigo-800">
                                   <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
-                                    <span className="text-[6px] uppercase leading-none">Plan</span>
+                                    <span className="text-[6px] uppercase leading-none">Prev</span>
                                     <span className="text-[10px] leading-tight">{totals.p_he50}</span>
                                   </div>
                                   <div className="flex-1 flex flex-col justify-center p-1 bg-indigo-100/50 dark:bg-indigo-800/30">
@@ -3095,7 +3095,7 @@ export function ScaleGrid({
                               <td rowSpan={4} className="sticky right-[182px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-orange-50 dark:bg-orange-900 text-orange-900 dark:text-orange-100">
                                 <div className="flex flex-col h-full divide-y divide-orange-200 dark:divide-orange-800">
                                   <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
-                                    <span className="text-[6px] uppercase leading-none">Plan</span>
+                                    <span className="text-[6px] uppercase leading-none">Prev</span>
                                     <span className="text-[10px] leading-tight">{totals.p_pl12}</span>
                                   </div>
                                   <div className="flex-1 flex flex-col justify-center p-1 bg-orange-100/50 dark:bg-orange-800/30">
@@ -3108,7 +3108,7 @@ export function ScaleGrid({
                               <td rowSpan={4} className="sticky right-[144px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-orange-50 dark:bg-orange-900 text-orange-900 dark:text-orange-100">
                                 <div className="flex flex-col h-full divide-y divide-orange-200 dark:divide-orange-800">
                                   <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
-                                    <span className="text-[6px] uppercase leading-none">Plan</span>
+                                    <span className="text-[6px] uppercase leading-none">Prev</span>
                                     <span className="text-[10px] leading-tight">{totals.p_pl6}</span>
                                   </div>
                                   <div className="flex-1 flex flex-col justify-center p-1 bg-orange-100/50 dark:bg-orange-800/30">
@@ -3121,7 +3121,7 @@ export function ScaleGrid({
                               <td rowSpan={4} className="sticky right-[106px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-orange-50 dark:bg-orange-900 text-orange-900 dark:text-orange-100">
                                 <div className="flex flex-col h-full divide-y divide-orange-200 dark:divide-orange-800">
                                   <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
-                                    <span className="text-[6px] uppercase leading-none">Plan</span>
+                                    <span className="text-[6px] uppercase leading-none">Prev</span>
                                     <span className="text-[10px] leading-tight">{totals.p_pl4}</span>
                                   </div>
                                   <div className="flex-1 flex flex-col justify-center p-1 bg-orange-100/50 dark:bg-orange-800/30">
@@ -3134,7 +3134,7 @@ export function ScaleGrid({
                               <td rowSpan={4} className="sticky right-[68px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-emerald-50 dark:bg-emerald-900 text-emerald-900 dark:text-emerald-100">
                                 <div className="flex flex-col h-full divide-y divide-emerald-200 dark:divide-emerald-800">
                                   <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
-                                    <span className="text-[6px] uppercase leading-none">Plan</span>
+                                    <span className="text-[6px] uppercase leading-none">Prev</span>
                                     <span className="text-[10px] leading-tight">{totals.p_so12}</span>
                                   </div>
                                   <div className="flex-1 flex flex-col justify-center p-1 bg-emerald-100/50 dark:bg-emerald-800/30">
@@ -3149,7 +3149,7 @@ export function ScaleGrid({
                           <td rowSpan={4} className="sticky right-0 z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-amber-400 text-black">
                             <div className="flex flex-col h-full divide-y divide-black/10">
                               <div className="flex-1 flex flex-col justify-center p-1">
-                                <span className="text-[7px] uppercase leading-none opacity-60">Planejado</span>
+                                <span className="text-[7px] uppercase leading-none opacity-60">Previsão</span>
                                 <span className="text-[11px] leading-tight">{totals.totalPlanejado}</span>
                               </div>
                               <div className="flex-1 flex flex-col justify-center p-1 bg-black/5">

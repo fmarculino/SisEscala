@@ -1,4 +1,4 @@
-# SisEscala 📅[![Version](https://img.shields.io/badge/version-1.18.0-green.svg)](https://github.com/fmarculino/SisEscala)
+# SisEscala 📅[![Version](https://img.shields.io/badge/version-1.19.0-green.svg)](https://github.com/fmarculino/SisEscala)
 [![Next.js](https://img.shields.io/badge/framework-Next.js%2015-black.svg)](https://nextjs.org/)
 [![Supabase](https://img.shields.io/badge/backend-Supabase-green.svg)](https://supabase.com/)
 [![Tailwind CSS](https://img.shields.io/badge/styling-Tailwind%20CSS-38B2AC.svg)](https://tailwindcss.com/)
@@ -11,13 +11,15 @@ O sistema foca em **governança, segurança jurídica e eficiência operacional*
 
 ## 🚀 Principais Funcionalidades
 
-### 🎨 Despoluição Visual & Refinamento dos Indicadores por Categoria (v1.18.0)
-- **Despoluição da Grade (`ScaleGrid.tsx`)**: Células sem agendamento (hífen `-`) em Extras, Plantões e Sobreaviso ficam 100% limpas sem exibir barrinhas vermelhas desnecessárias.
-- **Regras Diferenciadas de Marcação por Categoria**:
-  - **Regular**: Exibe indicadores apenas nos dias com turno agendado (4 segmentos se intervalo ativo e > 4h; 2 segmentos se $\le$ 4h ou sem intervalo).
-  - **Extra**: Exibe indicadores apenas em células com horas extras (ex: `1`, `2`). Mantém sempre no máximo 2 batidas (sem pausa para intervalo) ou consolida a extensão da 4ª batida (Saída Final) do turno regular continuado.
-  - **Plantão**: Exibe indicadores apenas em células com plantão agendado (ex: `MT`, `N`).
-  - **Sobreaviso**: Removida a exibição de barrinhas de presença tradicionais; mantida exclusivamente a sinalização por ícone de acionamento via WhatsApp (`Zap`, bolinhas de status `Aguardando`, `Aceito`, `Chegou`).
+### ⚡ Validação em Massa de Presença & Governança de Ajustes (v1.19.0)
+- **Validação em Multi-Níveis**:
+  - **Nível 1 (Por Célula / Meio Período)**: Ações rápidas no modal da célula para homologação de batidas individuais, dia completo, 1º período (Manhã) ou 2º período (Tarde).
+  - **Nível 2 (Por Servidor)**: Atalho `<CheckSquare />` na grade para validação por intervalo de datas específico para um servidor.
+  - **Nível 3 (Global por Unidade)**: Botão `⚡ Validar em Massa` no topo da grade para homologação global em lote de múltiplos servidores.
+- **Preservação Integral das Batidas Reais de Servidores**: Atualização da função RPC `fn_confirmar_presenca_manual` com `COALESCE` em todas as etapas para que batidas efetuadas via relógio de ponto não sejam sobrescritas, preenchendo e sinalizando como ajustes manuais apenas os horários faltantes.
+- **Justificativa Obrigatória & Validação Manual de Sobreaviso**: Exigência de justificativa cadastrada em banco de dados para qualquer homologação manual de presença ou sobreaviso pendente/falhado.
+- **Nomenclatura Padrão ("PREVISÃO" / "PREV")**: Atualização da denominação da grade (`ScaleGrid.tsx`), relatórios consolidados e ajuda de `PLANEJADO` para `PREVISÃO`.
+- **Alerta de Recusas pelo Terminal**: Leitura dos logs de tentativas negadas exibindo selo ⚠️ e tooltip explicativo.
 
 ### ⏱️ Controle de Marcação de Intervalos (Pausas) por Unidade
 - **Modos Flexível & Rígido**: Escolha por unidade se o intervalo intrajornada é livre (Flexível) ou fixado por horários rígidos, em total conformidade com o Art. 71 da CLT e Portaria MTP 671/2021.
