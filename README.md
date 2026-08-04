@@ -1,4 +1,4 @@
-# SisEscala 📅[![Version](https://img.shields.io/badge/version-1.16.5-green.svg)](https://github.com/fmarculino/SisEscala)
+# SisEscala 📅[![Version](https://img.shields.io/badge/version-1.17.0-green.svg)](https://github.com/fmarculino/SisEscala)
 [![Next.js](https://img.shields.io/badge/framework-Next.js%2015-black.svg)](https://nextjs.org/)
 [![Supabase](https://img.shields.io/badge/backend-Supabase-green.svg)](https://supabase.com/)
 [![Tailwind CSS](https://img.shields.io/badge/styling-Tailwind%20CSS-38B2AC.svg)](https://tailwindcss.com/)
@@ -10,6 +10,12 @@ O sistema foca em **governança, segurança jurídica e eficiência operacional*
 ---
 
 ## 🚀 Principais Funcionalidades
+
+### ⏱️ Controle de Marcação de Intervalos (Pausas) por Unidade
+- **Modos Flexível & Rígido**: Escolha por unidade se o intervalo intrajornada é livre (Flexível) ou fixado por horários rígidos, em total conformidade com o Art. 71 da CLT e Portaria MTP 671/2021.
+- **Cascata de Resolução Híbrida (Modo Rígido)**: Resolução de horários priorizando a personalização no servidor $\rightarrow$ padrão da jornada $\rightarrow$ cálculo automático.
+- **Grade de Escala Dinâmica (2 vs 4 Segmentos)**: Exibição de 4 batidas presenciais (Entrada, Saída Intervalo, Retorno Intervalo, Saída Final) na grade de escala e folha de ponto.
+- **Governança & Segurança Jurídica**: Trava de reversão em batidas reais de terminal físico (exclusivas para Administradores) e descarte automático de 4 passos para jornadas curtas ($\le$ 4h).
 
 ### 💬 Comunicação Unificada: WhatsApp (Multi-Provedor) & E-mail (SMTP)
 - **Integração WhatsApp API Multi-Provedor**: Suporte nativo ao **AstraCalls API**, **Chatwoot API** e **API HTTP Genérica Customizada** (com template JSON de payload e headers flexíveis para conectar a qualquer gateway como Evolution API, Z-API, WPPConnect, etc.).

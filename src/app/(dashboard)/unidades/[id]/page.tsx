@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { GeoLocationPicker } from '@/components/GeoLocationPicker'
 import { LogoUploadManager } from '@/components/LogoUploadManager'
 import { UnidadeCommunicationSettings } from '@/components/UnidadeCommunicationSettings'
+import { UnidadeIntervaloSettings } from '@/components/UnidadeIntervaloSettings'
 
 export default async function EditUnidadePage({
   params,
@@ -117,6 +118,12 @@ export default async function EditUnidadePage({
               defaultLat={unidade.latitude} 
               defaultLong={unidade.longitude} 
               defaultRaio={unidade.raio_geofence} 
+            />
+
+            <UnidadeIntervaloSettings 
+              initialPermiteIntervalo={unidade.permite_marca_intervalo}
+              initialTipoIntervalo={unidade.tipo_intervalo}
+              initialToleranciaMinutos={unidade.tolerancia_intervalo_minutos}
             />
 
             <UnidadeCommunicationSettings initialConfig={initialComunicacao} />

@@ -54,6 +54,8 @@ export async function createServidor(formData: FormData) {
   const pin_acesso = formData.get('pin_acesso') as string
   const preferenca_turno = formData.get('preferenca_turno') as string || 'Flexivel'
   const carga_horaria_semanal = parseInt(formData.get('carga_horaria_semanal') as string || '40', 10)
+  const intervalo_inicio_personalizado = (formData.get('intervalo_inicio_personalizado') as string) || null
+  const intervalo_fim_personalizado = (formData.get('intervalo_fim_personalizado') as string) || null
 
   let matriculaFinal = matricula?.trim() || ''
 
@@ -115,6 +117,8 @@ export async function createServidor(formData: FormData) {
     ignora_janela_presenca,
     preferenca_turno,
     carga_horaria_semanal: isNaN(carga_horaria_semanal) ? 40 : carga_horaria_semanal,
+    intervalo_inicio_personalizado,
+    intervalo_fim_personalizado,
     ...dadosComplementares,
   })
 
@@ -456,6 +460,8 @@ export async function updateServidor(id: string, formData: FormData) {
   const pin_acesso = formData.get('pin_acesso') as string
   const preferenca_turno = formData.get('preferenca_turno') as string || 'Flexivel'
   const carga_horaria_semanal = parseInt(formData.get('carga_horaria_semanal') as string || '40', 10)
+  const intervalo_inicio_personalizado = (formData.get('intervalo_inicio_personalizado') as string) || null
+  const intervalo_fim_personalizado = (formData.get('intervalo_fim_personalizado') as string) || null
 
   let matriculaFinal = matricula?.trim() || ''
 
@@ -681,6 +687,8 @@ export async function updateServidor(id: string, formData: FormData) {
     telefone: telefone || null,
     preferenca_turno,
     carga_horaria_semanal: isNaN(carga_horaria_semanal) ? 40 : carga_horaria_semanal,
+    intervalo_inicio_personalizado,
+    intervalo_fim_personalizado,
     ...dadosComplementares,
   }
 

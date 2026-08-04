@@ -5,6 +5,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Save } from 'lucide-react'
 import { GeoLocationPicker } from '@/components/GeoLocationPicker'
+import { UnidadeIntervaloSettings } from '@/components/UnidadeIntervaloSettings'
 
 export default function NovaUnidadePage() {
   const [loading, setLoading] = useState(false)
@@ -77,6 +78,8 @@ export default function NovaUnidadePage() {
           </div>
 
           <GeoLocationPicker />
+
+          <UnidadeIntervaloSettings />
         </div>
 
         {error && (

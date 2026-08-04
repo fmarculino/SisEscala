@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.17.0] - 2026-08-04
+
+### Added
+- **Suporte Parametrizado à Marcação de Intervalo (Pausas) por Unidade**:
+  - Nova flag `permite_marca_intervalo`, `tipo_intervalo` ('flexivel' | 'rigido') e `tolerancia_intervalo_minutos` na tabela `unidades`.
+  - **Modo Flexível**: Saída de intervalo livre com validação de retorno calculada somando a duração da jornada + tolerância.
+  - **Modo Rígido (Abordagem Híbrida)**: Cascata de validação de horário fixo (Personalizado no Servidor $\rightarrow$ Padrão na Jornada $\rightarrow$ Cálculo Automático Fallback) aplicada a saídas e retornos.
+  - **Decisão Automática 2 vs 4 Passos**: Jornadas $\le$ 4h ou sem intervalo cadastrado utilizam automaticamente o fluxo de 2 batidas.
+- **Grade de Escalas Dinâmica (ScaleGrid)**:
+  - Exibição condicional de 4 segmentos de presença (Entrada, Saída Int, Retorno Int, Saída Final) para unidades com intervalo ativo, ou 2 segmentos em unidades padrão.
+  - Trava de governança: Batidas reais efetuadas via terminal físico são bloqueadas para edição/reversão por Coordenadores e reservadas exclusivamente para Administradores e Super Admins.
+- **Formulários de Gestão**:
+  - Novo painel de configuração de intervalo nos formulários de cadastro e edição de unidades (`UnidadeIntervaloSettings`).
+  - Campos de horário padrão de intervalo em Jornadas e horários personalizados no cadastro de Servidores.
+- **Documentação de Arquitetura**:
+  - Adicionado estudo técnico e documentação completa da funcionalidade em `docs/planos/2026-08-04-marcacao-de-intervalos-por-unidade.md`.
+
 ## [1.16.5] - 2026-08-02
 
 ### Fixed

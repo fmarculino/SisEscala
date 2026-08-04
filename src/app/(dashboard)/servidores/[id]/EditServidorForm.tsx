@@ -448,6 +448,39 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
             />
           </div>
 
+          {/* Horários Personalizados de Intervalo (para Unidades com Intervalo Rígido) */}
+          <div className="sm:col-span-3">
+            <label htmlFor="intervalo_inicio_personalizado" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              Horário Personalizado — Início do Intervalo
+            </label>
+            <input
+              type="time"
+              id="intervalo_inicio_personalizado"
+              name="intervalo_inicio_personalizado"
+              defaultValue={servidor.intervalo_inicio_personalizado || ''}
+              className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500 focus:border-blue-500"
+            />
+            <p className="mt-1 text-[11px] text-zinc-500">
+              Opcional. Usado no modo Rígido se informado; caso contrário usa o padrão da jornada.
+            </p>
+          </div>
+
+          <div className="sm:col-span-3">
+            <label htmlFor="intervalo_fim_personalizado" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              Horário Personalizado — Fim do Intervalo
+            </label>
+            <input
+              type="time"
+              id="intervalo_fim_personalizado"
+              name="intervalo_fim_personalizado"
+              defaultValue={servidor.intervalo_fim_personalizado || ''}
+              className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500 focus:border-blue-500"
+            />
+            <p className="mt-1 text-[11px] text-zinc-500">
+              Opcional. Usado no modo Rígido se informado; caso contrário usa o padrão da jornada.
+            </p>
+          </div>
+
           <div className="sm:col-span-3">
             <label htmlFor="unidade_id" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
               Unidade de Lotação

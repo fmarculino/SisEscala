@@ -98,10 +98,23 @@ export function ScaleGrid({
     }
   }, [supabase, escalaMensalInicial, mes, ano])
 
+  const [unidadedata, setUnidadedata] = useState<any>(null)
+
   useEffect(() => {
     fetchServidoresEventos()
     fetchJornadasTemporarias()
-  }, [escalaMensalInicial, fetchServidoresEventos, fetchJornadasTemporarias])
+
+    async function fetchUnidadeConfig() {
+      if (!unidadeId) return
+      const { data } = await supabase
+        .from('unidades')
+        .select('id, permite_marca_intervalo, tipo_intervalo, tolerancia_intervalo_minutos')
+        .eq('id', unidadeId)
+        .maybeSingle()
+      if (data) setUnidadedata(data)
+    }
+    fetchUnidadeConfig()
+  }, [escalaMensalInicial, fetchServidoresEventos, fetchJornadasTemporarias, supabase, unidadeId])
 
   const getActiveEventForDay = useCallback((servidorId: string, day: number) => {
     const dateStr = `${ano}-${mes.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`
@@ -225,7 +238,7 @@ export function ScaleGrid({
     servidorNome: string;
     dia: number;
     categoria: RowCategory;
-    tipo: 'entrada' | 'saida';
+    tipo: 'entrada' | 'intervalo_saida' | 'intervalo_retorno' | 'saida';
     escalaMensalId: string;
     isReverting: boolean;
   } | null>(null)
@@ -373,7 +386,13 @@ export function ScaleGrid({
                 ...(prev[em.servidor_id]?.[ed.categoria as RowCategory] || {}),
                 [ed.dia]: {
                   entrada: !!ed.presenca_entrada_em,
-                  saida: !!ed.presenca_saida_em
+                  intervalo_saida: !!ed.presenca_intervalo_saida_em,
+                  intervalo_retorno: !!ed.presenca_intervalo_retorno_em,
+                  saida: !!ed.presenca_saida_em,
+                  is_entrada_manual: !!ed.confirmado_por_id,
+                  is_intervalo_saida_manual: !!ed.presenca_intervalo_saida_manual,
+                  is_intervalo_retorno_manual: !!ed.presenca_intervalo_retorno_manual,
+                  is_saida_manual: !!ed.confirmado_por_id
                 }
               }
             }
@@ -406,8 +425,8 @@ export function ScaleGrid({
     return initial
   })
 
-  const [presenceData, setPresenceData] = useState<Record<string, Record<RowCategory, Record<number, { entrada: boolean, saida: boolean }>>>>(() => {
-    const initial: Record<string, Record<RowCategory, Record<number, { entrada: boolean, saida: boolean }>>> = {}
+  const [presenceData, setPresenceData] = useState<Record<string, Record<RowCategory, Record<number, { entrada: boolean, intervalo_saida: boolean, intervalo_retorno: boolean, saida: boolean, is_entrada_manual?: boolean, is_intervalo_saida_manual?: boolean, is_intervalo_retorno_manual?: boolean, is_saida_manual?: boolean }>>>>(() => {
+    const initial: Record<string, Record<RowCategory, Record<number, { entrada: boolean, intervalo_saida: boolean, intervalo_retorno: boolean, saida: boolean, is_entrada_manual?: boolean, is_intervalo_saida_manual?: boolean, is_intervalo_retorno_manual?: boolean, is_saida_manual?: boolean }>>> = {}
     escalaMensalInicial.forEach(em => {
       initial[em.servidor_id] = {
         'Regular': {},
@@ -420,7 +439,13 @@ export function ScaleGrid({
         const cat = (ed.categoria || 'Regular') as RowCategory
         initial[em.servidor_id][cat][ed.dia] = {
           entrada: !!ed.presenca_entrada_em,
-          saida: !!ed.presenca_saida_em
+          intervalo_saida: !!ed.presenca_intervalo_saida_em,
+          intervalo_retorno: !!ed.presenca_intervalo_retorno_em,
+          saida: !!ed.presenca_saida_em,
+          is_entrada_manual: !!ed.confirmado_por_id,
+          is_intervalo_saida_manual: !!ed.presenca_intervalo_saida_manual,
+          is_intervalo_retorno_manual: !!ed.presenca_intervalo_retorno_manual,
+          is_saida_manual: !!ed.confirmado_por_id
         }
       })
     })
@@ -1403,7 +1428,7 @@ export function ScaleGrid({
       if (error) throw error
 
       if (dailies) {
-        const newPresence: Record<string, Record<RowCategory, Record<number, { entrada: boolean, saida: boolean }>>> = {}
+        const newPresence: Record<string, Record<RowCategory, Record<number, { entrada: boolean, intervalo_saida: boolean, intervalo_retorno: boolean, saida: boolean, is_entrada_manual?: boolean, is_intervalo_saida_manual?: boolean, is_intervalo_retorno_manual?: boolean, is_saida_manual?: boolean }>>> = {}
         escalaMensal.forEach(em => {
           newPresence[em.servidor_id] = {
             'Regular': {}, 'Extra': {}, 'Plantão': {}, 'Sobreaviso': {}
@@ -1413,7 +1438,13 @@ export function ScaleGrid({
             const cat = (ed.categoria || 'Regular') as RowCategory
             newPresence[em.servidor_id][cat][ed.dia] = {
               entrada: !!ed.presenca_entrada_em,
-              saida: !!ed.presenca_saida_em
+              intervalo_saida: !!ed.presenca_intervalo_saida_em,
+              intervalo_retorno: !!ed.presenca_intervalo_retorno_em,
+              saida: !!ed.presenca_saida_em,
+              is_entrada_manual: !!ed.confirmado_por_id,
+              is_intervalo_saida_manual: !!ed.presenca_intervalo_saida_manual,
+              is_intervalo_retorno_manual: !!ed.presenca_intervalo_retorno_manual,
+              is_saida_manual: !!ed.confirmado_por_id
             }
           })
         })
@@ -2636,51 +2667,86 @@ export function ScaleGrid({
                                   const isPast = d < new Date(currentYear, currentMonth - 1, currentDay)
                                   const isToday = day === currentDay && mes === currentMonth && ano === currentYear
                                   
-                                  const presence = presenceData[em.servidor_id]?.[cat]?.[day] || { entrada: false, saida: false }
+                                  const presence = presenceData[em.servidor_id]?.[cat]?.[day] || { 
+                                    entrada: false, 
+                                    intervalo_saida: false, 
+                                    intervalo_retorno: false, 
+                                    saida: false 
+                                  }
 
-                                  // Lógica para determinar se o turno já deveria ter começado ou terminado
                                   const redEntrada = isRedIndicator(day, cat, 'entrada')
                                   const redSaida = isRedIndicator(day, cat, 'saida')
 
                                   const canEditPresence = !isCompetenciaEncerrada && escalaMensal[0]?.status !== 'Fechada' && (!isClosed || userProfile?.role === 'admin' || userProfile?.role === 'super_admin') && (userProfile?.role === 'admin' || userProfile?.role === 'super_admin' || userProfile?.role === 'coordenador')
 
+                                  const isUnitInterval = unidadedata?.permite_marca_intervalo || false
+
+                                  const handleSegmentClick = (tipo: 'entrada' | 'intervalo_saida' | 'intervalo_retorno' | 'saida', isDone: boolean, isManualFlag?: boolean) => {
+                                    if (!canEditPresence) return
+                                    // Block coordinators from altering real terminal records
+                                    if (isDone && !isManualFlag && userProfile?.role === 'coordenador') {
+                                      setAlertModal({
+                                        isOpen: true,
+                                        title: 'Acesso Restrito',
+                                        message: 'Apenas administradores podem alterar ou reverter batidas presenciais registradas em terminal.',
+                                        type: 'warning'
+                                      })
+                                      return
+                                    }
+                                    setManualPresenceModal({
+                                      isOpen: true,
+                                      servidorId: em.servidor_id,
+                                      servidorNome: em.servidores?.nome,
+                                      dia: day,
+                                      categoria: cat,
+                                      tipo,
+                                      escalaMensalId: em.id,
+                                      isReverting: isDone
+                                    })
+                                  }
+
+                                  if (isUnitInterval) {
+                                    return (
+                                      <>
+                                        {/* Segmento 1: Entrada */}
+                                        <div 
+                                          onClick={(e) => { e.stopPropagation(); handleSegmentClick('entrada', !!presence.entrada, presence.is_entrada_manual) }}
+                                          className={`flex-1 h-full cursor-pointer transition-colors ${presence.entrada ? 'bg-emerald-500 hover:bg-emerald-600' : (redEntrada ? 'bg-red-500 hover:bg-red-600' : 'bg-transparent hover:bg-zinc-300 dark:hover:bg-zinc-600')}`} 
+                                          title={presence.entrada ? "1. Entrada Confirmada (Clique para reverter)" : (redEntrada ? "1. Entrada Faltante/Pendente" : "1. Entrada Programada")} 
+                                        />
+                                        {/* Segmento 2: Saída Intervalo */}
+                                        <div 
+                                          onClick={(e) => { e.stopPropagation(); handleSegmentClick('intervalo_saida', !!presence.intervalo_saida, presence.is_intervalo_saida_manual) }}
+                                          className={`flex-1 h-full cursor-pointer transition-colors ${presence.intervalo_saida ? 'bg-emerald-500 hover:bg-emerald-600' : (presence.entrada && !presence.intervalo_saida && isToday ? 'bg-amber-400 animate-pulse hover:bg-amber-500' : 'bg-transparent hover:bg-zinc-300 dark:hover:bg-zinc-600')}`} 
+                                          title={presence.intervalo_saida ? "2. Saída do Intervalo Confirmada" : (presence.entrada && isToday ? "2. Em Expediente (Aguardando Pausa)" : "2. Saída do Intervalo")} 
+                                        />
+                                        {/* Segmento 3: Retorno Intervalo */}
+                                        <div 
+                                          onClick={(e) => { e.stopPropagation(); handleSegmentClick('intervalo_retorno', !!presence.intervalo_retorno, presence.is_intervalo_retorno_manual) }}
+                                          className={`flex-1 h-full cursor-pointer transition-colors ${presence.intervalo_retorno ? 'bg-emerald-500 hover:bg-emerald-600' : (presence.intervalo_saida && !presence.intervalo_retorno && isToday ? 'bg-amber-400 animate-pulse hover:bg-amber-500' : 'bg-transparent hover:bg-zinc-300 dark:hover:bg-zinc-600')}`} 
+                                          title={presence.intervalo_retorno ? "3. Retorno do Intervalo Confirmado" : (presence.intervalo_saida && isToday ? "3. Em Pausa/Almoço (Aguardando Retorno)" : "3. Retorno do Intervalo")} 
+                                        />
+                                        {/* Segmento 4: Saída Final */}
+                                        <div 
+                                          onClick={(e) => { e.stopPropagation(); handleSegmentClick('saida', !!presence.saida, presence.is_saida_manual) }}
+                                          className={`flex-1 h-full cursor-pointer transition-colors ${presence.saida ? 'bg-emerald-500 hover:bg-emerald-600' : (presence.intervalo_retorno && isToday ? 'bg-amber-400 animate-pulse hover:bg-amber-500' : (redSaida ? 'bg-red-500 hover:bg-red-600' : 'bg-transparent hover:bg-zinc-300 dark:hover:bg-zinc-600'))}`} 
+                                          title={presence.saida ? "4. Saída Final Confirmada" : (presence.intervalo_retorno && isToday ? "4. Em Atendimento (Aguardando Encerramento)" : (redSaida ? "4. Saída Faltante/Pendente" : "4. Saída Final Programada"))} 
+                                        />
+                                      </>
+                                    )
+                                  }
+
                                   return (
                                     <>
                                       {/* Metade Entrada */}
                                       <div 
-                                        onClick={(e) => {
-                                          if (!canEditPresence) return
-                                          e.stopPropagation()
-                                          setManualPresenceModal({
-                                            isOpen: true,
-                                            servidorId: em.servidor_id,
-                                            servidorNome: em.servidores?.nome,
-                                            dia: day,
-                                            categoria: cat,
-                                            tipo: 'entrada',
-                                            escalaMensalId: em.id,
-                                            isReverting: !!presence.entrada
-                                          })
-                                        }}
+                                        onClick={(e) => { e.stopPropagation(); handleSegmentClick('entrada', !!presence.entrada, presence.is_entrada_manual) }}
                                         className={`flex-1 h-full cursor-pointer transition-colors ${presence.entrada ? 'bg-emerald-500 hover:bg-emerald-600' : (redEntrada ? 'bg-red-500 hover:bg-red-600' : 'bg-transparent hover:bg-zinc-300 dark:hover:bg-zinc-600')}`} 
                                         title={presence.entrada ? "Entrada Confirmada (Clique para reverter)" : (redEntrada ? "Entrada Faltante/Pendente" : "Entrada Programada")} 
                                       />
                                       {/* Metade Saída */}
                                       <div 
-                                        onClick={(e) => {
-                                          if (!canEditPresence) return
-                                          e.stopPropagation()
-                                          setManualPresenceModal({
-                                            isOpen: true,
-                                            servidorId: em.servidor_id,
-                                            servidorNome: em.servidores?.nome,
-                                            dia: day,
-                                            categoria: cat,
-                                            tipo: 'saida',
-                                            escalaMensalId: em.id,
-                                            isReverting: !!presence.saida
-                                          })
-                                        }}
+                                        onClick={(e) => { e.stopPropagation(); handleSegmentClick('saida', !!presence.saida, presence.is_saida_manual) }}
                                         className={`flex-1 h-full cursor-pointer transition-colors ${presence.saida ? 'bg-emerald-500 hover:bg-emerald-600' : (presence.entrada && isToday ? 'bg-amber-400 animate-pulse hover:bg-amber-500' : (redSaida ? 'bg-red-500 hover:bg-red-600' : 'bg-transparent hover:bg-zinc-300 dark:hover:bg-zinc-600'))}`} 
                                         title={presence.saida ? "Saída Confirmada (Clique para reverter)" : (presence.entrada && isToday ? "Em Plantão" : (redSaida ? "Saída Faltante/Pendente" : "Saída Programada"))} 
                                       />
@@ -3538,7 +3604,7 @@ export function ScaleGrid({
                                        (nAno === currentYear && nMes === currentMonth && d < currentDay)
                         
                         if (isPast && templateResult[d] && !protectedDays.has(d)) {
-                          updatedRegular[d] = { entrada: true, saida: true }
+                          updatedRegular[d] = { entrada: true, intervalo_saida: false, intervalo_retorno: false, saida: true }
                         }
                       }
 
@@ -3814,50 +3880,63 @@ export function ScaleGrid({
         </Modal>
       )}
 
-      {manualPresenceModal && (
-        <Modal
-          isOpen={manualPresenceModal.isOpen}
-          onClose={() => setManualPresenceModal(null)}
-          title={manualPresenceModal.isReverting ? `Reverter ${manualPresenceModal.tipo === 'entrada' ? 'Entrada' : 'Saída'} Manual` : `Validar ${manualPresenceModal.tipo === 'entrada' ? 'Entrada' : 'Saída'} Manual`}
-          type={manualPresenceModal.isReverting ? "danger" : "warning"}
-          footer={
-            <>
-              <button
-                onClick={() => setManualPresenceModal(null)}
-                className="flex-1 px-4 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleConfirmManualPresence}
-                disabled={loading}
-                className={`flex-1 px-4 py-2 rounded-xl font-bold flex items-center justify-center gap-2 ${
-                  manualPresenceModal.isReverting 
-                    ? "bg-red-600 hover:bg-red-700 text-white" 
-                    : "bg-amber-600 hover:bg-amber-700 text-white"
-                }`}
-              >
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : (manualPresenceModal.isReverting ? 'Confirmar Reversão' : 'Confirmar Validação')}
-              </button>
-            </>
+      {manualPresenceModal && (() => {
+        const formatTipoLabel = (tipo: string) => {
+          switch (tipo) {
+            case 'entrada': return 'Entrada'
+            case 'intervalo_saida': return 'Saída do Intervalo'
+            case 'intervalo_retorno': return 'Retorno do Intervalo'
+            case 'saida': return 'Saída Final'
+            default: return tipo
           }
-        >
-          <div className="space-y-4">
-            <p className="text-sm text-zinc-600 dark:text-zinc-400">
-              {manualPresenceModal.isReverting ? (
-                <>Você deseja <strong>reverter</strong> a <strong>{manualPresenceModal.tipo}</strong> do servidor <strong>{manualPresenceModal.servidorNome}</strong> para o dia <strong>{manualPresenceModal.dia}</strong>?</>
-              ) : (
-                <>Você está validando manualmente a <strong>{manualPresenceModal.tipo}</strong> do servidor <strong>{manualPresenceModal.servidorNome}</strong> para o dia <strong>{manualPresenceModal.dia}</strong>.</>
-              )}
-            </p>
-            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3 rounded-lg">
-              <p className="text-xs text-amber-700 dark:text-amber-400">
-                Esta ação será registrada com seu usuário para fins de auditoria.
+        }
+        const labelTipo = formatTipoLabel(manualPresenceModal.tipo)
+
+        return (
+          <Modal
+            isOpen={manualPresenceModal.isOpen}
+            onClose={() => setManualPresenceModal(null)}
+            title={manualPresenceModal.isReverting ? `Reverter ${labelTipo} Manual` : `Validar ${labelTipo} Manual`}
+            type={manualPresenceModal.isReverting ? "danger" : "warning"}
+            footer={
+              <>
+                <button
+                  onClick={() => setManualPresenceModal(null)}
+                  className="flex-1 px-4 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleConfirmManualPresence}
+                  disabled={loading}
+                  className={`flex-1 px-4 py-2 rounded-xl font-bold flex items-center justify-center gap-2 ${
+                    manualPresenceModal.isReverting 
+                      ? "bg-red-600 hover:bg-red-700 text-white" 
+                      : "bg-amber-600 hover:bg-amber-700 text-white"
+                  }`}
+                >
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : (manualPresenceModal.isReverting ? 'Confirmar Reversão' : 'Confirmar Validação')}
+                </button>
+              </>
+            }
+          >
+            <div className="space-y-4">
+              <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                {manualPresenceModal.isReverting ? (
+                  <>Você deseja <strong>reverter</strong> a <strong>{labelTipo}</strong> do servidor <strong>{manualPresenceModal.servidorNome}</strong> para o dia <strong>{manualPresenceModal.dia}</strong>?</>
+                ) : (
+                  <>Você está validando manualmente a <strong>{labelTipo}</strong> do servidor <strong>{manualPresenceModal.servidorNome}</strong> para o dia <strong>{manualPresenceModal.dia}</strong>.</>
+                )}
               </p>
+              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3 rounded-lg">
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  Esta ação será registrada com seu usuário para fins de auditoria.
+                </p>
+              </div>
             </div>
-          </div>
-        </Modal>
-      )}
+          </Modal>
+        )
+      })()}
     </>
   )
 }

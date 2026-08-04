@@ -11,6 +11,8 @@ interface Jornada {
   ativo: boolean
   intervalo_minutos: number
   horas_totais: number
+  intervalo_inicio_padrao?: string | null
+  intervalo_fim_padrao?: string | null
 }
 
 export default function JornadasPage() {
@@ -21,9 +23,13 @@ export default function JornadasPage() {
   const [editNome, setEditNome] = useState('')
   const [editIntervalo, setEditIntervalo] = useState<number>(0)
   const [editHorasTotais, setEditHorasTotais] = useState<number>(0)
+  const [editIntervaloInicio, setEditIntervaloInicio] = useState<string>('')
+  const [editIntervaloFim, setEditIntervaloFim] = useState<string>('')
   const [newNome, setNewNome] = useState('')
   const [newIntervalo, setNewIntervalo] = useState<number>(0)
   const [newHorasTotais, setNewHorasTotais] = useState<number>(0)
+  const [newIntervaloInicio, setNewIntervaloInicio] = useState<string>('')
+  const [newIntervaloFim, setNewIntervaloFim] = useState<string>('')
   
   const supabase = createClient()
 
@@ -76,12 +82,16 @@ export default function JornadasPage() {
         .insert({ 
           nome: newNome.trim().toUpperCase(),
           intervalo_minutos: newIntervalo || 0,
-          horas_totais: newHorasTotais || 0
+          horas_totais: newHorasTotais || 0,
+          intervalo_inicio_padrao: newIntervaloInicio || null,
+          intervalo_fim_padrao: newIntervaloFim || null
         })
       
       if (error) throw error
       setNewNome('')
       setNewIntervalo(0)
+      setNewIntervaloInicio('')
+      setNewIntervaloFim('')
       fetchJornadas()
       setAlertModal({
         isOpen: true,
@@ -110,7 +120,9 @@ export default function JornadasPage() {
         .update({ 
           nome: editNome.trim().toUpperCase(),
           intervalo_minutos: editIntervalo || 0,
-          horas_totais: editHorasTotais || 0
+          horas_totais: editHorasTotais || 0,
+          intervalo_inicio_padrao: editIntervaloInicio || null,
+          intervalo_fim_padrao: editIntervaloFim || null
         })
         .eq('id', id)
       
@@ -166,6 +178,8 @@ export default function JornadasPage() {
     setEditNome(j.nome)
     setEditIntervalo(j.intervalo_minutos || 0)
     setEditHorasTotais(j.horas_totais || 0)
+    setEditIntervaloInicio(j.intervalo_inicio_padrao || '')
+    setEditIntervaloFim(j.intervalo_fim_padrao || '')
   }
 
   return (
@@ -255,8 +269,29 @@ export default function JornadasPage() {
                 min={0}
                 value={newIntervalo || ''}
                 onChange={e => setNewIntervalo(Math.max(0, parseInt(e.target.value) || 0))}
-                className="w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium"
+                className="w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium mb-4"
               />
+
+              <div className="grid grid-cols-2 gap-2 mb-4">
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Início Padrão</label>
+                  <input
+                    type="time"
+                    value={newIntervaloInicio}
+                    onChange={e => setNewIntervaloInicio(e.target.value)}
+                    className="w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Fim Padrão</label>
+                  <input
+                    type="time"
+                    value={newIntervaloFim}
+                    onChange={e => setNewIntervaloFim(e.target.value)}
+                    className="w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium"
+                  />
+                </div>
+              </div>
             </div>
             <button
               onClick={handleAdd}

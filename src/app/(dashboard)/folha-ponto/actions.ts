@@ -301,7 +301,7 @@ export async function executeGerarFolhaPonto(
     // Fetch all shifts from escala_diaria (including Extra and Plantão) for the specific scale of this folha
     const { data: escalaDiaria, error: diError } = await supabase
       .from('escala_diaria')
-      .select('id, dia, categoria, dicionario_turnos_id, presenca_entrada_em, presenca_saida_em, presenca_confirmada, dicionario_turnos(codigo, slots)')
+      .select('id, dia, categoria, dicionario_turnos_id, presenca_entrada_em, presenca_intervalo_saida_em, presenca_intervalo_retorno_em, presenca_saida_em, intervalo_nao_usufruido, presenca_confirmada, dicionario_turnos(codigo, slots)')
       .eq('escala_mensal_id', escala.id)
 
     if (diError) throw diError
@@ -963,7 +963,7 @@ export async function sincronizarFolhaPonto(folhaId: string) {
     // Fetch all shifts from escala_diaria (Regular, Extra, Plantão) for the specific scale of this folha
     const { data: escalaDiaria } = await supabase
       .from('escala_diaria')
-      .select('id, dia, categoria, dicionario_turnos_id, presenca_entrada_em, presenca_saida_em, presenca_confirmada, dicionario_turnos(codigo, slots)')
+      .select('id, dia, categoria, dicionario_turnos_id, presenca_entrada_em, presenca_intervalo_saida_em, presenca_intervalo_retorno_em, presenca_saida_em, intervalo_nao_usufruido, presenca_confirmada, dicionario_turnos(codigo, slots)')
       .eq('escala_mensal_id', escala.id)
 
     // Fetch manual validation logs for the specific scale of this folha

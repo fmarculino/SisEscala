@@ -78,6 +78,9 @@ export interface Database {
           nome: string
           endereco: string | null
           ativo: boolean
+          permite_marca_intervalo?: boolean
+          tipo_intervalo?: 'flexivel' | 'rigido'
+          tolerancia_intervalo_minutos?: number
         }
       }
       setores: {
@@ -117,6 +120,8 @@ export interface Database {
           ignora_janela_presenca?: boolean | null
           preferenca_turno: 'M' | 'T' | 'N' | 'Flexivel' | null
           carga_horaria_semanal: number | null
+          intervalo_inicio_personalizado?: string | null
+          intervalo_fim_personalizado?: string | null
           status?: string | null
           motivo_inativacao?: string | null
           data_nascimento?: string | null
