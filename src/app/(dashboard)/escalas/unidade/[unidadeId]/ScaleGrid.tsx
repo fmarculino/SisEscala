@@ -698,7 +698,8 @@ export function ScaleGrid({
 
     const hasOnCallArrival = logsSobreaviso.some(l => 
       l.escala_mensal_id === escalaMensalId && 
-      l.status === 'Chegou'
+      l.status === 'Chegou' &&
+      (l.categoria === 'Sobreaviso' || !l.categoria)
     )
     return hasOnCallArrival
   }, [presenceData, logsSobreaviso])
@@ -2372,7 +2373,7 @@ export function ScaleGrid({
                           ? getStatusForDay(day, em.id, 'Sobreaviso') 
                           : { status: null, reason: null, log: null }
 
-                        const cellLogs = logsSobreaviso.filter((l: any) => l.escala_mensal_id === em.id && l.dia === day)
+                        const cellLogs = logsSobreaviso.filter((l: any) => l.escala_mensal_id === em.id && l.dia === day && (l.categoria === 'Sobreaviso' || !l.categoria))
                         const latestLog = cellLogs.length > 0 ? cellLogs[cellLogs.length - 1] : logForDay
                         const currentOvercallStatus = latestLog ? latestLog.status : effectiveStatus
 
@@ -3163,7 +3164,9 @@ export function ScaleGrid({
             <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
               {(() => {
                 const dayLogs = logsSobreaviso.filter((l: any) => 
-                  l.servidor_id === sobreavisoHistoryModal.servidorId && l.dia === sobreavisoHistoryModal.dia
+                  l.servidor_id === sobreavisoHistoryModal.servidorId && 
+                  l.dia === sobreavisoHistoryModal.dia &&
+                  (l.categoria === 'Sobreaviso' || !l.categoria)
                 )
 
                 if (dayLogs.length === 0) {
@@ -3267,7 +3270,9 @@ export function ScaleGrid({
             {/* Ação para Novo Acionamento / Trava de Deslocamento e Janela Ativa */}
             {(() => {
               const dayLogs = logsSobreaviso.filter((l: any) => 
-                l.servidor_id === sobreavisoHistoryModal.servidorId && l.dia === sobreavisoHistoryModal.dia
+                l.servidor_id === sobreavisoHistoryModal.servidorId && 
+                l.dia === sobreavisoHistoryModal.dia &&
+                (l.categoria === 'Sobreaviso' || !l.categoria)
               )
               const latestLog = dayLogs[dayLogs.length - 1]
               const isInTransitOrWaiting = latestLog?.status === 'Aceito' || latestLog?.status === 'Aguardando'
