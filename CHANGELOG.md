@@ -15,6 +15,8 @@ All notable changes to this project will be documented in this file.
   - Permitida a validação manual de chamados de sobreaviso no modal de histórico com justificativa obrigatória, retornando o horário à carga computada do servidor.
 - **Alerta de Tentativas Negadas pelo Terminal**:
   - Leitura dos registros de `logs_tentativas_presenca` com selo ⚠️ e tooltip informando horários e motivos de recusa pelo terminal físico de ponto.
+- **Bloqueio Rigoroso de Validação em Datas Futuras**:
+  - Impedida a homologação de presenças para dias futuros no banco de dados (`MAKE_DATE(ano, mes, dia) > CURRENT_DATE`) e na interface (capping de inputs e limitações nos modais em massa e por célula).
 
 ### Changed
 - **Atualização da Nomenclatura para "PREVISÃO" e "PREV"**:

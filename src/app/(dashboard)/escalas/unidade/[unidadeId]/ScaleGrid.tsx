@@ -621,6 +621,21 @@ export function ScaleGrid({
     return { status: last.status, reason: null, log: last }
   }, [logsSobreaviso, configs])
 
+  const maxValidDay = useMemo(() => {
+    const today = new Date()
+    const currentYear = today.getFullYear()
+    const currentMonth = today.getMonth() + 1
+    const currentDayNum = today.getDate()
+
+    if (ano < currentYear || (ano === currentYear && mes < currentMonth)) {
+      return daysInMonth
+    }
+    if (ano === currentYear && mes === currentMonth) {
+      return Math.min(daysInMonth, currentDayNum)
+    }
+    return 0
+  }, [ano, mes, daysInMonth])
+
   const shiftTotals = useMemo(() => {
     const totals = {
       M: {} as Record<number, number>,
@@ -1510,14 +1525,29 @@ export function ScaleGrid({
 
   const handleConfirmManualPresence = async () => {
     if (!manualPresenceModal) return
-    if (!manualPresenceModal.isReverting && (!manualPresenceModal.justificativa || !manualPresenceModal.justificativa.trim())) {
-      setAlertModal({
-        isOpen: true,
-        title: 'Justificativa Obrigatória',
-        message: 'Por favor, informe a justificativa/motivo para esta validação manual.',
-        type: 'warning'
-      })
-      return
+    
+    if (!manualPresenceModal.isReverting) {
+      if (manualPresenceModal.dia > maxValidDay) {
+        setAlertModal({
+          isOpen: true,
+          title: 'Data Futura não Permitida',
+          message: maxValidDay === 0
+            ? 'Não é possível validar presenças para um mês futuro.'
+            : `Não é possível validar presenças para datas futuras. O dia máximo permitido para validação neste mês é dia ${maxValidDay}.`,
+          type: 'warning'
+        })
+        return
+      }
+
+      if (!manualPresenceModal.justificativa || !manualPresenceModal.justificativa.trim()) {
+        setAlertModal({
+          isOpen: true,
+          title: 'Justificativa Obrigatória',
+          message: 'Por favor, informe a justificativa/motivo para esta validação manual.',
+          type: 'warning'
+        })
+        return
+      }
     }
 
     setLoading(true)
@@ -1570,6 +1600,27 @@ export function ScaleGrid({
 
   const handleBulkServerValidation = async () => {
     if (!bulkServerModal) return
+
+    if (maxValidDay === 0) {
+      setAlertModal({
+        isOpen: true,
+        title: 'Mês Futuro não Permitido',
+        message: 'Não é possível executar validações de presença para um mês futuro.',
+        type: 'warning'
+      })
+      return
+    }
+
+    if (bulkServerModal.startDay > maxValidDay) {
+      setAlertModal({
+        isOpen: true,
+        title: 'Período Futuro não Permitido',
+        message: `Não é possível validar presenças para datas futuras. O dia máximo permitido para validação até hoje é dia ${maxValidDay}.`,
+        type: 'warning'
+      })
+      return
+    }
+
     if (!bulkServerModal.justificativa || !bulkServerModal.justificativa.trim()) {
       setAlertModal({
         isOpen: true,
@@ -1581,7 +1632,11 @@ export function ScaleGrid({
     }
 
     const start = Math.min(bulkServerModal.startDay, bulkServerModal.endDay)
-    const end = Math.max(bulkServerModal.startDay, bulkServerModal.endDay)
+    let end = Math.max(bulkServerModal.startDay, bulkServerModal.endDay)
+    if (end > maxValidDay) {
+      end = maxValidDay
+    }
+
     const days: number[] = []
     for (let d = start; d <= end; d++) {
       days.push(d)
@@ -1624,6 +1679,17 @@ export function ScaleGrid({
 
   const handleBulkGlobalValidation = async () => {
     if (!bulkGlobalModal) return
+
+    if (maxValidDay === 0) {
+      setAlertModal({
+        isOpen: true,
+        title: 'Mês Futuro não Permitido',
+        message: 'Não é possível executar validações de presença para um mês futuro.',
+        type: 'warning'
+      })
+      return
+    }
+
     if (bulkGlobalModal.selectedServidorIds.length === 0) {
       setAlertModal({
         isOpen: true,
@@ -1633,6 +1699,17 @@ export function ScaleGrid({
       })
       return
     }
+
+    if (bulkGlobalModal.startDay > maxValidDay) {
+      setAlertModal({
+        isOpen: true,
+        title: 'Período Futuro não Permitido',
+        message: `Não é possível validar presenças para datas futuras. O dia máximo permitido para validação até hoje é dia ${maxValidDay}.`,
+        type: 'warning'
+      })
+      return
+    }
+
     if (!bulkGlobalModal.justificativa || !bulkGlobalModal.justificativa.trim()) {
       setAlertModal({
         isOpen: true,
@@ -1644,7 +1721,11 @@ export function ScaleGrid({
     }
 
     const start = Math.min(bulkGlobalModal.startDay, bulkGlobalModal.endDay)
-    const end = Math.max(bulkGlobalModal.startDay, bulkGlobalModal.endDay)
+    let end = Math.max(bulkGlobalModal.startDay, bulkGlobalModal.endDay)
+    if (end > maxValidDay) {
+      end = maxValidDay
+    }
+
     const days: number[] = []
     for (let d = start; d <= end; d++) {
       days.push(d)
@@ -2400,7 +2481,7 @@ export function ScaleGrid({
                     isOpen: true,
                     selectedServidorIds: escalaMensal.map(em => em.servidor_id),
                     startDay: 1,
-                    endDay: daysInMonth,
+                    endDay: Math.min(daysInMonth, maxValidDay || 1),
                     modo: 'completo',
                     categorias: ['Regular', 'Plantão'],
                     justificativa: ''
@@ -2546,7 +2627,7 @@ export function ScaleGrid({
                                       servidorNome: em.servidores?.nome || 'Servidor',
                                       escalaMensalId: em.id,
                                       startDay: 1,
-                                      endDay: daysInMonth,
+                                      endDay: Math.min(daysInMonth, maxValidDay || 1),
                                       modo: 'completo',
                                       categorias: ['Regular', 'Plantão'],
                                       justificativa: ''
@@ -4347,9 +4428,9 @@ export function ScaleGrid({
                 <input
                   type="number"
                   min={1}
-                  max={daysInMonth}
+                  max={maxValidDay || daysInMonth}
                   value={bulkServerModal.startDay}
-                  onChange={(e) => setBulkServerModal(prev => prev ? { ...prev, startDay: Math.max(1, Math.min(daysInMonth, parseInt(e.target.value) || 1)) } : null)}
+                  onChange={(e) => setBulkServerModal(prev => prev ? { ...prev, startDay: Math.max(1, Math.min(maxValidDay || daysInMonth, parseInt(e.target.value) || 1)) } : null)}
                   className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2 text-xs outline-none focus:ring-2 focus:ring-emerald-500 text-zinc-900 dark:text-white font-bold text-center"
                 />
               </div>
@@ -4358,13 +4439,19 @@ export function ScaleGrid({
                 <input
                   type="number"
                   min={1}
-                  max={daysInMonth}
+                  max={maxValidDay || daysInMonth}
                   value={bulkServerModal.endDay}
-                  onChange={(e) => setBulkServerModal(prev => prev ? { ...prev, endDay: Math.max(1, Math.min(daysInMonth, parseInt(e.target.value) || daysInMonth)) } : null)}
+                  onChange={(e) => setBulkServerModal(prev => prev ? { ...prev, endDay: Math.max(1, Math.min(maxValidDay || daysInMonth, parseInt(e.target.value) || (maxValidDay || daysInMonth))) } : null)}
                   className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2 text-xs outline-none focus:ring-2 focus:ring-emerald-500 text-zinc-900 dark:text-white font-bold text-center"
                 />
               </div>
             </div>
+
+            {maxValidDay > 0 && maxValidDay < daysInMonth && (
+              <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">
+                ⚠️ Apenas presenças até hoje (dia {maxValidDay}) podem ser validadas. Datas futuras estão bloqueadas.
+              </p>
+            )}
 
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider block">
@@ -4490,9 +4577,9 @@ export function ScaleGrid({
                 <input
                   type="number"
                   min={1}
-                  max={daysInMonth}
+                  max={maxValidDay || daysInMonth}
                   value={bulkGlobalModal.startDay}
-                  onChange={(e) => setBulkGlobalModal(prev => prev ? { ...prev, startDay: Math.max(1, Math.min(daysInMonth, parseInt(e.target.value) || 1)) } : null)}
+                  onChange={(e) => setBulkGlobalModal(prev => prev ? { ...prev, startDay: Math.max(1, Math.min(maxValidDay || daysInMonth, parseInt(e.target.value) || 1)) } : null)}
                   className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2 text-xs outline-none focus:ring-2 focus:ring-emerald-500 text-zinc-900 dark:text-white font-bold text-center"
                 />
               </div>
@@ -4501,13 +4588,19 @@ export function ScaleGrid({
                 <input
                   type="number"
                   min={1}
-                  max={daysInMonth}
+                  max={maxValidDay || daysInMonth}
                   value={bulkGlobalModal.endDay}
-                  onChange={(e) => setBulkGlobalModal(prev => prev ? { ...prev, endDay: Math.max(1, Math.min(daysInMonth, parseInt(e.target.value) || daysInMonth)) } : null)}
+                  onChange={(e) => setBulkGlobalModal(prev => prev ? { ...prev, endDay: Math.max(1, Math.min(maxValidDay || daysInMonth, parseInt(e.target.value) || (maxValidDay || daysInMonth))) } : null)}
                   className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2 text-xs outline-none focus:ring-2 focus:ring-emerald-500 text-zinc-900 dark:text-white font-bold text-center"
                 />
               </div>
             </div>
+
+            {maxValidDay > 0 && maxValidDay < daysInMonth && (
+              <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">
+                ⚠️ Apenas presenças até hoje (dia {maxValidDay}) podem ser validadas. Datas futuras estão bloqueadas.
+              </p>
+            )}
 
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider block">

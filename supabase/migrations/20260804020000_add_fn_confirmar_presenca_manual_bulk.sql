@@ -46,6 +46,11 @@ BEGIN
         RETURN jsonb_build_object('success', false, 'message', 'Escala mensal não encontrada.');
     END IF;
 
+    -- Block future presence validation
+    IF MAKE_DATE(v_ano, v_mes, p_dia) > CURRENT_DATE THEN
+        RETURN jsonb_build_object('success', false, 'message', 'Não é possível validar presenças para datas futuras.');
+    END IF;
+
     -- 2. Fetch timezone
     SELECT (valor#>>'{}')::text INTO v_timezone 
     FROM public.configuracoes_globais WHERE chave = 'timezone';
