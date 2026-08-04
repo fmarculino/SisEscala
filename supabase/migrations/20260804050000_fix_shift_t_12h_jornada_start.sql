@@ -1,5 +1,5 @@
--- Migration: Fix T shift start hour calculation for 12h-18h regular jornadas
--- Description: Updates fn_confirmar_presenca and fn_confirmar_presenca_manual to check start_hour of regular jornada (e.g. 12 for 12H ÀS 18H) when shift code is T, while maintaining dynamic Extra shift alignment and midnight crossing rules.
+-- Migration: Fix T shift start hour calculation for 12h-18h regular jornadas & restore full validation scope handling
+-- Description: Updates fn_confirmar_presenca and fn_confirmar_presenca_manual to check start_hour of regular jornada (e.g. 12 for 12H ÀS 18H) when shift code is T, and restores complete validation scopes ('completo', 'periodo_1', 'periodo_2') in fn_confirmar_presenca_manual.
 
 -- 1. RECREATE fn_confirmar_presenca WITH FIX FOR 12H-18H JORNADA T SHIFTS
 CREATE OR REPLACE FUNCTION public.fn_confirmar_presenca(
@@ -922,7 +922,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 
--- 2. RECREATE fn_confirmar_presenca_manual WITH FIX FOR 12H-18H JORNADA T SHIFTS
+-- 2. RECREATE fn_confirmar_presenca_manual WITH FIX FOR 12H-18H JORNADA T SHIFTS & FULL VALIDATION SCOPE HANDLING
 CREATE OR REPLACE FUNCTION public.fn_confirmar_presenca_manual(
     p_escala_mensal_id uuid,
     p_dia integer,
@@ -1144,57 +1144,98 @@ BEGIN
         v_end_timestamp_local := v_start_timestamp_local + (v_duration || ' hours')::interval;
     END IF;
 
-    -- Select target timestamp based on type
+    -- Update database based on p_tipo (supports 'entrada', 'intervalo_saida', 'intervalo_retorno', 'saida', 'completo', 'periodo_1', 'periodo_2')
     IF p_tipo = 'entrada' THEN
         v_target_timestamp := v_start_timestamp_local AT TIME ZONE v_timezone;
+        UPDATE public.escala_diaria 
+        SET presenca_entrada_em = COALESCE(presenca_entrada_em, v_target_timestamp),
+            presenca_entrada_manual = CASE WHEN presenca_entrada_em IS NULL THEN true ELSE presenca_entrada_manual END,
+            presenca_confirmada = true,
+            confirmado_por_id = p_validador_id
+        WHERE escala_mensal_id = p_escala_mensal_id
+          AND dia = p_dia
+          AND categoria = p_categoria::public.escala_categoria;
+
     ELSIF p_tipo = 'intervalo_saida' THEN
         v_target_timestamp := (v_start_timestamp_local + '4 hours'::interval) AT TIME ZONE v_timezone;
+        UPDATE public.escala_diaria 
+        SET presenca_intervalo_saida_em = COALESCE(presenca_intervalo_saida_em, v_target_timestamp),
+            presenca_intervalo_saida_manual = CASE WHEN presenca_intervalo_saida_em IS NULL THEN true ELSE presenca_intervalo_saida_manual END,
+            confirmado_por_id = p_validador_id
+        WHERE escala_mensal_id = p_escala_mensal_id
+          AND dia = p_dia
+          AND categoria = p_categoria::public.escala_categoria;
+
     ELSIF p_tipo = 'intervalo_retorno' THEN
         IF v_existing_saida_int IS NOT NULL THEN
             v_target_timestamp := v_existing_saida_int + (v_intervalo_minutos || ' minutes')::interval;
         ELSE
             v_target_timestamp := (v_start_timestamp_local + '5 hours'::interval) AT TIME ZONE v_timezone;
         END IF;
+        UPDATE public.escala_diaria 
+        SET presenca_intervalo_retorno_em = COALESCE(presenca_intervalo_retorno_em, v_target_timestamp),
+            presenca_intervalo_retorno_manual = CASE WHEN presenca_intervalo_retorno_em IS NULL THEN true ELSE presenca_intervalo_retorno_manual END,
+            confirmado_por_id = p_validador_id
+        WHERE escala_mensal_id = p_escala_mensal_id
+          AND dia = p_dia
+          AND categoria = p_categoria::public.escala_categoria;
+
     ELSIF p_tipo = 'saida' THEN
         v_target_timestamp := v_end_timestamp_local AT TIME ZONE v_timezone;
+        UPDATE public.escala_diaria 
+        SET presenca_saida_em = COALESCE(presenca_saida_em, v_target_timestamp),
+            presenca_saida_manual = CASE WHEN presenca_saida_em IS NULL THEN true ELSE presenca_saida_manual END,
+            confirmado_por_id = p_validador_id,
+            presenca_confirmada = true
+        WHERE escala_mensal_id = p_escala_mensal_id
+          AND dia = p_dia
+          AND categoria = p_categoria::public.escala_categoria;
+
+    ELSIF p_tipo = 'completo' THEN
+        v_target_timestamp := v_start_timestamp_local AT TIME ZONE v_timezone;
+        UPDATE public.escala_diaria
+        SET presenca_entrada_em = COALESCE(presenca_entrada_em, v_target_timestamp),
+            presenca_entrada_manual = CASE WHEN presenca_entrada_em IS NULL THEN true ELSE presenca_entrada_manual END,
+            presenca_intervalo_saida_em = COALESCE(presenca_intervalo_saida_em, (v_start_timestamp_local + '4 hours'::interval) AT TIME ZONE v_timezone),
+            presenca_intervalo_saida_manual = CASE WHEN presenca_intervalo_saida_em IS NULL THEN true ELSE presenca_intervalo_saida_manual END,
+            presenca_intervalo_retorno_em = COALESCE(presenca_intervalo_retorno_em, (v_start_timestamp_local + '4 hours'::interval + (v_intervalo_minutos || ' minutes')::interval) AT TIME ZONE v_timezone),
+            presenca_intervalo_retorno_manual = CASE WHEN presenca_intervalo_retorno_em IS NULL THEN true ELSE presenca_intervalo_retorno_manual END,
+            presenca_saida_em = COALESCE(presenca_saida_em, v_end_timestamp_local AT TIME ZONE v_timezone),
+            presenca_saida_manual = CASE WHEN presenca_saida_em IS NULL THEN true ELSE presenca_saida_manual END,
+            confirmado_por_id = p_validador_id,
+            presenca_confirmada = true
+        WHERE escala_mensal_id = p_escala_mensal_id
+          AND dia = p_dia
+          AND categoria = p_categoria::public.escala_categoria;
+
+    ELSIF p_tipo = 'periodo_1' THEN
+        v_target_timestamp := v_start_timestamp_local AT TIME ZONE v_timezone;
+        UPDATE public.escala_diaria
+        SET presenca_entrada_em = COALESCE(presenca_entrada_em, v_target_timestamp),
+            presenca_entrada_manual = CASE WHEN presenca_entrada_em IS NULL THEN true ELSE presenca_entrada_manual END,
+            presenca_intervalo_saida_em = COALESCE(presenca_intervalo_saida_em, (v_start_timestamp_local + '4 hours'::interval) AT TIME ZONE v_timezone),
+            presenca_intervalo_saida_manual = CASE WHEN presenca_intervalo_saida_em IS NULL THEN true ELSE presenca_intervalo_saida_manual END,
+            confirmado_por_id = p_validador_id,
+            presenca_confirmada = true
+        WHERE escala_mensal_id = p_escala_mensal_id
+          AND dia = p_dia
+          AND categoria = p_categoria::public.escala_categoria;
+
+    ELSIF p_tipo = 'periodo_2' THEN
+        v_target_timestamp := v_end_timestamp_local AT TIME ZONE v_timezone;
+        UPDATE public.escala_diaria
+        SET presenca_intervalo_retorno_em = COALESCE(presenca_intervalo_retorno_em, (v_start_timestamp_local + '4 hours'::interval + (v_intervalo_minutos || ' minutes')::interval) AT TIME ZONE v_timezone),
+            presenca_intervalo_retorno_manual = CASE WHEN presenca_intervalo_retorno_em IS NULL THEN true ELSE presenca_intervalo_retorno_manual END,
+            presenca_saida_em = COALESCE(presenca_saida_em, v_end_timestamp_local AT TIME ZONE v_timezone),
+            presenca_saida_manual = CASE WHEN presenca_saida_em IS NULL THEN true ELSE presenca_saida_manual END,
+            confirmado_por_id = p_validador_id,
+            presenca_confirmada = true
+        WHERE escala_mensal_id = p_escala_mensal_id
+          AND dia = p_dia
+          AND categoria = p_categoria::public.escala_categoria;
+
     ELSE
         RETURN jsonb_build_object('success', false, 'message', 'Tipo de presença inválido.');
-    END IF;
-
-    -- Update database based on p_tipo
-    IF p_tipo = 'entrada' THEN
-        UPDATE public.escala_diaria 
-        SET presenca_entrada_em = v_target_timestamp,
-            presenca_entrada_manual = true,
-            presenca_confirmada = true,
-            confirmado_por_id = p_validador_id
-        WHERE escala_mensal_id = p_escala_mensal_id
-          AND dia = p_dia
-          AND categoria = p_categoria::public.escala_categoria;
-    ELSIF p_tipo = 'intervalo_saida' THEN
-        UPDATE public.escala_diaria 
-        SET presenca_intervalo_saida_em = v_target_timestamp,
-            presenca_intervalo_saida_manual = true,
-            confirmado_por_id = p_validador_id
-        WHERE escala_mensal_id = p_escala_mensal_id
-          AND dia = p_dia
-          AND categoria = p_categoria::public.escala_categoria;
-    ELSIF p_tipo = 'intervalo_retorno' THEN
-        UPDATE public.escala_diaria 
-        SET presenca_intervalo_retorno_em = v_target_timestamp,
-            presenca_intervalo_retorno_manual = true,
-            confirmado_por_id = p_validador_id
-        WHERE escala_mensal_id = p_escala_mensal_id
-          AND dia = p_dia
-          AND categoria = p_categoria::public.escala_categoria;
-    ELSIF p_tipo = 'saida' THEN
-        UPDATE public.escala_diaria 
-        SET presenca_saida_em = v_target_timestamp,
-            presenca_saida_manual = true,
-            confirmado_por_id = p_validador_id
-        WHERE escala_mensal_id = p_escala_mensal_id
-          AND dia = p_dia
-          AND categoria = p_categoria::public.escala_categoria;
     END IF;
 
     -- Insert log ONLY for Sobreaviso category
@@ -1206,7 +1247,7 @@ BEGIN
 
         UPDATE public.logs_sobreaviso
         SET status = 'Chegou',
-            data_hora_validacao = v_target_timestamp,
+            data_hora_validacao = COALESCE(v_target_timestamp, now()),
             validacao_manual = true,
             validado_por = p_validador_id,
             motivo_acionamento = v_motivo_log
@@ -1221,7 +1262,7 @@ BEGIN
                 validacao_manual, validado_por, status, motivo_acionamento, tipo_validacao_chegada, categoria
             ) VALUES (
                 v_servidor_id, v_unidade_id, p_escala_mensal_id, p_dia, 
-                v_target_timestamp, v_target_timestamp, v_target_timestamp, 
+                COALESCE(v_target_timestamp, now()), COALESCE(v_target_timestamp, now()), COALESCE(v_target_timestamp, now()), 
                 true, p_validador_id, 'Chegou', v_motivo_log, 'Manual', p_categoria
             );
         END IF;
@@ -1230,7 +1271,7 @@ BEGIN
     RETURN jsonb_build_object(
         'success', true, 
         'message', 'Presença (' || p_tipo || ') confirmada manualmente.',
-        'timestamp', to_char(v_target_timestamp AT TIME ZONE v_timezone, 'YYYY-MM-DD HH24:MI:SS')
+        'timestamp', to_char(COALESCE(v_target_timestamp, now()) AT TIME ZONE v_timezone, 'YYYY-MM-DD HH24:MI:SS')
     );
 EXCEPTION WHEN OTHERS THEN
     RETURN jsonb_build_object('success', false, 'message', 'Erro ao validar presença manualmente: ' || SQLERRM);

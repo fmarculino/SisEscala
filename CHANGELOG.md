@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.19.1] - 2026-08-04
+
+### Fixed
+- **Cálculo da Hora de Início do Turno `T` para Jornadas 12h-18h**:
+  - Atualizadas as funções PostgreSQL `fn_confirmar_presenca` e `fn_confirmar_presenca_manual` em [20260804050000_fix_shift_t_12h_jornada_start.sql](file:///c:/Users/ferna/projetos/SisEscala/supabase/migrations/20260804050000_fix_shift_t_12h_jornada_start.sql) para reconhecer o início às **12:00** em células de turno `T` com jornada regular cadastrada como `12H ÀS 18H` (janela permitida de 11:30 às 12:30).
+- **Suporte aos Escopos de Validação Manual em `fn_confirmar_presenca_manual`**:
+  - Adicionado tratamento para os parâmetros `'completo'`, `'periodo_1'` e `'periodo_2'` na RPC de validação manual, resolvendo o erro *"Tipo de presença inválido."*.
+- **Permissão de Leitura RLS em `logs_tentativas_presenca`**:
+  - Criada a política `Allow authorized users read logs` em [20260804060000_allow_coordinators_admins_read_denied_attempt_logs.sql](file:///c:/Users/ferna/projetos/SisEscala/supabase/migrations/20260804060000_allow_coordinators_admins_read_denied_attempt_logs.sql) para permitir que Coordenadores e Administradores consultem as recusas no modal de validação manual.
+
+### Changed
+- **Rótulos Dinâmicos do Escopo de Validação na Grade (`ScaleGrid.tsx`)**:
+  - Substituídos os rótulos fixos `(Manhã)` e `(Tarde)` nos botões do modal de validação por descrições dinâmicas de acordo com a jornada agendada no dia (ex: `Manhã (07h-11h)`, `Entrada Tarde`, `Entrada Noturna`, `1º Turno / Entrada`).
+
 ## [1.19.0] - 2026-08-04
 
 ### Added
