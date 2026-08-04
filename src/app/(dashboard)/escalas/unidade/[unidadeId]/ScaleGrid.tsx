@@ -2529,50 +2529,54 @@ export function ScaleGrid({
                   {categories.map((cat, catIdx) => (
                     <tr key={`${em.id}-${cat}`} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/30 group">
                       {catIdx === 0 && (
-                        <td rowSpan={4} className="sticky left-0 z-10 bg-white dark:bg-zinc-900 p-2 border border-zinc-200 dark:border-zinc-700 font-bold whitespace-nowrap align-top text-zinc-900 dark:text-zinc-100">
-                          <div className="flex items-center gap-2">
-                            <span>{em.servidores?.nome}</span>
-                            {!isComum && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setBulkServerModal({
-                                    isOpen: true,
-                                    servidorId: em.servidor_id,
-                                    servidorNome: em.servidores?.nome || 'Servidor',
-                                    escalaMensalId: em.id,
-                                    startDay: 1,
-                                    endDay: daysInMonth,
-                                    modo: 'completo',
-                                    categorias: ['Regular', 'Plantão'],
-                                    justificativa: ''
-                                  })
-                                }}
-                                className="p-0.5 text-zinc-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded transition-colors"
-                                title="Validar Presenças deste Servidor por Período"
-                              >
-                                <CheckSquare className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-                            {hasTempJourney && (
-                              <span 
-                                className="inline-flex items-center" 
-                                title={`Possui jornada temporária cadastrada:\n${serverTempJourneys.map(jt => `${jt.jornadas?.nome} (De ${new Date(jt.data_inicio + 'T00:00:00').toLocaleDateString('pt-BR')} até ${new Date(jt.data_fim + 'T00:00:00').toLocaleDateString('pt-BR')})`).join('\n')}`}
-                              >
-                                <Clock className="h-3.5 w-3.5 text-amber-500 fill-amber-500/10 cursor-help" />
-                              </span>
-                            )}
-                            {hasConfirmedPresence(em.servidor_id, em.id) && (
-                              <span title="Escala Protegida: Contém registros de presença">
-                                <ShieldCheck className="h-3 w-3 text-emerald-500" />
-                              </span>
-                            )}
-                            {isExternal && (
-                              <span title="Servidor Externo">
-                                <Globe className="h-3 w-3 text-blue-500" />
-                              </span>
-                            )}
+                        <td rowSpan={4} className="sticky left-0 z-10 bg-white dark:bg-zinc-900 p-2 border border-zinc-200 dark:border-zinc-700 font-bold align-top text-zinc-900 dark:text-zinc-100">
+                          <div className="flex items-start justify-between gap-1 max-w-full">
+                            <span className="leading-tight break-words text-[11px] font-bold text-zinc-900 dark:text-zinc-100 pr-1">
+                              {em.servidores?.nome}
+                            </span>
+                            <div className="flex items-center gap-1 shrink-0 mt-0.5">
+                              {!isComum && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setBulkServerModal({
+                                      isOpen: true,
+                                      servidorId: em.servidor_id,
+                                      servidorNome: em.servidores?.nome || 'Servidor',
+                                      escalaMensalId: em.id,
+                                      startDay: 1,
+                                      endDay: daysInMonth,
+                                      modo: 'completo',
+                                      categorias: ['Regular', 'Plantão'],
+                                      justificativa: ''
+                                    })
+                                  }}
+                                  className="p-1 text-emerald-700 dark:text-emerald-300 bg-emerald-100/80 dark:bg-emerald-950/70 hover:bg-emerald-200 dark:hover:bg-emerald-900 rounded border border-emerald-300 dark:border-emerald-800 transition-colors shadow-xs"
+                                  title="Validar Presenças deste Servidor por Período"
+                                >
+                                  <CheckSquare className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                              {hasTempJourney && (
+                                <span 
+                                  className="inline-flex items-center" 
+                                  title={`Possui jornada temporária cadastrada:\n${serverTempJourneys.map(jt => `${jt.jornadas?.nome} (De ${new Date(jt.data_inicio + 'T00:00:00').toLocaleDateString('pt-BR')} até ${new Date(jt.data_fim + 'T00:00:00').toLocaleDateString('pt-BR')})`).join('\n')}`}
+                                >
+                                  <Clock className="h-3.5 w-3.5 text-amber-500 fill-amber-500/10 cursor-help" />
+                                </span>
+                              )}
+                              {hasConfirmedPresence(em.servidor_id, em.id) && (
+                                <span title="Escala Protegida: Contém registros de presença">
+                                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
+                                </span>
+                              )}
+                              {isExternal && (
+                                <span title="Servidor Externo">
+                                  <Globe className="h-3.5 w-3.5 text-blue-500" />
+                                </span>
+                              )}
+                            </div>
                           </div>
                           <div className="text-[8px] font-normal text-zinc-600 dark:text-zinc-400 uppercase">{em.servidores?.cargo}</div>
                           {isExternal && (
