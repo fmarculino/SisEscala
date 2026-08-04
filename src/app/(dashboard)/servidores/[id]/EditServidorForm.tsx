@@ -433,9 +433,9 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
             </select>
           </div>
 
-          <div className="sm:col-span-3">
+          <div className="sm:col-span-2">
             <label htmlFor="carga_horaria_semanal" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              Carga Horária Semanal (horas)
+              Carga Horária Semanal
             </label>
             <input
               type="number"
@@ -444,14 +444,14 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
               defaultValue={servidor.carga_horaria_semanal || 40}
               min={1}
               max={168}
+              placeholder="Ex: 40"
               className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
 
-          {/* Horários Personalizados de Intervalo (para Unidades com Intervalo Rígido) */}
-          <div className="sm:col-span-3">
-            <label htmlFor="intervalo_inicio_personalizado" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              Horário Personalizado — Início do Intervalo
+          <div className="sm:col-span-2">
+            <label htmlFor="intervalo_inicio_personalizado" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 truncate" title="Intervalo — Início (Pausas)">
+              Intervalo — Início (Pausas)
             </label>
             <input
               type="time"
@@ -460,14 +460,14 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
               defaultValue={servidor.intervalo_inicio_personalizado || ''}
               className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500 focus:border-blue-500"
             />
-            <p className="mt-1 text-[11px] text-zinc-500">
-              Opcional. Usado no modo Rígido se informado; caso contrário usa o padrão da jornada.
+            <p className="mt-1 text-[10px] text-zinc-500 truncate" title="Opcional. Usado no modo Rígido se informado.">
+              Opcional (Modo Rígido)
             </p>
           </div>
 
-          <div className="sm:col-span-3">
-            <label htmlFor="intervalo_fim_personalizado" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              Horário Personalizado — Fim do Intervalo
+          <div className="sm:col-span-2">
+            <label htmlFor="intervalo_fim_personalizado" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 truncate" title="Intervalo — Fim (Pausas)">
+              Intervalo — Fim (Pausas)
             </label>
             <input
               type="time"
@@ -476,8 +476,8 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
               defaultValue={servidor.intervalo_fim_personalizado || ''}
               className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500 focus:border-blue-500"
             />
-            <p className="mt-1 text-[11px] text-zinc-500">
-              Opcional. Usado no modo Rígido se informado; caso contrário usa o padrão da jornada.
+            <p className="mt-1 text-[10px] text-zinc-500 truncate" title="Opcional. Usado no modo Rígido se informado.">
+              Opcional (Modo Rígido)
             </p>
           </div>
 
