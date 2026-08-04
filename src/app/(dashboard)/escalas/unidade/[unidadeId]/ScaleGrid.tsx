@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { 
   Save, Loader2, Info, Zap, Lock, Unlock, FileText, Plus, UserPlus, Users, 
-  CheckCircle, Trash2, Globe, X, Copy, Check, Clock, Navigation2, Send,
+  CheckCircle, Trash2, Globe, X, Copy, Check, Clock, Navigation2, Send, CheckSquare,
   ShieldCheck, ShieldAlert, AlertTriangle, LayoutTemplate,
   ChevronLeft, ChevronRight, Sparkles
 } from 'lucide-react'
@@ -100,11 +100,31 @@ export function ScaleGrid({
     }
   }, [supabase, escalaMensalInicial, mes, ano])
 
+  const fetchLogsTentativas = useCallback(async () => {
+    if (escalaMensalInicial.length === 0) return
+    const servantIds = escalaMensalInicial.map(em => em.servidor_id)
+    const lastDay = new Date(ano, mes, 0).getDate()
+    const startRange = `${ano}-${mes.toString().padStart(2, '0')}-01T00:00:00Z`
+    const endRange = `${ano}-${mes.toString().padStart(2, '0')}-${lastDay.toString().padStart(2, '0')}T23:59:59Z`
+
+    const { data, error } = await supabase
+      .from('logs_tentativas_presenca')
+      .select('*')
+      .in('servidor_id', servantIds)
+      .gte('data_hora_tentativa', startRange)
+      .lte('data_hora_tentativa', endRange)
+
+    if (!error && data) {
+      setLogsTentativas(data)
+    }
+  }, [supabase, escalaMensalInicial, mes, ano])
+
   const [unidadedata, setUnidadedata] = useState<any>(null)
 
   useEffect(() => {
     fetchServidoresEventos()
     fetchJornadasTemporarias()
+    fetchLogsTentativas()
 
     async function fetchUnidadeConfig() {
       if (!unidadeId) return
@@ -116,7 +136,7 @@ export function ScaleGrid({
       if (data) setUnidadedata(data)
     }
     fetchUnidadeConfig()
-  }, [escalaMensalInicial, fetchServidoresEventos, fetchJornadasTemporarias, supabase, unidadeId])
+  }, [escalaMensalInicial, fetchServidoresEventos, fetchJornadasTemporarias, fetchLogsTentativas, supabase, unidadeId])
 
   const getActiveEventForDay = useCallback((servidorId: string, day: number) => {
     const dateStr = `${ano}-${mes.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`
@@ -234,15 +254,48 @@ export function ScaleGrid({
     type: 'default' | 'danger' | 'warning' | 'success'
   } | null>(null)
   
+  const [logsTentativas, setLogsTentativas] = useState<any[]>([])
+
   const [manualPresenceModal, setManualPresenceModal] = useState<{
     isOpen: boolean;
     servidorId: string;
     servidorNome: string;
     dia: number;
     categoria: RowCategory;
-    tipo: 'entrada' | 'intervalo_saida' | 'intervalo_retorno' | 'saida';
+    tipo: 'entrada' | 'intervalo_saida' | 'intervalo_retorno' | 'saida' | 'completo' | 'periodo_1' | 'periodo_2';
     escalaMensalId: string;
     isReverting: boolean;
+    justificativa?: string;
+  } | null>(null)
+
+  const [bulkServerModal, setBulkServerModal] = useState<{
+    isOpen: boolean;
+    servidorId: string;
+    servidorNome: string;
+    escalaMensalId: string;
+    startDay: number;
+    endDay: number;
+    modo: 'completo' | 'periodo_1' | 'periodo_2';
+    categorias: RowCategory[];
+    justificativa: string;
+  } | null>(null)
+
+  const [bulkGlobalModal, setBulkGlobalModal] = useState<{
+    isOpen: boolean;
+    selectedServidorIds: string[];
+    startDay: number;
+    endDay: number;
+    modo: 'completo' | 'periodo_1' | 'periodo_2';
+    categorias: RowCategory[];
+    justificativa: string;
+  } | null>(null)
+
+  const [sobreavisoManualModal, setSobreavisoManualModal] = useState<{
+    isOpen: boolean;
+    logId: string;
+    servidorNome: string;
+    dia: number;
+    justificativa: string;
   } | null>(null)
 
   const [sobreavisoHistoryModal, setSobreavisoHistoryModal] = useState<{
@@ -603,10 +656,7 @@ export function ScaleGrid({
 
         const turnoIdS = gridData[em.servidor_id]?.['Sobreaviso']?.[day]
         if (turnoIdS) {
-          const { status: effectiveStatus } = getStatusForDay(day, em.id, 'Sobreaviso')
-          if (!(desconsiderarFalha && effectiveStatus === 'Falhou')) {
-            hasS = true
-          }
+          hasS = true
         }
 
         if (hasM) countM++
@@ -1460,46 +1510,228 @@ export function ScaleGrid({
 
   const handleConfirmManualPresence = async () => {
     if (!manualPresenceModal) return
-    
+    if (!manualPresenceModal.isReverting && (!manualPresenceModal.justificativa || !manualPresenceModal.justificativa.trim())) {
+      setAlertModal({
+        isOpen: true,
+        title: 'Justificativa Obrigatória',
+        message: 'Por favor, informe a justificativa/motivo para esta validação manual.',
+        type: 'warning'
+      })
+      return
+    }
+
     setLoading(true)
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('Usuário não autenticado')
 
-      const isReverting = manualPresenceModal.isReverting
-      const tipo = manualPresenceModal.tipo
-      const rpcName = isReverting ? 'fn_reverter_presenca_manual' : 'fn_confirmar_presenca_manual'
+      if (manualPresenceModal.isReverting) {
+        const { error } = await supabase.rpc('fn_reverter_presenca_manual', {
+          p_escala_mensal_id: manualPresenceModal.escalaMensalId,
+          p_dia: manualPresenceModal.dia,
+          p_categoria: manualPresenceModal.categoria,
+          p_tipo: manualPresenceModal.tipo,
+          p_validador_id: user.id
+        })
+        if (error) throw error
+      } else {
+        const { data, error } = await supabase.rpc('fn_confirmar_presenca_manual', {
+          p_escala_mensal_id: manualPresenceModal.escalaMensalId,
+          p_dia: manualPresenceModal.dia,
+          p_categoria: manualPresenceModal.categoria,
+          p_tipo: manualPresenceModal.tipo,
+          p_validador_id: user.id,
+          p_justificativa: (manualPresenceModal.justificativa || '').trim()
+        })
+        if (error) throw error
+        if (data && !data.success) throw new Error(data.message)
+      }
 
-      const { data, error } = await supabase.rpc(rpcName, {
-        p_escala_mensal_id: manualPresenceModal.escalaMensalId,
-        p_dia: manualPresenceModal.dia,
-        p_categoria: manualPresenceModal.categoria,
-        p_tipo: manualPresenceModal.tipo,
-        p_validador_id: user.id
-      })
-
-      // Fechar modal de confirmação IMEDIATAMENTE antes de qualquer outra coisa
-      setManualPresenceModal(null)
-
-      if (error) throw error
-      if (data && !data.success) throw new Error(data.message)
-
-      // Refresh data
       await fetchData()
-
+      setManualPresenceModal(null)
       setAlertModal({
         isOpen: true,
-        title: isReverting ? 'Presença Revertida' : 'Presença Validada',
-        message: data.message || (isReverting ? `A ${tipo} foi revertida.` : `A ${tipo} foi validada.`),
-        type: isReverting ? 'warning' : 'success'
+        title: manualPresenceModal.isReverting ? 'Presença Revertida' : 'Presença Validada',
+        message: manualPresenceModal.isReverting ? 'Validação manual revertida com sucesso.' : 'Presença validada manualmente com sucesso.',
+        type: manualPresenceModal.isReverting ? 'warning' : 'success'
       })
-      
     } catch (err: any) {
-      setManualPresenceModal(null) // Fechar também em caso de erro para não travar a UI
+      setManualPresenceModal(null)
       setAlertModal({
         isOpen: true,
         title: 'Erro na Operação',
         message: err.message,
+        type: 'danger'
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleBulkServerValidation = async () => {
+    if (!bulkServerModal) return
+    if (!bulkServerModal.justificativa || !bulkServerModal.justificativa.trim()) {
+      setAlertModal({
+        isOpen: true,
+        title: 'Justificativa Obrigatória',
+        message: 'Por favor, informe a justificativa/motivo para a validação em massa.',
+        type: 'warning'
+      })
+      return
+    }
+
+    const start = Math.min(bulkServerModal.startDay, bulkServerModal.endDay)
+    const end = Math.max(bulkServerModal.startDay, bulkServerModal.endDay)
+    const days: number[] = []
+    for (let d = start; d <= end; d++) {
+      days.push(d)
+    }
+
+    setLoading(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      const { data, error } = await supabase.rpc('fn_confirmar_presenca_manual_bulk', {
+        p_escala_mensal_ids: [bulkServerModal.escalaMensalId],
+        p_dias: days,
+        p_categorias: bulkServerModal.categorias,
+        p_tipo: bulkServerModal.modo,
+        p_validador_id: user?.id || userProfile?.id,
+        p_justificativa: bulkServerModal.justificativa.trim()
+      })
+      if (error) throw error
+      if (data && !data.success) throw new Error(data.message)
+
+      await fetchData()
+      setBulkServerModal(null)
+      setAlertModal({
+        isOpen: true,
+        title: 'Validação Concluída',
+        message: `Presenças do servidor ${bulkServerModal.servidorNome} validadas com sucesso para os dias ${start} a ${end}!`,
+        type: 'success'
+      })
+    } catch (err: any) {
+      console.error('Erro na validação por servidor:', err)
+      setAlertModal({
+        isOpen: true,
+        title: 'Erro na Validação',
+        message: err.message || 'Falha ao executar validação.',
+        type: 'danger'
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleBulkGlobalValidation = async () => {
+    if (!bulkGlobalModal) return
+    if (bulkGlobalModal.selectedServidorIds.length === 0) {
+      setAlertModal({
+        isOpen: true,
+        title: 'Nenhum Servidor Selecionado',
+        message: 'Por favor, selecione ao menos um servidor para a validação.',
+        type: 'warning'
+      })
+      return
+    }
+    if (!bulkGlobalModal.justificativa || !bulkGlobalModal.justificativa.trim()) {
+      setAlertModal({
+        isOpen: true,
+        title: 'Justificativa Obrigatória',
+        message: 'Por favor, informe a justificativa/motivo para a validação em massa.',
+        type: 'warning'
+      })
+      return
+    }
+
+    const start = Math.min(bulkGlobalModal.startDay, bulkGlobalModal.endDay)
+    const end = Math.max(bulkGlobalModal.startDay, bulkGlobalModal.endDay)
+    const days: number[] = []
+    for (let d = start; d <= end; d++) {
+      days.push(d)
+    }
+
+    const escalaMensalIds = escalaMensal
+      .filter(em => bulkGlobalModal.selectedServidorIds.includes(em.servidor_id))
+      .map(em => em.id)
+
+    setLoading(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      const { data, error } = await supabase.rpc('fn_confirmar_presenca_manual_bulk', {
+        p_escala_mensal_ids: escalaMensalIds,
+        p_dias: days,
+        p_categorias: bulkGlobalModal.categorias,
+        p_tipo: bulkGlobalModal.modo,
+        p_validador_id: user?.id || userProfile?.id,
+        p_justificativa: bulkGlobalModal.justificativa.trim()
+      })
+      if (error) throw error
+      if (data && !data.success) throw new Error(data.message)
+
+      await fetchData()
+      setBulkGlobalModal(null)
+      setAlertModal({
+        isOpen: true,
+        title: 'Validação Global Concluída',
+        message: `Presenças em massa validadas com sucesso para ${escalaMensalIds.length} servidor(es) nos dias ${start} a ${end}!`,
+        type: 'success'
+      })
+    } catch (err: any) {
+      console.error('Erro na validação em massa global:', err)
+      setAlertModal({
+        isOpen: true,
+        title: 'Erro na Validação',
+        message: err.message || 'Falha ao executar validação em massa.',
+        type: 'danger'
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleManualSobreavisoOverride = async (logId: string, justificativa: string) => {
+    if (!justificativa || !justificativa.trim()) {
+      setAlertModal({
+        isOpen: true,
+        title: 'Justificativa Obrigatória',
+        message: 'Por favor, informe a justificativa/motivo para validar o sobreaviso manualmente.',
+        type: 'warning'
+      })
+      return
+    }
+
+    setLoading(true)
+    try {
+      const now = new Date().toISOString()
+      const motivoStr = `Validação Manual (Sobreaviso) — Justificativa: ${justificativa.trim()}`
+      const { error } = await supabase
+        .from('logs_sobreaviso')
+        .update({
+          status: 'Chegou',
+          data_hora_chegada: now,
+          data_hora_validacao: now,
+          validacao_manual: true,
+          validado_por: userProfile?.id,
+          motivo_acionamento: motivoStr,
+          tipo_validacao_chegada: 'Manual'
+        })
+        .eq('id', logId)
+
+      if (error) throw error
+      await fetchData()
+
+      setAlertModal({
+        isOpen: true,
+        title: 'Sobreaviso Validado',
+        message: 'Chamado de sobreaviso validado manualmente com sucesso!',
+        type: 'success'
+      })
+    } catch (err: any) {
+      console.error('Erro ao validar sobreaviso manualmente:', err)
+      setAlertModal({
+        isOpen: true,
+        title: 'Erro na Validação',
+        message: err.message || 'Falha ao validar chamado de sobreaviso.',
         type: 'danger'
       })
     } finally {
@@ -2156,6 +2388,31 @@ export function ScaleGrid({
               <LayoutTemplate className="h-4 w-4 mr-2" />
               Aplicar Template
             </button>
+
+            {!isComum && (
+              <button
+                onClick={() => {
+                  if (escalaMensal.length === 0) {
+                    setAlertModal({ isOpen: true, title: 'Sem Servidores', message: 'Adicione pelo menos um servidor à grade antes de realizar a validação em massa.', type: 'warning' })
+                    return
+                  }
+                  setBulkGlobalModal({
+                    isOpen: true,
+                    selectedServidorIds: escalaMensal.map(em => em.servidor_id),
+                    startDay: 1,
+                    endDay: daysInMonth,
+                    modo: 'completo',
+                    categorias: ['Regular', 'Plantão'],
+                    justificativa: ''
+                  })
+                }}
+                disabled={loading || isClosed}
+                className="inline-flex items-center rounded-md border border-emerald-300 text-emerald-700 bg-emerald-50/50 px-3 py-2 text-sm font-bold hover:bg-emerald-100 dark:border-emerald-800 dark:text-emerald-400 dark:bg-emerald-950/20 transition-all disabled:opacity-50"
+              >
+                <CheckSquare className="h-4 w-4 mr-2 text-emerald-600" />
+                ⚡ Validar em Massa
+              </button>
+            )}
           </div>
           
           <div className="flex items-center space-x-3">
@@ -2274,7 +2531,30 @@ export function ScaleGrid({
                       {catIdx === 0 && (
                         <td rowSpan={4} className="sticky left-0 z-10 bg-white dark:bg-zinc-900 p-2 border border-zinc-200 dark:border-zinc-700 font-bold whitespace-nowrap align-top text-zinc-900 dark:text-zinc-100">
                           <div className="flex items-center gap-2">
-                            {em.servidores?.nome}
+                            <span>{em.servidores?.nome}</span>
+                            {!isComum && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setBulkServerModal({
+                                    isOpen: true,
+                                    servidorId: em.servidor_id,
+                                    servidorNome: em.servidores?.nome || 'Servidor',
+                                    escalaMensalId: em.id,
+                                    startDay: 1,
+                                    endDay: daysInMonth,
+                                    modo: 'completo',
+                                    categorias: ['Regular', 'Plantão'],
+                                    justificativa: ''
+                                  })
+                                }}
+                                className="p-0.5 text-zinc-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded transition-colors"
+                                title="Validar Presenças deste Servidor por Período"
+                              >
+                                <CheckSquare className="h-3.5 w-3.5" />
+                              </button>
+                            )}
                             {hasTempJourney && (
                               <span 
                                 className="inline-flex items-center" 
@@ -3258,16 +3538,21 @@ export function ScaleGrid({
                           </button>
                         )}
 
-                        {(log.status === 'Timeout' || log.status === 'Recusado') && (
+                        {log.status !== 'Chegou' && (
                           <button
                             type="button"
                             onClick={() => {
-                              setSobreavisoHistoryModal(null)
-                              handleManualOverride(log.id)
+                              setSobreavisoManualModal({
+                                isOpen: true,
+                                logId: log.id,
+                                servidorNome: sobreavisoHistoryModal.servidorNome,
+                                dia: sobreavisoHistoryModal.dia,
+                                justificativa: ''
+                              })
                             }}
                             className="flex-1 py-1.5 px-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-[10px] uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1"
                           >
-                            <Check className="h-3 w-3" /> Validar Este Chamado
+                            <Check className="h-3 w-3" /> Validar Este Chamado (Manual)
                           </button>
                         )}
                       </div>
@@ -3898,6 +4183,9 @@ export function ScaleGrid({
       {manualPresenceModal && (() => {
         const formatTipoLabel = (tipo: string) => {
           switch (tipo) {
+            case 'completo': return 'Dia Completo'
+            case 'periodo_1': return '1º Período (Manhã)'
+            case 'periodo_2': return '2º Período (Tarde)'
             case 'entrada': return 'Entrada'
             case 'intervalo_saida': return 'Saída do Intervalo'
             case 'intervalo_retorno': return 'Retorno do Intervalo'
@@ -3906,12 +4194,17 @@ export function ScaleGrid({
           }
         }
         const labelTipo = formatTipoLabel(manualPresenceModal.tipo)
+        const cellDeniedAttempts = logsTentativas.filter(l => {
+          if (l.servidor_id !== manualPresenceModal.servidorId) return false
+          const d = new Date(l.data_hora_tentativa)
+          return d.getDate() === manualPresenceModal.dia && d.getMonth() + 1 === mes && d.getFullYear() === ano
+        })
 
         return (
           <Modal
             isOpen={manualPresenceModal.isOpen}
             onClose={() => setManualPresenceModal(null)}
-            title={manualPresenceModal.isReverting ? `Reverter ${labelTipo} Manual` : `Validar ${labelTipo} Manual`}
+            title={manualPresenceModal.isReverting ? `Reverter Presença — ${manualPresenceModal.servidorNome}` : `Validar Presença — ${manualPresenceModal.servidorNome}`}
             type={manualPresenceModal.isReverting ? "danger" : "warning"}
             footer={
               <>
@@ -3923,8 +4216,8 @@ export function ScaleGrid({
                 </button>
                 <button
                   onClick={handleConfirmManualPresence}
-                  disabled={loading}
-                  className={`flex-1 px-4 py-2 rounded-xl font-bold flex items-center justify-center gap-2 ${
+                  disabled={loading || (!manualPresenceModal.isReverting && !manualPresenceModal.justificativa?.trim())}
+                  className={`flex-1 px-4 py-2 rounded-xl font-bold flex items-center justify-center gap-2 disabled:opacity-50 ${
                     manualPresenceModal.isReverting 
                       ? "bg-red-600 hover:bg-red-700 text-white" 
                       : "bg-amber-600 hover:bg-amber-700 text-white"
@@ -3938,20 +4231,376 @@ export function ScaleGrid({
             <div className="space-y-4">
               <p className="text-sm text-zinc-600 dark:text-zinc-400">
                 {manualPresenceModal.isReverting ? (
-                  <>Você deseja <strong>reverter</strong> a <strong>{labelTipo}</strong> do servidor <strong>{manualPresenceModal.servidorNome}</strong> para o dia <strong>{manualPresenceModal.dia}</strong>?</>
+                  <>Reverter registro de <strong>{labelTipo}</strong> do dia <strong>{manualPresenceModal.dia}</strong>.</>
                 ) : (
-                  <>Você está validando manualmente a <strong>{labelTipo}</strong> do servidor <strong>{manualPresenceModal.servidorNome}</strong> para o dia <strong>{manualPresenceModal.dia}</strong>.</>
+                  <>Validando presença do dia <strong>{manualPresenceModal.dia}</strong> para <strong>{manualPresenceModal.servidorNome}</strong>.</>
                 )}
               </p>
-              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3 rounded-lg">
-                <p className="text-xs text-amber-700 dark:text-amber-400">
-                  Esta ação será registrada com seu usuário para fins de auditoria.
+
+              {!manualPresenceModal.isReverting && (
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider block">
+                    Selecione o Escopo da Validação:
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setManualPresenceModal(prev => prev ? { ...prev, tipo: 'completo' } : null)}
+                      className={`p-2 text-xs font-bold rounded-lg border transition-all ${manualPresenceModal.tipo === 'completo' ? 'bg-emerald-600 text-white border-emerald-600 shadow' : 'bg-zinc-50 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100'}`}
+                    >
+                      🟢 Dia Completo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setManualPresenceModal(prev => prev ? { ...prev, tipo: 'periodo_1' } : null)}
+                      className={`p-2 text-xs font-bold rounded-lg border transition-all ${manualPresenceModal.tipo === 'periodo_1' ? 'bg-amber-600 text-white border-amber-600 shadow' : 'bg-zinc-50 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100'}`}
+                    >
+                      ⛅ 1º Período (Manhã)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setManualPresenceModal(prev => prev ? { ...prev, tipo: 'periodo_2' } : null)}
+                      className={`p-2 text-xs font-bold rounded-lg border transition-all ${manualPresenceModal.tipo === 'periodo_2' ? 'bg-blue-600 text-white border-blue-600 shadow' : 'bg-zinc-50 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100'}`}
+                    >
+                      🌇 2º Período (Tarde)
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {cellDeniedAttempts.length > 0 && (
+                <div className="p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl space-y-1">
+                  <div className="flex items-center gap-1.5 text-red-700 dark:text-red-300 text-xs font-bold">
+                    <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                    <span>Tentativa(s) de Ponto Recusada(s) pelo Terminal neste Dia:</span>
+                  </div>
+                  {cellDeniedAttempts.map(t => (
+                    <p key={t.id} className="text-[11px] text-red-600 dark:text-red-400 pl-5">
+                      • <strong>{new Date(t.data_hora_tentativa).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</strong>: {t.mensagem_erro} {t.escala_prevista_inicio ? `(Previsão: ${t.escala_prevista_inicio})` : ''}
+                    </p>
+                  ))}
+                </div>
+              )}
+
+              {!manualPresenceModal.isReverting && (
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider block">
+                    Justificativa da Validação Manual <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    required
+                    rows={2}
+                    value={manualPresenceModal.justificativa || ''}
+                    onChange={(e) => setManualPresenceModal(prev => prev ? { ...prev, justificativa: e.target.value } : null)}
+                    placeholder="Informe o motivo/justificativa desta validação manual..."
+                    className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2.5 text-xs outline-none focus:ring-2 focus:ring-amber-500 text-zinc-900 dark:text-white"
+                  />
+                </div>
+              )}
+
+              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-2.5 rounded-lg">
+                <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                  Esta ação será gravada nos registros de auditoria vinculados ao seu usuário.
                 </p>
               </div>
             </div>
           </Modal>
         )
       })()}
+
+      {bulkServerModal && (
+        <Modal
+          isOpen={bulkServerModal.isOpen}
+          onClose={() => setBulkServerModal(null)}
+          title={`Validar Período — ${bulkServerModal.servidorNome}`}
+          type="warning"
+          footer={
+            <>
+              <button
+                onClick={() => setBulkServerModal(null)}
+                className="flex-1 px-4 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleBulkServerValidation}
+                disabled={loading || !bulkServerModal.justificativa?.trim()}
+                className="flex-1 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Confirmar Validação'}
+              </button>
+            </>
+          }
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              Validar presenças para <strong>{bulkServerModal.servidorNome}</strong> em um intervalo de dias.
+            </p>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Dia Inicial</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={daysInMonth}
+                  value={bulkServerModal.startDay}
+                  onChange={(e) => setBulkServerModal(prev => prev ? { ...prev, startDay: Math.max(1, Math.min(daysInMonth, parseInt(e.target.value) || 1)) } : null)}
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2 text-xs outline-none focus:ring-2 focus:ring-emerald-500 text-zinc-900 dark:text-white font-bold text-center"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Dia Final</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={daysInMonth}
+                  value={bulkServerModal.endDay}
+                  onChange={(e) => setBulkServerModal(prev => prev ? { ...prev, endDay: Math.max(1, Math.min(daysInMonth, parseInt(e.target.value) || daysInMonth)) } : null)}
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2 text-xs outline-none focus:ring-2 focus:ring-emerald-500 text-zinc-900 dark:text-white font-bold text-center"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider block">
+                Modo de Validação:
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setBulkServerModal(prev => prev ? { ...prev, modo: 'completo' } : null)}
+                  className={`p-2 text-xs font-bold rounded-lg border transition-all ${bulkServerModal.modo === 'completo' ? 'bg-emerald-600 text-white border-emerald-600 shadow' : 'bg-zinc-50 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100'}`}
+                >
+                  🟢 Dia Completo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBulkServerModal(prev => prev ? { ...prev, modo: 'periodo_1' } : null)}
+                  className={`p-2 text-xs font-bold rounded-lg border transition-all ${bulkServerModal.modo === 'periodo_1' ? 'bg-amber-600 text-white border-amber-600 shadow' : 'bg-zinc-50 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100'}`}
+                >
+                  ⛅ 1º Período
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBulkServerModal(prev => prev ? { ...prev, modo: 'periodo_2' } : null)}
+                  className={`p-2 text-xs font-bold rounded-lg border transition-all ${bulkServerModal.modo === 'periodo_2' ? 'bg-blue-600 text-white border-blue-600 shadow' : 'bg-zinc-50 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100'}`}
+                >
+                  🌇 2º Período
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider block">
+                Justificativa Obrigatória <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                required
+                rows={2}
+                value={bulkServerModal.justificativa || ''}
+                onChange={(e) => setBulkServerModal(prev => prev ? { ...prev, justificativa: e.target.value } : null)}
+                placeholder="Informe o motivo desta validação por período..."
+                className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2.5 text-xs outline-none focus:ring-2 focus:ring-emerald-500 text-zinc-900 dark:text-white"
+              />
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {bulkGlobalModal && (
+        <Modal
+          isOpen={bulkGlobalModal.isOpen}
+          onClose={() => setBulkGlobalModal(null)}
+          title="⚡ Validação de Presença em Massa na Unidade"
+          type="warning"
+          footer={
+            <>
+              <button
+                onClick={() => setBulkGlobalModal(null)}
+                className="flex-1 px-4 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleBulkGlobalValidation}
+                disabled={loading || bulkGlobalModal.selectedServidorIds.length === 0 || !bulkGlobalModal.justificativa?.trim()}
+                className="flex-1 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Executar Validação em Massa'}
+              </button>
+            </>
+          }
+        >
+          <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
+            <p className="text-xs text-zinc-600 dark:text-zinc-400">
+              Valida automaticamente as presenças pendentes para múltiplos servidores e dias. Batidas presenciais registradas em terminal <strong>não serão sobrescritas</strong>.
+            </p>
+
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider">
+                  Servidores Incluídos ({bulkGlobalModal.selectedServidorIds.length}/{escalaMensal.length})
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const allIds = escalaMensal.map(em => em.servidor_id)
+                    setBulkGlobalModal(prev => prev ? {
+                      ...prev,
+                      selectedServidorIds: prev.selectedServidorIds.length === allIds.length ? [] : allIds
+                    } : null)
+                  }}
+                  className="text-[11px] font-bold text-emerald-600 hover:underline"
+                >
+                  {bulkGlobalModal.selectedServidorIds.length === escalaMensal.length ? 'Desmarcar Todos' : 'Marcar Todos'}
+                </button>
+              </div>
+              <div className="max-h-36 overflow-y-auto bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2 space-y-1">
+                {escalaMensal.map(em => (
+                  <label key={em.servidor_id} className="flex items-center gap-2 text-xs text-zinc-800 dark:text-zinc-200 cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-700/50 p-1 rounded">
+                    <input
+                      type="checkbox"
+                      checked={bulkGlobalModal.selectedServidorIds.includes(em.servidor_id)}
+                      onChange={(e) => {
+                        const checked = e.target.checked
+                        setBulkGlobalModal(prev => {
+                          if (!prev) return null
+                          const ids = checked 
+                            ? [...prev.selectedServidorIds, em.servidor_id]
+                            : prev.selectedServidorIds.filter(id => id !== em.servidor_id)
+                          return { ...prev, selectedServidorIds: ids }
+                        })
+                      }}
+                      className="h-3.5 w-3.5 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <span className="font-semibold">{em.servidores?.nome}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Dia Inicial</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={daysInMonth}
+                  value={bulkGlobalModal.startDay}
+                  onChange={(e) => setBulkGlobalModal(prev => prev ? { ...prev, startDay: Math.max(1, Math.min(daysInMonth, parseInt(e.target.value) || 1)) } : null)}
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2 text-xs outline-none focus:ring-2 focus:ring-emerald-500 text-zinc-900 dark:text-white font-bold text-center"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Dia Final</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={daysInMonth}
+                  value={bulkGlobalModal.endDay}
+                  onChange={(e) => setBulkGlobalModal(prev => prev ? { ...prev, endDay: Math.max(1, Math.min(daysInMonth, parseInt(e.target.value) || daysInMonth)) } : null)}
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2 text-xs outline-none focus:ring-2 focus:ring-emerald-500 text-zinc-900 dark:text-white font-bold text-center"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider block">
+                Modo de Aplicação:
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setBulkGlobalModal(prev => prev ? { ...prev, modo: 'completo' } : null)}
+                  className={`p-2 text-xs font-bold rounded-lg border transition-all ${bulkGlobalModal.modo === 'completo' ? 'bg-emerald-600 text-white border-emerald-600 shadow' : 'bg-zinc-50 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100'}`}
+                >
+                  🟢 Dia Completo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBulkGlobalModal(prev => prev ? { ...prev, modo: 'periodo_1' } : null)}
+                  className={`p-2 text-xs font-bold rounded-lg border transition-all ${bulkGlobalModal.modo === 'periodo_1' ? 'bg-amber-600 text-white border-amber-600 shadow' : 'bg-zinc-50 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100'}`}
+                >
+                  ⛅ 1º Período
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBulkGlobalModal(prev => prev ? { ...prev, modo: 'periodo_2' } : null)}
+                  className={`p-2 text-xs font-bold rounded-lg border transition-all ${bulkGlobalModal.modo === 'periodo_2' ? 'bg-blue-600 text-white border-blue-600 shadow' : 'bg-zinc-50 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100'}`}
+                >
+                  🌇 2º Período
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider block">
+                Justificativa Obrigatória da Validação <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                required
+                rows={2}
+                value={bulkGlobalModal.justificativa || ''}
+                onChange={(e) => setBulkGlobalModal(prev => prev ? { ...prev, justificativa: e.target.value } : null)}
+                placeholder="Informe a justificativa/motivo para este procedimento em massa..."
+                className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2.5 text-xs outline-none focus:ring-2 focus:ring-emerald-500 text-zinc-900 dark:text-white"
+              />
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {sobreavisoManualModal && (
+        <Modal
+          isOpen={sobreavisoManualModal.isOpen}
+          onClose={() => setSobreavisoManualModal(null)}
+          title={`Validar Sobreaviso Manualmente — ${sobreavisoManualModal.servidorNome}`}
+          type="warning"
+          footer={
+            <>
+              <button
+                onClick={() => setSobreavisoManualModal(null)}
+                className="flex-1 px-4 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={async () => {
+                  if (!sobreavisoManualModal.justificativa?.trim()) return
+                  await handleManualSobreavisoOverride(sobreavisoManualModal.logId, sobreavisoManualModal.justificativa)
+                  setSobreavisoManualModal(null)
+                  setSobreavisoHistoryModal(null)
+                }}
+                disabled={loading || !sobreavisoManualModal.justificativa?.trim()}
+                className="flex-1 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Confirmar Validação'}
+              </button>
+            </>
+          }
+        >
+          <div className="space-y-4">
+            <p className="text-xs text-zinc-600 dark:text-zinc-400">
+              Você está validando manualmente o chamado de sobreaviso do servidor <strong>{sobreavisoManualModal.servidorNome}</strong> no dia <strong>{sobreavisoManualModal.dia}</strong>.
+            </p>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider block">
+                Justificativa da Validação <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                required
+                rows={2}
+                value={sobreavisoManualModal.justificativa || ''}
+                onChange={(e) => setSobreavisoManualModal(prev => prev ? { ...prev, justificativa: e.target.value } : null)}
+                placeholder="Ex: Servidor atendeu o chamado e compareceu, mas estava sem sinal no celular..."
+                className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2.5 text-xs outline-none focus:ring-2 focus:ring-amber-500 text-zinc-900 dark:text-white"
+              />
+            </div>
+          </div>
+        </Modal>
+      )}
     </>
   )
 }
