@@ -444,10 +444,10 @@ export function ScaleGrid({
                   intervalo_saida: !!ed.presenca_intervalo_saida_em,
                   intervalo_retorno: !!ed.presenca_intervalo_retorno_em,
                   saida: !!ed.presenca_saida_em,
-                  is_entrada_manual: !!ed.confirmado_por_id,
+                  is_entrada_manual: ed.presenca_entrada_manual !== undefined ? !!ed.presenca_entrada_manual : !!ed.confirmado_por_id,
                   is_intervalo_saida_manual: !!ed.presenca_intervalo_saida_manual,
                   is_intervalo_retorno_manual: !!ed.presenca_intervalo_retorno_manual,
-                  is_saida_manual: !!ed.confirmado_por_id
+                  is_saida_manual: ed.presenca_saida_manual !== undefined ? !!ed.presenca_saida_manual : !!ed.confirmado_por_id
                 }
               }
             }
@@ -497,10 +497,10 @@ export function ScaleGrid({
           intervalo_saida: !!ed.presenca_intervalo_saida_em,
           intervalo_retorno: !!ed.presenca_intervalo_retorno_em,
           saida: !!ed.presenca_saida_em,
-          is_entrada_manual: !!ed.confirmado_por_id,
+          is_entrada_manual: ed.presenca_entrada_manual !== undefined ? !!ed.presenca_entrada_manual : !!ed.confirmado_por_id,
           is_intervalo_saida_manual: !!ed.presenca_intervalo_saida_manual,
           is_intervalo_retorno_manual: !!ed.presenca_intervalo_retorno_manual,
-          is_saida_manual: !!ed.confirmado_por_id
+          is_saida_manual: ed.presenca_saida_manual !== undefined ? !!ed.presenca_saida_manual : !!ed.confirmado_por_id
         }
       })
     })
@@ -1509,10 +1509,10 @@ export function ScaleGrid({
               intervalo_saida: !!ed.presenca_intervalo_saida_em,
               intervalo_retorno: !!ed.presenca_intervalo_retorno_em,
               saida: !!ed.presenca_saida_em,
-              is_entrada_manual: !!ed.confirmado_por_id,
+              is_entrada_manual: ed.presenca_entrada_manual !== undefined ? !!ed.presenca_entrada_manual : !!ed.confirmado_por_id,
               is_intervalo_saida_manual: !!ed.presenca_intervalo_saida_manual,
               is_intervalo_retorno_manual: !!ed.presenca_intervalo_retorno_manual,
-              is_saida_manual: !!ed.confirmado_por_id
+              is_saida_manual: ed.presenca_saida_manual !== undefined ? !!ed.presenca_saida_manual : !!ed.confirmado_por_id
             }
           })
         })
