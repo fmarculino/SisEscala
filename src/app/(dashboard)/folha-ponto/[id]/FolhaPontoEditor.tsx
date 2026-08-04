@@ -682,6 +682,9 @@ export function FolhaPontoEditor({
           <div className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded bg-amber-500 inline-block"></span> Ajustado Manualmente
           </div>
+          <div className="flex items-center gap-1.5 ml-auto">
+            <span className="w-2 h-2 rounded-full bg-amber-500 ring-2 ring-amber-300 dark:ring-amber-800 inline-block"></span> Jornada Temporária
+          </div>
         </div>
 
         {/* Timesheet Entries Table */}
@@ -733,16 +736,17 @@ export function FolhaPontoEditor({
                     
                     {/* Dia da semana */}
                     <td 
-                      className="px-2 py-2 border-r border-zinc-200 dark:border-zinc-700 text-center font-bold text-zinc-500"
+                      className="px-2 py-2 border-r border-zinc-200 dark:border-zinc-700 text-center font-bold text-zinc-500 relative"
                       title={r.jornada_nome ? `Jornada: ${r.jornada_nome}${r.jornada_temporaria ? ' (Temporária)' : ''}` : undefined}
                     >
                       <div>{r.dia_semana}</div>
                       {r.jornada_temporaria && (
                         <span 
-                          className="inline-block mt-0.5 px-1 py-0.2 text-[8px] font-semibold bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 rounded border border-amber-200 dark:border-amber-800/40 print:hidden print-hidden"
+                          className="absolute top-1 right-1 flex h-2 w-2 print:hidden print-hidden"
                           title={`Jornada Temporária: ${r.jornada_nome}`}
                         >
-                          Temp
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500 ring-1 ring-white dark:ring-zinc-900"></span>
                         </span>
                       )}
                     </td>
