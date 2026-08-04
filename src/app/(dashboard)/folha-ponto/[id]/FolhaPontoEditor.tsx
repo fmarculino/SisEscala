@@ -396,6 +396,10 @@ export function FolhaPontoEditor({
       {/* Print styles overrides */}
       <style jsx global>{`
         @media print {
+          @page {
+            size: A4 portrait;
+            margin: 8mm;
+          }
           body {
             background-color: white !important;
             color: black !important;
@@ -735,7 +739,7 @@ export function FolhaPontoEditor({
                       <div>{r.dia_semana}</div>
                       {r.jornada_temporaria && (
                         <span 
-                          className="inline-block mt-0.5 px-1 py-0.2 text-[8px] font-semibold bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 rounded border border-amber-200 dark:border-amber-800/40"
+                          className="inline-block mt-0.5 px-1 py-0.2 text-[8px] font-semibold bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 rounded border border-amber-200 dark:border-amber-800/40 print:hidden print-hidden"
                           title={`Jornada Temporária: ${r.jornada_nome}`}
                         >
                           Temp
