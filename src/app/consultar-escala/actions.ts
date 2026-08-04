@@ -927,14 +927,16 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
       .from('servidores_eventos')
       .select('data_inicio, data_fim, observacao, slots, tipos_eventos(nome)')
       .eq('servidor_id', folha.servidor_id)
-      .or(`data_inicio.lte.${endDate},data_fim.gte.${startDate}`)
+      .lte('data_inicio', endDate)
+      .gte('data_fim', startDate)
 
     // Fetch temporary journeys overlapping this month
     const { data: tempJourneys } = await supabase
       .from('servidores_jornadas_temporarias')
       .select('*, jornadas(nome, horas_totais, intervalo_minutos)')
       .eq('servidor_id', folha.servidor_id)
-      .or(`data_inicio.lte.${endDate},data_fim.gte.${startDate}`)
+      .lte('data_inicio', endDate)
+      .gte('data_fim', startDate)
 
     // Parse Jornada
     const globalJornadaDetails = escala.jornadas ? (escala.jornadas as any) : null
@@ -1474,14 +1476,16 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
       .from('servidores_eventos')
       .select('data_inicio, data_fim, observacao, slots, tipos_eventos(nome)')
       .eq('servidor_id', servidorId)
-      .or(`data_inicio.lte.${endDate},data_fim.gte.${startDate}`)
+      .lte('data_inicio', endDate)
+      .gte('data_fim', startDate)
 
     // Fetch temporary journeys overlapping this month
     const { data: tempJourneys } = await supabase
       .from('servidores_jornadas_temporarias')
       .select('*, jornadas(nome, horas_totais, intervalo_minutos)')
       .eq('servidor_id', servidorId)
-      .or(`data_inicio.lte.${endDate},data_fim.gte.${startDate}`)
+      .lte('data_inicio', endDate)
+      .gte('data_fim', startDate)
 
     // Parse Jornada
     const globalJornadaDetails = escala.jornadas ? (escala.jornadas as any) : null

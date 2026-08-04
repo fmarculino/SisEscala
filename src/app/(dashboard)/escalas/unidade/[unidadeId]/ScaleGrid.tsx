@@ -69,7 +69,8 @@ export function ScaleGrid({
       .from('servidores_eventos')
       .select('*, tipos_eventos(*)')
       .in('servidor_id', servantIds)
-      .or(`data_inicio.lte.${endRange},data_fim.gte.${startRange}`)
+      .lte('data_inicio', endRange)
+      .gte('data_fim', startRange)
 
     if (error) {
       console.error('Erro ao buscar eventos dos servidores:', error)
@@ -89,7 +90,8 @@ export function ScaleGrid({
       .from('servidores_jornadas_temporarias')
       .select('*, jornadas(*)')
       .in('servidor_id', servantIds)
-      .or(`data_inicio.lte.${endRange},data_fim.gte.${startRange}`)
+      .lte('data_inicio', endRange)
+      .gte('data_fim', startRange)
 
     if (error) {
       console.error('Erro ao buscar jornadas temporárias:', error)
@@ -2251,12 +2253,19 @@ export function ScaleGrid({
             </tr>
           </thead>
           <tbody>
-            {visibleEscalaMensal.map(em => {
-              const totals = calculateTotals(em.servidor_id)
-              const categories: RowCategory[] = ['Regular', 'Extra', 'Plantão', 'Sobreaviso']
-              const isExternal = em.servidores?.unidade_id !== unidadeId || em.servidores?.setor_id !== setorId
-              const serverTempJourneys = jornadasTemporarias.filter(jt => jt.servidor_id === em.servidor_id)
-              const hasTempJourney = serverTempJourneys.length > 0
+            {(() => {
+              const gridStartRange = `${ano}-${mes.toString().padStart(2, '0')}-01`
+              const gridEndRange = `${ano}-${mes.toString().padStart(2, '0')}-${daysInMonth.toString().padStart(2, '0')}`
+              return visibleEscalaMensal.map(em => {
+                const totals = calculateTotals(em.servidor_id)
+                const categories: RowCategory[] = ['Regular', 'Extra', 'Plantão', 'Sobreaviso']
+                const isExternal = em.servidores?.unidade_id !== unidadeId || em.servidores?.setor_id !== setorId
+                const serverTempJourneys = jornadasTemporarias.filter(jt => 
+                  jt.servidor_id === em.servidor_id &&
+                  jt.data_inicio <= gridEndRange &&
+                  jt.data_fim >= gridStartRange
+                )
+                const hasTempJourney = serverTempJourneys.length > 0
               
               return (
                 <React.Fragment key={em.id}>
@@ -2875,7 +2884,8 @@ export function ScaleGrid({
                   ))}
                 </React.Fragment>
               )
-            })}
+            })
+          })()}
           </tbody>
           <tfoot className="bg-zinc-100 dark:bg-zinc-800">
             <tr>
