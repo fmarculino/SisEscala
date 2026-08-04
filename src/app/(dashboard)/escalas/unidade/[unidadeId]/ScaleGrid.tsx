@@ -2679,7 +2679,7 @@ export function ScaleGrid({
 
                                   const canEditPresence = !isCompetenciaEncerrada && escalaMensal[0]?.status !== 'Fechada' && (!isClosed || userProfile?.role === 'admin' || userProfile?.role === 'super_admin') && (userProfile?.role === 'admin' || userProfile?.role === 'super_admin' || userProfile?.role === 'coordenador')
 
-                                  const isUnitInterval = unidadedata?.permite_marca_intervalo || false
+                                  const isUnitInterval = (cat === 'Regular' || cat === 'Plantão') && (unidadedata?.permite_marca_intervalo || false)
 
                                   const handleSegmentClick = (tipo: 'entrada' | 'intervalo_saida' | 'intervalo_retorno' | 'saida', isDone: boolean, isManualFlag?: boolean) => {
                                     if (!canEditPresence) return

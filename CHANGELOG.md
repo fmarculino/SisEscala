@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.18.0] - 2026-08-04
+
+### Added
+- **Refinamento dos Indicadores de Presença por Categoria e Despoluição Visual**:
+  - **Despoluição da Grade (`ScaleGrid.tsx`)**: Células sem agendamento (hífen `-`) em Extras, Plantões e Sobreaviso ficam 100% limpas sem exibir barrinhas vermelhas desnecessárias.
+  - **Regras Diferenciadas de Marcação por Categoria**:
+    - **Regular**: Exibe indicadores apenas nos dias com turno agendado (4 segmentos se intervalo ativo e > 4h; 2 segmentos se $\le$ 4h ou sem intervalo).
+    - **Extra**: Exibe indicadores apenas em células com horas extras (ex: `1`, `2`). Mantém sempre no máximo 2 batidas (sem pausa para intervalo) ou consolida a extensão da 4ª batida (Saída Final) do turno regular continuado.
+    - **Plantão**: Exibe indicadores apenas em células com plantão agendado (ex: `MT`, `N`).
+    - **Sobreaviso**: Removida a exibição de barrinhas de presença tradicionais; mantida exclusivamente a sinalização por ícone de acionamento via WhatsApp (`Zap`, bolinhas de status `Aguardando`, `Aceito`, `Chegou`).
+  - **Garantia de Estabilidade & Não-Regressão**: 100% de preservação das regras do terminal físico de presença (`/presenca`), RPC `fn_confirmar_presenca`, cálculo da folha de ponto e motor de conformidade.
+
 ## [1.17.0] - 2026-08-04
 
 ### Added
