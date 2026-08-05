@@ -36,7 +36,7 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
 
   // Timesheet & Justificativas module integration states
   const [folhaHabilitada, setFolhaHabilitada] = useState(false)
-  const [justificativasHabilitada, setJustificativasHabilitada] = useState(false)
+  const [justificativasHabilitada, setJustificativasHabilitada] = useState(true)
   const [viewMode, setViewMode] = useState<'escala' | 'folha' | 'ferias' | 'justificativas'>('escala')
   const [folhaData, setFolhaData] = useState<any | null>(null)
   const [loadingFolha, setLoadingFolha] = useState(false)

@@ -2311,13 +2311,19 @@ export async function getDadosRequerimento(solicitacaoId: string, servidorId: st
 }
 
 export async function checkJustificativasHabilitada() {
-  const supabase = await createAdminClient()
-  const { data } = await supabase
-    .from('configuracoes_globais')
-    .select('valor')
-    .eq('chave', 'justificativa_servidor_visualizar')
-    .single()
-  return data?.valor === 'true'
+  try {
+    const supabase = await createAdminClient()
+    const { data } = await supabase
+      .from('configuracoes_globais')
+      .select('valor')
+      .eq('chave', 'justificativa_servidor_visualizar')
+      .single()
+    if (!data || data.valor === null || data.valor === undefined) return true
+    const valStr = String(data.valor).replace(/"/g, '').trim().toLowerCase()
+    return valStr === 'true'
+  } catch (err) {
+    return true
+  }
 }
 
 export async function getJustificativasServidor(servidorId: string, mes: number, ano: number) {
