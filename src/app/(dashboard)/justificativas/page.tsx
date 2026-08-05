@@ -47,10 +47,19 @@ export default async function JustificativasPage() {
     }
   }) || []
 
+  // Fetch servers filtered by permissions
+  let serversQuery = supabase
+    .from('servidores')
+    .select('id, nome, matricula, unidade_id, setor_id')
+    .order('nome')
+  serversQuery = applyAccessFilters(serversQuery, userProfile, { unidadeField: 'unidade_id', setorField: 'setor_id' })
+  const { data: servidores } = await serversQuery
+
   return (
     <JustificativasClient 
       unidades={unidades || []} 
       setores={setores || []} 
+      servidores={servidores || []}
       userProfile={userProfile} 
     />
   )

@@ -27,6 +27,7 @@ async function getUserProfile(supabase: any) {
 export async function getEventosPendentes(params: {
   unidadeId: string
   setorId?: string
+  servidorId?: string
   mes?: number
   ano?: number
   categoria?: string
@@ -35,6 +36,9 @@ export async function getEventosPendentes(params: {
   perPage?: number
 }) {
   try {
+    const supabaseUser = await createClient()
+    const userProfile = await getUserProfile(supabaseUser)
+
     const supabase = await createAdminClient()
 
     // 1. Fetch monthly scales matching unit, sector (if provided), month, year
@@ -46,10 +50,20 @@ export async function getEventosPendentes(params: {
         unidades(nome),
         setores(dicionario_setores(nome))
       `)
-      .eq('unidade_id', params.unidadeId)
+
+    // Apply strict access permissions (Super Admin = tudo, Coordenador/Admin = apenas suas unidades/setores)
+    queryMensal = applyAccessFilters(queryMensal, userProfile)
+
+    if (params.unidadeId) {
+      queryMensal = queryMensal.eq('unidade_id', params.unidadeId)
+    }
 
     if (params.setorId && params.setorId !== 'todos') {
       queryMensal = queryMensal.eq('setor_id', params.setorId)
+    }
+
+    if (params.servidorId && params.servidorId !== 'todos') {
+      queryMensal = queryMensal.eq('servidor_id', params.servidorId)
     }
     if (params.mes) {
       queryMensal = queryMensal.eq('mes', params.mes)

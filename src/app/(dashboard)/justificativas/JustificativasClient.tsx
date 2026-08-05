@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, Fragment } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { 
   ClipboardCheck, Search, Filter, Loader2, Calendar, Building2, Layers, 
@@ -21,12 +21,14 @@ import { RelatorioEventoPrintView } from '@/components/reports/RelatorioEventoPr
 interface JustificativasClientProps {
   unidades: any[]
   setores: any[]
+  servidores?: any[]
   userProfile: any
 }
 
 export function JustificativasClient({
   unidades,
   setores,
+  servidores = [],
   userProfile
 }: JustificativasClientProps) {
   const supabase = createClient()
@@ -43,6 +45,12 @@ export function JustificativasClient({
   const [selectedSetor, setSelectedSetor] = useState(() => {
     if (typeof window !== 'undefined') {
       return sessionStorage.getItem('justificativa_filtro_setor') || ''
+    }
+    return ''
+  })
+  const [selectedServidor, setSelectedServidor] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('justificativa_filtro_servidor') || ''
     }
     return ''
   })
@@ -78,11 +86,12 @@ export function JustificativasClient({
   useEffect(() => {
     sessionStorage.setItem('justificativa_filtro_unidade', selectedUnidade)
     sessionStorage.setItem('justificativa_filtro_setor', selectedSetor)
+    sessionStorage.setItem('justificativa_filtro_servidor', selectedServidor)
     sessionStorage.setItem('justificativa_filtro_mes', String(mes))
     sessionStorage.setItem('justificativa_filtro_ano', String(ano))
     sessionStorage.setItem('justificativa_filtro_categoria', filterCategoria)
     sessionStorage.setItem('justificativa_filtro_status', filterStatus)
-  }, [selectedUnidade, selectedSetor, mes, ano, filterCategoria, filterStatus])
+  }, [selectedUnidade, selectedSetor, selectedServidor, mes, ano, filterCategoria, filterStatus])
 
   // Data states
   const [eventosData, setEventosData] = useState<{
@@ -111,16 +120,22 @@ export function JustificativasClient({
     tipo: 'individual' | 'mensal'
   } | null>(null)
 
-  // Filter sectors for selected unit
+  // Filter sectors and servers for selected unit/sector
   const filteredSetores = setores.filter(s => !selectedUnidade || s.unidade_id === selectedUnidade)
+  const filteredServidores = (servidores || []).filter(s => {
+    if (selectedUnidade && s.unidade_id !== selectedUnidade) return false
+    if (selectedSetor && s.setor_id !== selectedSetor) return false
+    return true
+  })
 
-  // Load events via RPC
+  // Load events via Server Action
   const fetchEventos = useCallback(async () => {
     if (!selectedUnidade) return
     setLoading(true)
     const res = await getEventosPendentes({
       unidadeId: selectedUnidade,
       setorId: selectedSetor || undefined,
+      servidorId: selectedServidor || undefined,
       mes,
       ano,
       categoria: filterCategoria,
@@ -141,7 +156,7 @@ export function JustificativasClient({
       console.error('Erro ao carregar eventos:', res.error)
     }
     setLoading(false)
-  }, [selectedUnidade, selectedSetor, mes, ano, filterCategoria, filterStatus, currentPage])
+  }, [selectedUnidade, selectedSetor, selectedServidor, mes, ano, filterCategoria, filterStatus, currentPage])
 
   // Load templates
   const fetchTemplates = useCallback(async () => {
@@ -267,13 +282,13 @@ export function JustificativasClient({
 
       {/* FILTROS DO CABEÇALHO */}
       <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-6 rounded-3xl shadow-sm space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3">
           {/* Unidade */}
           <div className="space-y-1">
             <label className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Unidade</label>
             <select
               value={selectedUnidade}
-              onChange={(e) => { setSelectedUnidade(e.target.value); setSelectedSetor(''); setCurrentPage(1) }}
+              onChange={(e) => { setSelectedUnidade(e.target.value); setSelectedSetor(''); setSelectedServidor(''); setCurrentPage(1) }}
               className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2.5 text-xs font-bold text-zinc-800 dark:text-zinc-200 focus:ring-2 focus:ring-indigo-500 outline-none"
             >
               {unidades.map(u => (
@@ -287,12 +302,27 @@ export function JustificativasClient({
             <label className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Setor</label>
             <select
               value={selectedSetor}
-              onChange={(e) => { setSelectedSetor(e.target.value); setCurrentPage(1) }}
+              onChange={(e) => { setSelectedSetor(e.target.value); setSelectedServidor(''); setCurrentPage(1) }}
               className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2.5 text-xs font-bold text-zinc-800 dark:text-zinc-200 focus:ring-2 focus:ring-indigo-500 outline-none"
             >
               <option value="">Todos os Setores</option>
               {filteredSetores.map(s => (
                 <option key={s.id} value={s.id}>{s.dicionario_setores?.nome || s.nome}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Servidor */}
+          <div className="space-y-1">
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Servidor</label>
+            <select
+              value={selectedServidor}
+              onChange={(e) => { setSelectedServidor(e.target.value); setCurrentPage(1) }}
+              className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2.5 text-xs font-bold text-zinc-800 dark:text-zinc-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+            >
+              <option value="">Todos os Servidores</option>
+              {filteredServidores.map(s => (
+                <option key={s.id} value={s.id}>{s.nome}</option>
               ))}
             </select>
           </div>
@@ -609,28 +639,62 @@ export function JustificativasClient({
             </div>
           )}
 
-          {/* Paginação */}
-          {eventosData.total > 20 && (
-            <div className="p-4 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-between text-xs font-bold text-zinc-500">
-              <span>Exibindo página {currentPage} de {Math.ceil(eventosData.total / 20)}</span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  disabled={currentPage === 1}
-                  onClick={() => setCurrentPage(p => p - 1)}
-                  className="p-2 bg-zinc-100 dark:bg-zinc-800 rounded-lg hover:bg-zinc-200 disabled:opacity-40"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  disabled={currentPage >= Math.ceil(eventosData.total / 20)}
-                  onClick={() => setCurrentPage(p => p + 1)}
-                  className="p-2 bg-zinc-100 dark:bg-zinc-800 rounded-lg hover:bg-zinc-200 disabled:opacity-40"
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </button>
+          {/* Paginação Padrão do SisEscala */}
+          {eventosData.total > 0 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between border-t border-zinc-200 dark:border-zinc-800 px-6 py-4 bg-zinc-50/50 dark:bg-zinc-900/50 gap-4">
+              <div className="text-xs font-black uppercase tracking-wider text-zinc-400">
+                Mostrando <span className="font-extrabold text-zinc-900 dark:text-white">{eventosData.total === 0 ? 0 : (currentPage - 1) * 20 + 1}</span> a <span className="font-extrabold text-zinc-900 dark:text-white">{Math.min(eventosData.total, currentPage * 20)}</span> de <span className="font-extrabold text-zinc-900 dark:text-white">{eventosData.total}</span> eventos
               </div>
+              {Math.ceil(eventosData.total / 20) > 1 && (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                    disabled={currentPage === 1}
+                    className="px-3 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold text-xs uppercase tracking-wider transition-all hover:bg-zinc-50 dark:hover:bg-zinc-700/50 disabled:opacity-50 active:scale-95"
+                  >
+                    Anterior
+                  </button>
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: Math.ceil(eventosData.total / 20) }, (_, i) => i + 1)
+                      .filter(page => {
+                        const totalPages = Math.ceil(eventosData.total / 20)
+                        if (totalPages <= 5) return true
+                        return Math.abs(page - currentPage) <= 2 || page === 1 || page === totalPages
+                      })
+                      .map((page, idx, arr) => {
+                        const prevPage = arr[idx - 1]
+                        const showEllipsis = prevPage && page - prevPage > 1
+                        return (
+                          <Fragment key={page}>
+                            {showEllipsis && (
+                              <span className="px-1 text-zinc-400 font-bold text-xs">...</span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setCurrentPage(page)}
+                              className={`w-8 h-8 rounded-xl font-black text-xs transition-all active:scale-95 ${
+                                currentPage === page
+                                  ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                                  : 'border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700/50'
+                              }`}
+                            >
+                              {page}
+                            </button>
+                          </Fragment>
+                        )
+                      })}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.ceil(eventosData.total / 20)))}
+                    disabled={currentPage >= Math.ceil(eventosData.total / 20)}
+                    className="px-3 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold text-xs uppercase tracking-wider transition-all hover:bg-zinc-50 dark:hover:bg-zinc-700/50 disabled:opacity-50 active:scale-95"
+                  >
+                    Próxima
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
