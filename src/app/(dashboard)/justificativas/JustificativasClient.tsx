@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { 
   ClipboardCheck, Search, Filter, Loader2, Calendar, Building2, Layers, 
@@ -134,13 +134,22 @@ export function JustificativasClient({
     tipo: 'individual' | 'mensal'
   } | null>(null)
 
-  // Filter sectors and servers for selected unit/sector
+  // Filter sectors and servers for selected unit/sector/search
   const filteredSetores = setores.filter(s => !selectedUnidade || s.unidade_id === selectedUnidade)
-  const filteredServidores = (servidores || []).filter(s => {
-    if (selectedUnidade && s.unidade_id !== selectedUnidade) return false
-    if (selectedSetor && s.setor_id !== selectedSetor) return false
-    return true
-  })
+  
+  const filteredServidores = useMemo(() => {
+    return (servidores || []).filter(s => {
+      if (selectedUnidade && s.unidade_id !== selectedUnidade) return false
+      if (selectedSetor && s.setor_id !== selectedSetor) return false
+      if (servidorSearchText.trim()) {
+        const term = servidorSearchText.toLowerCase().trim()
+        const matchesNome = s.nome?.toLowerCase().includes(term)
+        const matchesMatricula = s.matricula?.toLowerCase().includes(term)
+        return matchesNome || matchesMatricula
+      }
+      return true
+    })
+  }, [servidores, selectedUnidade, selectedSetor, servidorSearchText])
 
   // Load events via Server Action
   const fetchEventos = useCallback(async () => {
@@ -332,28 +341,45 @@ export function JustificativasClient({
             <div className="relative">
               <input
                 type="text"
-                placeholder="Pesquisar nome ou matrícula..."
+                placeholder="Pesquisar por nome ou matrícula..."
                 value={
                   isServidorDropdownOpen
                     ? servidorSearchText
                     : (servidores.find(s => s.id === selectedServidor)?.nome || (servidorSearchText ? servidorSearchText : 'Todos os Servidores'))
                 }
-                onFocus={() => {
+                onFocus={(e) => {
                   setIsServidorDropdownOpen(true)
-                  if (!selectedServidor) setServidorSearchText('')
+                  e.target.select()
                 }}
                 onChange={(e) => {
-                  setServidorSearchText(e.target.value)
+                  const val = e.target.value
+                  setServidorSearchText(val)
                   setIsServidorDropdownOpen(true)
-                  if (!e.target.value) {
+                  if (!val) {
                     setSelectedServidor('')
                     setCurrentPage(1)
                   }
                 }}
-                className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl pl-3 pr-8 py-2.5 text-xs font-bold text-zinc-800 dark:text-zinc-200 focus:ring-2 focus:ring-indigo-500 outline-none truncate"
+                className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl pl-3 pr-9 py-2.5 text-xs font-bold text-zinc-800 dark:text-zinc-200 focus:ring-2 focus:ring-indigo-500 outline-none truncate cursor-pointer"
               />
-              <div className="absolute inset-y-0 right-0 flex items-center pr-2.5 pointer-events-none text-zinc-400">
-                <Search className="h-3.5 w-3.5" />
+              <div className="absolute inset-y-0 right-0 flex items-center pr-2.5 gap-1">
+                {(selectedServidor || servidorSearchText) ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setSelectedServidor('')
+                      setServidorSearchText('')
+                      setIsServidorDropdownOpen(false)
+                      setCurrentPage(1)
+                    }}
+                    className="p-0.5 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded-full text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors"
+                  >
+                    <XCircle className="h-3.5 w-3.5" />
+                  </button>
+                ) : (
+                  <Search className="h-3.5 w-3.5 text-zinc-400 pointer-events-none" />
+                )}
               </div>
             </div>
 
