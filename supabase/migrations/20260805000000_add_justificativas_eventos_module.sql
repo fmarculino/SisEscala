@@ -542,3 +542,25 @@ CREATE POLICY "Leitura justificativas_assinaturas" ON public.justificativas_assi
 DROP POLICY IF EXISTS "Escrita justificativas_assinaturas" ON public.justificativas_assinaturas;
 CREATE POLICY "Escrita justificativas_assinaturas" ON public.justificativas_assinaturas
     FOR ALL USING (auth.uid() IS NOT NULL);
+
+-- 13. SEED DE TEMPLATES PADRÃO DE JUSTIFICATIVA (3 PARA CADA CATEGORIA)
+INSERT INTO public.justificativas_padrao (titulo, texto, categoria, ativo)
+SELECT * FROM (VALUES
+    -- HORA EXTRA
+    ('Demanda Emergencial / Pico de Atendimento', 'Convocação extraordinária para cobertura de alta demanda e atendimento emergencial durante período de pico assistencial.', 'Extra', true),
+    ('Substituição por Afastamento Médico', 'Realização de jornada extraordinária para substituição de servidor afastado por motivo de atestado médico ou licença de saúde.', 'Extra', true),
+    ('Mutirão de Exames / Procedimentos', 'Execução de horas extraordinárias para mutirão assistencial visando redução da fila de espera e cumprimento de metas.', 'Extra', true),
+    
+    -- PLANTÃO
+    ('Plantão de Reforço em Finais de Semana / Feriados', 'Cumprimento de escala de plantão presencial complementar para reforço da equipe assistencial em finais de semana ou feriados.', 'Plantão', true),
+    ('Substituição de Plantonista Faltoso', 'Plantão extraordinário realizado para cobertura de ausência imprevisível de profissional plantonista, assegurando a escala mínima.', 'Plantão', true),
+    ('Ações Integradas de Saúde Pública', 'Escala de plantão presencial direcionada ao atendimento em campanhas especiais de vacinação e ações integradas do município.', 'Plantão', true),
+    
+    -- SOBREAVISO
+    ('Suporte de Prontidão à Distância', 'Permanência do servidor em regime de sobreaviso à distância para pronto atendimento a chamados de urgência do setor.', 'Sobreaviso', true),
+    ('Sobreaviso Noturno e Finais de Semana', 'Disponibilidade em regime de sobreaviso durante o período noturno e finais de semana para chamados emergenciais.', 'Sobreaviso', true),
+    ('Sobreaviso de Infraestrutura e TI', 'Permanência de prontidão técnica em sobreaviso para atendimento a falhas críticas de infraestrutura, logística ou sistemas.', 'Sobreaviso', true)
+) AS v(titulo, texto, categoria, ativo)
+WHERE NOT EXISTS (
+    SELECT 1 FROM public.justificativas_padrao WHERE titulo = v.titulo
+);

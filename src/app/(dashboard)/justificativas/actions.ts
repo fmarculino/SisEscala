@@ -341,10 +341,80 @@ export async function getTemplatesPadrao(unidadeId?: string, setorId?: string) {
       query = query.or(`unidade_id.is.null,unidade_id.eq.${unidadeId}`)
     }
 
-    const { data, error } = await query
+    let { data, error } = await query
 
     if (error) {
       return { error: error.message }
+    }
+
+    // Auto-seed 3 default templates for each category (Hora Extra, Plantão, Sobreaviso) if none exist
+    if (!data || data.length === 0) {
+      const adminClient = await createAdminClient()
+      const defaultTemplates = [
+        // HORA EXTRA
+        {
+          titulo: 'Demanda Emergencial / Pico de Atendimento',
+          texto: 'Convocação extraordinária para cobertura de alta demanda e atendimento emergencial durante período de pico assistencial.',
+          categoria: 'Extra',
+          ativo: true
+        },
+        {
+          titulo: 'Substituição por Afastamento Médico',
+          texto: 'Realização de jornada extraordinária para substituição de servidor afastado por motivo de atestado médico ou licença de saúde.',
+          categoria: 'Extra',
+          ativo: true
+        },
+        {
+          titulo: 'Mutirão de Exames / Procedimentos',
+          texto: 'Execução de horas extraordinárias para mutirão assistencial visando redução da fila de espera e cumprimento de metas.',
+          categoria: 'Extra',
+          ativo: true
+        },
+        // PLANTÃO
+        {
+          titulo: 'Plantão de Reforço em Finais de Semana / Feriados',
+          texto: 'Cumprimento de escala de plantão presencial complementar para reforço da equipe assistencial em finais de semana ou feriados.',
+          categoria: 'Plantão',
+          ativo: true
+        },
+        {
+          titulo: 'Substituição de Plantonista Faltoso',
+          texto: 'Plantão extraordinário realizado para cobertura de ausência imprevisível de profissional plantonista, assegurando a escala mínima.',
+          categoria: 'Plantão',
+          ativo: true
+        },
+        {
+          titulo: 'Ações Integradas de Saúde Pública',
+          texto: 'Escala de plantão presencial direcionada ao atendimento em campanhas especiais de vacinação e ações integradas do município.',
+          categoria: 'Plantão',
+          ativo: true
+        },
+        // SOBREAVISO
+        {
+          titulo: 'Suporte de Prontidão à Distância',
+          texto: 'Permanência do servidor em regime de sobreaviso à distância para pronto atendimento a chamados de urgência do setor.',
+          categoria: 'Sobreaviso',
+          ativo: true
+        },
+        {
+          titulo: 'Sobreaviso Noturno e Finais de Semana',
+          texto: 'Disponibilidade em regime de sobreaviso durante o período noturno e finais de semana para chamados emergenciais.',
+          categoria: 'Sobreaviso',
+          ativo: true
+        },
+        {
+          titulo: 'Sobreaviso de Infraestrutura e TI',
+          texto: 'Permanência de prontidão técnica em sobreaviso para atendimento a falhas críticas de infraestrutura, logística ou sistemas.',
+          categoria: 'Sobreaviso',
+          ativo: true
+        }
+      ]
+
+      await adminClient.from('justificativas_padrao').insert(defaultTemplates)
+
+      // Re-fetch after seeding
+      const refetched = await query
+      data = refetched.data || []
     }
 
     return { templates: data || [] }
