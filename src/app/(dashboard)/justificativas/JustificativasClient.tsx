@@ -1065,8 +1065,11 @@ export function JustificativasClient({
         <RelatorioEventoPrintView
           unidadeId={selectedUnidade}
           setorId={selectedSetor}
+          servidorId={selectedServidor}
           mes={mes}
           ano={ano}
+          categoria={filterCategoria}
+          status={filterStatus}
           eventos={eventosData.items}
           modoAssinatura={printReport.modoAssinatura}
           onClose={() => setPrintReport(null)}

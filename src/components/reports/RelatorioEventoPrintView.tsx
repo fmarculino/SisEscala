@@ -3,14 +3,18 @@
 import React, { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { createClient } from '@/utils/supabase/client'
-import { Printer, X, ShieldCheck, FileText, Download, Lock } from 'lucide-react'
+import { Printer, X, ShieldCheck, FileText, Download, Lock, Loader2 } from 'lucide-react'
+import { getEventosPendentes } from '@/app/(dashboard)/justificativas/actions'
 
 interface RelatorioEventoPrintViewProps {
   unidadeId: string
   setorId?: string
+  servidorId?: string
   mes: number
   ano: number
-  eventos: any[]
+  categoria?: string
+  status?: string
+  eventos?: any[]
   modoAssinatura: 'manual' | 'a1' | 'govbr' | 'mista'
   onClose: () => void
 }
@@ -18,9 +22,12 @@ interface RelatorioEventoPrintViewProps {
 export function RelatorioEventoPrintView({
   unidadeId,
   setorId,
+  servidorId,
   mes,
   ano,
-  eventos,
+  categoria,
+  status,
+  eventos = [],
   modoAssinatura,
   onClose
 }: RelatorioEventoPrintViewProps) {
@@ -28,6 +35,8 @@ export function RelatorioEventoPrintView({
   const [headerLogoUrl, setHeaderLogoUrl] = useState<string>('')
   const [unidadeNome, setUnidadeNome] = useState<string>('Unidade de Saúde')
   const [setorNome, setSetorNome] = useState<string>('Todos os Setores')
+  const [reportEventos, setReportEventos] = useState<any[]>(eventos || [])
+  const [loadingEventos, setLoadingEventos] = useState(true)
   const supabase = createClient()
 
   // Generate SHA-256 hash for integrity
@@ -36,6 +45,7 @@ export function RelatorioEventoPrintView({
   useEffect(() => {
     setMounted(true)
     async function loadData() {
+      setLoadingEventos(true)
       // Header logo
       const { data: logoData } = await supabase
         .from('configuracoes_globais')
@@ -64,22 +74,44 @@ export function RelatorioEventoPrintView({
         const dict = Array.isArray(sData?.dicionario_setores) ? sData.dicionario_setores[0] : sData?.dicionario_setores
         if (dict?.nome) setSetorNome(dict.nome)
       }
+
+      // Fetch ALL events for the entire month for the print report (bypassing table pagination)
+      const res = await getEventosPendentes({
+        unidadeId,
+        setorId: setorId || undefined,
+        servidorId: servidorId || undefined,
+        mes,
+        ano,
+        categoria: categoria || 'todos',
+        status: status || 'todos',
+        page: 1,
+        perPage: 10000
+      })
+
+      if (res.data?.items) {
+        setReportEventos(res.data.items)
+      } else {
+        setReportEventos(eventos || [])
+      }
+      setLoadingEventos(false)
     }
     loadData()
+  }, [unidadeId, setorId, servidorId, mes, ano, categoria, status])
 
-    // Calculate deterministic SHA-256 hash representation
-    const seed = `${unidadeId}-${setorId}-${mes}-${ano}-${eventos.length}-${Date.now()}`
+  useEffect(() => {
+    if (!reportEventos) return
+    const seed = `${unidadeId}-${setorId}-${mes}-${ano}-${reportEventos.length}-${Date.now()}`
     let hash = 0
     for (let i = 0; i < seed.length; i++) {
       hash = seed.charCodeAt(i) + ((hash << 5) - hash)
     }
     const hex = Math.abs(hash).toString(16).padStart(8, '0')
     setHashSha256(`SHA256:${hex.repeat(4).substring(0, 40).toUpperCase()}`)
-  }, [unidadeId, setorId, mes, ano, eventos, supabase])
+  }, [unidadeId, setorId, mes, ano, reportEventos])
 
   if (!mounted) return null
 
-  const justificadosList = eventos.filter(e => e.texto_justificativa)
+  const justificadosList = reportEventos.filter(e => e.texto_justificativa)
   const mesFormatado = new Date(ano, mes - 1, 1).toLocaleString('pt-BR', { month: 'long' }).toUpperCase()
 
   const printContent = (
@@ -203,9 +235,9 @@ export function RelatorioEventoPrintView({
 
         {/* Resumo de Contagem */}
         <div className="flex justify-between text-xs font-sans font-bold border-t border-b border-black py-2">
-          <span>Total de Eventos: {eventos.length}</span>
+          <span>Total de Eventos: {reportEventos.length}</span>
           <span>Justificados: {justificadosList.length}</span>
-          <span>Pendentes: {eventos.length - justificadosList.length}</span>
+          <span>Pendentes: {reportEventos.length - justificadosList.length}</span>
         </div>
 
         {/* Declaração de Responsabilidade */}
