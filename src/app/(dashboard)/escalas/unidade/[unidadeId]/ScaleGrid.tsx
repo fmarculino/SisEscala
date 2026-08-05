@@ -444,6 +444,10 @@ export function ScaleGrid({
                   intervalo_saida: !!ed.presenca_intervalo_saida_em,
                   intervalo_retorno: !!ed.presenca_intervalo_retorno_em,
                   saida: !!ed.presenca_saida_em,
+                  entrada_em: ed.presenca_entrada_em || null,
+                  intervalo_saida_em: ed.presenca_intervalo_saida_em || null,
+                  intervalo_retorno_em: ed.presenca_intervalo_retorno_em || null,
+                  saida_em: ed.presenca_saida_em || null,
                   is_entrada_manual: ed.presenca_entrada_manual !== undefined ? !!ed.presenca_entrada_manual : !!ed.confirmado_por_id,
                   is_intervalo_saida_manual: !!ed.presenca_intervalo_saida_manual,
                   is_intervalo_retorno_manual: !!ed.presenca_intervalo_retorno_manual,
@@ -480,8 +484,8 @@ export function ScaleGrid({
     return initial
   })
 
-  const [presenceData, setPresenceData] = useState<Record<string, Record<RowCategory, Record<number, { entrada: boolean, intervalo_saida: boolean, intervalo_retorno: boolean, saida: boolean, is_entrada_manual?: boolean, is_intervalo_saida_manual?: boolean, is_intervalo_retorno_manual?: boolean, is_saida_manual?: boolean }>>>>(() => {
-    const initial: Record<string, Record<RowCategory, Record<number, { entrada: boolean, intervalo_saida: boolean, intervalo_retorno: boolean, saida: boolean, is_entrada_manual?: boolean, is_intervalo_saida_manual?: boolean, is_intervalo_retorno_manual?: boolean, is_saida_manual?: boolean }>>> = {}
+  const [presenceData, setPresenceData] = useState<Record<string, Record<RowCategory, Record<number, { entrada: boolean, intervalo_saida: boolean, intervalo_retorno: boolean, saida: boolean, entrada_em?: string | null, intervalo_saida_em?: string | null, intervalo_retorno_em?: string | null, saida_em?: string | null, is_entrada_manual?: boolean, is_intervalo_saida_manual?: boolean, is_intervalo_retorno_manual?: boolean, is_saida_manual?: boolean }>>>>(() => {
+    const initial: Record<string, Record<RowCategory, Record<number, { entrada: boolean, intervalo_saida: boolean, intervalo_retorno: boolean, saida: boolean, entrada_em?: string | null, intervalo_saida_em?: string | null, intervalo_retorno_em?: string | null, saida_em?: string | null, is_entrada_manual?: boolean, is_intervalo_saida_manual?: boolean, is_intervalo_retorno_manual?: boolean, is_saida_manual?: boolean }>>> = {}
     escalaMensalInicial.forEach(em => {
       initial[em.servidor_id] = {
         'Regular': {},
@@ -497,6 +501,10 @@ export function ScaleGrid({
           intervalo_saida: !!ed.presenca_intervalo_saida_em,
           intervalo_retorno: !!ed.presenca_intervalo_retorno_em,
           saida: !!ed.presenca_saida_em,
+          entrada_em: ed.presenca_entrada_em || null,
+          intervalo_saida_em: ed.presenca_intervalo_saida_em || null,
+          intervalo_retorno_em: ed.presenca_intervalo_retorno_em || null,
+          saida_em: ed.presenca_saida_em || null,
           is_entrada_manual: ed.presenca_entrada_manual !== undefined ? !!ed.presenca_entrada_manual : !!ed.confirmado_por_id,
           is_intervalo_saida_manual: !!ed.presenca_intervalo_saida_manual,
           is_intervalo_retorno_manual: !!ed.presenca_intervalo_retorno_manual,
@@ -1415,6 +1423,119 @@ export function ScaleGrid({
     return currentHour >= endHour
   }
 
+  const formatPresenceTime = useCallback((isoString?: string | null) => {
+    if (!isoString) return null
+    try {
+      const d = new Date(isoString)
+      if (isNaN(d.getTime())) return null
+      return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    } catch {
+      return null
+    }
+  }, [])
+
+  const getShiftForecastTime = useCallback((turnoId: string, tipo: 'entrada' | 'intervalo_saida' | 'intervalo_retorno' | 'saida') => {
+    if (!turnoId) return null
+    const turno = turnos.find(t => t.id === turnoId)
+    if (!turno) return null
+
+    let startH = 7
+    let endH = 19
+
+    if (turno.horario_inicio) {
+      const parts = turno.horario_inicio.split(':')
+      if (parts.length >= 2) startH = parseInt(parts[0], 10)
+    } else if (turno.codigo) {
+      startH = getShiftStartHour(turno.codigo)
+    }
+
+    if (turno.horario_fim) {
+      const parts = turno.horario_fim.split(':')
+      if (parts.length >= 2) endH = parseInt(parts[0], 10)
+    } else if (turno.codigo) {
+      endH = getShiftEndHour(turno.codigo, turno.horas_computadas)
+    }
+
+    const padHour = (h: number) => `${String(h % 24).padStart(2, '0')}:00`
+
+    if (tipo === 'entrada') return padHour(startH)
+    if (tipo === 'saida') return padHour(endH)
+    if (tipo === 'intervalo_saida') return padHour(startH + 4)
+    if (tipo === 'intervalo_retorno') return padHour(startH + 5)
+    return null
+  }, [turnos, getShiftStartHour, getShiftEndHour])
+
+  const getAttemptTime = useCallback((servidorId: string, day: number, tipo: string) => {
+    const matches = logsTentativas.filter(l => {
+      if (l.servidor_id !== servidorId) return false
+      const d = new Date(l.data_hora_tentativa)
+      if (d.getDate() !== day || d.getMonth() + 1 !== mes || d.getFullYear() !== ano) return false
+      if (tipo === 'entrada' && (l.motivo_acionamento?.toLowerCase().includes('entrada') || l.tipo_presenca?.toLowerCase().includes('entrada'))) return true
+      if (tipo === 'saida' && (l.motivo_acionamento?.toLowerCase().includes('saí') || l.motivo_acionamento?.toLowerCase().includes('sai') || l.tipo_presenca?.toLowerCase().includes('sai'))) return true
+      return true
+    })
+    if (matches.length === 0) return null
+    matches.sort((a, b) => new Date(b.data_hora_tentativa).getTime() - new Date(a.data_hora_tentativa).getTime())
+    const lastAttempt = matches[0]
+    try {
+      const dt = new Date(lastAttempt.data_hora_tentativa)
+      return dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    } catch {
+      return null
+    }
+  }, [logsTentativas, mes, ano])
+
+  const getSegmentTooltip = useCallback((
+    segmentIndex: number,
+    labelBase: string,
+    isConfirmed: boolean,
+    isPendingYellow: boolean,
+    isRed: boolean,
+    recordedIso: string | null | undefined,
+    isManual: boolean | undefined,
+    servidorId: string,
+    day: number,
+    turnoId: string,
+    tipo: 'entrada' | 'intervalo_saida' | 'intervalo_retorno' | 'saida'
+  ) => {
+    const showHoverDetails = configs['exibir_horarios_indicadores_presenca'] !== 'false'
+    const prefix = segmentIndex > 0 ? `${segmentIndex}. ` : ''
+    
+    if (!showHoverDetails) {
+      if (isConfirmed) return `${prefix}${labelBase} Confirmada (Clique para reverter)`
+      if (isPendingYellow) return `${prefix}Em Expediente (${labelBase})`
+      if (isRed) return `${prefix}${labelBase} Faltante/Pendente`
+      return `${prefix}${labelBase} Programada`
+    }
+
+    const recTime = formatPresenceTime(recordedIso)
+    const forecastTime = getShiftForecastTime(turnoId, tipo)
+    const attemptTime = getAttemptTime(servidorId, day, tipo)
+
+    if (isConfirmed) {
+      const origText = isManual ? 'Manual' : 'Terminal'
+      const timeInfo = recTime ? ` às ${recTime} (${origText})` : ''
+      return `${prefix}${labelBase} Confirmada${timeInfo} • Clique para reverter`
+    }
+
+    if (isPendingYellow) {
+      const prevText = forecastTime ? ` • Previsão: ${forecastTime}` : ''
+      return `${prefix}Aguardando ${labelBase}${prevText}`
+    }
+
+    if (isRed) {
+      if (attemptTime) {
+        return `${prefix}${labelBase} Faltante • Tentativa em ${attemptTime} (Negada)`
+      }
+      const prevText = forecastTime ? ` (Previsão era ${forecastTime})` : ''
+      return `${prefix}${labelBase} Faltante/Pendente • Sem tentativa registrada${prevText}`
+    }
+
+    const prevText = forecastTime ? ` • Horário previsto: ${forecastTime}` : ''
+    return `${prefix}${labelBase} Programada${prevText}`
+  }, [configs, formatPresenceTime, getShiftForecastTime, getAttemptTime])
+
+
   const handleCloseModal = () => {
     setTriggerModal(null)
     setGeneratedLink(null)
@@ -1496,7 +1617,7 @@ export function ScaleGrid({
       if (error) throw error
 
       if (dailies) {
-        const newPresence: Record<string, Record<RowCategory, Record<number, { entrada: boolean, intervalo_saida: boolean, intervalo_retorno: boolean, saida: boolean, is_entrada_manual?: boolean, is_intervalo_saida_manual?: boolean, is_intervalo_retorno_manual?: boolean, is_saida_manual?: boolean }>>> = {}
+        const newPresence: Record<string, Record<RowCategory, Record<number, { entrada: boolean, intervalo_saida: boolean, intervalo_retorno: boolean, saida: boolean, entrada_em?: string | null, intervalo_saida_em?: string | null, intervalo_retorno_em?: string | null, saida_em?: string | null, is_entrada_manual?: boolean, is_intervalo_saida_manual?: boolean, is_intervalo_retorno_manual?: boolean, is_saida_manual?: boolean }>>> = {}
         escalaMensal.forEach(em => {
           newPresence[em.servidor_id] = {
             'Regular': {}, 'Extra': {}, 'Plantão': {}, 'Sobreaviso': {}
@@ -1509,6 +1630,10 @@ export function ScaleGrid({
               intervalo_saida: !!ed.presenca_intervalo_saida_em,
               intervalo_retorno: !!ed.presenca_intervalo_retorno_em,
               saida: !!ed.presenca_saida_em,
+              entrada_em: ed.presenca_entrada_em || null,
+              intervalo_saida_em: ed.presenca_intervalo_saida_em || null,
+              intervalo_retorno_em: ed.presenca_intervalo_retorno_em || null,
+              saida_em: ed.presenca_saida_em || null,
               is_entrada_manual: ed.presenca_entrada_manual !== undefined ? !!ed.presenca_entrada_manual : !!ed.confirmado_por_id,
               is_intervalo_saida_manual: !!ed.presenca_intervalo_saida_manual,
               is_intervalo_retorno_manual: !!ed.presenca_intervalo_retorno_manual,
@@ -3107,25 +3232,25 @@ export function ScaleGrid({
                                         <div 
                                           onClick={(e) => { e.stopPropagation(); handleSegmentClick('entrada', !!presence.entrada, presence.is_entrada_manual) }}
                                           className={`flex-1 h-full cursor-pointer transition-colors ${presence.entrada ? 'bg-emerald-500 hover:bg-emerald-600' : (redEntrada ? 'bg-red-500 hover:bg-red-600' : 'bg-transparent hover:bg-zinc-300 dark:hover:bg-zinc-600')}`} 
-                                          title={presence.entrada ? "1. Entrada Confirmada (Clique para reverter)" : (redEntrada ? "1. Entrada Faltante/Pendente" : "1. Entrada Programada")} 
+                                          title={getSegmentTooltip(1, 'Entrada', !!presence.entrada, false, redEntrada, presence.entrada_em, presence.is_entrada_manual, em.servidor_id, day, turnoId, 'entrada')} 
                                         />
                                         {/* Segmento 2: Saída Intervalo */}
                                         <div 
                                           onClick={(e) => { e.stopPropagation(); handleSegmentClick('intervalo_saida', !!presence.intervalo_saida, presence.is_intervalo_saida_manual) }}
                                           className={`flex-1 h-full cursor-pointer transition-colors ${presence.intervalo_saida ? 'bg-emerald-500 hover:bg-emerald-600' : (presence.entrada && !presence.intervalo_saida && isToday ? 'bg-amber-400 animate-pulse hover:bg-amber-500' : 'bg-transparent hover:bg-zinc-300 dark:hover:bg-zinc-600')}`} 
-                                          title={presence.intervalo_saida ? "2. Saída do Intervalo Confirmada" : (presence.entrada && isToday ? "2. Em Expediente (Aguardando Pausa)" : "2. Saída do Intervalo")} 
+                                          title={getSegmentTooltip(2, 'Saída do Intervalo', !!presence.intervalo_saida, !!(presence.entrada && !presence.intervalo_saida && isToday), false, presence.intervalo_saida_em, presence.is_intervalo_saida_manual, em.servidor_id, day, turnoId, 'intervalo_saida')} 
                                         />
                                         {/* Segmento 3: Retorno Intervalo */}
                                         <div 
                                           onClick={(e) => { e.stopPropagation(); handleSegmentClick('intervalo_retorno', !!presence.intervalo_retorno, presence.is_intervalo_retorno_manual) }}
                                           className={`flex-1 h-full cursor-pointer transition-colors ${presence.intervalo_retorno ? 'bg-emerald-500 hover:bg-emerald-600' : (presence.intervalo_saida && !presence.intervalo_retorno && isToday ? 'bg-amber-400 animate-pulse hover:bg-amber-500' : 'bg-transparent hover:bg-zinc-300 dark:hover:bg-zinc-600')}`} 
-                                          title={presence.intervalo_retorno ? "3. Retorno do Intervalo Confirmado" : (presence.intervalo_saida && isToday ? "3. Em Pausa/Almoço (Aguardando Retorno)" : "3. Retorno do Intervalo")} 
+                                          title={getSegmentTooltip(3, 'Retorno do Intervalo', !!presence.intervalo_retorno, !!(presence.intervalo_saida && !presence.intervalo_retorno && isToday), false, presence.intervalo_retorno_em, presence.is_intervalo_retorno_manual, em.servidor_id, day, turnoId, 'intervalo_retorno')} 
                                         />
                                         {/* Segmento 4: Saída Final */}
                                         <div 
                                           onClick={(e) => { e.stopPropagation(); handleSegmentClick('saida', !!presence.saida, presence.is_saida_manual) }}
                                           className={`flex-1 h-full cursor-pointer transition-colors ${presence.saida ? 'bg-emerald-500 hover:bg-emerald-600' : (presence.intervalo_retorno && isToday ? 'bg-amber-400 animate-pulse hover:bg-amber-500' : (redSaida ? 'bg-red-500 hover:bg-red-600' : 'bg-transparent hover:bg-zinc-300 dark:hover:bg-zinc-600'))}`} 
-                                          title={presence.saida ? "4. Saída Final Confirmada" : (presence.intervalo_retorno && isToday ? "4. Em Atendimento (Aguardando Encerramento)" : (redSaida ? "4. Saída Faltante/Pendente" : "4. Saída Final Programada"))} 
+                                          title={getSegmentTooltip(4, 'Saída Final', !!presence.saida, !!(presence.intervalo_retorno && !presence.saida && isToday), redSaida, presence.saida_em, presence.is_saida_manual, em.servidor_id, day, turnoId, 'saida')} 
                                         />
                                       </>
                                     )
@@ -3137,13 +3262,13 @@ export function ScaleGrid({
                                       <div 
                                         onClick={(e) => { e.stopPropagation(); handleSegmentClick('entrada', !!presence.entrada, presence.is_entrada_manual) }}
                                         className={`flex-1 h-full cursor-pointer transition-colors ${presence.entrada ? 'bg-emerald-500 hover:bg-emerald-600' : (redEntrada ? 'bg-red-500 hover:bg-red-600' : 'bg-transparent hover:bg-zinc-300 dark:hover:bg-zinc-600')}`} 
-                                        title={presence.entrada ? "Entrada Confirmada (Clique para reverter)" : (redEntrada ? "Entrada Faltante/Pendente" : "Entrada Programada")} 
+                                        title={getSegmentTooltip(0, 'Entrada', !!presence.entrada, false, redEntrada, presence.entrada_em, presence.is_entrada_manual, em.servidor_id, day, turnoId, 'entrada')} 
                                       />
                                       {/* Metade Saída */}
                                       <div 
                                         onClick={(e) => { e.stopPropagation(); handleSegmentClick('saida', !!presence.saida, presence.is_saida_manual) }}
                                         className={`flex-1 h-full cursor-pointer transition-colors ${presence.saida ? 'bg-emerald-500 hover:bg-emerald-600' : (presence.entrada && isToday ? 'bg-amber-400 animate-pulse hover:bg-amber-500' : (redSaida ? 'bg-red-500 hover:bg-red-600' : 'bg-transparent hover:bg-zinc-300 dark:hover:bg-zinc-600'))}`} 
-                                        title={presence.saida ? "Saída Confirmada (Clique para reverter)" : (presence.entrada && isToday ? "Em Plantão" : (redSaida ? "Saída Faltante/Pendente" : "Saída Programada"))} 
+                                        title={getSegmentTooltip(0, 'Saída', !!presence.saida, !!(presence.entrada && !presence.saida && isToday), redSaida, presence.saida_em, presence.is_saida_manual, em.servidor_id, day, turnoId, 'saida')} 
                                       />
                                     </>
                                   )

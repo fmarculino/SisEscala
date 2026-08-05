@@ -756,6 +756,32 @@ export default function ConfigPage() {
           </div>
         </div>
 
+        {/* Detalhamento de Horários nos Indicadores da Grade (Hover) */}
+        <div className="bg-white dark:bg-zinc-900 rounded-[2rem] border border-zinc-200 dark:border-zinc-800 p-8 shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex flex-col md:flex-row md:items-center gap-8">
+            <div className="p-4 bg-emerald-100 dark:bg-emerald-900/30 rounded-2xl text-emerald-600">
+              <Eye className="h-6 w-6" />
+            </div>
+            <div className="flex-1 space-y-1">
+              <h3 className="text-lg font-black text-zinc-900 dark:text-white uppercase tracking-tight">Detalhamento dos Indicadores de Presença (Hover)</h3>
+              <p className="text-sm text-zinc-500 leading-relaxed max-w-2xl">
+                Ao passar o mouse sobre os tracinhos verde, amarelo e vermelho da grade de escala, exibe o horário registrado, previsão de horário ou horário tentado.
+              </p>
+            </div>
+            <div className="flex items-center gap-4 bg-zinc-50 dark:bg-zinc-800 p-2 rounded-2xl border border-zinc-200 dark:border-zinc-700 w-full md:w-auto">
+              <select 
+                className="w-full md:w-64 bg-white dark:bg-zinc-900 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none font-bold transition-all"
+                value={getConfig('exibir_horarios_indicadores_presenca')?.valor !== undefined ? String(getConfig('exibir_horarios_indicadores_presenca')?.valor) : 'true'}
+                onChange={(e) => updateConfig('exibir_horarios_indicadores_presenca', e.target.value)}
+              >
+                <option value="true">Habilitado (Exibir horários e previsões)</option>
+                <option value="false">Desabilitado (Apenas status simples)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+
 
         {/* Gestão de Afastamentos e Eventos */}
         <div className="bg-white dark:bg-zinc-900 rounded-[2rem] border border-zinc-200 dark:border-zinc-800 p-8 shadow-sm hover:shadow-md transition-shadow">
