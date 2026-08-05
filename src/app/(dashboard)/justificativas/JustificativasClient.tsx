@@ -15,6 +15,7 @@ import { JustificativaModal } from '@/components/justificativas/JustificativaMod
 import { JustificativaBulkModal } from '@/components/justificativas/JustificativaBulkModal'
 import { TemplatePadraoModal } from '@/components/justificativas/TemplatePadraoModal'
 import { ValidarSugestaoModal } from '@/components/justificativas/ValidarSugestaoModal'
+import { AssinaturaDigitalModal } from '@/components/justificativas/AssinaturaDigitalModal'
 import { RelatorioEventoPrintView } from '@/components/reports/RelatorioEventoPrintView'
 
 interface JustificativasClientProps {
@@ -100,6 +101,7 @@ export function JustificativasClient({
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false)
   const [templateModalData, setTemplateModalData] = useState<{ isOpen: boolean; template: any | null }>({ isOpen: false, template: null })
   const [validarSugestaoData, setValidarSugestaoData] = useState<any | null>(null)
+  const [isA1ModalOpen, setIsA1ModalOpen] = useState(false)
 
   // Print view state
   const [printReport, setPrintReport] = useState<{
@@ -801,7 +803,7 @@ export function JustificativasClient({
             </div>
 
             <div className="p-6 bg-zinc-50 dark:bg-zinc-800/60 rounded-3xl border border-zinc-200 dark:border-zinc-700/80 space-y-4 hover:border-purple-500 transition-all cursor-pointer group"
-                 onClick={() => setPrintReport({ isOpen: true, modoAssinatura: 'a1', tipo: 'mensal' })}
+                 onClick={() => setIsA1ModalOpen(true)}
             >
               <div className="p-3 bg-purple-100 dark:bg-purple-950/60 rounded-2xl w-fit text-purple-600">
                 <Sparkles className="h-6 w-6" />
@@ -813,7 +815,7 @@ export function JustificativasClient({
             </div>
 
             <div className="p-6 bg-zinc-50 dark:bg-zinc-800/60 rounded-3xl border border-zinc-200 dark:border-zinc-700/80 space-y-4 hover:border-green-500 transition-all cursor-pointer group"
-                 onClick={() => setPrintReport({ isOpen: true, modoAssinatura: 'mista', tipo: 'mensal' })}
+                 onClick={() => setIsA1ModalOpen(true)}
             >
               <div className="p-3 bg-green-100 dark:bg-green-950/60 rounded-2xl w-fit text-green-600">
                 <Layers className="h-6 w-6" />
@@ -865,6 +867,26 @@ export function JustificativasClient({
           onClose={() => setValidarSugestaoData(null)}
           sugestao={validarSugestaoData}
           onValidar={handleValidarSugestao}
+        />
+      )}
+
+      {isA1ModalOpen && (
+        <AssinaturaDigitalModal
+          isOpen={isA1ModalOpen}
+          onClose={() => setIsA1ModalOpen(false)}
+          metadados={{
+            unidadeId: selectedUnidade,
+            setorId: selectedSetor,
+            mes,
+            ano,
+            relatorioTipo: 'mensal',
+            modoAssinatura: 'a1',
+            totalEventos: eventosData.total
+          }}
+          onSignatureSuccess={() => {
+            setIsA1ModalOpen(false)
+            setPrintReport({ isOpen: true, modoAssinatura: 'a1', tipo: 'mensal' })
+          }}
         />
       )}
 
