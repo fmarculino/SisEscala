@@ -1434,7 +1434,13 @@ export function ScaleGrid({
     }
   }, [])
 
-  const getShiftForecastTime = useCallback((turnoId: string, tipo: 'entrada' | 'intervalo_saida' | 'intervalo_retorno' | 'saida') => {
+  const getShiftForecastTime = useCallback((
+    turnoId: string, 
+    tipo: 'entrada' | 'intervalo_saida' | 'intervalo_retorno' | 'saida',
+    servidorId?: string,
+    cat?: string,
+    day?: number
+  ) => {
     if (!turnoId) return null
     const turno = turnos.find(t => t.id === turnoId)
     if (!turno) return null
@@ -1456,14 +1462,129 @@ export function ScaleGrid({
       endH = getShiftEndHour(turno.codigo, turno.horas_computadas)
     }
 
-    const padHour = (h: number) => `${String(h % 24).padStart(2, '0')}:00`
+    let jornada: any = null
+    let sRecord: any = null
 
-    if (tipo === 'entrada') return padHour(startH)
-    if (tipo === 'saida') return padHour(endH)
-    if (tipo === 'intervalo_saida') return padHour(startH + 4)
-    if (tipo === 'intervalo_retorno') return padHour(startH + 5)
+    if (servidorId) {
+      sRecord = todosServidoresSetor.find(s => s.id === servidorId)
+      const emRecord = escalaMensal.find(e => e.servidor_id === servidorId)
+      if (emRecord?.jornada_id) {
+        jornada = jornadas.find(j => j.id === emRecord.jornada_id)
+      }
+    }
+
+    // Se for categoria Regular e o servidor tiver jornada cadastrada (coluna Tipo),
+    // a hora de início/fim da jornada (ex: "18H ÀS 06H") se sobrepõe ao padrão do código do turno
+    if (cat === 'Regular' && jornada?.nome) {
+      const matchStart = jornada.nome.match(/^([0-9]+)/)
+      if (matchStart) {
+        startH = parseInt(matchStart[1], 10)
+      }
+      const matchEnd = jornada.nome.match(/(?:ÀS|AS|as|às)\s*([0-9]+)/)
+      if (matchEnd) {
+        let parsedEnd = parseInt(matchEnd[1], 10)
+        if (parsedEnd < startH) parsedEnd += 24
+        endH = parsedEnd
+      }
+    }
+
+    // Se for categoria Extra e houver um servidor/dia parametrizado:
+    // O início da hora extra é alinhado dinamicamente ao fim do turno Regular/Plantão do mesmo dia
+    if (cat === 'Extra' && servidorId && day) {
+      const emRecord = escalaMensal.find(e => e.servidor_id === servidorId)
+      const regTurnoId = gridData[servidorId]?.['Regular']?.[day] || gridData[servidorId]?.['Plantão']?.[day]
+      if (regTurnoId) {
+        let regEndH = 19
+        if (jornada?.nome) {
+          const matchStart = jornada.nome.match(/^([0-9]+)/)
+          const matchEnd = jornada.nome.match(/(?:ÀS|AS|as|às)\s*([0-9]+)/)
+          if (matchEnd) {
+            let parsedEnd = parseInt(matchEnd[1], 10)
+            const sH = matchStart ? parseInt(matchStart[1], 10) : 7
+            if (parsedEnd < sH) parsedEnd += 24
+            regEndH = parsedEnd
+          }
+        } else {
+          const regTurno = turnos.find(t => t.id === regTurnoId)
+          if (regTurno?.codigo) {
+            regEndH = getShiftEndHour(regTurno.codigo, regTurno.horas_computadas)
+          }
+        }
+        startH = regEndH
+        const extraHours = turno.horas_computadas || 1
+        endH = startH + extraHours
+      }
+    }
+
+    const padTime = (h: number, m: number = 0) => 
+      `${String(h % 24).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+
+    if (tipo === 'entrada') return padTime(startH)
+    if (tipo === 'saida') return padTime(endH)
+
+    if (tipo === 'intervalo_saida' || tipo === 'intervalo_retorno') {
+      const parseTimeString = (timeStr?: string | null) => {
+        if (!timeStr) return null
+        const parts = timeStr.split(':')
+        if (parts.length >= 2) {
+          const h = parseInt(parts[0], 10)
+          const m = parseInt(parts[1], 10)
+          if (!isNaN(h) && !isNaN(m)) return { hour: h, minute: m }
+        }
+        return null
+      }
+
+      // Cascata do Início do Intervalo:
+      // 1. Personalizado no cadastro do Servidor
+      // 2. Padrão na Jornada
+      // 3. Fallback: startH + 4
+      const servIni = parseTimeString(sRecord?.intervalo_inicio_personalizado)
+      const jorIni = parseTimeString(jornada?.intervalo_inicio_padrao)
+
+      let intStartH = startH + 4
+      let intStartM = 0
+
+      if (servIni) {
+        intStartH = servIni.hour
+        intStartM = servIni.minute
+      } else if (jorIni) {
+        intStartH = jorIni.hour
+        intStartM = jorIni.minute
+      }
+
+      if (tipo === 'intervalo_saida') {
+        return padTime(intStartH, intStartM)
+      }
+
+      // Cascata do Fim/Retorno do Intervalo:
+      // 1. Personalizado no cadastro do Servidor
+      // 2. Padrão na Jornada
+      // 3. Fallback: intStart + (jornada.intervalo_minutos || 60)
+      const servFim = parseTimeString(sRecord?.intervalo_fim_personalizado)
+      const jorFim = parseTimeString(jornada?.intervalo_fim_padrao)
+
+      let intEndH = intStartH + 1
+      let intEndM = intStartM
+
+      if (servFim) {
+        intEndH = servFim.hour
+        intEndM = servFim.minute
+      } else if (jorFim) {
+        intEndH = jorFim.hour
+        intEndM = jorFim.minute
+      } else if (jornada?.intervalo_minutos) {
+        const totalM = intStartH * 60 + intStartM + jornada.intervalo_minutos
+        intEndH = Math.floor(totalM / 60)
+        intEndM = totalM % 60
+      }
+
+      if (tipo === 'intervalo_retorno') {
+        return padTime(intEndH, intEndM)
+      }
+    }
+
     return null
-  }, [turnos, getShiftStartHour, getShiftEndHour])
+  }, [turnos, escalaMensal, jornadas, gridData, todosServidoresSetor, getShiftStartHour, getShiftEndHour])
 
   const getAttemptTime = useCallback((servidorId: string, day: number, tipo: string) => {
     const matches = logsTentativas.filter(l => {
@@ -1496,7 +1617,8 @@ export function ScaleGrid({
     servidorId: string,
     day: number,
     turnoId: string,
-    tipo: 'entrada' | 'intervalo_saida' | 'intervalo_retorno' | 'saida'
+    tipo: 'entrada' | 'intervalo_saida' | 'intervalo_retorno' | 'saida',
+    cat?: string
   ) => {
     const showHoverDetails = configs['exibir_horarios_indicadores_presenca'] !== 'false'
     const prefix = segmentIndex > 0 ? `${segmentIndex}. ` : ''
@@ -1509,7 +1631,7 @@ export function ScaleGrid({
     }
 
     const recTime = formatPresenceTime(recordedIso)
-    const forecastTime = getShiftForecastTime(turnoId, tipo)
+    const forecastTime = getShiftForecastTime(turnoId, tipo, servidorId, cat, day)
     const attemptTime = getAttemptTime(servidorId, day, tipo)
 
     if (isConfirmed) {
@@ -3232,25 +3354,25 @@ export function ScaleGrid({
                                         <div 
                                           onClick={(e) => { e.stopPropagation(); handleSegmentClick('entrada', !!presence.entrada, presence.is_entrada_manual) }}
                                           className={`flex-1 h-full cursor-pointer transition-colors ${presence.entrada ? 'bg-emerald-500 hover:bg-emerald-600' : (redEntrada ? 'bg-red-500 hover:bg-red-600' : 'bg-transparent hover:bg-zinc-300 dark:hover:bg-zinc-600')}`} 
-                                          title={getSegmentTooltip(1, 'Entrada', !!presence.entrada, false, redEntrada, presence.entrada_em, presence.is_entrada_manual, em.servidor_id, day, turnoId, 'entrada')} 
+                                          title={getSegmentTooltip(1, 'Entrada', !!presence.entrada, false, redEntrada, presence.entrada_em, presence.is_entrada_manual, em.servidor_id, day, turnoId, 'entrada', cat)} 
                                         />
                                         {/* Segmento 2: Saída Intervalo */}
                                         <div 
                                           onClick={(e) => { e.stopPropagation(); handleSegmentClick('intervalo_saida', !!presence.intervalo_saida, presence.is_intervalo_saida_manual) }}
                                           className={`flex-1 h-full cursor-pointer transition-colors ${presence.intervalo_saida ? 'bg-emerald-500 hover:bg-emerald-600' : (presence.entrada && !presence.intervalo_saida && isToday ? 'bg-amber-400 animate-pulse hover:bg-amber-500' : 'bg-transparent hover:bg-zinc-300 dark:hover:bg-zinc-600')}`} 
-                                          title={getSegmentTooltip(2, 'Saída do Intervalo', !!presence.intervalo_saida, !!(presence.entrada && !presence.intervalo_saida && isToday), false, presence.intervalo_saida_em, presence.is_intervalo_saida_manual, em.servidor_id, day, turnoId, 'intervalo_saida')} 
+                                          title={getSegmentTooltip(2, 'Saída do Intervalo', !!presence.intervalo_saida, !!(presence.entrada && !presence.intervalo_saida && isToday), false, presence.intervalo_saida_em, presence.is_intervalo_saida_manual, em.servidor_id, day, turnoId, 'intervalo_saida', cat)} 
                                         />
                                         {/* Segmento 3: Retorno Intervalo */}
                                         <div 
                                           onClick={(e) => { e.stopPropagation(); handleSegmentClick('intervalo_retorno', !!presence.intervalo_retorno, presence.is_intervalo_retorno_manual) }}
                                           className={`flex-1 h-full cursor-pointer transition-colors ${presence.intervalo_retorno ? 'bg-emerald-500 hover:bg-emerald-600' : (presence.intervalo_saida && !presence.intervalo_retorno && isToday ? 'bg-amber-400 animate-pulse hover:bg-amber-500' : 'bg-transparent hover:bg-zinc-300 dark:hover:bg-zinc-600')}`} 
-                                          title={getSegmentTooltip(3, 'Retorno do Intervalo', !!presence.intervalo_retorno, !!(presence.intervalo_saida && !presence.intervalo_retorno && isToday), false, presence.intervalo_retorno_em, presence.is_intervalo_retorno_manual, em.servidor_id, day, turnoId, 'intervalo_retorno')} 
+                                          title={getSegmentTooltip(3, 'Retorno do Intervalo', !!presence.intervalo_retorno, !!(presence.intervalo_saida && !presence.intervalo_retorno && isToday), false, presence.intervalo_retorno_em, presence.is_intervalo_retorno_manual, em.servidor_id, day, turnoId, 'intervalo_retorno', cat)} 
                                         />
                                         {/* Segmento 4: Saída Final */}
                                         <div 
                                           onClick={(e) => { e.stopPropagation(); handleSegmentClick('saida', !!presence.saida, presence.is_saida_manual) }}
                                           className={`flex-1 h-full cursor-pointer transition-colors ${presence.saida ? 'bg-emerald-500 hover:bg-emerald-600' : (presence.intervalo_retorno && isToday ? 'bg-amber-400 animate-pulse hover:bg-amber-500' : (redSaida ? 'bg-red-500 hover:bg-red-600' : 'bg-transparent hover:bg-zinc-300 dark:hover:bg-zinc-600'))}`} 
-                                          title={getSegmentTooltip(4, 'Saída Final', !!presence.saida, !!(presence.intervalo_retorno && !presence.saida && isToday), redSaida, presence.saida_em, presence.is_saida_manual, em.servidor_id, day, turnoId, 'saida')} 
+                                          title={getSegmentTooltip(4, 'Saída Final', !!presence.saida, !!(presence.intervalo_retorno && !presence.saida && isToday), redSaida, presence.saida_em, presence.is_saida_manual, em.servidor_id, day, turnoId, 'saida', cat)} 
                                         />
                                       </>
                                     )
@@ -3262,13 +3384,13 @@ export function ScaleGrid({
                                       <div 
                                         onClick={(e) => { e.stopPropagation(); handleSegmentClick('entrada', !!presence.entrada, presence.is_entrada_manual) }}
                                         className={`flex-1 h-full cursor-pointer transition-colors ${presence.entrada ? 'bg-emerald-500 hover:bg-emerald-600' : (redEntrada ? 'bg-red-500 hover:bg-red-600' : 'bg-transparent hover:bg-zinc-300 dark:hover:bg-zinc-600')}`} 
-                                        title={getSegmentTooltip(0, 'Entrada', !!presence.entrada, false, redEntrada, presence.entrada_em, presence.is_entrada_manual, em.servidor_id, day, turnoId, 'entrada')} 
+                                        title={getSegmentTooltip(0, 'Entrada', !!presence.entrada, false, redEntrada, presence.entrada_em, presence.is_entrada_manual, em.servidor_id, day, turnoId, 'entrada', cat)} 
                                       />
                                       {/* Metade Saída */}
                                       <div 
                                         onClick={(e) => { e.stopPropagation(); handleSegmentClick('saida', !!presence.saida, presence.is_saida_manual) }}
                                         className={`flex-1 h-full cursor-pointer transition-colors ${presence.saida ? 'bg-emerald-500 hover:bg-emerald-600' : (presence.entrada && isToday ? 'bg-amber-400 animate-pulse hover:bg-amber-500' : (redSaida ? 'bg-red-500 hover:bg-red-600' : 'bg-transparent hover:bg-zinc-300 dark:hover:bg-zinc-600'))}`} 
-                                        title={getSegmentTooltip(0, 'Saída', !!presence.saida, !!(presence.entrada && !presence.saida && isToday), redSaida, presence.saida_em, presence.is_saida_manual, em.servidor_id, day, turnoId, 'saida')} 
+                                        title={getSegmentTooltip(0, 'Saída', !!presence.saida, !!(presence.entrada && !presence.saida && isToday), redSaida, presence.saida_em, presence.is_saida_manual, em.servidor_id, day, turnoId, 'saida', cat)} 
                                       />
                                     </>
                                   )
