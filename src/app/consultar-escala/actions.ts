@@ -2411,17 +2411,34 @@ export async function sugerirJustificativaServidor(dados: {
 }) {
   try {
     const supabase = await createAdminClient()
-    const { data, error } = await supabase.rpc('fn_sugerir_justificativa_servidor', {
-      p_servidor_id: dados.servidorId,
-      p_escala_diaria_id: dados.escalaDiariaId,
-      p_escala_mensal_id: dados.escalaMensalId,
-      p_dia: dados.dia,
-      p_mes: dados.mes,
-      p_ano: dados.ano,
-      p_categoria: dados.categoria,
-      p_texto: dados.texto,
-      p_servidor_nome: dados.servidorNome
-    })
+
+    const { data: mensal } = await supabase
+      .from('escala_mensal')
+      .select('unidade_id, setor_id')
+      .eq('id', dados.escalaMensalId)
+      .single()
+
+    const payload = {
+      escala_diaria_id: dados.escalaDiariaId,
+      servidor_id: dados.servidorId,
+      escala_mensal_id: dados.escalaMensalId,
+      unidade_id: mensal?.unidade_id || null,
+      setor_id: mensal?.setor_id || null,
+      dia: dados.dia,
+      mes: dados.mes,
+      ano: dados.ano,
+      categoria: dados.categoria,
+      texto_justificativa: dados.texto,
+      origem: 'servidor',
+      status: 'sugestao_pendente',
+      registrado_por_nome: dados.servidorNome,
+      updated_at: new Date().toISOString()
+    }
+
+    const { data, error } = await supabase
+      .from('justificativas_eventos')
+      .upsert(payload, { onConflict: 'servidor_id,dia,mes,ano,categoria' })
+      .select()
 
     if (error) return { error: error.message }
     return { success: true, data }
