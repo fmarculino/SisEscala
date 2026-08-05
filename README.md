@@ -1,4 +1,4 @@
-# SisEscala 📅[![Version](https://img.shields.io/badge/version-1.19.0-green.svg)](https://github.com/fmarculino/SisEscala)
+# SisEscala 📅[![Version](https://img.shields.io/badge/version-1.19.1-green.svg)](https://github.com/fmarculino/SisEscala)
 [![Next.js](https://img.shields.io/badge/framework-Next.js%2015-black.svg)](https://nextjs.org/)
 [![Supabase](https://img.shields.io/badge/backend-Supabase-green.svg)](https://supabase.com/)
 [![Tailwind CSS](https://img.shields.io/badge/styling-Tailwind%20CSS-38B2AC.svg)](https://tailwindcss.com/)
@@ -10,6 +10,16 @@ O sistema foca em **governança, segurança jurídica e eficiência operacional*
 ---
 
 ## 🚀 Principais Funcionalidades
+
+### ⚡ Correções de Cálculo do Turno T, Permissões RLS e Rótulos Dinâmicos (v1.19.1)
+- **Cálculo da Hora de Início para Turno `T` (Jornadas 12h-18h)**:
+  - Atualizadas as funções `fn_confirmar_presenca` e `fn_confirmar_presenca_manual` para avaliar dinamicamente o `start_hour` da jornada regular (ex: 12:00) quando a célula possui o turno `T`, ajustando a janela de presença para **11:30 às 12:30**.
+- **Visualização de Tentativas Recusadas para Gestores**:
+  - Nova política de segurança RLS (`Allow authorized users read logs`) na tabela `logs_tentativas_presenca`, permitindo que **Coordenadores e Administradores** visualizem o quadro vermelho com os motivos de recusa no modal de validação manual.
+- **Rótulos Dinâmicos do Escopo de Validação**:
+  - Substituídos os sub-rótulos estáticos e enganosos `(Manhã)` e `(Tarde)` por descrições dinâmicas de acordo com o turno do servidor naquele dia (`Manhã`, `Entrada Tarde`, `Entrada Noturna`, `1º/2º Turno`), garantindo clareza nos modais.
+- **Suporte aos Escopos de Validação Manual**:
+  - Suporte completo aos parâmetros `'completo'`, `'periodo_1'`, `'periodo_2'` na RPC `fn_confirmar_presenca_manual`, eliminando o erro de *"Tipo de presença inválido"*.
 
 ### ⚡ Validação em Massa de Presença & Governança de Ajustes (v1.19.0)
 - **Validação em Multi-Níveis**:

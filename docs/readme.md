@@ -1,6 +1,6 @@
 # Documentação Técnica do SisEscala 📑
 
-Este diretório contém a documentação técnica, manuais de integração, arquitetura e especificações do sistema **SisEscala** (v1.19.0).
+Este diretório contém a documentação técnica, manuais de integração, arquitetura e especificações do sistema **SisEscala** (v1.19.1).
 
 ## 📄 Arquivos Principais
 
@@ -10,17 +10,13 @@ Este diretório contém a documentação técnica, manuais de integração, arqu
 - [`SEGURANCA.md`](file:///c:/Users/Cliente/Projetos/SisEscala/docs/SEGURANCA.md): Políticas de RLS, segurança de autenticação e logs de auditoria forense.
 - [`ESCALABILIDADE.md`](file:///c:/Users/Cliente/Projetos/SisEscala/docs/ESCALABILIDADE.md): Recomendações de escalabilidade para alta demanda multi-unidade.
 
-## 📌 Principais Recursos da Versão Atual (v1.19.0)
+## 📌 Principais Recursos da Versão Atual (v1.19.1)
 
-1. **Validação em Massa de Presença em Multi-Níveis**:
-   - Modal por célula (batida individual, 1º/2º período ou dia completo).
-   - Atalho por servidor (`<CheckSquare />`) para período de dias.
-   - Botão global `⚡ Validar em Massa` para múltiplos servidores por unidade.
-2. **Preservação de Horários Reais**:
-   - Uso de `COALESCE` para garantir que batidas de ponto físicas efetuadas pelo servidor não sejam substituídas durante a homologação.
-3. **Justificativa Obrigatória**:
-   - Registro de justificativa textual em todas as validações manuais.
-4. **Validação Manual de Sobreaviso**:
-   - Homologação de sobreavisos pendentes ou que falharam diretamente no modal de histórico.
-5. **Nomenclatura Atualizada ("PREVISÃO" / "PREV")**:
-   - Unificação do termo de horas brutas na grade e relatórios.
+1. **Cálculo da Hora Inicial do Turno `T` (Jornadas 12h-18h)**:
+   - Funções `fn_confirmar_presenca` e `fn_confirmar_presenca_manual` ajustadas para definir `start_hour = 12` em jornadas 12h-18h com turno `T`.
+2. **Visualização de Tentativas Recusadas no Modal para Gestores**:
+   - Atualização RLS na tabela `logs_tentativas_presenca` permitindo a leitura por Coordenadores e Administradores no modal de validação manual.
+3. **Escopos de Validação Manual (`completo`, `periodo_1`, `periodo_2`)**:
+   - RPC `fn_confirmar_presenca_manual` atualizada para suportar homologações por dia completo e por períodos.
+4. **Rótulos Dinâmicos na Interface (`ScaleGrid.tsx`)**:
+   - Sub-rótulos calculados com base no turno agendado do dia (ex: `Manhã`, `Entrada Tarde`, `Entrada Noturna`).

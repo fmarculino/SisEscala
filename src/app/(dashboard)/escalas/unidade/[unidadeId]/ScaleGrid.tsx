@@ -4286,11 +4286,33 @@ export function ScaleGrid({
       )}
 
       {manualPresenceModal && (() => {
+        const cellEmItem = escalaMensal.find(em => em.id === manualPresenceModal.escalaMensalId)
+        const cellTurnoId = cellEmItem?.dias?.[manualPresenceModal.dia]?.[manualPresenceModal.categoria]
+        const cellTurno = turnos.find(t => t.id === cellTurnoId)
+        const turnoCode = cellTurno?.codigo || ''
+
+        let p1Sub = '1º Turno / Entrada'
+        let p2Sub = '2º Turno / Saída'
+
+        if (turnoCode === 'MT' || (cellTurno?.slots?.includes('M') && cellTurno?.slots?.includes('T'))) {
+          p1Sub = 'Manhã (07h-11h)'
+          p2Sub = 'Tarde (13h-17h)'
+        } else if (turnoCode.startsWith('N') || cellTurno?.slots?.includes('N')) {
+          p1Sub = 'Entrada Noturna'
+          p2Sub = 'Saída Noturna'
+        } else if (turnoCode.startsWith('T') || cellTurno?.slots?.includes('T')) {
+          p1Sub = 'Entrada Tarde'
+          p2Sub = 'Saída Tarde'
+        } else if (turnoCode.startsWith('M') || cellTurno?.slots?.includes('M')) {
+          p1Sub = 'Entrada Manhã'
+          p2Sub = 'Saída Manhã'
+        }
+
         const formatTipoLabel = (tipo: string) => {
           switch (tipo) {
             case 'completo': return 'Dia Completo'
-            case 'periodo_1': return '1º Período (Manhã)'
-            case 'periodo_2': return '2º Período (Tarde)'
+            case 'periodo_1': return `1º Período (${p1Sub})`
+            case 'periodo_2': return `2º Período (${p2Sub})`
             case 'entrada': return 'Entrada'
             case 'intervalo_saida': return 'Saída do Intervalo'
             case 'intervalo_retorno': return 'Retorno do Intervalo'
@@ -4354,20 +4376,23 @@ export function ScaleGrid({
                       className={`p-2 text-xs font-bold rounded-lg border transition-all ${manualPresenceModal.tipo === 'completo' ? 'bg-emerald-600 text-white border-emerald-600 shadow' : 'bg-zinc-50 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100'}`}
                     >
                       🟢 Dia Completo
+                      <span className="block text-[10px] font-normal opacity-80 mt-0.5">Integral</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setManualPresenceModal(prev => prev ? { ...prev, tipo: 'periodo_1' } : null)}
                       className={`p-2 text-xs font-bold rounded-lg border transition-all ${manualPresenceModal.tipo === 'periodo_1' ? 'bg-amber-600 text-white border-amber-600 shadow' : 'bg-zinc-50 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100'}`}
                     >
-                      ⛅ 1º Período (Manhã)
+                      ⛅ 1º Período
+                      <span className="block text-[10px] font-normal opacity-80 mt-0.5">{p1Sub}</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setManualPresenceModal(prev => prev ? { ...prev, tipo: 'periodo_2' } : null)}
                       className={`p-2 text-xs font-bold rounded-lg border transition-all ${manualPresenceModal.tipo === 'periodo_2' ? 'bg-blue-600 text-white border-blue-600 shadow' : 'bg-zinc-50 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100'}`}
                     >
-                      🌇 2º Período (Tarde)
+                      🌇 2º Período
+                      <span className="block text-[10px] font-normal opacity-80 mt-0.5">{p2Sub}</span>
                     </button>
                   </div>
                 </div>

@@ -2,6 +2,22 @@
 
 Todas as alterações notáveis deste projeto são registradas neste arquivo.
 
+## [1.19.1] - 2026-08-04
+
+### 🛠️ Correções de Erros (Fixes)
+- **Turno `T` em Jornadas 12h-18h**:
+  - Ajuste nas funções `fn_confirmar_presenca` e `fn_confirmar_presenca_manual` para herdar a hora inicial **12:00** da jornada regular quando a célula contiver o turno `T`.
+- **Suporte a Escopos na RPC `fn_confirmar_presenca_manual`**:
+  - Adicionado suporte completo aos valores `'completo'`, `'periodo_1'` e `'periodo_2'`, solucionando a falha *"Tipo de presença inválido."*.
+- **Permissão de Leitura em `logs_tentativas_presenca` (RLS)**:
+  - Política de segurança RLS liberada para Coordenadores e Administradores consultarem tentativas recusadas no modal de validação manual.
+
+### 🎨 Alterações na Interface
+- **Rótulos Dinâmicos nos Botões de Validação (`ScaleGrid.tsx`)**:
+  - Rótulos ajustados para refletir dinamicamente a jornada agendada no dia (`Manhã`, `Entrada Tarde`, `Entrada Noturna`, etc.) sem descrições estáticas confusas.
+
+---
+
 ## [1.19.0] - 2026-08-04
 
 ### 🚀 Funcionalidades Adicionadas
