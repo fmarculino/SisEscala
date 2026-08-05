@@ -236,25 +236,68 @@ export async function salvarJustificativa(dados: {
   justificativaPadraoId?: string
 }) {
   try {
-    const supabase = await createClient()
-    const profile = await getUserProfile(supabase)
+    const supabaseUser = await createClient()
+    const profile = await getUserProfile(supabaseUser)
+    const supabase = await createAdminClient()
 
-    const { data, error } = await supabase.rpc('fn_salvar_justificativa_evento', {
-      p_escala_diaria_id: dados.escalaDiariaId,
-      p_servidor_id: dados.servidorId,
-      p_escala_mensal_id: dados.escalaMensalId,
-      p_dia: dados.dia,
-      p_mes: dados.mes,
-      p_ano: dados.ano,
-      p_categoria: dados.categoria,
-      p_texto: dados.texto,
-      p_justificativa_padrao_id: dados.justificativaPadraoId || null,
-      p_user_id: profile.id,
-      p_user_nome: profile.full_name || profile.userEmail || profile.id
-    })
+    const userName = profile.full_name || profile.userEmail || profile.id
+
+    // Fetch unit and sector from monthly scale
+    const { data: mensal } = await supabase
+      .from('escala_mensal')
+      .select('unidade_id, setor_id')
+      .eq('id', dados.escalaMensalId)
+      .single()
+
+    const payload = {
+      escala_diaria_id: dados.escalaDiariaId,
+      servidor_id: dados.servidorId,
+      escala_mensal_id: dados.escalaMensalId,
+      unidade_id: mensal?.unidade_id || null,
+      setor_id: mensal?.setor_id || null,
+      dia: dados.dia,
+      mes: dados.mes,
+      ano: dados.ano,
+      categoria: dados.categoria,
+      texto_justificativa: dados.texto,
+      justificativa_padrao_id: dados.justificativaPadraoId || null,
+      origem: 'coordenador',
+      status: 'aprovada',
+      registrado_por_id: profile.id,
+      registrado_por_nome: userName,
+      validado_por_id: profile.id,
+      validado_por_nome: userName,
+      data_validacao: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }
+
+    const { data, error } = await supabase
+      .from('justificativas_eventos')
+      .upsert(payload, { onConflict: 'servidor_id,dia,mes,ano,categoria' })
+      .select()
 
     if (error) {
       return { error: error.message }
+    }
+
+    // Try logging silently
+    try {
+      await supabase.from('logs_sistema').insert({
+        user_id: profile.id,
+        acao: 'JUSTIFICATIVA_REGISTRADA',
+        unidade_id: mensal?.unidade_id || null,
+        setor_id: mensal?.setor_id || null,
+        detalhes: {
+          servidor_id: dados.servidorId,
+          dia: dados.dia,
+          mes: dados.mes,
+          ano: dados.ano,
+          categoria: dados.categoria,
+          registrado_por: userName
+        }
+      })
+    } catch (logErr) {
+      console.warn('Erro ao gravar log de auditoria:', logErr)
     }
 
     revalidatePath('/justificativas')
@@ -276,17 +319,68 @@ export async function salvarJustificativasBulk(eventos: Array<{
   justificativa_padrao_id?: string
 }>) {
   try {
-    const supabase = await createClient()
-    const profile = await getUserProfile(supabase)
+    const supabaseUser = await createClient()
+    const profile = await getUserProfile(supabaseUser)
+    const supabase = await createAdminClient()
 
-    const { data, error } = await supabase.rpc('fn_salvar_justificativas_bulk', {
-      p_eventos: eventos,
-      p_user_id: profile.id,
-      p_user_nome: profile.full_name || profile.userEmail || profile.id
+    const userName = profile.full_name || profile.userEmail || profile.id
+    const nowIso = new Date().toISOString()
+
+    // Map monthly scale IDs to get unit_id and setor_id
+    const mensalIds = Array.from(new Set(eventos.map(e => e.escala_mensal_id)))
+    const { data: mensais } = await supabase
+      .from('escala_mensal')
+      .select('id, unidade_id, setor_id')
+      .in('id', mensalIds)
+
+    const mensalMap = new Map((mensais || []).map(m => [m.id, m]))
+
+    const payloads = eventos.map(e => {
+      const m = mensalMap.get(e.escala_mensal_id)
+      return {
+        escala_diaria_id: e.escala_diaria_id,
+        servidor_id: e.servidor_id,
+        escala_mensal_id: e.escala_mensal_id,
+        unidade_id: m?.unidade_id || null,
+        setor_id: m?.setor_id || null,
+        dia: e.dia,
+        mes: e.mes,
+        ano: e.ano,
+        categoria: e.categoria,
+        texto_justificativa: e.texto,
+        justificativa_padrao_id: e.justificativa_padrao_id || null,
+        origem: 'coordenador',
+        status: 'aprovada',
+        registrado_por_id: profile.id,
+        registrado_por_nome: userName,
+        validado_por_id: profile.id,
+        validado_por_nome: userName,
+        data_validacao: nowIso,
+        updated_at: nowIso
+      }
     })
+
+    const { data, error } = await supabase
+      .from('justificativas_eventos')
+      .upsert(payloads, { onConflict: 'servidor_id,dia,mes,ano,categoria' })
+      .select()
 
     if (error) {
       return { error: error.message }
+    }
+
+    // Try logging audit
+    try {
+      await supabase.from('logs_sistema').insert({
+        user_id: profile.id,
+        acao: 'JUSTIFICATIVAS_BULK_REGISTRADAS',
+        detalhes: {
+          total: eventos.length,
+          registrado_por: userName
+        }
+      })
+    } catch (logErr) {
+      console.warn('Erro log bulk:', logErr)
     }
 
     revalidatePath('/justificativas')
@@ -303,17 +397,34 @@ export async function validarSugestao(params: {
   motivoRejeicao?: string
 }) {
   try {
-    const supabase = await createClient()
-    const profile = await getUserProfile(supabase)
+    const supabaseUser = await createClient()
+    const profile = await getUserProfile(supabaseUser)
+    const supabase = await createAdminClient()
 
-    const { data, error } = await supabase.rpc('fn_validar_sugestao_justificativa', {
-      p_justificativa_id: params.justificativaId,
-      p_acao: params.acao,
-      p_texto_editado: params.textoEditado || null,
-      p_motivo_rejeicao: params.motivoRejeicao || null,
-      p_user_id: profile.id,
-      p_user_nome: profile.full_name || profile.userEmail || profile.id
-    })
+    const userName = profile.full_name || profile.userEmail || profile.id
+    const nowIso = new Date().toISOString()
+
+    const updatePayload: any = {
+      status: params.acao === 'aprovar' ? 'aprovada' : 'rejeitada',
+      validado_por_id: profile.id,
+      validado_por_nome: userName,
+      data_validacao: nowIso,
+      updated_at: nowIso
+    }
+
+    if (params.acao === 'aprovar' && params.textoEditado) {
+      updatePayload.texto_justificativa = params.textoEditado
+    }
+
+    if (params.acao === 'rejeitar' && params.motivoRejeicao) {
+      updatePayload.motivo_rejeicao = params.motivoRejeicao
+    }
+
+    const { data, error } = await supabase
+      .from('justificativas_eventos')
+      .update(updatePayload)
+      .eq('id', params.justificativaId)
+      .select()
 
     if (error) {
       return { error: error.message }
