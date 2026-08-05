@@ -882,7 +882,7 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
     // Fetch all shifts from escala_diaria (Regular, Extra, Plantão) for the specific scale of this folha
     const { data: escalaDiaria } = await supabase
       .from('escala_diaria')
-      .select('id, dia, categoria, dicionario_turnos_id, presenca_entrada_em, presenca_saida_em, presenca_confirmada, dicionario_turnos(codigo, slots, horas_computadas)')
+      .select('id, dia, categoria, dicionario_turnos_id, presenca_entrada_em, presenca_intervalo_saida_em, presenca_intervalo_retorno_em, presenca_saida_em, presenca_confirmada, dicionario_turnos(codigo, slots, horas_computadas)')
       .eq('escala_mensal_id', escala.id)
 
     // Fetch manual validation logs for the specific scale of this folha
@@ -1105,12 +1105,18 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
 
         const dayShifts = currentShifts.filter(d => d.dia === day)
         const allEntradas = dayShifts.map(s => s.presenca_entrada_em).filter(Boolean)
+        const allIntervaloSaidas = dayShifts.map(s => s.presenca_intervalo_saida_em).filter(Boolean)
+        const allIntervaloRetornos = dayShifts.map(s => s.presenca_intervalo_retorno_em).filter(Boolean)
         const allSaidas = dayShifts.map(s => s.presenca_saida_em).filter(Boolean)
 
         const realEntradaTime = allEntradas.length > 0 ? new Date(Math.min(...allEntradas.map(t => new Date(t).getTime()))) : null
+        const realIntervaloSaidaTime = allIntervaloSaidas.length > 0 ? new Date(Math.min(...allIntervaloSaidas.map(t => new Date(t).getTime()))) : null
+        const realIntervaloRetornoTime = allIntervaloRetornos.length > 0 ? new Date(Math.max(...allIntervaloRetornos.map(t => new Date(t).getTime()))) : null
         const realSaidaTime = allSaidas.length > 0 ? new Date(Math.max(...allSaidas.map(t => new Date(t).getTime()))) : null
 
         const hasRealEntrada = realEntradaTime !== null && !isManualEntrada
+        const hasRealIntervaloSaida = realIntervaloSaidaTime !== null
+        const hasRealIntervaloRetorno = realIntervaloRetornoTime !== null
         const hasRealSaida = realSaidaTime !== null && !isManualSaida
 
         const officialEntradaMin = startHour * 60 + startMin
@@ -1192,6 +1198,9 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
             if (shouldPreserve && registroExistente?.origem_saida_intervalo === 'manual') {
               registro.saida_intervalo = registroExistente.saida_intervalo
               registro.origem_saida_intervalo = 'manual'
+            } else if (hasRealIntervaloSaida && realIntervaloSaidaTime) {
+              registro.saida_intervalo = realIntervaloSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+              registro.origem_saida_intervalo = 'real'
             } else if (shouldGenerate(officialSaidaIntervaloMin)) {
               const outOffset = getDeterministicOffset(`${seedBase}-lunchout`, maxVar)
               const genOutMin = (officialSaidaIntervaloMin + outOffset + 24 * 60) % (24 * 60)
@@ -1202,6 +1211,9 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
             if (shouldPreserve && registroExistente?.origem_retorno_intervalo === 'manual') {
               registro.retorno_intervalo = registroExistente.retorno_intervalo
               registro.origem_retorno_intervalo = 'manual'
+            } else if (hasRealIntervaloRetorno && realIntervaloRetornoTime) {
+              registro.retorno_intervalo = realIntervaloRetornoTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+              registro.origem_retorno_intervalo = 'real'
             } else if (shouldGenerate(officialRetornoIntervaloMin)) {
               const returnOffset = getDeterministicOffset(`${seedBase}-lunchreturn`, maxVar)
               const genReturnMin = (officialRetornoIntervaloMin + returnOffset + 24 * 60) % (24 * 60)
@@ -1426,7 +1438,7 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
     // Fetch shifts from escala_diaria
     const { data: escalaDiaria, error: diError } = await supabase
       .from('escala_diaria')
-      .select('id, dia, categoria, dicionario_turnos_id, presenca_entrada_em, presenca_saida_em, presenca_confirmada, dicionario_turnos(codigo, slots, horas_computadas)')
+      .select('id, dia, categoria, dicionario_turnos_id, presenca_entrada_em, presenca_intervalo_saida_em, presenca_intervalo_retorno_em, presenca_saida_em, presenca_confirmada, dicionario_turnos(codigo, slots, horas_computadas)')
       .eq('escala_mensal_id', escala.id)
 
     if (diError) throw diError
@@ -1624,12 +1636,18 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
 
         const dayShifts = escalaDiaria?.filter((d: any) => d.dia === day) || []
         const allEntradas = dayShifts.map((s: any) => s.presenca_entrada_em).filter(Boolean)
+        const allIntervaloSaidas = dayShifts.map((s: any) => s.presenca_intervalo_saida_em).filter(Boolean)
+        const allIntervaloRetornos = dayShifts.map((s: any) => s.presenca_intervalo_retorno_em).filter(Boolean)
         const allSaidas = dayShifts.map((s: any) => s.presenca_saida_em).filter(Boolean)
 
         const realEntradaTime = allEntradas.length > 0 ? new Date(Math.min(...allEntradas.map((t: any) => new Date(t).getTime()))) : null
+        const realIntervaloSaidaTime = allIntervaloSaidas.length > 0 ? new Date(Math.min(...allIntervaloSaidas.map((t: any) => new Date(t).getTime()))) : null
+        const realIntervaloRetornoTime = allIntervaloRetornos.length > 0 ? new Date(Math.max(...allIntervaloRetornos.map((t: any) => new Date(t).getTime()))) : null
         const realSaidaTime = allSaidas.length > 0 ? new Date(Math.max(...allSaidas.map((t: any) => new Date(t).getTime()))) : null
 
         const hasRealEntrada = realEntradaTime !== null && !isManualEntrada
+        const hasRealIntervaloSaida = realIntervaloSaidaTime !== null
+        const hasRealIntervaloRetorno = realIntervaloRetornoTime !== null
         const hasRealSaida = realSaidaTime !== null && !isManualSaida
 
         const officialEntradaMin = startHour * 60 + startMin
@@ -1711,6 +1729,9 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
             if (shouldPreserve && registroExistente?.origem_saida_intervalo === 'manual') {
               registro.saida_intervalo = registroExistente.saida_intervalo
               registro.origem_saida_intervalo = 'manual'
+            } else if (hasRealIntervaloSaida && realIntervaloSaidaTime) {
+              registro.saida_intervalo = realIntervaloSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+              registro.origem_saida_intervalo = 'real'
             } else if (shouldGenerate(officialSaidaIntervaloMin)) {
               const outOffset = getDeterministicOffset(`${seedBase}-lunchout`, maxVar)
               const genOutMin = (officialSaidaIntervaloMin + outOffset + 24 * 60) % (24 * 60)
@@ -1721,6 +1742,9 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
             if (shouldPreserve && registroExistente?.origem_retorno_intervalo === 'manual') {
               registro.retorno_intervalo = registroExistente.retorno_intervalo
               registro.origem_retorno_intervalo = 'manual'
+            } else if (hasRealIntervaloRetorno && realIntervaloRetornoTime) {
+              registro.retorno_intervalo = realIntervaloRetornoTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+              registro.origem_retorno_intervalo = 'real'
             } else if (shouldGenerate(officialRetornoIntervaloMin)) {
               const returnOffset = getDeterministicOffset(`${seedBase}-lunchreturn`, maxVar)
               const genReturnMin = (officialRetornoIntervaloMin + returnOffset + 24 * 60) % (24 * 60)
