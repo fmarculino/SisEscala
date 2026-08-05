@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useEffect, useCallback, Fragment } from 'react'
+import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { 
   ClipboardCheck, Search, Filter, Loader2, Calendar, Building2, Layers, 
   CheckCircle2, Clock, AlertCircle, FileText, Plus, Edit3, Trash2, CheckSquare, 
-  Square, ChevronLeft, ChevronRight, MessageSquare, ShieldCheck, Sparkles, UserCheck, XCircle, Printer
+  Square, ChevronLeft, ChevronRight, MessageSquare, ShieldCheck, Sparkles, UserCheck, XCircle, Printer, Check
 } from 'lucide-react'
 import { 
   getEventosPendentes, salvarJustificativa, salvarJustificativasBulk, 
@@ -54,6 +54,20 @@ export function JustificativasClient({
     }
     return ''
   })
+  const [servidorSearchText, setServidorSearchText] = useState('')
+  const [isServidorDropdownOpen, setIsServidorDropdownOpen] = useState(false)
+  const servidorDropdownRef = useRef<HTMLDivElement>(null)
+
+  // Click-outside listener for Servidor Combobox
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (servidorDropdownRef.current && !servidorDropdownRef.current.contains(event.target as Node)) {
+        setIsServidorDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
   const [mes, setMes] = useState<number>(() => {
     if (typeof window !== 'undefined') {
       const saved = sessionStorage.getItem('justificativa_filtro_mes')
@@ -312,19 +326,86 @@ export function JustificativasClient({
             </select>
           </div>
 
-          {/* Servidor */}
-          <div className="space-y-1">
+          {/* Servidor (Combobox Pesquisável) */}
+          <div className="space-y-1 relative" ref={servidorDropdownRef}>
             <label className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Servidor</label>
-            <select
-              value={selectedServidor}
-              onChange={(e) => { setSelectedServidor(e.target.value); setCurrentPage(1) }}
-              className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2.5 text-xs font-bold text-zinc-800 dark:text-zinc-200 focus:ring-2 focus:ring-indigo-500 outline-none"
-            >
-              <option value="">Todos os Servidores</option>
-              {filteredServidores.map(s => (
-                <option key={s.id} value={s.id}>{s.nome}</option>
-              ))}
-            </select>
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Pesquisar nome ou matrícula..."
+                value={
+                  isServidorDropdownOpen
+                    ? servidorSearchText
+                    : (servidores.find(s => s.id === selectedServidor)?.nome || (servidorSearchText ? servidorSearchText : 'Todos os Servidores'))
+                }
+                onFocus={() => {
+                  setIsServidorDropdownOpen(true)
+                  if (!selectedServidor) setServidorSearchText('')
+                }}
+                onChange={(e) => {
+                  setServidorSearchText(e.target.value)
+                  setIsServidorDropdownOpen(true)
+                  if (!e.target.value) {
+                    setSelectedServidor('')
+                    setCurrentPage(1)
+                  }
+                }}
+                className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl pl-3 pr-8 py-2.5 text-xs font-bold text-zinc-800 dark:text-zinc-200 focus:ring-2 focus:ring-indigo-500 outline-none truncate"
+              />
+              <div className="absolute inset-y-0 right-0 flex items-center pr-2.5 pointer-events-none text-zinc-400">
+                <Search className="h-3.5 w-3.5" />
+              </div>
+            </div>
+
+            {/* Menu flutuante de resultados da busca */}
+            {isServidorDropdownOpen && (
+              <div className="absolute z-50 left-0 right-0 mt-1 max-h-64 overflow-y-auto bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-2xl shadow-2xl py-1 text-xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedServidor('')
+                    setServidorSearchText('')
+                    setIsServidorDropdownOpen(false)
+                    setCurrentPage(1)
+                  }}
+                  className={`w-full text-left px-3.5 py-2.5 font-bold hover:bg-indigo-50 dark:hover:bg-zinc-700 transition-colors flex items-center justify-between ${!selectedServidor ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-900/20 font-black' : 'text-zinc-500 dark:text-zinc-400'}`}
+                >
+                  <span>Todos os Servidores</span>
+                  {!selectedServidor && <Check className="h-3.5 w-3.5 text-indigo-600" />}
+                </button>
+
+                <div className="border-t border-zinc-100 dark:border-zinc-700/60 my-1" />
+
+                {filteredServidores.length === 0 ? (
+                  <div className="px-3.5 py-4 text-center text-zinc-400 dark:text-zinc-500 italic text-[11px]">
+                    Nenhum servidor encontrado com "{servidorSearchText}".
+                  </div>
+                ) : (
+                  filteredServidores.slice(0, 80).map(s => {
+                    const isSelected = selectedServidor === s.id
+                    return (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedServidor(s.id)
+                          setServidorSearchText(s.nome)
+                          setIsServidorDropdownOpen(false)
+                          setCurrentPage(1)
+                        }}
+                        className={`w-full text-left px-3.5 py-2 hover:bg-indigo-50 dark:hover:bg-zinc-700 transition-colors flex items-center justify-between ${isSelected ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-black' : 'text-zinc-800 dark:text-zinc-200'}`}
+                      >
+                        <div className="truncate pr-2">
+                          <div className="font-bold truncate">{s.nome}</div>
+                          {s.matricula && <div className="text-[10px] text-zinc-400 font-mono">Mat: {s.matricula}</div>}
+                        </div>
+                        {isSelected && <Check className="h-3.5 w-3.5 text-indigo-600 shrink-0" />}
+                      </button>
+                    )
+                  })
+                )}
+              </div>
+            )}
           </div>
 
           {/* Mês */}
