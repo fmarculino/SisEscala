@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.20.0] - 2026-08-05
+
+### Added
+- **Módulo de Justificativas Motivacionais de Eventos (`/justificativas`)**:
+  - Fila Operacional de Eventos com KPI Cards (Total de Eventos, Pendentes de Justificativa, Sugestões dos Servidores, Progresso % de Preenchimento).
+  - Preenchimento individual e em lote com seleção múltipla e seletor rápido de modelos pré-cadastrados.
+  - Combobox de Busca em Tempo Real por Servidor (pesquisa instantânea por Nome e Matrícula com suporte a grandes volumes de servidores).
+  - Aba **Sugestões dos Servidores** para análise, aprovação com/sem edição de texto e rejeição de justificativas submetidas pelo Portal do Servidor (`/consultar-escala`).
+  - Auto-seed de 9 Modelos de Justificativa Padrão (3 para Hora Extra, 3 para Plantão e 3 para Sobreaviso).
+  - Emissão de Relatórios Oficiais Municipais com Bloco Triplo de Assinaturas (Servidor, Coordenador e Diretor) e Hash SHA-256 de integridade.
+- **Assinatura Digital Criptográfica com Certificado A1 (.pfx)**:
+  - Assinatura em memória via PKCS#7 utilizando `node-forge` sem armazenamento de chave privada ou senha.
+  - Registro auditável de assinaturas com hash de verificação na tabela `justificativas_assinaturas`.
+
+### Changed
+- **Paginação Padronizada**:
+  - Aplicada a paginação oficial do SisEscala com contador de intervalo (`Mostrando X a Y de Z eventos`) e botões de navegação numerados.
+- **Governança por Perfis**:
+  - Restrição automática de visualização por Unidade e Setor permitidos (`applyAccessFilters`), isolando permissões entre Coordenadores e Super Admin.
+
+### Fixed
+- **Auditoria de Registros**:
+  - Corrigida a gravação na tabela `logs_sistema` para utilizar o campo `user_id` e execução encapsulada em Server Actions com `createAdminClient()`.
+
 ## [1.19.1] - 2026-08-04
 
 ### Fixed
