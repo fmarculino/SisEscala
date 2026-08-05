@@ -38,7 +38,7 @@ export default function ConfigPage() {
   const [emailTestResult, setEmailTestResult] = useState<any>(null)
 
   // Estado das Abas de Configuração
-  const [activeTab, setActiveTab] = useState<'comunicacao' | 'regras' | 'sobreaviso' | 'institucional'>('comunicacao')
+  const [activeTab, setActiveTab] = useState<'comunicacao' | 'regras' | 'sobreaviso' | 'institucional' | 'justificativas'>('comunicacao')
 
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -296,6 +296,19 @@ export default function ConfigPage() {
         >
           <Image className="h-4 w-4" />
           Institucional & Competências
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('justificativas')}
+          className={`flex items-center gap-2.5 px-5 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${
+            activeTab === 'justificativas'
+              ? 'bg-white dark:bg-zinc-900 text-indigo-600 shadow-md border border-zinc-200/80 dark:border-zinc-700'
+              : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+          }`}
+        >
+          <CheckSquare className="h-4 w-4" />
+          Justificativas & Validação
         </button>
       </div>
 
@@ -1007,6 +1020,82 @@ export default function ConfigPage() {
           </div>
         </div>
         </>
+        )}
+
+        {/* ========================================================================= */}
+        {/* ABA 5: JUSTIFICATIVAS & VALIDAÇÃO */}
+        {/* ========================================================================= */}
+        {activeTab === 'justificativas' && (
+          <div className="bg-white dark:bg-zinc-900 rounded-[2rem] border border-indigo-200 dark:border-indigo-900/40 p-8 shadow-sm space-y-8">
+            <div className="flex items-center gap-4 border-b border-zinc-100 dark:border-zinc-800 pb-6">
+              <div className="p-4 bg-indigo-100 dark:bg-indigo-900/30 rounded-2xl text-indigo-600">
+                <CheckSquare className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-zinc-900 dark:text-white uppercase tracking-tight">Parâmetros do Módulo de Justificativas</h3>
+                <p className="text-sm text-zinc-500 leading-relaxed">Defina os prazos legais, a visibilidade dos servidores e as travas de fechamento de escala.</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              {/* 1. Prazo em Dias Úteis */}
+              <div className="space-y-3 bg-zinc-50 dark:bg-zinc-800/50 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-700">
+                <label className="text-xs font-black text-zinc-700 dark:text-zinc-300 uppercase tracking-wider block">
+                  Prazo para Registrar Justificativa
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    min={1}
+                    max={30}
+                    value={getConfig('justificativa_prazo_dias_uteis')?.valor || '3'}
+                    onChange={(e) => updateConfig('justificativa_prazo_dias_uteis', e.target.value)}
+                    className="w-24 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl p-3 text-sm font-bold text-center outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <span className="text-xs font-bold text-zinc-500">dias úteis após o fim do mês</span>
+                </div>
+                <p className="text-[11px] text-zinc-400 leading-normal">
+                  Define até quando os coordenadores e servidores podem inserir/editar justificativas de eventos passados.
+                </p>
+              </div>
+
+              {/* 2. Visualização do Servidor no Portal */}
+              <div className="space-y-3 bg-zinc-50 dark:bg-zinc-800/50 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-700">
+                <label className="text-xs font-black text-zinc-700 dark:text-zinc-300 uppercase tracking-wider block">
+                  Visualização pelo Servidor
+                </label>
+                <select
+                  value={getConfig('justificativa_servidor_visualizar')?.valor || 'true'}
+                  onChange={(e) => updateConfig('justificativa_servidor_visualizar', e.target.value)}
+                  className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl p-3 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="true">Habilitado (Servidor pode consultar e sugerir)</option>
+                  <option value="false">Desabilitado (Apenas Coordenadores/Admins)</option>
+                </select>
+                <p className="text-[11px] text-zinc-400 leading-normal">
+                  Quando ativo, adiciona a aba "Justificativas" no portal do servidor (/consultar-escala) com opção de gerar PDF.
+                </p>
+              </div>
+
+              {/* 3. Obrigatoriedade para Fechar Escala */}
+              <div className="space-y-3 bg-zinc-50 dark:bg-zinc-800/50 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-700">
+                <label className="text-xs font-black text-zinc-700 dark:text-zinc-300 uppercase tracking-wider block">
+                  Trava de Fechamento de Escala
+                </label>
+                <select
+                  value={getConfig('justificativa_obrigatoria_fechar_escala')?.valor || 'true'}
+                  onChange={(e) => updateConfig('justificativa_obrigatoria_fechar_escala', e.target.value)}
+                  className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl p-3 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="true">Obrigatória (Bloqueia fechamento com pendências)</option>
+                  <option value="false">Opcional (Permite fechar escala sem justificar)</option>
+                </select>
+                <p className="text-[11px] text-zinc-400 leading-normal">
+                  Se habilitado, impede o coordenador de fechar a escala mensal se houver Horas Extras, Plantões ou Sobreavisos sem justificativa.
+                </p>
+              </div>
+            </div>
+          </div>
         )}
       </div>
 

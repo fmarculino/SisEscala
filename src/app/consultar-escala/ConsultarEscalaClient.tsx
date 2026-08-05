@@ -1,13 +1,25 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { validatePin, getServidorEscalas, logoutPortal, findServidorByMatricula, getEscalaDetails, createSwapRequest, getSwapRequests, cancelSwapRequest, getFolhaPontoServidor, salvarFolhaPontoServidor, verificarDivergenciaEscalaServidor, sincronizarFolhaPontoServidor, gerarFolhaPontoServidor, checkFolhaPontoHabilitada } from './actions'
+import { 
+  validatePin, getServidorEscalas, logoutPortal, findServidorByMatricula, 
+  getEscalaDetails, createSwapRequest, getSwapRequests, cancelSwapRequest, 
+  getFolhaPontoServidor, salvarFolhaPontoServidor, verificarDivergenciaEscalaServidor, 
+  sincronizarFolhaPontoServidor, gerarFolhaPontoServidor, checkFolhaPontoHabilitada,
+  checkJustificativasHabilitada, getJustificativasServidor, sugerirJustificativaServidor
+} from './actions'
 import { FolhaPontoEditor } from '@/app/(dashboard)/folha-ponto/[id]/FolhaPontoEditor'
 import { createClient } from '@/utils/supabase/client'
-import { Loader2, Calendar, FileText, LogOut, Search, Lock, User, ArrowRightLeft, X, Eye, EyeOff, Printer, Palmtree } from 'lucide-react'
+import { 
+  Loader2, Calendar, FileText, LogOut, Search, Lock, User, ArrowRightLeft, 
+  X, Eye, EyeOff, Printer, Palmtree, ClipboardCheck, CheckCircle2, Clock, 
+  AlertCircle, Send, Plus
+} from 'lucide-react'
 import { ScalePrintView } from '@/components/ScalePrintView'
 import { PortalScaleGrid } from '@/app/consultar-escala/PortalScaleGrid'
 import { PortalFeriasLicencasSection } from '@/app/consultar-escala/PortalFeriasLicencasSection'
+import { SugerirJustificativaModal } from '@/components/justificativas/SugerirJustificativaModal'
+import { RelatorioEventoPrintView } from '@/components/reports/RelatorioEventoPrintView'
 
 interface ConsultarEscalaClientProps {
   initialServidor: any | null
@@ -22,26 +34,71 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
   const [fullEscalaData, setFullEscalaData] = useState<any | null>(null)
   const [loadingEscala, setLoadingEscala] = useState(false)
 
-  // Timesheet module integration states
+  // Timesheet & Justificativas module integration states
   const [folhaHabilitada, setFolhaHabilitada] = useState(false)
-  const [viewMode, setViewMode] = useState<'escala' | 'folha' | 'ferias'>('escala')
+  const [justificativasHabilitada, setJustificativasHabilitada] = useState(false)
+  const [viewMode, setViewMode] = useState<'escala' | 'folha' | 'ferias' | 'justificativas'>('escala')
   const [folhaData, setFolhaData] = useState<any | null>(null)
   const [loadingFolha, setLoadingFolha] = useState(false)
   const [generatingPortalFolha, setGeneratingPortalFolha] = useState(false)
+
+  // Justificativas Portal States
+  const [justificativasList, setJustificativasList] = useState<any[]>([])
+  const [loadingJustificativas, setLoadingJustificativas] = useState(false)
+  const [sugerirModalData, setSugerirModalData] = useState<any | null>(null)
+  const [justificativasPrintOpen, setJustificativasPrintOpen] = useState(false)
+
   const supabase = createClient()
 
   // Check database configuration
   useEffect(() => {
     async function checkConfig() {
       try {
-        const enabled = await checkFolhaPontoHabilitada()
-        setFolhaHabilitada(enabled)
+        const [fpEnabled, justEnabled] = await Promise.all([
+          checkFolhaPontoHabilitada(),
+          checkJustificativasHabilitada()
+        ])
+        setFolhaHabilitada(fpEnabled)
+        setJustificativasHabilitada(justEnabled)
       } catch (err) {
-        console.error('Erro ao verificar config da folha:', err)
+        console.error('Erro ao verificar configs do portal:', err)
       }
     }
     checkConfig()
   }, [])
+
+  // Load justificativas action
+  async function handleViewJustificativas() {
+    if (!selectedEscala || !servidor) return
+    setViewMode('justificativas')
+    setLoadingJustificativas(true)
+    try {
+      const res = await getJustificativasServidor(servidor.id, selectedEscala.mes, selectedEscala.ano)
+      if (res.items) setJustificativasList(res.items)
+    } catch (err: any) {
+      console.error('Erro ao carregar justificativas:', err)
+    } finally {
+      setLoadingJustificativas(false)
+    }
+  }
+
+  // Suggest justification action
+  async function handleSugerirJustificativa(texto: string) {
+    if (!sugerirModalData || !servidor) return
+    const res = await sugerirJustificativaServidor({
+      servidorId: servidor.id,
+      escalaDiariaId: sugerirModalData.escala_diaria_id,
+      escalaMensalId: sugerirModalData.escala_mensal_id,
+      dia: sugerirModalData.dia,
+      mes: sugerirModalData.mes,
+      ano: sugerirModalData.ano,
+      categoria: sugerirModalData.categoria,
+      texto,
+      servidorNome: servidor.nome
+    })
+    if (res.error) throw new Error(res.error)
+    await handleViewJustificativas()
+  }
 
   // Load folha action
   async function handleViewFolha() {
@@ -550,6 +607,18 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
                           >
                             🏖️ Férias e Licenças
                           </button>
+                          {justificativasHabilitada && (
+                            <button
+                              onClick={handleViewJustificativas}
+                              className={`px-4 py-2 text-xs font-black uppercase rounded-lg transition-all ${
+                                viewMode === 'justificativas'
+                                  ? 'bg-white dark:bg-zinc-900 text-indigo-600 shadow-sm'
+                                  : 'text-zinc-500 hover:text-zinc-850 dark:hover:text-zinc-300'
+                              }`}
+                            >
+                              📋 Justificativas
+                            </button>
+                          )}
                         </div>
                       
                       {viewMode === 'escala' && (
@@ -564,6 +633,96 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
                 
                 {viewMode === 'ferias' && (
                   <PortalFeriasLicencasSection servidor={servidor} />
+                )}
+
+                {viewMode === 'justificativas' && (
+                  <div className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 space-y-6">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-zinc-100 dark:border-zinc-800 pb-4">
+                      <div>
+                        <h3 className="text-lg font-black text-zinc-900 dark:text-white uppercase tracking-tight flex items-center gap-2">
+                          <ClipboardCheck className="h-5 w-5 text-indigo-600" />
+                          Minhas Justificativas de Eventos
+                        </h3>
+                        <p className="text-xs text-zinc-500">
+                          Consulte o status das justificativas de Horas Extras, Plantões e Sobreavisos para o mês de {selectedEscala.mes}/{selectedEscala.ano}.
+                        </p>
+                      </div>
+
+                      <button
+                        onClick={() => setJustificativasPrintOpen(true)}
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-md shadow-indigo-600/20 flex items-center gap-2 transition-all"
+                      >
+                        <Printer className="h-4 w-4" />
+                        Imprimir / PDF
+                      </button>
+                    </div>
+
+                    {loadingJustificativas ? (
+                      <div className="py-12 text-center">
+                        <Loader2 className="h-8 w-8 animate-spin text-indigo-600 mx-auto mb-2" />
+                        <p className="text-xs text-zinc-400 font-bold uppercase tracking-wider">Carregando justificativas...</p>
+                      </div>
+                    ) : justificativasList.length === 0 ? (
+                      <div className="py-12 text-center space-y-2">
+                        <CheckCircle2 className="h-10 w-10 text-zinc-300 mx-auto" />
+                        <p className="text-sm font-bold text-zinc-700 dark:text-zinc-300">Nenhum evento extraordinário no mês.</p>
+                        <p className="text-xs text-zinc-400">Você não possui Horas Extras, Plantões ou Sobreavisos registrados nesta escala.</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {justificativasList.map((item, idx) => (
+                          <div key={idx} className="p-4 bg-zinc-50 dark:bg-zinc-800/60 rounded-2xl border border-zinc-200 dark:border-zinc-700 space-y-3">
+                            <div className="flex items-center justify-between">
+                              <span className="font-mono font-bold text-xs text-zinc-900 dark:text-white">
+                                Dia {String(item.dia).padStart(2, '0')} ({item.categoria})
+                              </span>
+                              {item.status === 'aprovada' ? (
+                                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-green-100 text-green-700 border border-green-200">
+                                  ✅ Aprovada
+                                </span>
+                              ) : item.status === 'sugestao_pendente' ? (
+                                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-blue-100 text-blue-700 border border-blue-200">
+                                  ⏳ Sugestão Enviada
+                                </span>
+                              ) : item.status === 'rejeitada' ? (
+                                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-red-100 text-red-700 border border-red-200">
+                                  ❌ Rejeitada
+                                </span>
+                              ) : (
+                                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-100 text-amber-700 border border-amber-200">
+                                  ⏳ Pendente
+                                </span>
+                              )}
+                            </div>
+
+                            {item.texto_justificativa ? (
+                              <p className="text-xs text-zinc-700 dark:text-zinc-300 italic bg-white dark:bg-zinc-900 p-3 rounded-xl border border-zinc-200 dark:border-zinc-700">
+                                "{item.texto_justificativa}"
+                              </p>
+                            ) : (
+                              <p className="text-xs text-zinc-400 italic">Nenhuma justificativa registrada ainda.</p>
+                            )}
+
+                            {item.motivo_rejeicao && (
+                              <p className="text-[11px] text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 p-2 rounded-lg font-medium">
+                                Motivo Rejeição: {item.motivo_rejeicao}
+                              </p>
+                            )}
+
+                            {(item.status === 'pendente' || item.status === 'rejeitada') && (
+                              <button
+                                onClick={() => setSugerirModalData(item)}
+                                className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-sm transition-all flex items-center justify-center gap-2"
+                              >
+                                <Send className="h-3.5 w-3.5" />
+                                Sugerir Justificativa
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 )}
                 
                 {viewMode === 'escala' && (
@@ -823,16 +982,26 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
       </div>
     )}
 
-    {/* Toast de Sucesso */}
-    {swapSuccess && (
-      <div className="fixed bottom-6 right-6 z-[200] animate-in slide-in-from-bottom-4 fade-in">
-        <div className="bg-emerald-600 text-white px-6 py-3 rounded-xl shadow-2xl text-sm font-bold flex items-center gap-3">
-          {swapSuccess}
-          <button onClick={() => setSwapSuccess(null)} className="text-white/70 hover:text-white">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
+    {/* Modais de Justificativa no Portal */}
+    {sugerirModalData && (
+      <SugerirJustificativaModal
+        isOpen={!!sugerirModalData}
+        onClose={() => setSugerirModalData(null)}
+        evento={sugerirModalData}
+        onSugerir={handleSugerirJustificativa}
+      />
+    )}
+
+    {justificativasPrintOpen && selectedEscala && (
+      <RelatorioEventoPrintView
+        unidadeId={selectedEscala.unidades?.id || selectedEscala.unidade_id}
+        setorId={selectedEscala.setores?.id || selectedEscala.setor_id}
+        mes={selectedEscala.mes}
+        ano={selectedEscala.ano}
+        eventos={justificativasList}
+        modoAssinatura="manual"
+        onClose={() => setJustificativasPrintOpen(false)}
+      />
     )}
   </>
   )

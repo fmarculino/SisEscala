@@ -2309,3 +2309,102 @@ export async function getDadosRequerimento(solicitacaoId: string, servidorId: st
     logoUrl: configCab?.valor || null,
   }
 }
+
+export async function checkJustificativasHabilitada() {
+  const supabase = await createAdminClient()
+  const { data } = await supabase
+    .from('configuracoes_globais')
+    .select('valor')
+    .eq('chave', 'justificativa_servidor_visualizar')
+    .single()
+  return data?.valor === 'true'
+}
+
+export async function getJustificativasServidor(servidorId: string, mes: number, ano: number) {
+  try {
+    const supabase = await createAdminClient()
+    const { data: eventos, error } = await supabase
+      .from('escala_diaria')
+      .select(`
+        id, dia, mes, ano, categoria,
+        escala_mensal_id,
+        dicionario_turnos(codigo),
+        escala_mensal(unidade_id, setor_id)
+      `)
+      .eq('servidor_id', servidorId)
+      .eq('mes', mes)
+      .eq('ano', ano)
+      .in('categoria', ['Extra', 'Plantão', 'Sobreaviso'])
+      .order('dia', { ascending: true })
+
+    if (error) return { error: error.message }
+
+    const { data: justificativas } = await supabase
+      .from('justificativas_eventos')
+      .select('*')
+      .eq('servidor_id', servidorId)
+      .eq('mes', mes)
+      .eq('ano', ano)
+
+    const justMap = new Map()
+    justificativas?.forEach(j => {
+      justMap.set(`${j.dia}-${j.categoria}`, j)
+    })
+
+    const items = eventos?.map(e => {
+      const catStr = String(e.categoria)
+      const just = justMap.get(`${e.dia}-${catStr}`)
+      return {
+        escala_diaria_id: e.id,
+        escala_mensal_id: e.escala_mensal_id,
+        dia: e.dia,
+        mes: e.mes,
+        ano: e.ano,
+        categoria: catStr,
+        turno_codigo: (e.dicionario_turnos as any)?.codigo || '—',
+        justificativa_id: just?.id || null,
+        texto_justificativa: just?.texto_justificativa || null,
+        status: just?.status || 'pendente',
+        origem: just?.origem || null,
+        motivo_rejeicao: just?.motivo_rejeicao || null
+      }
+    }) || []
+
+    return { items }
+  } catch (err: any) {
+    return { error: err.message }
+  }
+}
+
+export async function sugerirJustificativaServidor(dados: {
+  servidorId: string
+  escalaDiariaId: string
+  escalaMensalId: string
+  dia: number
+  mes: number
+  ano: number
+  categoria: string
+  texto: string
+  servidorNome: string
+}) {
+  try {
+    const supabase = await createAdminClient()
+    const { data, error } = await supabase.rpc('fn_sugerir_justificativa_servidor', {
+      p_servidor_id: dados.servidorId,
+      p_escala_diaria_id: dados.escalaDiariaId,
+      p_escala_mensal_id: dados.escalaMensalId,
+      p_dia: dados.dia,
+      p_mes: dados.mes,
+      p_ano: dados.ano,
+      p_categoria: dados.categoria,
+      p_texto: dados.texto,
+      p_servidor_nome: dados.servidorNome
+    })
+
+    if (error) return { error: error.message }
+    return { success: true, data }
+  } catch (err: any) {
+    return { error: err.message }
+  }
+}
+

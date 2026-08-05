@@ -1,20 +1,24 @@
--- Migration: Add missing presenca_entrada_manual and presenca_saida_manual columns to escala_diaria and fix function overloading
--- Description: Adds presenca_entrada_manual and presenca_saida_manual columns to escala_diaria, drops old 5-parameter overloaded function, and updates fn_confirmar_presenca_manual and fn_reverter_presenca_manual.
+-- Migration: Fix fn_confirmar_presenca_manual function overloads and type comparisons
+-- Description: Drops all legacy and overloaded versions of manual presence functions (fn_confirmar_presenca_manual, fn_reverter_presenca_manual, fn_confirmar_presenca_manual_bulk) that use public.escala_categoria or outdated parameter signatures, resolving 'operator does not exist: escala_categoria = text' errors. Recreates functions with explicit category text casting.
 
--- 1. ADD MISSING COLUMNS TO ESCALA_DIARIA
-ALTER TABLE public.escala_diaria 
-ADD COLUMN IF NOT EXISTS presenca_entrada_manual BOOLEAN DEFAULT FALSE;
-
-ALTER TABLE public.escala_diaria 
-ADD COLUMN IF NOT EXISTS presenca_saida_manual BOOLEAN DEFAULT FALSE;
-
--- 2. DROP ALL OLD OVERLOADED FUNCTIONS (preventing PGRST203 ambiguity and type mismatches)
+-- 1. DROP ALL PREVIOUS OVERLOADED VERSIONS OF MANUAL PRESENCE FUNCTIONS
 DROP FUNCTION IF EXISTS public.fn_confirmar_presenca_manual(uuid, integer, public.escala_categoria, text, uuid);
 DROP FUNCTION IF EXISTS public.fn_confirmar_presenca_manual(uuid, integer, public.escala_categoria, text, uuid, text);
 DROP FUNCTION IF EXISTS public.fn_confirmar_presenca_manual(uuid, integer, text, text, uuid);
 DROP FUNCTION IF EXISTS public.fn_confirmar_presenca_manual(uuid, integer, text, text, uuid, text);
 
--- 3. RECREATE 6-PARAMETER FUNCTION WITH JUSTIFICATIVA DEFAULT NULL
+DROP FUNCTION IF EXISTS public.fn_reverter_presenca_manual(uuid, integer, public.escala_categoria, text, uuid);
+DROP FUNCTION IF EXISTS public.fn_reverter_presenca_manual(uuid, integer, public.escala_categoria, text, uuid, text);
+DROP FUNCTION IF EXISTS public.fn_reverter_presenca_manual(uuid, integer, text, text, uuid);
+DROP FUNCTION IF EXISTS public.fn_reverter_presenca_manual(uuid, integer, text, text, uuid, text);
+
+DROP FUNCTION IF EXISTS public.fn_confirmar_presenca_manual_bulk(uuid[], integer[], text[], text, uuid);
+DROP FUNCTION IF EXISTS public.fn_confirmar_presenca_manual_bulk(uuid[], integer[], text[], text, uuid, text);
+DROP FUNCTION IF EXISTS public.fn_confirmar_presenca_manual_bulk(uuid[], integer[], public.escala_categoria[], text, uuid);
+DROP FUNCTION IF EXISTS public.fn_confirmar_presenca_manual_bulk(uuid[], integer[], public.escala_categoria[], text, uuid, text);
+
+
+-- 2. RECREATE fn_confirmar_presenca_manual WITH EXPLICIT TEXT CASTING
 CREATE OR REPLACE FUNCTION public.fn_confirmar_presenca_manual(
     p_escala_mensal_id uuid,
     p_dia integer,
@@ -78,7 +82,7 @@ BEGIN
         j.nome as jornada_nome,
         COALESCE(j.intervalo_minutos, 60) as intervalo_minutos,
         COALESCE(
-            CASE WHEN ed.categoria = 'Regular' THEN substring(j.nome from '^([0-9]+)')::integer ELSE NULL END,
+            CASE WHEN ed.categoria::text = 'Regular' THEN substring(j.nome from '^([0-9]+)')::integer ELSE NULL END,
             CASE 
               WHEN dt.codigo = 'T4' THEN 14
               WHEN dt.slots[1] ~ '^[0-9]+$' THEN dt.slots[1]::integer
@@ -98,7 +102,7 @@ BEGIN
     LEFT JOIN public.jornadas j ON j.id = public.obter_jornada_servidor_data(em.servidor_id, MAKE_DATE(em.ano, em.mes, ed.dia), em.jornada_id)
     WHERE em.id = p_escala_mensal_id
       AND ed.dia = p_dia
-      AND ed.categoria = p_categoria::public.escala_categoria;
+      AND ed.categoria::text = p_categoria;
 
     IF v_start_hour IS NULL THEN
         v_start_hour := 7;
@@ -114,7 +118,7 @@ BEGIN
             presenca_entrada_manual = CASE WHEN presenca_entrada_em IS NULL THEN true ELSE presenca_entrada_manual END,
             confirmado_por_id = p_validador_id,
             presenca_confirmada = true
-        WHERE escala_mensal_id = p_escala_mensal_id AND dia = p_dia AND categoria = p_categoria::public.escala_categoria;
+        WHERE escala_mensal_id = p_escala_mensal_id AND dia = p_dia AND categoria::text = p_categoria;
 
     ELSIF p_tipo = 'intervalo_saida' THEN
         v_start_timestamp_local := make_timestamp(v_ano, v_mes, p_dia, v_start_hour + 4, 0, 0);
@@ -125,7 +129,7 @@ BEGIN
             presenca_intervalo_saida_manual = CASE WHEN presenca_intervalo_saida_em IS NULL THEN true ELSE presenca_intervalo_saida_manual END,
             confirmado_por_id = p_validador_id,
             presenca_confirmada = true
-        WHERE escala_mensal_id = p_escala_mensal_id AND dia = p_dia AND categoria = p_categoria::public.escala_categoria;
+        WHERE escala_mensal_id = p_escala_mensal_id AND dia = p_dia AND categoria::text = p_categoria;
 
     ELSIF p_tipo = 'intervalo_retorno' THEN
         IF v_existing_saida_int IS NOT NULL THEN
@@ -140,7 +144,7 @@ BEGIN
             presenca_intervalo_retorno_manual = CASE WHEN presenca_intervalo_retorno_em IS NULL THEN true ELSE presenca_intervalo_retorno_manual END,
             confirmado_por_id = p_validador_id,
             presenca_confirmada = true
-        WHERE escala_mensal_id = p_escala_mensal_id AND dia = p_dia AND categoria = p_categoria::public.escala_categoria;
+        WHERE escala_mensal_id = p_escala_mensal_id AND dia = p_dia AND categoria::text = p_categoria;
         
     ELSIF p_tipo = 'saida' THEN
         v_start_timestamp_local := make_timestamp(v_ano, v_mes, p_dia, v_start_hour, 0, 0);
@@ -167,7 +171,7 @@ BEGIN
             presenca_saida_manual = CASE WHEN presenca_saida_em IS NULL THEN true ELSE presenca_saida_manual END,
             confirmado_por_id = p_validador_id,
             presenca_confirmada = true
-        WHERE escala_mensal_id = p_escala_mensal_id AND dia = p_dia AND categoria = p_categoria::public.escala_categoria;
+        WHERE escala_mensal_id = p_escala_mensal_id AND dia = p_dia AND categoria::text = p_categoria;
         
     ELSIF p_tipo = 'completo' THEN
         v_start_timestamp_local := make_timestamp(v_ano, v_mes, p_dia, v_start_hour, 0, 0);
@@ -200,7 +204,7 @@ BEGIN
             presenca_saida_manual = CASE WHEN presenca_saida_em IS NULL THEN true ELSE presenca_saida_manual END,
             confirmado_por_id = p_validador_id,
             presenca_confirmada = true
-        WHERE escala_mensal_id = p_escala_mensal_id AND dia = p_dia AND categoria = p_categoria::public.escala_categoria;
+        WHERE escala_mensal_id = p_escala_mensal_id AND dia = p_dia AND categoria::text = p_categoria;
 
     ELSIF p_tipo = 'periodo_1' THEN
         v_start_timestamp_local := make_timestamp(v_ano, v_mes, p_dia, v_start_hour, 0, 0);
@@ -213,7 +217,7 @@ BEGIN
             presenca_intervalo_saida_manual = CASE WHEN presenca_intervalo_saida_em IS NULL THEN true ELSE presenca_intervalo_saida_manual END,
             confirmado_por_id = p_validador_id,
             presenca_confirmada = true
-        WHERE escala_mensal_id = p_escala_mensal_id AND dia = p_dia AND categoria = p_categoria::public.escala_categoria;
+        WHERE escala_mensal_id = p_escala_mensal_id AND dia = p_dia AND categoria::text = p_categoria;
 
     ELSIF p_tipo = 'periodo_2' THEN
         v_start_timestamp_local := make_timestamp(v_ano, v_mes, p_dia, v_start_hour, 0, 0);
@@ -240,7 +244,7 @@ BEGIN
             presenca_saida_manual = CASE WHEN presenca_saida_em IS NULL THEN true ELSE presenca_saida_manual END,
             confirmado_por_id = p_validador_id,
             presenca_confirmada = true
-        WHERE escala_mensal_id = p_escala_mensal_id AND dia = p_dia AND categoria = p_categoria::public.escala_categoria;
+        WHERE escala_mensal_id = p_escala_mensal_id AND dia = p_dia AND categoria::text = p_categoria;
 
     ELSE
         RETURN jsonb_build_object('success', false, 'message', 'Tipo de validação inválido.');
@@ -282,7 +286,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
--- 4. RECREATE fn_reverter_presenca_manual WITH PROPER MANUAL RESET
+
+-- 3. RECREATE fn_reverter_presenca_manual WITH EXPLICIT TEXT CASTING
 CREATE OR REPLACE FUNCTION public.fn_reverter_presenca_manual(
     p_escala_mensal_id uuid,
     p_dia integer,
@@ -301,19 +306,19 @@ BEGIN
     IF p_tipo = 'entrada' THEN
         UPDATE public.escala_diaria
         SET presenca_entrada_em = NULL, presenca_entrada_manual = false
-        WHERE escala_mensal_id = p_escala_mensal_id AND dia = p_dia AND categoria = p_categoria::public.escala_categoria;
+        WHERE escala_mensal_id = p_escala_mensal_id AND dia = p_dia AND categoria::text = p_categoria;
     ELSIF p_tipo = 'intervalo_saida' THEN
         UPDATE public.escala_diaria
         SET presenca_intervalo_saida_em = NULL, presenca_intervalo_saida_manual = false
-        WHERE escala_mensal_id = p_escala_mensal_id AND dia = p_dia AND categoria = p_categoria::public.escala_categoria;
+        WHERE escala_mensal_id = p_escala_mensal_id AND dia = p_dia AND categoria::text = p_categoria;
     ELSIF p_tipo = 'intervalo_retorno' THEN
         UPDATE public.escala_diaria
         SET presenca_intervalo_retorno_em = NULL, presenca_intervalo_retorno_manual = false
-        WHERE escala_mensal_id = p_escala_mensal_id AND dia = p_dia AND categoria = p_categoria::public.escala_categoria;
+        WHERE escala_mensal_id = p_escala_mensal_id AND dia = p_dia AND categoria::text = p_categoria;
     ELSIF p_tipo = 'saida' THEN
         UPDATE public.escala_diaria
         SET presenca_saida_em = NULL, presenca_saida_manual = false
-        WHERE escala_mensal_id = p_escala_mensal_id AND dia = p_dia AND categoria = p_categoria::public.escala_categoria;
+        WHERE escala_mensal_id = p_escala_mensal_id AND dia = p_dia AND categoria::text = p_categoria;
     ELSE
         RETURN jsonb_build_object('success', false, 'message', 'Tipo de reversão inválido.');
     END IF;
@@ -321,10 +326,72 @@ BEGIN
     -- Update presenca_confirmada to false if all times are NULL
     UPDATE public.escala_diaria
     SET presenca_confirmada = false, confirmado_por_id = NULL
-    WHERE escala_mensal_id = p_escala_mensal_id AND dia = p_dia AND categoria = p_categoria::public.escala_categoria
+    WHERE escala_mensal_id = p_escala_mensal_id AND dia = p_dia AND categoria::text = p_categoria
       AND presenca_entrada_em IS NULL AND presenca_intervalo_saida_em IS NULL 
       AND presenca_intervalo_retorno_em IS NULL AND presenca_saida_em IS NULL;
 
     RETURN jsonb_build_object('success', true, 'message', 'Presença revertida com sucesso.');
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+
+-- 4. RECREATE fn_confirmar_presenca_manual_bulk WITH EXPLICIT TEXT CASTING
+CREATE OR REPLACE FUNCTION public.fn_confirmar_presenca_manual_bulk(
+    p_escala_mensal_ids uuid[],
+    p_dias integer[],
+    p_categorias text[],
+    p_tipo text,
+    p_validador_id uuid,
+    p_justificativa text DEFAULT NULL
+)
+RETURNS jsonb AS $$
+DECLARE
+    v_em_id UUID;
+    v_dia INTEGER;
+    v_cat TEXT;
+    v_total_processed INTEGER := 0;
+    v_res JSONB;
+BEGIN
+    IF p_escala_mensal_ids IS NULL OR array_length(p_escala_mensal_ids, 1) = 0 THEN
+        RETURN jsonb_build_object('success', false, 'message', 'Nenhuma escala mensal informada.');
+    END IF;
+
+    IF p_dias IS NULL OR array_length(p_dias, 1) = 0 THEN
+        RETURN jsonb_build_object('success', false, 'message', 'Nenhum dia informado.');
+    END IF;
+
+    IF p_categorias IS NULL OR array_length(p_categorias, 1) = 0 THEN
+        p_categorias := ARRAY['Regular'];
+    END IF;
+
+    FOREACH v_em_id IN ARRAY p_escala_mensal_ids LOOP
+        FOREACH v_dia IN ARRAY p_dias LOOP
+            FOREACH v_cat IN ARRAY p_categorias LOOP
+                -- Check if shift exists for this day and category
+                IF EXISTS (
+                    SELECT 1 FROM public.escala_diaria ed
+                    WHERE ed.escala_mensal_id = v_em_id
+                      AND ed.dia = v_dia
+                      AND ed.categoria::text = v_cat
+                ) THEN
+                    v_res := public.fn_confirmar_presenca_manual(
+                        v_em_id,
+                        v_dia,
+                        v_cat,
+                        p_tipo,
+                        p_validador_id,
+                        p_justificativa
+                    );
+                    v_total_processed := v_total_processed + 1;
+                END IF;
+            END LOOP;
+        END LOOP;
+    END LOOP;
+
+    RETURN jsonb_build_object(
+        'success', true, 
+        'message', 'Validações processadas com sucesso.', 
+        'processed_count', v_total_processed
+    );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;

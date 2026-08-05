@@ -2246,6 +2246,26 @@ export function ScaleGrid({
       return
     }
 
+    // Validação: Justificativas Obrigatórias (se habilitado nas Configurações Globais)
+    if (configs['justificativa_obrigatoria_fechar_escala'] === 'true') {
+      const { data: pendencias } = await supabase.rpc('fn_contar_pendencias_justificativa', {
+        p_unidade_id: unidadeId,
+        p_setor_id: setorId,
+        p_mes: mes,
+        p_ano: ano
+      })
+
+      if (pendencias && pendencias > 0) {
+        setAlertModal({
+          isOpen: true,
+          title: '⚠️ Justificativas Pendentes',
+          message: `Não é possível fechar a escala. Existem ${pendencias} evento(s) de Hora Extra, Plantão ou Sobreaviso sem justificativa registrada no setor. Acesse o menu OPERAÇÃO > Justificativas para regularizar.`,
+          type: 'warning'
+        })
+        return
+      }
+    }
+
     setConfirmModal({
       isOpen: true,
       title: 'Fechar Escala',
