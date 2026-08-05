@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS public.justificativas_eventos (
     dia INTEGER NOT NULL CHECK (dia BETWEEN 1 AND 31),
     mes INTEGER NOT NULL CHECK (mes BETWEEN 1 AND 12),
     ano INTEGER NOT NULL CHECK (ano BETWEEN 2020 AND 2100),
-    categoria TEXT NOT NULL CHECK (categoria IN ('Extra', 'Plantão', 'Sobreaviso')),
+    categoria TEXT NOT NULL,
     justificativa_padrao_id UUID REFERENCES public.justificativas_padrao(id) ON DELETE SET NULL,
     texto_justificativa TEXT NOT NULL,
     
@@ -87,7 +87,7 @@ CREATE INDEX IF NOT EXISTS idx_justificativas_padrao_unidade
 
 -- 6. RPC: LISTAR EVENTOS PENDENTES DE JUSTIFICATIVA
 CREATE OR REPLACE FUNCTION public.fn_listar_eventos_pendentes_justificativa(
-    p_unidade_id UUID,
+    p_unidade_id UUID DEFAULT NULL,
     p_setor_id UUID DEFAULT NULL,
     p_mes INT DEFAULT NULL,
     p_ano INT DEFAULT NULL,
@@ -110,20 +110,19 @@ DECLARE
 BEGIN
     v_offset := (p_page - 1) * p_per_page;
 
-    -- CTE dos eventos de escala diária que correspondem a Extra, Plantão ou Sobreaviso
     WITH eventos AS (
         SELECT 
             ed.id AS escala_diaria_id,
             ed.escala_mensal_id,
-            ed.servidor_id,
+            em.servidor_id,
             s.nome AS servidor_nome,
             s.matricula AS servidor_matricula,
             ed.dia,
-            ed.mes,
-            ed.ano,
+            em.mes,
+            em.ano,
             ed.categoria::text AS categoria,
             ed.dicionario_turnos_id,
-            dt.codigo AS turno_codigo,
+            COALESCE(dt.codigo, '—') AS turno_codigo,
             em.unidade_id,
             em.setor_id,
             u.nome AS unidade_nome,
@@ -136,23 +135,26 @@ BEGIN
             je.created_at AS justificativa_created_at
         FROM public.escala_diaria ed
         JOIN public.escala_mensal em ON ed.escala_mensal_id = em.id
-        JOIN public.servidores s ON ed.servidor_id = s.id
-        JOIN public.unidades u ON em.unidade_id = u.id
-        JOIN public.setores st ON em.setor_id = st.id
+        JOIN public.servidores s ON em.servidor_id = s.id
+        LEFT JOIN public.unidades u ON em.unidade_id = u.id
+        LEFT JOIN public.setores st ON em.setor_id = st.id
         LEFT JOIN public.dicionario_setores ds ON st.dicionario_setores_id = ds.id
         LEFT JOIN public.dicionario_turnos dt ON ed.dicionario_turnos_id = dt.id
         LEFT JOIN public.justificativas_eventos je 
-            ON je.servidor_id = ed.servidor_id 
+            ON je.servidor_id = em.servidor_id 
            AND je.dia = ed.dia 
-           AND je.mes = ed.mes 
-           AND je.ano = ed.ano 
-           AND je.categoria = ed.categoria::text
-        WHERE em.unidade_id = p_unidade_id
+           AND je.mes = em.mes 
+           AND je.ano = em.ano 
+           AND (je.categoria = ed.categoria::text OR LOWER(je.categoria) = LOWER(ed.categoria::text))
+        WHERE (p_unidade_id IS NULL OR em.unidade_id = p_unidade_id)
           AND (p_setor_id IS NULL OR em.setor_id = p_setor_id)
-          AND (p_mes IS NULL OR ed.mes = p_mes)
-          AND (p_ano IS NULL OR ed.ano = p_ano)
-          AND ed.categoria::text IN ('Extra', 'Plantão', 'Sobreaviso')
-          AND (p_categoria = 'todos' OR ed.categoria::text = p_categoria)
+          AND (p_mes IS NULL OR em.mes = p_mes)
+          AND (p_ano IS NULL OR em.ano = p_ano)
+          AND (
+              ed.categoria::text IN ('Extra', 'Plantão', 'Sobreaviso', 'Plantao', 'EXTRA', 'PLANTAO', 'SOBREAVISO')
+              OR LOWER(ed.categoria::text) IN ('extra', 'plantão', 'plantao', 'sobreaviso')
+          )
+          AND (p_categoria = 'todos' OR ed.categoria::text = p_categoria OR LOWER(ed.categoria::text) = LOWER(p_categoria))
     )
     SELECT 
         COUNT(*),
@@ -162,20 +164,19 @@ BEGIN
     INTO v_total, v_justificados, v_pendentes, v_sugestoes
     FROM eventos;
 
-    -- Query paginada com filtro de status
     WITH eventos AS (
         SELECT 
             ed.id AS escala_diaria_id,
             ed.escala_mensal_id,
-            ed.servidor_id,
+            em.servidor_id,
             s.nome AS servidor_nome,
             s.matricula AS servidor_matricula,
             ed.dia,
-            ed.mes,
-            ed.ano,
+            em.mes,
+            em.ano,
             ed.categoria::text AS categoria,
             ed.dicionario_turnos_id,
-            dt.codigo AS turno_codigo,
+            COALESCE(dt.codigo, '—') AS turno_codigo,
             em.unidade_id,
             em.setor_id,
             u.nome AS unidade_nome,
@@ -188,23 +189,26 @@ BEGIN
             je.created_at AS justificativa_created_at
         FROM public.escala_diaria ed
         JOIN public.escala_mensal em ON ed.escala_mensal_id = em.id
-        JOIN public.servidores s ON ed.servidor_id = s.id
-        JOIN public.unidades u ON em.unidade_id = u.id
-        JOIN public.setores st ON em.setor_id = st.id
+        JOIN public.servidores s ON em.servidor_id = s.id
+        LEFT JOIN public.unidades u ON em.unidade_id = u.id
+        LEFT JOIN public.setores st ON em.setor_id = st.id
         LEFT JOIN public.dicionario_setores ds ON st.dicionario_setores_id = ds.id
         LEFT JOIN public.dicionario_turnos dt ON ed.dicionario_turnos_id = dt.id
         LEFT JOIN public.justificativas_eventos je 
-            ON je.servidor_id = ed.servidor_id 
+            ON je.servidor_id = em.servidor_id 
            AND je.dia = ed.dia 
-           AND je.mes = ed.mes 
-           AND je.ano = ed.ano 
-           AND je.categoria = ed.categoria::text
-        WHERE em.unidade_id = p_unidade_id
+           AND je.mes = em.mes 
+           AND je.ano = em.ano 
+           AND (je.categoria = ed.categoria::text OR LOWER(je.categoria) = LOWER(ed.categoria::text))
+        WHERE (p_unidade_id IS NULL OR em.unidade_id = p_unidade_id)
           AND (p_setor_id IS NULL OR em.setor_id = p_setor_id)
-          AND (p_mes IS NULL OR ed.mes = p_mes)
-          AND (p_ano IS NULL OR ed.ano = p_ano)
-          AND ed.categoria::text IN ('Extra', 'Plantão', 'Sobreaviso')
-          AND (p_categoria = 'todos' OR ed.categoria::text = p_categoria)
+          AND (p_mes IS NULL OR em.mes = p_mes)
+          AND (p_ano IS NULL OR em.ano = p_ano)
+          AND (
+              ed.categoria::text IN ('Extra', 'Plantão', 'Sobreaviso', 'Plantao', 'EXTRA', 'PLANTAO', 'SOBREAVISO')
+              OR LOWER(ed.categoria::text) IN ('extra', 'plantão', 'plantao', 'sobreaviso')
+          )
+          AND (p_categoria = 'todos' OR ed.categoria::text = p_categoria OR LOWER(ed.categoria::text) = LOWER(p_categoria))
           AND (
               p_status = 'todos' 
               OR (p_status = 'pendentes' AND COALESCE(je.status, 'pendente') = 'pendente')
@@ -248,18 +252,21 @@ BEGIN
     FROM public.escala_diaria ed
     JOIN public.escala_mensal em ON ed.escala_mensal_id = em.id
     LEFT JOIN public.justificativas_eventos je 
-        ON je.servidor_id = ed.servidor_id 
+        ON je.servidor_id = em.servidor_id 
        AND je.dia = ed.dia 
-       AND je.mes = ed.mes 
-       AND je.ano = ed.ano 
-       AND je.categoria = ed.categoria::text
+       AND je.mes = em.mes 
+       AND je.ano = em.ano 
+       AND (je.categoria = ed.categoria::text OR LOWER(je.categoria) = LOWER(ed.categoria::text))
        AND je.status = 'aprovada'
     WHERE em.unidade_id = p_unidade_id
       AND em.setor_id = p_setor_id
-      AND ed.mes = p_mes
-      AND ed.ano = p_ano
-      AND ed.categoria::text IN ('Extra', 'Plantão', 'Sobreaviso')
-      AND je.id IS NULL;  -- Ou seja, não tem justificativa aprovada
+      AND em.mes = p_mes
+      AND em.ano = p_ano
+      AND (
+          ed.categoria::text IN ('Extra', 'Plantão', 'Sobreaviso', 'Plantao', 'EXTRA', 'PLANTAO', 'SOBREAVISO')
+          OR LOWER(ed.categoria::text) IN ('extra', 'plantão', 'plantao', 'sobreaviso')
+      )
+      AND je.id IS NULL;
 
     RETURN v_count;
 END;
@@ -288,7 +295,6 @@ DECLARE
     v_setor_id UUID;
     v_id UUID;
 BEGIN
-    -- Obter unidade e setor da escala mensal
     SELECT unidade_id, setor_id INTO v_unidade_id, v_setor_id
     FROM public.escala_mensal WHERE id = p_escala_mensal_id;
 
@@ -344,7 +350,6 @@ BEGIN
         updated_at = now()
     RETURNING id INTO v_id;
 
-    -- Registra log no sistema
     INSERT INTO public.logs_sistema (acao, unidade_id, setor_id, detalhes, profile_id)
     VALUES (
         'JUSTIFICATIVA_REGISTRADA',
@@ -514,20 +519,26 @@ ALTER TABLE public.justificativas_padrao ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.justificativas_eventos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.justificativas_assinaturas ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Leitura justificativas_padrao" ON public.justificativas_padrao;
 CREATE POLICY "Leitura justificativas_padrao" ON public.justificativas_padrao
     FOR SELECT USING (true);
 
+DROP POLICY IF EXISTS "Escrita justificativas_padrao" ON public.justificativas_padrao;
 CREATE POLICY "Escrita justificativas_padrao" ON public.justificativas_padrao
     FOR ALL USING (auth.uid() IS NOT NULL);
 
+DROP POLICY IF EXISTS "Leitura justificativas_eventos" ON public.justificativas_eventos;
 CREATE POLICY "Leitura justificativas_eventos" ON public.justificativas_eventos
     FOR SELECT USING (true);
 
+DROP POLICY IF EXISTS "Escrita justificativas_eventos" ON public.justificativas_eventos;
 CREATE POLICY "Escrita justificativas_eventos" ON public.justificativas_eventos
     FOR ALL USING (auth.uid() IS NOT NULL);
 
+DROP POLICY IF EXISTS "Leitura justificativas_assinaturas" ON public.justificativas_assinaturas;
 CREATE POLICY "Leitura justificativas_assinaturas" ON public.justificativas_assinaturas
     FOR SELECT USING (true);
 
+DROP POLICY IF EXISTS "Escrita justificativas_assinaturas" ON public.justificativas_assinaturas;
 CREATE POLICY "Escrita justificativas_assinaturas" ON public.justificativas_assinaturas
     FOR ALL USING (auth.uid() IS NOT NULL);

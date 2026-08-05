@@ -2329,21 +2329,37 @@ export async function checkJustificativasHabilitada() {
 export async function getJustificativasServidor(servidorId: string, mes: number, ano: number) {
   try {
     const supabase = await createAdminClient()
-    const { data: eventos, error } = await supabase
-      .from('escala_diaria')
-      .select(`
-        id, dia, mes, ano, categoria,
-        escala_mensal_id,
-        dicionario_turnos(codigo),
-        escala_mensal(unidade_id, setor_id)
-      `)
+
+    // 1. Fetch escala_mensal records for this server and month/year
+    const { data: escalasMensais } = await supabase
+      .from('escala_mensal')
+      .select('id, unidade_id, setor_id')
       .eq('servidor_id', servidorId)
       .eq('mes', mes)
       .eq('ano', ano)
-      .in('categoria', ['Extra', 'Plantão', 'Sobreaviso'])
+
+    if (!escalasMensais || escalasMensais.length === 0) {
+      return { items: [] }
+    }
+
+    const escalaMensalIds = escalasMensais.map(em => em.id)
+
+    // 2. Fetch escala_diaria records linked to these monthly scales
+    const { data: eventos, error } = await supabase
+      .from('escala_diaria')
+      .select(`
+        id, dia, categoria, escala_mensal_id, dicionario_turnos_id,
+        dicionario_turnos(codigo)
+      `)
+      .in('escala_mensal_id', escalaMensalIds)
       .order('dia', { ascending: true })
 
     if (error) return { error: error.message }
+
+    const extraEvents = eventos?.filter(e => {
+      const cat = String(e.categoria || '').toLowerCase()
+      return cat.includes('extra') || cat.includes('plant') || cat.includes('sobreaviso')
+    }) || []
 
     const { data: justificativas } = await supabase
       .from('justificativas_eventos')
@@ -2354,18 +2370,18 @@ export async function getJustificativasServidor(servidorId: string, mes: number,
 
     const justMap = new Map()
     justificativas?.forEach(j => {
-      justMap.set(`${j.dia}-${j.categoria}`, j)
+      justMap.set(`${j.dia}-${String(j.categoria).toLowerCase()}`, j)
     })
 
-    const items = eventos?.map(e => {
+    const items = extraEvents.map(e => {
       const catStr = String(e.categoria)
-      const just = justMap.get(`${e.dia}-${catStr}`)
+      const just = justMap.get(`${e.dia}-${catStr.toLowerCase()}`)
       return {
         escala_diaria_id: e.id,
         escala_mensal_id: e.escala_mensal_id,
         dia: e.dia,
-        mes: e.mes,
-        ano: e.ano,
+        mes: mes,
+        ano: ano,
         categoria: catStr,
         turno_codigo: (e.dicionario_turnos as any)?.codigo || '—',
         justificativa_id: just?.id || null,
@@ -2374,7 +2390,7 @@ export async function getJustificativasServidor(servidorId: string, mes: number,
         origem: just?.origem || null,
         motivo_rejeicao: just?.motivo_rejeicao || null
       }
-    }) || []
+    })
 
     return { items }
   } catch (err: any) {
