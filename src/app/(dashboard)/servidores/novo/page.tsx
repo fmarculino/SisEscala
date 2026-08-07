@@ -27,6 +27,12 @@ export default function NovoServidorPage() {
   const [cargos, setCargos] = useState<Cargo[]>([])
   const [selectedUnidade, setSelectedUnidade] = useState('')
 
+  // Intervalo — Horário fixo (Modo Rígido) e Intervalo flexível são mutuamente exclusivos.
+  const [intervaloInicio, setIntervaloInicio] = useState('')
+  const [intervaloFim, setIntervaloFim] = useState('')
+  const [intervaloFlexivel, setIntervaloFlexivel] = useState(false)
+  const temHorarioPersonalizado = !intervaloFlexivel && (!!intervaloInicio || !!intervaloFim)
+
   // Estado para seleção do cargo e busca incremental
   const [selectedCargo, setSelectedCargo] = useState('')
   const [cargoSearch, setCargoSearch] = useState('')
@@ -399,10 +405,14 @@ export default function NovoServidorPage() {
               type="time"
               id="intervalo_inicio_personalizado"
               name="intervalo_inicio_personalizado"
-              className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white sm:text-sm"
+              value={intervaloInicio}
+              onChange={(e) => setIntervaloInicio(e.target.value)}
+              readOnly={intervaloFlexivel}
+              tabIndex={intervaloFlexivel ? -1 : undefined}
+              className={`mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white sm:text-sm ${intervaloFlexivel ? 'opacity-50 pointer-events-none cursor-not-allowed' : ''}`}
             />
             <p className="mt-1 text-[10px] text-zinc-500 truncate" title="Opcional. Usado no modo Rígido se informado.">
-              Opcional (Modo Rígido)
+              {intervaloFlexivel ? 'Desative o intervalo flexível para definir' : 'Opcional (Modo Rígido)'}
             </p>
           </div>
 
@@ -414,27 +424,40 @@ export default function NovoServidorPage() {
               type="time"
               id="intervalo_fim_personalizado"
               name="intervalo_fim_personalizado"
-              className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white sm:text-sm"
+              value={intervaloFim}
+              onChange={(e) => setIntervaloFim(e.target.value)}
+              readOnly={intervaloFlexivel}
+              tabIndex={intervaloFlexivel ? -1 : undefined}
+              className={`mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white sm:text-sm ${intervaloFlexivel ? 'opacity-50 pointer-events-none cursor-not-allowed' : ''}`}
             />
             <p className="mt-1 text-[10px] text-zinc-500 truncate" title="Opcional. Usado no modo Rígido se informado.">
-              Opcional (Modo Rígido)
+              {intervaloFlexivel ? 'Desative o intervalo flexível para definir' : 'Opcional (Modo Rígido)'}
             </p>
           </div>
 
           <div className="sm:col-span-6">
-            <label className="flex items-start gap-2 cursor-pointer">
+            <label className={`flex items-start gap-2 ${temHorarioPersonalizado ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
               <input
                 type="checkbox"
                 name="intervalo_flexivel"
                 value="true"
+                checked={intervaloFlexivel}
+                disabled={temHorarioPersonalizado}
+                onChange={(e) => {
+                  setIntervaloFlexivel(e.target.checked)
+                  if (e.target.checked) {
+                    setIntervaloInicio('')
+                    setIntervaloFim('')
+                  }
+                }}
                 className="mt-0.5 h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
               />
               <span className="text-sm text-zinc-700 dark:text-zinc-300">
                 Intervalo flexível
                 <span className="block text-[10px] text-zinc-500">
-                  Permite gozar o intervalo em qualquer horário, mesmo em unidade de intervalo rígido,
-                  desde que cumpra a carga horária. Os horários acima passam a valer apenas como
-                  duração prevista: o excedente adia a saída, e o tempo a menos antecipa.
+                  {temHorarioPersonalizado
+                    ? 'Limpe os horários de Início/Fim acima para habilitar.'
+                    : 'Permite gozar o intervalo em qualquer horário, mesmo em unidade de intervalo rígido, desde que cumpra a carga horária. Os horários acima passam a valer apenas como duração prevista: o excedente adia a saída, e o tempo a menos antecipa.'}
                 </span>
               </span>
             </label>
