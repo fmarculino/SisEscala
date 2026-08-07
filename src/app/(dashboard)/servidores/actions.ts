@@ -57,34 +57,15 @@ export async function createServidor(formData: FormData) {
   const intervalo_inicio_personalizado = (formData.get('intervalo_inicio_personalizado') as string) || null
   const intervalo_fim_personalizado = (formData.get('intervalo_fim_personalizado') as string) || null
 
-  let matriculaFinal = matricula?.trim() || ''
+  // Matrícula vazia é preenchida pela trigger trg_atribuir_matricula_temporaria.
+  // Não calcule o sequencial aqui: este SELECT passa pela RLS de servidores, que escopa
+  // por unidade/setor, enquanto a constraint UNIQUE é global — quem enxerga só parte da
+  // tabela gera um número já usado por outra unidade. Ver 20260807110000.
+  const matriculaFinal = matricula?.trim() || null
 
-  if (!matriculaFinal) {
-    const yearSuffix = new Date().getFullYear().toString().slice(-2)
-    const prefix = `T${yearSuffix}`
-    
-    const { data, error: fetchError } = await supabase
-      .from('servidores')
-      .select('matricula')
-      .like('matricula', `${prefix}%`)
-      .order('matricula', { ascending: false })
-      .limit(1)
-
-    if (fetchError) {
-      return { error: `Erro ao gerar matrícula temporária: ${fetchError.message}` }
-    }
-
-    let nextSeq = 1
-    if (data && data.length > 0 && data[0].matricula) {
-      const currentSeqStr = data[0].matricula.slice(prefix.length)
-      const currentSeq = parseInt(currentSeqStr, 10)
-      if (!isNaN(currentSeq)) {
-        nextSeq = currentSeq + 1
-      }
-    }
-    matriculaFinal = `${prefix}${String(nextSeq).padStart(5, '0')}`
-  } else {
-    // Validar unicidade de matrícula definitiva
+  if (matriculaFinal) {
+    // Checagem antecipada só para dar mensagem amigável. Também limitada pela RLS, então
+    // a violação da constraint ainda é tratada no insert abaixo.
     const { data: existing, error: checkError } = await supabase
       .from('servidores')
       .select('id')
@@ -125,11 +106,22 @@ export async function createServidor(formData: FormData) {
   })
 
   if (error) {
-    return { error: error.message }
+    return { error: traduzirErroMatricula(error) }
   }
 
   revalidatePath('/servidores')
   redirect('/servidores')
+}
+
+// A checagem prévia de matrícula duplicada é limitada pela RLS: uma matrícula existente em
+// unidade que o usuário não enxerga passa batida e só estoura na constraint. Traduz o erro
+// técnico do Postgres para algo acionável.
+function traduzirErroMatricula(error: { message?: string; code?: string }): string {
+  const msg = error?.message || ''
+  if (error?.code === '23505' && /matricula/i.test(msg)) {
+    return 'Esta matrícula já está cadastrada para outro servidor, possivelmente em uma unidade que você não visualiza. Confirme a matrícula ou deixe o campo em branco para gerar uma temporária.'
+  }
+  return msg
 }
 
 function parseCSVLine(line: string, delimiter: string): string[] {
@@ -171,24 +163,9 @@ export async function importServidores(csvText: string) {
     nome: (s as any).dicionario_setores?.nome || ''
   })) || []
 
-  // Obter o sequencial máximo da matrícula temporária atual para evitar colisões
-  const yearSuffix = new Date().getFullYear().toString().slice(-2)
-  const prefix = `T${yearSuffix}`
-  const { data: lastRecord } = await supabase
-    .from('servidores')
-    .select('matricula')
-    .like('matricula', `${prefix}%`)
-    .order('matricula', { ascending: false })
-    .limit(1)
-
-  let nextSeq = 1
-  if (lastRecord && lastRecord.length > 0 && lastRecord[0].matricula) {
-    const currentSeqStr = lastRecord[0].matricula.slice(prefix.length)
-    const currentSeq = parseInt(currentSeqStr, 10)
-    if (!isNaN(currentSeq)) {
-      nextSeq = currentSeq + 1
-    }
-  }
+  // Linhas sem matrícula vão com null e a trigger trg_atribuir_matricula_temporaria
+  // atribui o sequencial, uma a uma, dentro da própria transação do insert.
+  // Ver 20260807110000 — calcular aqui colidia por causa da RLS de servidores.
 
   const lines = csvText.split('\n').filter(line => line.trim() !== '')
   if (lines.length === 0) {
@@ -384,18 +361,13 @@ export async function importServidores(csvText: string) {
 
     if (!nome) continue
 
-    // Se a matrícula for nula/vazia, gerar código temporário sequencial
-    if (!matricula) {
-      matricula = `${prefix}${String(nextSeq).padStart(5, '0')}`
-      nextSeq++
-    }
-
     const unidadeId = unidades?.find(u => u.nome.toLowerCase() === unidadeNome.toLowerCase())?.id || null
     const setorId = setores?.find(s => s.nome.toLowerCase() === setorNome.toLowerCase() && (unidadeId ? s.unidade_id === unidadeId : true))?.id || null
 
     servers.push({
       nome,
-      matricula,
+      // Vazia vira null para a trigger do banco atribuir a matrícula temporária.
+      matricula: matricula.trim() || null,
       cpf,
       rg_numero,
       rg_orgao_emissor,
@@ -440,7 +412,7 @@ export async function importServidores(csvText: string) {
   const { error } = await supabase.from('servidores').insert(servers)
 
   if (error) {
-    return { error: `Erro ao salvar servidores no banco de dados: ${error.message}` }
+    return { error: `Erro ao salvar servidores no banco de dados: ${traduzirErroMatricula(error)}` }
   }
 
   revalidatePath('/servidores')
@@ -465,34 +437,12 @@ export async function updateServidor(id: string, formData: FormData) {
   const intervalo_inicio_personalizado = (formData.get('intervalo_inicio_personalizado') as string) || null
   const intervalo_fim_personalizado = (formData.get('intervalo_fim_personalizado') as string) || null
 
-  let matriculaFinal = matricula?.trim() || ''
+  // Esvaziar a matrícula na edição faz a trigger atribuir uma temporária nova.
+  // Ver 20260807110000 — o cálculo aqui colidia por causa da RLS de servidores.
+  const matriculaFinal = matricula?.trim() || null
 
-  if (!matriculaFinal) {
-    const yearSuffix = new Date().getFullYear().toString().slice(-2)
-    const prefix = `T${yearSuffix}`
-    
-    const { data, error: fetchError } = await supabase
-      .from('servidores')
-      .select('matricula')
-      .like('matricula', `${prefix}%`)
-      .order('matricula', { ascending: false })
-      .limit(1)
-
-    if (fetchError) {
-      return { error: `Erro ao gerar matrícula temporária: ${fetchError.message}` }
-    }
-
-    let nextSeq = 1
-    if (data && data.length > 0 && data[0].matricula) {
-      const currentSeqStr = data[0].matricula.slice(prefix.length)
-      const currentSeq = parseInt(currentSeqStr, 10)
-      if (!isNaN(currentSeq)) {
-        nextSeq = currentSeq + 1
-      }
-    }
-    matriculaFinal = `${prefix}${String(nextSeq).padStart(5, '0')}`
-  } else {
-    // Validar unicidade da matrícula (ignorando o registro do próprio servidor atual)
+  if (matriculaFinal) {
+    // Checagem antecipada só para dar mensagem amigável; também limitada pela RLS.
     const { data: existing, error: checkError } = await supabase
       .from('servidores')
       .select('id')
@@ -724,10 +674,10 @@ export async function updateServidor(id: string, formData: FormData) {
       .eq('id', id)
 
     if (fallbackRes.error) {
-      return { error: fallbackRes.error.message }
+      return { error: traduzirErroMatricula(fallbackRes.error) }
     }
   } else if (error) {
-    return { error: error.message }
+    return { error: traduzirErroMatricula(error) }
   }
 
   revalidatePath('/servidores')

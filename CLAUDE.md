@@ -34,21 +34,60 @@ docs/                    planos, evolução por versão, diagnósticos
 
 ## Armadilhas conhecidas
 
-### 1. `CREATE OR REPLACE` já apagou lógica crítica duas vezes
+### 1. `CREATE OR REPLACE` já apagou lógica crítica seis vezes
 
-As funções de presença são recriadas inteiras a cada migration. **Duas regressões reais** já
-aconteceram por omitir um trecho ao recopiar:
+As funções de presença são recriadas inteiras a cada migration. **Seis regressões reais** já
+aconteceram por omitir ou trocar um trecho ao recopiar — e **cinco delas saíram da mesma
+migration, `20260804080000`**:
 
 - 04/08/2026 — perda do alinhamento dinâmico de hora extra (documentado em `.agents/AGENTS.md`).
 - `20260804080000` — perda do guard de intervalo, corrigido em `20260806000000`.
+
+As quatro seguintes também são da `20260804080000`, e só apareceram em 07/08/2026, quando um
+coordenador tentou validar uma presença:
+
+| o que se perdeu | sintoma | correção |
+|---|---|---|
+| cast `p_categoria::public.escala_categoria` | `operator does not exist: escala_categoria = text` | `20260807060000` |
+| colunas `justificativa_manual` / `confirmacao_manual`, que passaram a ser **escritas sem nunca terem sido criadas** | `column "justificativa_manual" does not exist` | `20260807070000` |
+| `COALESCE(campo, sintético)` e as flags `presenca_*_manual` | validação manual **sobrescreveria batida real** e o intervalo manual apareceria como batida de terminal | `20260807080000` |
+| o **segundo passo** de cada escopo de meio período | "1º Período" e "2º Período" pintavam 1 segmento em vez de 2 | `20260807100000` |
+
+Nenhum dado foi corrompido só porque as duas primeiras abortavam a função **antes** de qualquer
+`UPDATE` — a validação manual ficou inteiramente inoperante de 04/08 a 07/08/2026. Cuidado com a
+ordem ao corrigir cadeias assim: destravar o erro visível sem corrigir o que estava atrás dele
+teria liberado a escrita destrutiva.
+
+**Uma função quebrada esconde as outras regressões dela.** As três últimas só ficaram visíveis
+depois que as anteriores foram corrigidas, uma de cada vez. Ao consertar uma função que estava
+inoperante, não presuma que o primeiro erro resolvido é o único: **compare o corpo inteiro com a
+última versão que comprovadamente funcionava**, não só o trecho que estourou.
+
+Escopos de validação manual e quantos passos cada um grava — a grade espelha isso:
+
+| escopo | passos |
+|---|---|
+| Dia Completo | entrada + saída intervalo + retorno intervalo + saída |
+| 1º Período | entrada + saída para o intervalo |
+| 2º Período | retorno do intervalo + saída final |
+
+Os passos de intervalo em todos eles são condicionados a `v_tem_intervalo`.
+
+Nada disso quebra build ou deploy: **plpgsql resolve nomes de coluna e operadores só em tempo de
+execução do statement**, e `CREATE OR REPLACE FUNCTION` aceita a função feliz da vida.
+`npx tsc --noEmit` e `npm run build` não detectam nenhum desses cinco casos — mudança em função
+de presença exige executar o caminho real.
 
 **Antes de alterar `fn_confirmar_presenca*`:**
 
 1. Descubra qual migration define a versão **vigente** — não é necessariamente a que o nome sugere.
    `grep -rln "FUNCTION public.fn_confirmar_presenca" supabase/migrations/ | sort | tail -1`
 2. Gere a nova migration **copiando o arquivo vigente** e aplicando substituições pontuais por script,
-   depois confira com `diff`. Não redigite o corpo à mão.
+   depois confira com `diff`. Não redigite o corpo à mão. Faça o script **abortar** se a contagem
+   de ocorrências não for a esperada — foi isso que pegou uma indentação divergente em `20260807080000`.
 3. Confirme que os guards existentes continuam presentes no resultado.
+4. Confira que **toda coluna escrita existe de fato** — a função não avisa. Compare a lista de
+   colunas do `UPDATE` com o que o banco realmente tem (ver armadilha 3).
 
 ### 2. As migrations não são o schema completo
 
@@ -65,9 +104,14 @@ Tabelas base (`escala_diaria`, `escala_mensal`, `jornadas`, `dicionario_turnos`,
 | homologação | `.env.local` → `mtgfmxsbsyknotvwzdcr.supabase.co` | REST |
 | **produção** | `.env.production` → `supabase-sisescala.coolify.vps.atb.app.br` | REST (porta 5432 bloqueada por firewall) |
 
-Os schemas **divergem** (ex: em 06/08/2026, `escala_diaria` de homologação não tinha
-`justificativa_manual` / `confirmacao_manual`, que as funções escrevem). Sempre confirme
-em qual banco você está antes de concluir qualquer coisa sobre os dados.
+Os schemas **divergem**. Sempre confirme em qual banco você está antes de concluir qualquer
+coisa sobre os dados.
+
+⚠️ Uma nota anterior aqui dizia que `justificativa_manual` / `confirmacao_manual` faltavam
+*só em homologação*, sugerindo que produção as tinha. **Era falso.** Em 07/08/2026 se confirmou
+que as colunas não existiam em nenhum dos dois — nenhuma migration jamais as criou, e a função
+as escrevia desde `20260804080000` (criadas em `20260807070000`). Coluna ausente em homologação
+não é evidência de divergência: **verifique nos dois**, e não presuma que produção é o superset.
 
 Só há `DATABASE_URL` em produção, e a porta Postgres não é acessível de fora — na prática,
 consultas são feitas via PostgREST com a service role key. **Peça autorização antes de tocar
@@ -135,6 +179,26 @@ ao terminal.
 `mensagem_erro` e `escala_prevista_inicio`/`fim`. É a **fonte de verdade** para recuperar
 horários reais quando uma batida legítima foi recusada por bug — muito melhor que presumir
 horário a partir da jornada. Ver `20260807010000` como exemplo, e `fn_reconciliar_presencas_negadas`.
+
+⚠️ **A maioria das linhas não prova que alguém estava presente.** Auditoria de 07/08/2026
+(911 tentativas, 361 em agosto):
+
+| tentativas | o que é | serve como horário de ponto? |
+|---|---|---|
+| 378 | `Matrícula ou PIN inválidos` | **não** — identidade não confirmada, pode ser outra pessoa |
+| 75 | `servidor_id` nulo | **não** — idem |
+| 90 | `Nenhum plantão` / `Sem escala` | **não** — não havia escala no dia |
+| 175 | janela de presença / erro interno | **sim** — pessoa identificada, recusada por bug |
+
+Gravar um horário de "PIN inválido" na folha registra o ponto a partir de um erro de digitação.
+O filtro canônico está em `fn_batidas_reais_recusadas` (`20260807090000`): exige `servidor_id`
+preenchido **e** mensagem de janela/erro interno.
+
+Também não há campo indicando **qual passo** a tentativa era. O casamento é por proximidade ao
+horário previsto, guloso e sem reuso. Considerar só entrada e saída erra: muitas tentativas caem
+por volta das 12h em jornadas 08:00–18:00 (almoço) e ficavam a 250–295 min do passo escolhido.
+Incluindo os 4 passos, a distância cai para p50 = 51 min. Tolerância adotada: **90 min**
+(aproveita 89%; o resto cai no horário previsto, que é o comportamento seguro).
 
 ### 8. PostgREST corta em 1000 linhas
 
