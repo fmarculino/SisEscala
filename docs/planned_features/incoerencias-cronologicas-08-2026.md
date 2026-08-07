@@ -1,43 +1,65 @@
 # Incoerências Cronológicas de Presença — 08/2026
 
-**Levantado em:** 06/08/2026 (auditoria de produção, somente leitura)
-**Status:** diagnóstico pendente — nenhuma correção aplicada
+**Levantado em:** 06/08/2026
+**Reverificado em:** 07/08/2026, após aplicar `20260806000000` e `20260806010000` em produção
+**Status:** 4 registros pendentes de diagnóstico — nenhuma correção aplicada a eles
 
-## Resumo
+## Situação atual
 
-Durante a auditoria da [correção de intervalos em jornadas curtas](./implementation_plan.md), foram encontrados **7 registros de `escala_diaria` cuja sequência de batidas é cronologicamente impossível**.
+Eram 7 registros com sequência de batidas cronologicamente impossível. Após a correção de intervalos indevidos, **restam 4** — os outros 3 tinham a incoerência causada pelos campos de intervalo, que foram limpos.
 
-Este é um problema **distinto** do intervalo indevido: afeta também jornadas de 10h, que têm direito legítimo a intervalo. Por isso foi separado do plano principal.
+Este é um problema **distinto** do intervalo indevido: 3 dos 4 restantes são jornadas de 10h, com direito legítimo a intervalo.
 
-## Registros afetados
-
-Horários em UTC, como armazenados. Marabá é UTC−3.
-
-| # | jornada | h | categoria | dia | entrada | int. saída | int. retorno | saída | anomalia |
+| # | servidor | jornada efetiva | h | dia | entrada | int. saída | int. retorno | saída | anomalia |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | 08H ÀS 18H | 10 | Regular | 4 | 15:16 | **15:00** | — | 20:56 | intervalo antes da entrada |
-| 2 | 13H ÀS 17H | 4 | Regular | 3 | 16:00 | **15:00** | 17:00 | **21:00** | intervalo antes da entrada; saída 4h após o fim da jornada |
-| 3 | 08H ÀS 18H | 10 | Regular | 4 | 15:01 | **15:00** | 17:00 | 21:00 | intervalo 1 min antes da entrada |
-| 4 | 07H ÀS 17H | 10 | **Extra** | 3 | 10:00 | 14:00 | 16:00 | **12:00** | saída antes do retorno do intervalo |
-| 5 | 08H ÀS 14H | 6 | Regular | 4 | 17:08 | **15:00** | — | 17:08 | intervalo antes da entrada; saída == entrada |
-| 6 | 08H ÀS 14H | 6 | **Plantão** | 3 | 17:00 | 21:00 | 21:00 | **20:57** | saída antes do intervalo; intervalo de duração zero |
-| 7 | 07H ÀS 13H | 6 | Regular | 4 | 16:37 | 15:00 | **14:00** | 16:00 | retorno antes da saída do intervalo |
+| 1 | LAUREN MONTEIRO MINUZZ… | 08H ÀS 18H | 10 | 4 | 15:16 | **15:00** | — | 20:56 | intervalo 16 min antes da entrada |
+| 2 | CLAUDIO LOPES MARÇAL | 08H ÀS 18H *(temporária)* | 10 | 3 | 16:00 | **15:00** | 17:00 | 21:00 | intervalo 1h antes da entrada |
+| 3 | VALDEMIR ALECAR DA SIL… | 08H ÀS 18H | 10 | 4 | 15:01 | **15:00** | 17:00 | 21:00 | intervalo 1 min antes da entrada |
+| 4 | NOEMIA NAZARE TEIXEIRA | 07H ÀS 13H | 6 | 4 | **16:37** | — | — | 16:00 | saída 37 min antes da entrada |
 
-Os registros 2, 5, 6 e 7 têm jornada ≤ 6h e portanto **terão os campos de intervalo limpos** pela migration `20260806010000`. Isso resolve parte da incoerência, mas **não** explica a origem dos horários errados de entrada/saída (ex: registro 2, saída às 21:00 para jornada que termina às 17h).
+Horários em UTC. Marabá é UTC−3.
 
-## Hipóteses a investigar
+> [!NOTE]
+> O registro 4 merece atenção especial. Os campos de intervalo dele foram limpos e a saída
+> (16:00 UTC = **13:00 local**) foi reconstruída pela migration `20260806010000` a partir do fim
+> previsto da jornada `07H ÀS 13H` — o valor está correto para a jornada. A incoerência vem da
+> **entrada**, que já estava anômala antes: 16:37 UTC = 13:37 local, para uma jornada que
+> termina às 13h. A reconstrução não criou o problema, mas o tornou visível.
 
-1. **Colisão entre batida real e validação manual.** Registros 1, 3 e 5 têm entrada com segundos/microssegundos (batida real de terminal) e intervalo em horário redondo (`15:00`, sintético). A validação manual grava `início da jornada + 4h` sem verificar a entrada real já existente — o `COALESCE` protege o campo, mas não a coerência entre campos.
+## Padrão observado
 
-2. **`start_hour` resolvido incorretamente.** A hora de início é deduzida por regex sobre o **nome** da jornada (`substring(j.nome from '^([0-9]+)')`). Registros com entrada muito fora do previsto (ex: #5, entrada 17:08 para jornada `08H ÀS 14H`) sugerem que o turno da célula, e não a jornada, determinou a janela.
+Os registros 1, 2 e 3 compartilham a mesma assinatura:
 
-3. **Categoria `Extra` com alinhamento dinâmico.** O registro 4 é `Extra`; o alinhamento do `start_hour` de horas extras ao fim do turno regular é justamente o ponto sensível documentado no [`.agents/AGENTS.md`](../../.agents/AGENTS.md).
+- **entrada** com segundos/minutos "quebrados" (`15:16`, `15:01`) ou redonda porém tardia — batida real de terminal ou ajuste;
+- **saída do intervalo** exatamente em `15:00` — horário sintético;
+- os três são da mesma jornada `08H ÀS 18H`, nos dias 3 e 4 de agosto.
+
+`15:00 UTC` = 12:00 local = `08h + 4h`, que é exatamente a fórmula usada pela validação manual para derivar a saída do intervalo. Ou seja: **a validação manual gravou o intervalo sem considerar a entrada real já registrada**. O `COALESCE` das funções protege cada campo individualmente contra sobrescrita, mas nada garante coerência *entre* os campos.
+
+## Hipótese principal
+
+A validação em massa (⚡) foi executada nos dias 3 e 4 de agosto sobre servidores que **já haviam batido o ponto**. Para cada campo ainda nulo, ela preencheu o valor teórico derivado da jornada, sem confrontar com os campos já preenchidos. Onde a batida real divergiu do previsto, o resultado ficou fora de ordem.
+
+Isso é consistente com os 186 registros de saída com minuto `:00` (sintéticos) convivendo com batidas reais no mesmo conjunto.
 
 ## Próximos passos sugeridos
 
-1. Cruzar cada registro com `logs_tentativas_presenca` e `confirmado_por_id` para separar batida real de ajuste manual.
-2. Decidir a política de correção: limpar e reabrir para validação manual, ou reconstruir pelo horário previsto da jornada.
-3. Avaliar uma **constraint de coerência** em `escala_diaria` (`presenca_entrada_em <= presenca_intervalo_saida_em <= presenca_intervalo_retorno_em <= presenca_saida_em`, ignorando nulos) para impedir novas ocorrências na origem.
+1. **Decidir a política de correção** para os 4 registros: limpar os campos sintéticos e reabrir para validação manual com horário real, ou aceitar o previsto da jornada.
+2. **Prevenir na origem** — adicionar validação de coerência em `fn_confirmar_presenca_manual`: antes de gravar, recusar (ou ajustar) valores que violem a ordem `entrada ≤ intervalo_saída ≤ intervalo_retorno ≤ saída`.
+3. **Barreira no banco** — avaliar `CHECK` constraint em `escala_diaria` com a mesma ordem, ignorando nulos. Impede a reincidência independente do caminho de escrita.
+
+## Observação separada (não é defeito confirmado)
+
+Na distribuição de 476 registros `Regular` com saída em 08/2026, comparando a saída real com o fim previsto da jornada:
+
+| diferença | qtd | % |
+|---|---|---|
+| exatamente no horário | 360 | 75,6% |
+| **−1h** | 92 | **19,3%** |
+| +1h | 20 | 4,2% |
+| outros | 4 | 0,8% |
+
+Os 19,3% saindo exatamente 1 hora antes podem ser realidade operacional (liberação antecipada) ou indicar algo sistemático num subconjunto. Não é um erro de fuso — se fosse, atingiria os 100%, não 19%. Fica registrado para eventual análise; não há evidência de defeito.
 
 ## Como reproduzir a auditoria
 

@@ -3862,7 +3862,12 @@ export function ScaleGrid({
                       )}
 
                       <div className="grid grid-cols-2 gap-2 text-[10px] text-zinc-500 font-bold">
-                        <div>Aceite: <span className="text-zinc-800 dark:text-zinc-200">{acceptedStr || 'Pendente'}</span></div>
+                        {/* Sem aceite mas com chegada = o servidor não aceitou a tempo e compareceu
+                            assim mesmo. "Pendente" seria enganoso: o chamado já foi atendido. */}
+                        <div>Aceite: <span
+                          className="text-zinc-800 dark:text-zinc-200"
+                          title={!acceptedStr && arrivedStr ? 'O servidor não registrou o aceite do chamado, mas compareceu ao local.' : undefined}
+                        >{acceptedStr || (arrivedStr ? 'Não registrado' : 'Pendente')}</span></div>
                         <div>Chegada: <span className="text-zinc-800 dark:text-zinc-200">{arrivedStr || 'Pendente'}</span></div>
                       </div>
 

@@ -1,4 +1,4 @@
-# SisEscala 📅[![Version](https://img.shields.io/badge/version-1.19.1-green.svg)](https://github.com/fmarculino/SisEscala)
+# SisEscala 📅[![Version](https://img.shields.io/badge/version-1.21.0-green.svg)](https://github.com/fmarculino/SisEscala)
 [![Next.js](https://img.shields.io/badge/framework-Next.js%2015-black.svg)](https://nextjs.org/)
 [![Supabase](https://img.shields.io/badge/backend-Supabase-green.svg)](https://supabase.com/)
 [![Tailwind CSS](https://img.shields.io/badge/styling-Tailwind%20CSS-38B2AC.svg)](https://tailwindcss.com/)
@@ -10,6 +10,12 @@ O sistema foca em **governança, segurança jurídica e eficiência operacional*
 ---
 
 ## 🚀 Principais Funcionalidades
+
+### ⚙️ Correções de Presença, Isolamento do Sobreaviso & Intervalo Flexível (v1.21.0)
+- **Intervalo Flexível por Servidor**: nova flag no cadastro que libera o gozo do intervalo em **qualquer horário**, mesmo em unidades de intervalo **Rígido**, desde que a carga horária líquida seja cumprida. A saída passa a ser calculada dinamicamente (`fim previsto + excedente do intervalo`): jornada 08h–18h com 2h previstas, saindo 14h e voltando 17h, encerra às 19h.
+- **Sobreaviso Isolado do Registro de Presença**: o sobreaviso deixa de ser fundido no bloco de trabalho contínuo, que travava a batida de saída do expediente. `Regular`, `Extra` e `Plantão` seguem fundindo entre si normalmente. O ciclo do sobreaviso (acionamento → aceite → chegada) permanece integralmente em `logs_sobreaviso`, com barreira definitiva no banco (`chk_sobreaviso_sem_presenca`).
+- **Guard de Intervalo Intrajornada (CLT Art. 71)**: restaurada a proteção que impede jornadas de **4h e 6h** de receberem o fluxo de 4 batidas, o que fazia a saída real ser gravada como "saída para intervalo". Regra centralizada em `fn_jornada_tem_intervalo`, aplicada ao terminal, à marcação manual, à validação em massa e à grade de escala.
+- **Recuperação de Batidas Recusadas**: saídas legitimamente registradas e recusadas por falha do sistema foram reconstruídas a partir de `logs_tentativas_presenca`, preservando o horário real da batida.
 
 ### ⚡ Correções de Cálculo do Turno T, Permissões RLS e Rótulos Dinâmicos (v1.19.1)
 - **Cálculo da Hora de Início para Turno `T` (Jornadas 12h-18h)**:

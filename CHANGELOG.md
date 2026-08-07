@@ -2,6 +2,41 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.21.0] - 2026-08-07
+
+### Added
+- **Intervalo Flexível por Servidor (`servidores.intervalo_flexivel`)**:
+  - Nova flag no cadastro do servidor que libera o gozo do intervalo em **qualquer horário**, mesmo em unidades configuradas como intervalo **Rígido**, desde que a carga horária líquida seja cumprida.
+  - Quando ativa, os campos `intervalo_inicio_personalizado` / `intervalo_fim_personalizado` deixam de ser horários obrigatórios e passam a definir apenas a **duração prevista** do intervalo.
+  - Cálculo dinâmico da saída: `saída_esperada = fim previsto + (intervalo real − intervalo previsto)`. O excedente adia a saída e o tempo a menos antecipa (ex.: jornada 08h–18h com intervalo previsto de 2h — sai 14h e volta 17h ⇒ saída às 19h; sai 12h e volta 12h30 ⇒ saída às 16h30).
+  - Nova função `public.fn_ajuste_intervalo_flexivel(boolean, timestamptz, timestamptz, integer)`.
+  - No terminal: saída para intervalo aceita em qualquer momento antes de abrir a janela de saída final; retorno aceito a qualquer momento desde que a saída já tenha sido registrada.
+
+### Fixed
+- **Regressão do Guard de Intervalo Intrajornada (CLT Art. 71)**:
+  - A migração `20260804080000` recriou `fn_confirmar_presenca` e **descartou** a verificação `(v_end_min - v_start_min) > 240 AND COALESCE(r.intervalo_minutos, 0) > 0`, fazendo com que jornadas de **4h e 6h** recebessem o fluxo de 4 batidas e gravassem a saída real como "saída para intervalo".
+  - Guard restaurado nos dois laços de `fn_confirmar_presenca` e criado em `fn_confirmar_presenca_manual` (cobrindo também `fn_confirmar_presenca_manual_bulk`, que delega para ela).
+  - Nova função `public.fn_jornada_tem_intervalo(integer, integer)` como fonte única da regra: duração superior a 360 min **e** `intervalo_minutos > 0`.
+  - `ScaleGrid.tsx`: `isUnitInterval` passa a considerar a jornada efetiva do dia (respeitando jornada temporária) e a duração do turno para Plantão/Extra, exibindo 2 segmentos em vez de 4 para jornadas curtas.
+  - Correção de 31 registros indevidos na competência 08/2026: campos de intervalo limpos e saídas faltantes reconstruídas a partir do término previsto da jornada. Os timestamps antigos **não** foram movidos por serem sintéticos (`início + 4h`), o que produziria registros de ponto falsos.
+
+- **Sobreaviso Contaminando o Registro de Presença**:
+  - O Sobreaviso era **fundido no bloco de trabalho contínuo** quando escalado no mesmo dia de um turno, deslocando a janela de saída para o fim do sobreaviso (tipicamente 06:00 do dia seguinte) e impedindo o servidor de registrar a saída do expediente.
+  - `Regular`, `Extra` e `Plantão` continuam fundindo entre si normalmente (ex.: 08h–18h + 2h extra + Plantão N 12h formam um único bloco).
+  - Sobreaviso removido da montagem de blocos em `fn_confirmar_presenca` e da escrita em `escala_diaria` por `fn_confirmar_presenca_manual`. O ciclo do sobreaviso (acionamento → aceite → chegada) permanece integralmente em `logs_sobreaviso`, e a validação manual de chegada segue funcionando.
+  - Nova constraint `chk_sobreaviso_sem_presenca` em `escala_diaria`: barreira definitiva que impede qualquer caminho de escrita de gravar presença em linha de Sobreaviso.
+  - Saídas recuperadas a partir de `logs_tentativas_presenca`, usando o horário real das batidas que haviam sido recusadas.
+  - As checagens de **acesso** do coordenador continuam considerando Sobreaviso, para não bloquear o terminal de quem tem apenas sobreaviso no dia.
+
+### Changed
+- **Histórico de Acionamentos (`ScaleGrid.tsx`)**: chamado com chegada registrada e sem aceite passa a exibir **"Não registrado"** em vez de "Pendente", com tooltip explicativo — o servidor não aceitou a tempo, mas compareceu.
+
+### Documentation
+- `CLAUDE.md`: guia de arquitetura e armadilhas do projeto (regressões por `CREATE OR REPLACE`, schema base fora das migrations, divergência entre os dois bancos, horários derivados por regex do nome da jornada, limite de 1000 linhas do PostgREST).
+- `.agents/AGENTS.md`: regras obrigatórias de preservação ao recriar `fn_confirmar_presenca*`.
+- `docs/evolucao/2026-08-07-correcoes-presenca-sobreaviso-e-intervalo-flexivel-v1.21.0.md`: documentação técnica completa.
+- `docs/planned_features/incoerencias-cronologicas-08-2026.md`: 4 registros com ordem cronológica impossível, pendentes de diagnóstico.
+
 ## [1.20.0] - 2026-08-05
 
 ### Added

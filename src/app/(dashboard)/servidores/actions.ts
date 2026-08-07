@@ -100,6 +100,7 @@ export async function createServidor(formData: FormData) {
   }
 
   const ignora_janela_presenca = formData.has('ignora_janela_presenca') ? formData.get('ignora_janela_presenca') === 'true' : false
+  const intervalo_flexivel = formData.get('intervalo_flexivel') === 'true'
 
   const dadosComplementares = extractDadosComplementares(formData)
 
@@ -119,6 +120,7 @@ export async function createServidor(formData: FormData) {
     carga_horaria_semanal: isNaN(carga_horaria_semanal) ? 40 : carga_horaria_semanal,
     intervalo_inicio_personalizado,
     intervalo_fim_personalizado,
+    intervalo_flexivel,
     ...dadosComplementares,
   })
 
@@ -689,6 +691,7 @@ export async function updateServidor(id: string, formData: FormData) {
     carga_horaria_semanal: isNaN(carga_horaria_semanal) ? 40 : carga_horaria_semanal,
     intervalo_inicio_personalizado,
     intervalo_fim_personalizado,
+    intervalo_flexivel: formData.get('intervalo_flexivel') === 'true',
     ...dadosComplementares,
   }
 

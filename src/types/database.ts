@@ -122,6 +122,7 @@ export interface Database {
           carga_horaria_semanal: number | null
           intervalo_inicio_personalizado?: string | null
           intervalo_fim_personalizado?: string | null
+          intervalo_flexivel?: boolean | null
           status?: string | null
           motivo_inativacao?: string | null
           data_nascimento?: string | null

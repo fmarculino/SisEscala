@@ -421,6 +421,25 @@ export default function NovoServidorPage() {
             </p>
           </div>
 
+          <div className="sm:col-span-6">
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                name="intervalo_flexivel"
+                value="true"
+                className="mt-0.5 h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-sm text-zinc-700 dark:text-zinc-300">
+                Intervalo flexível
+                <span className="block text-[10px] text-zinc-500">
+                  Permite gozar o intervalo em qualquer horário, mesmo em unidade de intervalo rígido,
+                  desde que cumpra a carga horária. Os horários acima passam a valer apenas como
+                  duração prevista: o excedente adia a saída, e o tempo a menos antecipa.
+                </span>
+              </span>
+            </label>
+          </div>
+
           <div className="sm:col-span-3">
             <label htmlFor="unidade_id" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
               Unidade
