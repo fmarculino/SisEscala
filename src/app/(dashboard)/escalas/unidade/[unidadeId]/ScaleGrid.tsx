@@ -3321,7 +3321,18 @@ export function ScaleGrid({
 
                                   const canEditPresence = !isCompetenciaEncerrada && escalaMensal[0]?.status !== 'Fechada' && (!isClosed || userProfile?.role === 'admin' || userProfile?.role === 'super_admin') && (userProfile?.role === 'admin' || userProfile?.role === 'super_admin' || userProfile?.role === 'coordenador')
 
-                                  const isUnitInterval = (cat === 'Regular' || cat === 'Plantão') && (unidadedata?.permite_marca_intervalo || false)
+                                  // Espelha public.fn_jornada_tem_intervalo (CLT Art. 71): jornadas de até 6h
+                                  // não possuem intervalo intrajornada, então a célula mostra 2 segmentos em vez de 4.
+                                  // A jornada temporária do dia prevalece sobre a jornada fixa, como no backend
+                                  // (obter_jornada_servidor_data). Para Plantão/Extra a duração vem do turno,
+                                  // não da jornada regular do servidor.
+                                  const jornadaDoDia = dayTempJourney?.jornadas || jornadas.find(j => j.id === em.jornada_id)
+                                  const duracaoHoras = cat === 'Regular'
+                                    ? Number(jornadaDoDia?.horas_totais || 0)
+                                    : Number(turnos.find(t => t.id === turnoId)?.horas_computadas || 0)
+                                  const jornadaTemIntervalo = duracaoHoras > 6 && Number(jornadaDoDia?.intervalo_minutos ?? 60) > 0
+
+                                  const isUnitInterval = (cat === 'Regular' || cat === 'Plantão') && (unidadedata?.permite_marca_intervalo || false) && jornadaTemIntervalo
 
                                   const handleSegmentClick = (tipo: 'entrada' | 'intervalo_saida' | 'intervalo_retorno' | 'saida', isDone: boolean, isManualFlag?: boolean) => {
                                     if (!canEditPresence) return
