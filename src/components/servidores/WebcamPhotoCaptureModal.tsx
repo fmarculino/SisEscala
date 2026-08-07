@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Modal } from '@/components/ui/Modal'
 import { Camera, RefreshCw, Check, Upload, X, AlertCircle, Image as ImageIcon } from 'lucide-react'
+import { useDialog } from '@/components/ui/DialogProvider'
 
 interface WebcamPhotoCaptureModalProps {
   isOpen: boolean
@@ -17,6 +18,7 @@ export function WebcamPhotoCaptureModal({
   onPhotoCaptured,
   currentPhotoUrl
 }: WebcamPhotoCaptureModalProps) {
+  const dialog = useDialog()
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -120,7 +122,7 @@ export function WebcamPhotoCaptureModal({
     if (!file) return
 
     if (!file.type.startsWith('image/')) {
-      alert('Por favor, selecione um arquivo de imagem válido.')
+      void dialog.alert('Por favor, selecione um arquivo de imagem válido.')
       return
     }
 

@@ -6,6 +6,7 @@ import { StatusToggle } from '@/components/servidores/StatusToggle'
 import { Info, History, User, Calendar, FileText, ArrowRight, Clock, MapPin, CheckCircle, ExternalLink, Plus, Trash2 } from 'lucide-react'
 import Link from 'next/link'
 import { createJornadaTemporaria, deleteJornadaTemporaria } from '../actions'
+import { useDialog } from '@/components/ui/DialogProvider'
 
 interface ServidorDetalhesClientProps {
   id: string
@@ -34,6 +35,7 @@ export function ServidorDetalhesClient({
   jornadas,
   jornadasTemporarias
 }: ServidorDetalhesClientProps) {
+  const dialog = useDialog()
   const [activeTab, setActiveTab] = useState<'cadastro' | 'historico' | 'jornadas_temporarias'>('cadastro')
   
   // State for temporary journey form
@@ -214,12 +216,12 @@ export function ServidorDetalhesClient({
   }
 
   const handleDeleteJornada = async (journeyId: string) => {
-    if (!confirm('Deseja realmente remover esta alteração temporária? Isso restaurará o horário padrão para este período.')) {
+    if (!(await dialog.confirm('Deseja realmente remover esta alteração temporária? Isso restaurará o horário padrão para este período.'))) {
       return
     }
     const res = await deleteJornadaTemporaria(journeyId, id)
     if (res.error) {
-      alert(`Erro ao remover: ${res.error}`)
+      void dialog.alert(`Erro ao remover: ${res.error}`)
     }
   }
 

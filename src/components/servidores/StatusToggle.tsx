@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { UserX, UserCheck, Loader2, AlertCircle } from 'lucide-react'
 import { toggleServidorStatus } from '@/app/(dashboard)/servidores/actions'
 import { useRouter } from 'next/navigation'
+import { useDialog } from '@/components/ui/DialogProvider'
 
 interface StatusToggleProps {
   servidorId: string
@@ -12,6 +13,7 @@ interface StatusToggleProps {
 }
 
 export function StatusToggle({ servidorId, currentStatus, nome }: StatusToggleProps) {
+  const dialog = useDialog()
   const [loading, setLoading] = useState(false)
   const [showModal, setShowModal] = useState(false)
   const [motivo, setMotivo] = useState('')
@@ -29,14 +31,14 @@ export function StatusToggle({ servidorId, currentStatus, nome }: StatusTogglePr
       const result = await toggleServidorStatus(servidorId, newStatus, motivo)
       
       if (result?.error) {
-        alert('Erro: ' + result.error)
+        void dialog.alert('Erro: ' + result.error)
       } else {
         setShowModal(false)
         setMotivo('')
         router.refresh()
       }
     } catch (error: any) {
-      alert('Erro inesperado: ' + error.message)
+      void dialog.alert('Erro inesperado: ' + error.message)
     } finally {
       setLoading(false)
     }

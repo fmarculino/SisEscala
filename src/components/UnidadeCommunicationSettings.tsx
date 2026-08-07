@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { MessageSquare, Mail, Server, Send, Eye, EyeOff, CheckCircle2, Shield, Info } from 'lucide-react'
 import { testWhatsAppConnectionAction, testEmailConnectionAction } from '@/app/actions/communication'
+import { useDialog } from '@/components/ui/DialogProvider'
 
 export interface UnidadeCommunicationConfig {
   usar_global: boolean
@@ -25,6 +26,7 @@ interface UnidadeCommunicationSettingsProps {
 }
 
 export function UnidadeCommunicationSettings({ initialConfig, onChange }: UnidadeCommunicationSettingsProps) {
+  const dialog = useDialog()
   const [usarGlobal, setUsarGlobal] = useState<boolean>(initialConfig?.usar_global !== false)
   const [config, setConfig] = useState<UnidadeCommunicationConfig>({
     usar_global: initialConfig?.usar_global !== false,
@@ -65,7 +67,7 @@ export function UnidadeCommunicationSettings({ initialConfig, onChange }: Unidad
   }
 
   const handleRunWaTest = async () => {
-    if (!waPhone) return alert('Informe um número com DDD.')
+    if (!waPhone) return void dialog.alert('Informe um número com DDD.')
     setWaTesting(true)
     setWaResult(null)
     try {
@@ -85,7 +87,7 @@ export function UnidadeCommunicationSettings({ initialConfig, onChange }: Unidad
   }
 
   const handleRunEmailTest = async () => {
-    if (!emailTo) return alert('Informe um e-mail de destino.')
+    if (!emailTo) return void dialog.alert('Informe um e-mail de destino.')
     setEmailTesting(true)
     setEmailResult(null)
     try {

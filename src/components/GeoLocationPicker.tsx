@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { MapPin, Loader2, ExternalLink } from 'lucide-react'
+import { useDialog } from '@/components/ui/DialogProvider'
 
 interface GeoLocationPickerProps {
   defaultLat?: number | null
@@ -10,6 +11,7 @@ interface GeoLocationPickerProps {
 }
 
 export function GeoLocationPicker({ defaultLat, defaultLong, defaultRaio }: GeoLocationPickerProps) {
+  const dialog = useDialog()
   const [loading, setLoading] = useState(false)
   const [lat, setLat] = useState(defaultLat?.toString() || '')
   const [long, setLong] = useState(defaultLong?.toString() || '')
@@ -17,7 +19,7 @@ export function GeoLocationPicker({ defaultLat, defaultLong, defaultRaio }: GeoL
   const getMyLocation = () => {
     setLoading(true)
     if (!navigator.geolocation) {
-      alert('Geolocalização não é suportada pelo seu navegador.')
+      void dialog.alert('Geolocalização não é suportada pelo seu navegador.')
       setLoading(false)
       return
     }
@@ -29,7 +31,7 @@ export function GeoLocationPicker({ defaultLat, defaultLong, defaultRaio }: GeoL
         setLoading(false)
       },
       (error) => {
-        alert('Erro ao obter localização: ' + error.message)
+        void dialog.alert('Erro ao obter localização: ' + error.message)
         setLoading(false)
       }
     )

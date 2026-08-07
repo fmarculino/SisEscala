@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { Users, Plus, UserCircle, Building2, Search, Filter, Layers, UserX, UserCheck, FileDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { useDialog } from '@/components/ui/DialogProvider'
 
 interface Servidor {
   id: string
@@ -37,6 +38,7 @@ interface ServidoresClientProps {
 }
 
 export function ServidoresClient({ initialServidores, unidades, setores }: ServidoresClientProps) {
+  const dialog = useDialog()
   const router = useRouter()
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedUnidade, setSelectedUnidade] = useState('')
@@ -145,7 +147,7 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
         : filteredServidores
 
       if (serversToPrint.length === 0) {
-        alert("Nenhum servidor selecionado ou na lista filtrada para gerar o PDF.")
+        void dialog.alert("Nenhum servidor selecionado ou na lista filtrada para gerar o PDF.")
         setIsGeneratingPDF(false)
         return
       }

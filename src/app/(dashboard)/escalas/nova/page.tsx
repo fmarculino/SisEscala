@@ -6,8 +6,10 @@ import { Save, ArrowLeft, Loader2, Layers } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { formatSectorsHierarchy } from '@/utils/sectors'
+import { useDialog } from '@/components/ui/DialogProvider'
 
 export default function NovaEscalaPage() {
+  const dialog = useDialog()
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [unidades, setUnidades] = useState<any[]>([])
@@ -100,7 +102,7 @@ export default function NovaEscalaPage() {
 
   async function handleGenerate() {
     if (!selectedUnidade || !selectedSetor) {
-      alert('Selecione a unidade e o setor.')
+      void dialog.alert('Selecione a unidade e o setor.')
       return
     }
     setLoading(true)

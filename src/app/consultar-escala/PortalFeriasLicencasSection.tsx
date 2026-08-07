@@ -9,10 +9,11 @@ import {
 } from './actions'
 import { RequerimentoPrintView } from '@/components/RequerimentoPrintView'
 import { Modal } from '@/components/ui/Modal'
-import { 
-  Palmtree, Plus, Loader2, Calendar, CheckCircle, XCircle, 
+import {
+  Palmtree, Plus, Loader2, Calendar, CheckCircle, XCircle,
   Clock, MessageSquare, Printer, AlertTriangle, Info, FileText, ChevronRight, X, ShieldAlert
 } from 'lucide-react'
+import { useDialog } from '@/components/ui/DialogProvider'
 
 interface PortalFeriasLicencasSectionProps {
   servidor: any
@@ -55,6 +56,7 @@ function formatDate(dateStr: string | null | undefined): string {
 }
 
 export function PortalFeriasLicencasSection({ servidor }: PortalFeriasLicencasSectionProps) {
+  const dialog = useDialog()
   const [solicitacoes, setSolicitacoes] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -261,7 +263,7 @@ export function PortalFeriasLicencasSection({ servidor }: PortalFeriasLicencasSe
 
   // Handle Cancel
   async function handleCancel(solId: string) {
-    if (!confirm('Deseja realmente cancelar esta solicitação?')) return
+    if (!(await dialog.confirm('Deseja realmente cancelar esta solicitação?'))) return
     const res = await cancelarSolicitacaoServidor(solId, servidor.id)
     if (res.error) {
       setError(res.error)
@@ -284,7 +286,7 @@ export function PortalFeriasLicencasSection({ servidor }: PortalFeriasLicencasSe
 
   // Handle Rejeitar Contraproposta
   async function handleRejeitarContra(solId: string) {
-    if (!confirm('Deseja rejeitar esta contraproposta? A solicitação será cancelada.')) return
+    if (!(await dialog.confirm('Deseja rejeitar esta contraproposta? A solicitação será cancelada.'))) return
     const res = await rejeitarContraproposta(solId, servidor.id)
     if (res.error) {
       setError(res.error)

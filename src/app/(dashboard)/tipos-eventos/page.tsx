@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { AcessoNegado } from '@/components/AcessoNegado'
 import { Plus, Tag, Loader2, Edit2, Check, X, Info, Palette } from 'lucide-react'
+import { useDialog } from '@/components/ui/DialogProvider'
 
 interface TipoEvento {
   id: string
@@ -14,6 +15,7 @@ interface TipoEvento {
 }
 
 export default function TiposEventosPage() {
+  const dialog = useDialog()
   const [tipos, setTipos] = useState<TipoEvento[]>([])
   const [userRole, setUserRole] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -59,7 +61,7 @@ export default function TiposEventosPage() {
         }
       }
     } catch (error: any) {
-      alert('Erro ao carregar tipos de afastamento: ' + error.message)
+      void dialog.alert('Erro ao carregar tipos de afastamento: ' + error.message)
     } finally {
       setLoading(false)
     }
@@ -82,7 +84,7 @@ export default function TiposEventosPage() {
       setFormData({ nome: '', cor: '#EF4444', descricao: '', ativo: true })
       fetchTipos()
     } catch (error: any) {
-      alert('Erro ao adicionar tipo de afastamento: ' + error.message)
+      void dialog.alert('Erro ao adicionar tipo de afastamento: ' + error.message)
     } finally {
       setSaving(false)
     }
@@ -107,7 +109,7 @@ export default function TiposEventosPage() {
       setFormData({ nome: '', cor: '#EF4444', descricao: '', ativo: true })
       fetchTipos()
     } catch (error: any) {
-      alert('Erro ao atualizar tipo de afastamento: ' + error.message)
+      void dialog.alert('Erro ao atualizar tipo de afastamento: ' + error.message)
     } finally {
       setSaving(false)
     }
@@ -128,7 +130,7 @@ export default function TiposEventosPage() {
         setFormData(prev => ({ ...prev, ativo: !t.ativo }))
       }
     } catch (error: any) {
-      alert('Erro ao alterar status: ' + error.message)
+      void dialog.alert('Erro ao alterar status: ' + error.message)
     } finally {
       setSaving(false)
     }

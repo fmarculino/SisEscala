@@ -8,6 +8,8 @@ import { WebcamPhotoCaptureModal } from '@/components/servidores/WebcamPhotoCapt
 import { FichaServidorPrintView } from '@/components/servidores/FichaServidorPrintView'
 import { PhotoPreviewModal } from '@/components/servidores/PhotoPreviewModal'
 import { sendWhatsAppMessageAction } from '@/app/actions/communication'
+import { useDialog } from '@/components/ui/DialogProvider'
+import { IntervaloPersonalizadoFields } from '@/components/servidores/IntervaloPersonalizadoFields'
 
 interface EditServidorFormProps {
   id: string
@@ -83,13 +85,15 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
   const [currentTelefone, setCurrentTelefone] = useState(servidor.telefone || '')
   const [currentCpf, setCurrentCpf] = useState(servidor.cpf || '')
 
-  // Intervalo — Horário fixo (Modo Rígido) e Intervalo flexível são mutuamente exclusivos.
+  // Intervalo — as regras (exclusividade entre horário fixo e flexível, e a dependência
+  // da configuração da unidade) vivem em IntervaloPersonalizadoFields.
   const [intervaloInicio, setIntervaloInicio] = useState(servidor.intervalo_inicio_personalizado || '')
   const [intervaloFim, setIntervaloFim] = useState(servidor.intervalo_fim_personalizado || '')
   const [intervaloFlexivel, setIntervaloFlexivel] = useState(!!servidor.intervalo_flexivel)
-  const temHorarioPersonalizado = !intervaloFlexivel && (!!intervaloInicio || !!intervaloFim)
 
   const [waSending, setWaSending] = useState(false)
+
+  const dialog = useDialog()
 
   const sharePinWhatsApp = async () => {
     if (!currentPin) return
@@ -100,12 +104,20 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
     try {
       const res = await sendWhatsAppMessageAction({ phone, message })
       if (res.success) {
-        alert('PIN de acesso enviado com sucesso para o WhatsApp do servidor!')
+        await dialog.alert({
+          type: 'success',
+          title: 'PIN enviado',
+          message: 'O PIN de acesso foi enviado para o WhatsApp do servidor.',
+        })
       } else {
         if (res.fallbackUrl) {
           window.open(res.fallbackUrl, '_blank')
         } else {
-          alert('Aviso sobre envio de WhatsApp: ' + (res.error || 'Falha ao conectar na API.'))
+          await dialog.alert({
+            type: 'warning',
+            title: 'Não foi possível enviar',
+            message: res.error || 'Falha ao conectar na API do WhatsApp.',
+          })
         }
       }
     } catch (err: any) {
@@ -455,71 +467,16 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
             />
           </div>
 
-          <div className="sm:col-span-2">
-            <label htmlFor="intervalo_inicio_personalizado" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 truncate" title="Intervalo — Início (Pausas)">
-              Intervalo — Início (Pausas)
-            </label>
-            <input
-              type="time"
-              id="intervalo_inicio_personalizado"
-              name="intervalo_inicio_personalizado"
-              value={intervaloInicio}
-              onChange={(e) => setIntervaloInicio(e.target.value)}
-              readOnly={intervaloFlexivel}
-              tabIndex={intervaloFlexivel ? -1 : undefined}
-              className={`mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500 focus:border-blue-500 ${intervaloFlexivel ? 'opacity-50 pointer-events-none cursor-not-allowed' : ''}`}
-            />
-            <p className="mt-1 text-[10px] text-zinc-500 truncate" title="Opcional. Usado no modo Rígido se informado.">
-              {intervaloFlexivel ? 'Desative o intervalo flexível para definir' : 'Opcional (Modo Rígido)'}
-            </p>
-          </div>
-
-          <div className="sm:col-span-2">
-            <label htmlFor="intervalo_fim_personalizado" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 truncate" title="Intervalo — Fim (Pausas)">
-              Intervalo — Fim (Pausas)
-            </label>
-            <input
-              type="time"
-              id="intervalo_fim_personalizado"
-              name="intervalo_fim_personalizado"
-              value={intervaloFim}
-              onChange={(e) => setIntervaloFim(e.target.value)}
-              readOnly={intervaloFlexivel}
-              tabIndex={intervaloFlexivel ? -1 : undefined}
-              className={`mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500 focus:border-blue-500 ${intervaloFlexivel ? 'opacity-50 pointer-events-none cursor-not-allowed' : ''}`}
-            />
-            <p className="mt-1 text-[10px] text-zinc-500 truncate" title="Opcional. Usado no modo Rígido se informado.">
-              {intervaloFlexivel ? 'Desative o intervalo flexível para definir' : 'Opcional (Modo Rígido)'}
-            </p>
-          </div>
-
-          <div className="sm:col-span-6">
-            <label className={`flex items-start gap-2 ${temHorarioPersonalizado ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
-              <input
-                type="checkbox"
-                name="intervalo_flexivel"
-                value="true"
-                checked={intervaloFlexivel}
-                disabled={temHorarioPersonalizado}
-                onChange={(e) => {
-                  setIntervaloFlexivel(e.target.checked)
-                  if (e.target.checked) {
-                    setIntervaloInicio('')
-                    setIntervaloFim('')
-                  }
-                }}
-                className="mt-0.5 h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
-              />
-              <span className="text-sm text-zinc-700 dark:text-zinc-300">
-                Intervalo flexível
-                <span className="block text-[10px] text-zinc-500">
-                  {temHorarioPersonalizado
-                    ? 'Limpe os horários de Início/Fim acima para habilitar.'
-                    : 'Permite gozar o intervalo em qualquer horário, mesmo em unidade de intervalo rígido, desde que cumpra a carga horária. Os horários acima passam a valer apenas como duração prevista: o excedente adia a saída, e o tempo a menos antecipa.'}
-                </span>
-              </span>
-            </label>
-          </div>
+          <IntervaloPersonalizadoFields
+            unidades={unidades}
+            unidadeSelecionadaId={selectedUnidade}
+            intervaloInicio={intervaloInicio}
+            setIntervaloInicio={setIntervaloInicio}
+            intervaloFim={intervaloFim}
+            setIntervaloFim={setIntervaloFim}
+            intervaloFlexivel={intervaloFlexivel}
+            setIntervaloFlexivel={setIntervaloFlexivel}
+          />
 
           <div className="sm:col-span-3">
             <label htmlFor="unidade_id" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">

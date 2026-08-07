@@ -4,8 +4,10 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { ShieldCheck, MapPin, Navigation, CheckCircle, Loader2, AlertCircle, Clock } from 'lucide-react'
 import { useParams } from 'next/navigation'
+import { useDialog } from '@/components/ui/DialogProvider'
 
 export default function ProfessionalOvercallPage() {
+  const dialog = useDialog()
   const { token } = useParams()
   const [log, setLog] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -252,7 +254,7 @@ export default function ProfessionalOvercallPage() {
         if (unitLat && unitLong) {
           const distance = getDistance(lat, long, unitLat, unitLong)
           if (distance > radius) {
-            alert(`Você está a ${Math.round(distance)}m da unidade. A chegada só pode ser registrada num raio de ${radius}m.`)
+            void dialog.alert(`Você está a ${Math.round(distance)}m da unidade. A chegada só pode ser registrada num raio de ${radius}m.`)
             setLoading(false)
             return
           }
@@ -281,7 +283,7 @@ export default function ProfessionalOvercallPage() {
       if (updateError || (res && !res.success)) {
         setError('Erro ao registrar chegada: ' + (updateError?.message || res?.error))
       } else {
-        alert('Chegada registrada com sucesso!')
+        void dialog.alert('Chegada registrada com sucesso!')
         setStatus('Chegou')
         setLog((prev: any) => ({ ...prev, status: 'Chegou', data_hora_chegada: now }))
       }
@@ -317,7 +319,7 @@ export default function ProfessionalOvercallPage() {
 
   const handleDecline = async () => {
     if (!justificativa.trim()) {
-      alert('Por favor, informe o motivo da recusa.')
+      void dialog.alert('Por favor, informe o motivo da recusa.')
       return
     }
 

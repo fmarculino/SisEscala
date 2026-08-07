@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { AcessoNegado } from '@/components/AcessoNegado'
 import { Plus, Calendar as CalendarIcon, Loader2, Check, X, Info, ShieldAlert, Clock, Layers } from 'lucide-react'
+import { useDialog } from '@/components/ui/DialogProvider'
 
 interface Feriado {
   id: string
@@ -33,6 +34,7 @@ interface PontoFacultativo {
 }
 
 export default function FeriadosPage() {
+  const dialog = useDialog()
   const [activeTab, setActiveTab] = useState<'feriados' | 'pontos_facultativos'>('feriados')
   const [userRole, setUserRole] = useState<string | null>(null)
   
@@ -147,7 +149,7 @@ export default function FeriadosPage() {
       setNewData({ data: '', descricao: '' })
       await fetchFeriados()
     } catch (error: any) {
-      alert('Erro ao adicionar feriado: ' + error.message)
+      void dialog.alert('Erro ao adicionar feriado: ' + error.message)
     } finally {
       setSaving(false)
     }
@@ -224,7 +226,7 @@ export default function FeriadosPage() {
       
       await fetchPontosFacultativos()
     } catch (error: any) {
-      alert('Erro ao adicionar ponto facultativo: ' + error.message)
+      void dialog.alert('Erro ao adicionar ponto facultativo: ' + error.message)
     } finally {
       setSaving(false)
     }

@@ -9,8 +9,10 @@ import {
 } from 'lucide-react'
 import { toggleCompetencyClosure } from '@/utils/autoClose'
 import { testWhatsAppConnectionAction, testEmailConnectionAction } from '@/app/actions/communication'
+import { useDialog } from '@/components/ui/DialogProvider'
 
 export default function ConfigPage() {
+  const dialog = useDialog()
   const supabase = createClient()
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -45,7 +47,7 @@ export default function ConfigPage() {
     if (!file) return
 
     if (file.size > 1 * 1024 * 1024) {
-      alert('A imagem deve ter no máximo 1MB.')
+      void dialog.alert('A imagem deve ter no máximo 1MB.')
       return
     }
 
@@ -62,7 +64,7 @@ export default function ConfigPage() {
         })
 
       if (uploadError) {
-        alert('Erro ao fazer upload: ' + uploadError.message)
+        void dialog.alert('Erro ao fazer upload: ' + uploadError.message)
         return
       }
 
@@ -72,7 +74,7 @@ export default function ConfigPage() {
 
       updateConfig('instituicao_cabecalho_url', publicUrl)
     } catch (error: any) {
-      alert('Erro ao processar imagem: ' + error.message)
+      void dialog.alert('Erro ao processar imagem: ' + error.message)
     } finally {
       setUploadingImage(false)
     }
@@ -99,7 +101,7 @@ export default function ConfigPage() {
     const res = await toggleCompetencyClosure(mes, ano, lock)
     setTogglingLock(false)
     if (res.error) {
-      alert(res.error)
+      void dialog.alert(res.error)
     } else {
       fetchConfigs()
     }
@@ -145,10 +147,10 @@ export default function ConfigPage() {
       })), { onConflict: 'chave' })
 
     if (error) {
-      alert('Erro ao salvar: ' + error.message)
+      void dialog.alert('Erro ao salvar: ' + error.message)
     } else {
       setOriginalConfigs(JSON.parse(JSON.stringify(configs)))
-      alert('Configurações aplicadas com sucesso!')
+      void dialog.alert('Configurações aplicadas com sucesso!')
     }
     setSaving(false)
   }
@@ -169,7 +171,7 @@ export default function ConfigPage() {
   // Executar teste de WhatsApp
   const handleRunWaTest = async () => {
     if (!waTestPhone) {
-      alert('Por favor, informe um número de telefone com DDD.')
+      void dialog.alert('Por favor, informe um número de telefone com DDD.')
       return
     }
     setWaTesting(true)
@@ -190,7 +192,7 @@ export default function ConfigPage() {
   // Executar teste de E-mail
   const handleRunEmailTest = async () => {
     if (!emailTestAddress) {
-      alert('Por favor, informe o e-mail de destino para o teste.')
+      void dialog.alert('Por favor, informe o e-mail de destino para o teste.')
       return
     }
     setEmailTesting(true)

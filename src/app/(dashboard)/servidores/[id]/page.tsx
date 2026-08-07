@@ -32,9 +32,11 @@ export default async function EditServidorPage({
     .single()
 
   // Fetch Units with access filter
+  // permite_marca_intervalo/tipo_intervalo definem se os campos de intervalo do servidor
+  // têm efeito — ver IntervaloPersonalizadoFields.
   let unitsQuery = supabase
     .from('unidades')
-    .select('id, nome')
+    .select('id, nome, permite_marca_intervalo, tipo_intervalo')
     .eq('ativo', true)
     .order('nome')
   

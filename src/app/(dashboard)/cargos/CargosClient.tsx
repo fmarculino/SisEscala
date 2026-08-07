@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { Briefcase, Plus, Loader2, Search, EyeOff, Eye, Pencil, Check, X } from 'lucide-react'
+import { useDialog } from '@/components/ui/DialogProvider'
 
 interface Cargo {
   id: string
@@ -18,6 +19,7 @@ interface CargosClientProps {
 }
 
 export function CargosClient({ initialCargos }: CargosClientProps) {
+  const dialog = useDialog()
   const supabase = createClient()
   const [cargos, setCargos] = useState(initialCargos)
   const [newCargo, setNewCargo] = useState('')
@@ -62,7 +64,7 @@ export function CargosClient({ initialCargos }: CargosClientProps) {
       setNewCargo('')
       setNewCodigo('')
     } catch (error: any) {
-      alert('Erro ao cadastrar cargo: ' + error.message)
+      void dialog.alert('Erro ao cadastrar cargo: ' + error.message)
     } finally {
       setLoading(false)
     }
@@ -70,7 +72,7 @@ export function CargosClient({ initialCargos }: CargosClientProps) {
 
   const handleToggleCargoStatus = async (id: string, currentStatus: boolean) => {
     const action = currentStatus ? 'desativar' : 'ativar'
-    if (!confirm(`Tem certeza que deseja ${action} este cargo?`)) return
+    if (!(await dialog.confirm(`Tem certeza que deseja ${action} este cargo?`))) return
 
     setLoading(true)
     try {
@@ -83,7 +85,7 @@ export function CargosClient({ initialCargos }: CargosClientProps) {
 
       setCargos(prev => prev.map(c => c.id === id ? { ...c, ativo: !currentStatus } : c))
     } catch (error: any) {
-      alert(`Erro ao ${action} cargo: ` + error.message)
+      void dialog.alert(`Erro ao ${action} cargo: ` + error.message)
     } finally {
       setLoading(false)
     }
@@ -106,7 +108,7 @@ export function CargosClient({ initialCargos }: CargosClientProps) {
       setCargos(prev => prev.map(c => c.id === id ? { ...c, nome: editValue.trim(), codigo: editCodigo.trim() || null } : c))
       setEditingId(null)
     } catch (error: any) {
-      alert('Erro ao atualizar cargo: ' + error.message)
+      void dialog.alert('Erro ao atualizar cargo: ' + error.message)
     } finally {
       setLoading(false)
     }

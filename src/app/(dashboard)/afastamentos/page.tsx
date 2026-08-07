@@ -10,6 +10,7 @@ import {
 import { Modal } from '@/components/ui/Modal'
 import { applyAccessFilters, hasSectorAccess } from '@/utils/permissions'
 import { formatSectorsHierarchy } from '@/utils/sectors'
+import { useDialog } from '@/components/ui/DialogProvider'
 
 interface Servidor {
   id: string
@@ -46,6 +47,7 @@ interface ServidorEvento {
 }
 
 export default function AfastamentosPage() {
+  const dialog = useDialog()
   const [profile, setProfile] = useState<any>(null)
   const [unidades, setUnidades] = useState<any[]>([])
   const [setores, setSetores] = useState<any[]>([])
@@ -751,7 +753,7 @@ export default function AfastamentosPage() {
         : filteredAfastamentos
 
       if (absencesToPrint.length === 0) {
-        alert("Nenhum afastamento selecionado ou na lista filtrada para gerar o PDF.")
+        void dialog.alert("Nenhum afastamento selecionado ou na lista filtrada para gerar o PDF.")
         setIsGeneratingPDF(false)
         return
       }
@@ -903,7 +905,7 @@ export default function AfastamentosPage() {
       }
     } catch (error) {
       console.error('Erro ao gerar relatório:', error)
-      alert('Ocorreu um erro ao gerar o PDF/Impressão.')
+      void dialog.alert('Ocorreu um erro ao gerar o PDF/Impressão.')
     } finally {
       setIsGeneratingPDF(false)
     }
