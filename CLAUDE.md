@@ -79,12 +79,42 @@ que aborta se a contagem de ocorrências divergir.
 reais e devolve toda divergência. O portão da Fase 2 está registrado em
 [`docs/evolucao/2026-08-08-portao-fase2-reconciliacao-de-marcacoes.md`](docs/evolucao/2026-08-08-portao-fase2-reconciliacao-de-marcacoes.md).
 
+### Piloto da Fase 4 (definido em 08/08/2026)
+
+6 servidores do setor de **Informática da SMS**, marcando **no relógio e no terminal** por um mês
+— um par de controle por evento. O coordenador é participante e supervisiona.
+
+**O mês só começa quando a coleta estiver contínua.** Em 08/08/2026 havia 1 dispositivo, 26
+registros AFD e **2 marcações de origem `rep`** — a data de início não é a data em que a fase foi
+marcada.
+
+Duas lacunas conhecidas, registradas no plano:
+- A SMS tem `permite_marca_intervalo = false` → o piloto exercita **só o fluxo de 2 batidas**.
+  **A Fase 5 tem que começar por unidade sem marcação de intervalo**; as com intervalo exigem
+  segundo piloto.
+- Nenhum turno do grupo cruza a meia-noite → o cursor de "ontem" fica sem teste. Escalar um
+  `Plantão N` no mês resolve.
+
 ### Pendências que bloqueiam a Fase 5
 
 1. 103 marcações de intervalo existem em unidades com `permite_marca_intervalo = false`
    (artefatos da regressão de `20260804080000`). A reconciliação as **apagaria** — decisão
    explícita necessária, não pode ser efeito colateral.
 2. As três regras de intervalo divergentes (armadilha 9) só convergem na Fase 8.
+3. `fn_blocos_previstos_dia` e `fn_blocos_previstos_mes` são `SECURITY DEFINER` com `GRANT` para
+   `authenticated` e **não validam acesso ao setor**. `fn_unidade_no_escopo(uuid)` já existe e é o
+   helper certo. ⚠️ Pôr a checagem em `fn_blocos_previstos_dia` **propaga** para
+   `fn_alocar_marcacoes_dia` → `fn_projecao_marcacoes_dia` → `fn_conferir_reconciliacao`: precisa
+   de bypass para `service_role` (`auth.uid() IS NULL`). `fn_reconciliar_marcacoes_dia`, a única
+   que escreve, já é `service_role` apenas.
+
+✅ **Não é mais pendência:** a policy `WITH CHECK (true)` de `logs_tentativas_presenca` foi
+fechada por `20260807130000`. O plano do REP ainda a listava como aberta.
+
+❌ **Descartado (usuário, 08/08/2026):** marcar no relógio com matrícula + PIN. O relógio é
+equipamento não supervisionado, e PIN ali reintroduz o "bater ponto pelo colega" — agora
+respaldado por AFD assinado, o que torna o registro falso *mais* difícil de contestar. Some-se
+que `servidores.pin_acesso` é bcrypt e não é recuperável para envio ao device.
 
 ## Armadilhas conhecidas
 
@@ -171,17 +201,57 @@ Só há `DATABASE_URL` em produção, e a porta Postgres não é acessível de f
 consultas são feitas via PostgREST com a service role key. **Peça autorização antes de tocar
 em produção, mesmo para leitura.**
 
-### 4. Horários vêm de regex sobre o nome da jornada
+### 4. Horário previsto: cadeia de precedência de 4 níveis
 
-Não existe coluna `start_hour`. A hora de início/fim é extraída do **nome**:
+⚠️ **Esta regra mudou em 08/08/2026.** Antes o horário era inferido só por regex sobre o nome da
+jornada, e isso impediu três servidoras de bater ponto no mesmo dia. Ver
+[`docs/planos/2026-08-08-ancoragem-de-horario-dos-plantoes.md`](docs/planos/2026-08-08-ancoragem-de-horario-dos-plantoes.md).
+
+Não existe coluna `start_hour`. O horário é resolvido nesta ordem, e o primeiro não-nulo vence:
+
+| nível | fonte | quando |
+|---|---|---|
+| 1 | `escala_diaria.hora_inicio_prevista` | o coordenador informou ao escalar. **Não vale para `Regular`** (constraint `chk_hora_prevista_nao_regular`) |
+| 2 | `dicionario_turnos.horario_inicio` | o código determina a hora. **Só quando NÃO há turno `Regular` no dia** |
+| 3 | regex sobre `jornadas.nome` | categoria `Regular` |
+| 4 | cascata legada (`LIKE 'M%'`, `slots[1]`, alinhamento ao Regular) | último recurso, **nunca removida** |
 
 ```sql
 substring(j.nome from '^([0-9]+)')                    -- "08H ÀS 12H" → 8
 substring(j.nome from '(?:ÀS|AS|as|às)\s*([0-9]+)')   -- "08H ÀS 12H" → 12
 ```
 
-**Renomear uma jornada quebra o cálculo de presença.** O mesmo parsing está duplicado no
-frontend (`ScaleGrid.tsx`) — mudanças precisam ser feitas nos dois lados.
+**Renomear uma jornada ainda quebra o cálculo de presença** para `Regular` — o nível 3 continua
+sendo regex sobre o nome.
+
+**Por que o nível 2 só vale sem `Regular` no dia:** havendo turno Regular, o plantão é sequência
+do expediente e o alinhamento da cascata está correto. Forçar a âncora ali sobreporia o plantão
+ao Regular — medido em 49 dias reais de produção. **Não remover essa condição.**
+
+**27 dos 64 códigos estão ancorados.** As famílias: `M T N MT` · `M?N` começa 19:00 (a noite
+emenda na manhã seguinte) · `T?N` = `19h − (duração − 12)`, a tarde vem antes · `MT?` e `MTN`
+começam 07:00 · intermediário (`I M4I IT4`) = 11:00–15:00. Os outros 21 são **Classe B** de
+propósito: o código dá duração e período, não a hora — usam o nível 1. Só `MT4N` ficou sem
+definição.
+
+**Não ancore um código de Sobreaviso** — as migrations abortam se tentar (armadilha 6).
+
+#### O frontend duplica isso, e a duplicação é parcialmente resolvida
+
+- `getShiftForecastTime` **lê do banco** via `fn_blocos_previstos_mes` — um `LATERAL` sobre
+  `fn_blocos_previstos_dia`, a mesma que o terminal usa. Por construção não diverge.
+- `getShiftStartHour` / `getShiftEndHour` (`ScaleGrid.tsx`) **ainda existem** e servem o motor de
+  compliance, o PDF e a sugestão de encadeamento. **Elas espelham as 27 âncoras à mão.** Ao
+  ancorar um código novo, atualize as duas — as famílias `M?N`, `T?N` e intermediário têm testes
+  de prefixo que precisam vir **antes** dos genéricos, senão `T2N` cai em 13:00 contra a âncora
+  de 17:00.
+
+#### Ao alterar as funções de presença
+
+`scratchpad/gen_ancora.js` e `gen_hora_dia.js` fazem a cópia mecânica das **três** funções de uma
+vez (`fn_confirmar_presenca`, `fn_confirmar_presenca_manual`, `fn_blocos_previstos_dia`),
+conferem os invariantes antes e depois e **abortam** em qualquer divergência. Substituem o
+`gen_blocos.js` que se perdeu. Use-os como modelo — não redigite corpo de função.
 
 ### 5. Horário sintético vs. batida real
 

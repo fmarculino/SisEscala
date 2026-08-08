@@ -489,11 +489,11 @@ ontem, a saída de madrugada e a fusão com o turno seguinte. Custo: um plantão
 - **Servidor que esquece de bater** — dia sem batida tem que virar pendência, nunca horário
   fictício (decisão 1 do plano).
 
-#### Pré-requisito prático
+#### Pré-requisito prático — ✅ confirmado pelo usuário em 08/08/2026
 
-O terminal web exige coordenador na sessão (`p_coordenador_id`). Confirmar que os 6 têm estação
-acessível **antes** de começar — senão "marcar nos dois" não acontece e isso só se descobre no
-fim do mês.
+O terminal web exige coordenador na sessão (`p_coordenador_id`). **Confirmado:** o setor de
+Informática tem computador disponível para todas as marcações, e o próprio usuário é o
+coordenador e acompanha. Sem impedimento para o "marcar nos dois".
 
 ### 3. Deriva de relógio não tem mecanismo
 
