@@ -332,11 +332,147 @@ Formato `.sisrep`, tela de importação, subcomandos do coletor. Depois de 4/5 p
 ### Fase 7 — cadastro push SisEscala → REP e biometria
 Fila de pendências, coletor aplica, tela de "servidores pendentes de biometria" (cadastro presencial — o template vem do sensor e não é enviável por API). Deliberadamente por último: hoje isso é feito manualmente e funciona.
 
+### Fase 7b — marcação por matrícula + PIN no relógio (proposta, 08/08/2026)
+
+Pedido do usuário: além da digital, permitir marcar no **relógio** com matrícula + PIN, com o PIN
+enviado pelo sistema, controlado por chave global e por unidade.
+
+**Tecnicamente possível.** O Control iD autentica por identificador + senha, e o objeto de
+usuário do `load_users.fcgi` tem campo de senha. O AFD não muda: a marcação continua gravada com
+o **identificador (CPF)**, qualquer que seja o método de autenticação. Sem impacto no registro legal.
+
+#### ⛔ Bloqueio real: o PIN é bcrypt, não é recuperável
+
+`servidores.pin_acesso` é hasheado com `crypt(..., gen_salt('bf', 8))` desde
+`20260523000000`, e `verify_pin` compara hash. **Não existe "enviar o PIN atual ao relógio"** —
+ele não pode ser lido nem pelo banco. Três saídas, em ordem de preferência:
+
+| # | saída | avaliação |
+|---|---|---|
+| a | **PIN do relógio separado**, gerado pelo sistema, guardado cifrado (reversível) e enviado no push da Fase 7. O servidor vê o dele no portal. | **Recomendada.** Não enfraquece o PIN do sistema, e um segredo de equipamento pode ser rotacionado sem mexer no acesso ao portal. |
+| b | Capturar o PIN em trânsito quando o servidor cadastra/troca, e enfileirar o push. | Funciona, mas quem já tem PIN nunca é sincronizado até trocar — e cria um caminho onde o PIN em claro trafega para outro sistema. |
+| c | Trocar bcrypt por cifra reversível. | **Descartada.** Rebaixa a segurança de todo o portal do servidor para viabilizar um recurso do relógio. |
+
+#### ⚠️ Crítica que precisa ser decidida antes de implementar
+
+O terminal web e o relógio **não são equivalentes em risco**, e a diferença não é técnica:
+
+`fn_confirmar_presenca(p_matricula, p_pin_servidor, **p_coordenador_id**, ...)` — o terminal web
+é uma **estação supervisionada**: há um coordenador identificado na sessão. O relógio de parede
+não tem ninguém olhando.
+
+PIN em equipamento não supervisionado reintroduz exatamente a fraude que a biometria existe para
+impedir: **bater ponto pelo colega**. E há uma inversão perversa — no REP-C a batida fraudulenta
+passa a ser respaldada por **AFD assinado**, com valor probatório. Fica *mais difícil* de
+contestar depois, não mais fácil.
+
+Ou seja: o recurso não só reabre o vetor, como fortalece juridicamente o registro falso.
+
+**Mitigações se for adiante:**
+- PIN só como **contingência** (dedo não lido, servidor sem biometria cadastrada), não como método
+  cotidiano — e a origem da autenticação registrada na marcação, para auditoria.
+- Relatório de uso: servidor que marca por PIN com frequência é sinal de biometria mal cadastrada
+  **ou** de fraude. Os dois pedem ação.
+- Combinar com a geolocalização/foto, se o modelo suportar.
+
+#### Hierarquia global → unidade: a ideia está certa, o booleano é armadilha
+
+O padrão já existe no sistema (`unidades.permite_marca_intervalo`, `unidades.tipo_intervalo`),
+então é coerente. Mas *"se tiver global faz, se a unidade decidir respeita a unidade"* não é
+expressável com um booleano por unidade: `false` não distingue **"a unidade proibiu"** de
+**"a unidade não se manifestou"**.
+
+Precisa de **três estados**:
+
+```sql
+-- configuracoes_globais: chave 'permite_pin_no_rep'  (boolean, o padrão)
+ALTER TABLE public.unidades
+    ADD COLUMN permite_pin_no_rep text NOT NULL DEFAULT 'herdar'
+    CHECK (permite_pin_no_rep IN ('herdar', 'permitir', 'bloquear'));
+```
+
+Resolução: `herdar` → vale o global; `permitir`/`bloquear` → a unidade decide. Assim mudar o
+global depois propaga para quem não se manifestou, e **não** atropela quem decidiu — que é o
+comportamento que o usuário descreveu.
+
+Sem os três estados, o dia em que alguém inverter o global vai reabrir PIN em unidade que tinha
+proibido, sem ninguém perceber.
+
 ### Fase 8 — convergência da regra de intervalo e `ajuste_servidor`
 Terminal, validação manual e folha passam a usar `fn_blocos_previstos_dia` como fonte única. Só depois de meses de `fn_conferir_reconciliacao` limpo. Aqui também entra o ajuste solicitado pelo próprio servidor no portal.
 
 ### Fase 9 — PTRP formal
 Exportação de **AFD** e **AEJ** nos layouts oficiais da Portaria 671, espelho de ponto assinado, e o cadastro de Empregador com a razão social real da SMS. Em paralelo, o projeto de qualidade de dados: **`servidores.cpf` é NULL para quem usa relógio e `pis_pasep` está vazio em 184/184** — auditor fiscal casa por PIS/NIS. O `load_users.fcgi` devolve CPF, matrícula e nome juntos, então dá para propor o preenchimento a partir do device, sempre com confirmação humana, nunca automática.
+
+---
+
+## Revisão do plano em 08/08/2026
+
+Levantado ao responder às perguntas do usuário. Nada implementado.
+
+### 1. `achado 5` (policy `WITH CHECK (true)`) — ✅ **JÁ RESOLVIDO, não é mais pendência**
+
+`20260807130000_restrict_denied_attempt_log_inserts.sql` fechou o vetor. A tabela de contexto
+acima ainda o lista como aberto — **está desatualizada**. Era o caminho
+`insert forjado → validação manual → horário fabricado na folha`, e não existe mais.
+
+### 2. Fase 4 precisa de **critério de saída**, não de prazo
+
+O plano diz *"deixar rodar um mês inteiro"*. Prazo não é critério: passa um mês e ninguém sabe
+dizer se está pronto. Estado real medido em 08/08/2026:
+
+| | |
+|---|---|
+| dispositivos REP | 1 |
+| registros AFD ingeridos | **26** |
+| vínculos servidor↔relógio | 6 (setor de TI) |
+| marcações de origem `rep` | **2** |
+
+Com 2 batidas, observar um mês não levanta nada — **a coleta não está contínua**. O relógio
+começa a contar quando houver coleta estável, não a partir da data em que a fase foi marcada.
+
+Critério sugerido, para substituir "um mês":
+- coletor rodando **N dias corridos sem lacuna de NSR**;
+- ≥ 90% dos servidores vinculados com batida em ≥ 90% dos dias escalados;
+- `fn_conferir_reconciliacao` sem divergência **não explicada** no período;
+- toda pendência gerada com causa classificada (esqueceu de bater / dedo não lido / fora de
+  escala / deriva de relógio).
+
+### 3. Deriva de relógio não tem mecanismo
+
+A Fase 4 diz que a deriva "vai aparecer", mas não há como detectar nem corrigir. Duas
+consequências: uma batida com relógio adiantado desloca a alocação ao passo, e **o horário do REP
+não pode ser ajustado livremente** — a Portaria restringe, e o ajuste fica registrado no AFD.
+
+Sugestão: o coletor grava o delta entre a hora do device e a hora do servidor a cada coleta,
+e o módulo alerta acima de um limiar. Detectar é barato; corrigir depois do fato, não.
+
+### 4. Pendências que continuam bloqueando a Fase 5
+
+- **103 marcações de intervalo** em unidades com `permite_marca_intervalo = false` (artefatos da
+  regressão de `20260804080000`). A reconciliação as apagaria. Decisão explícita necessária.
+- As **três regras de intervalo divergentes** só convergem na Fase 8.
+
+### 5. Exposição de leitura em `fn_blocos_previstos_dia` / `_mes`
+
+Ambas são `SECURITY DEFINER` com `GRANT` para `authenticated` e **não validam acesso ao
+setor** — um usuário logado consulta a previsão de qualquer setor sabendo os UUIDs.
+`fn_unidade_no_escopo(uuid)` (`20260808010000`) já existe e é o helper adequado.
+
+⚠️ Cuidado: pôr a checagem dentro de `fn_blocos_previstos_dia` **propaga** para
+`fn_alocar_marcacoes_dia` → `fn_projecao_marcacoes_dia` → `fn_conferir_reconciliacao`, todas
+expostas a `authenticated`. Precisa de bypass para `service_role` (`auth.uid() IS NULL`), senão
+quebra o módulo em produção. Tratar `fn_blocos_previstos_mes` (só a grade chama) separado.
+
+Nota tranquilizadora: `fn_reconciliar_marcacoes_dia` — a única que **escreve** — já é
+`service_role` apenas. O risco é de leitura.
+
+### 6. O REP corrige um defeito do terminal, e vale registrar
+
+Em 08/08/2026 três servidoras não conseguiram bater porque o terminal **recusou** por janela
+errada. No modelo REP isso é impossível por construção: a batida é sempre gravada e o que não
+encaixa vira pendência. **O REP é mais seguro que o terminal atual justamente por não validar** —
+argumento útil para justificar a migração a quem perguntar.
 
 ---
 
