@@ -2,6 +2,16 @@
 
 Todas as alterações notáveis deste projeto são registradas neste arquivo.
 
+## [1.23.1] - 2026-08-08
+
+### 🛠️ Correções de Erros (Fixes)
+- **Solicitação de ajuste de ponto aceitava dia futuro**:
+  - Defeito introduzido pela própria 1.23.0: o botão "informar horário" aparecia em toda célula vazia do mês, inclusive dias que ainda não tinham ocorrido. Não existe "esqueci de bater o ponto" de um dia futuro — a solicitação existe para justificar algo que já aconteceu fora do esperado, não para pré-registrar jornada.
+  - Bloqueio em duas camadas: o botão só aparece para dias já ocorridos (`FolhaPontoEditor.tsx`), e `fn_solicitar_ajuste_ponto` recusa no banco qualquer dia com `data > CURRENT_DATE` — mesmo critério já usado em `fn_confirmar_presenca_manual`.
+  - Turno noturno em andamento também é coberto: solicitar a saída antes de ela ter de fato ocorrido (ex.: entrada 22h, saída 6h do dia seguinte, solicitado às 23h do mesmo dia) é recusado mesmo com o dia da entrada já no passado.
+
+---
+
 ## [1.23.0] - 2026-08-08
 
 ### 🚨 Alterações de Comportamento (Breaking)

@@ -97,6 +97,22 @@ export function FolhaPontoEditor({
     return closedPeriods.some((p: any) => p.mes === folha.mes && p.ano === folha.ano)
   }, [closedPeriods, folha.mes, folha.ano])
 
+  // Último dia já ocorrido no mês/ano da folha. Não faz sentido "informar horário" de um dia
+  // que ainda não aconteceu — a solicitação existe para justificar algo que já ocorreu fora do
+  // esperado, não para pré-registrar o futuro. Mesmo critério de maxValidDay em ScaleGrid.tsx.
+  const ultimoDiaOcorrido = useMemo(() => {
+    const hoje = new Date()
+    const anoAtual = hoje.getFullYear()
+    const mesAtual = hoje.getMonth() + 1
+    if (folha.ano < anoAtual || (folha.ano === anoAtual && folha.mes < mesAtual)) {
+      return 31 // mes inteiramente no passado: todo dia ja ocorreu
+    }
+    if (folha.ano === anoAtual && folha.mes === mesAtual) {
+      return hoje.getDate()
+    }
+    return 0 // mes futuro: nenhum dia ocorreu ainda
+  }, [folha.mes, folha.ano])
+
   const isEditable = status !== 'Revisada' && !isCompetenciaEncerrada
   
   // States for loaders and actions
@@ -850,8 +866,10 @@ export function FolhaPontoEditor({
                           className="w-full bg-transparent border-none text-left outline-none text-zinc-700 dark:text-zinc-300 font-semibold disabled:opacity-50"
                           placeholder={isOffDay ? '' : 'Digitar observação...'}
                         />
-                        {/* Só em dia de trabalho com célula vazia — o caso de esquecimento de batida. */}
+                        {/* Só em dia de trabalho JÁ OCORRIDO com célula vazia — o caso de
+                            esquecimento de batida. Dia futuro não tem o que justificar. */}
                         {isPortal && onSolicitarAjuste && isWorkDay && !r.afastamento && !r.feriado
+                          && r.dia <= ultimoDiaOcorrido
                           && (!r.entrada || !r.saida) && (
                           <button
                             type="button"
