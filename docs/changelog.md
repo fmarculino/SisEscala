@@ -2,6 +2,23 @@
 
 Todas as alterações notáveis deste projeto são registradas neste arquivo.
 
+## [1.22.1] - 2026-08-08
+
+### 🛠️ Correções de Erros (Fixes)
+- **Validação em massa atropelava batidas pendentes de revisão**:
+  - Defeito introduzido pela própria 1.22.0: o terminal passou a registrar batidas fora da janela como pendentes, mas a validação em massa não sabia disso. Um servidor que batia às 07:40 e ficava pendente podia ter o dia atestado com o **horário contratual**, enquanto o horário verdadeiro estava disponível e ninguém olhava.
+  - `fn_atestar_jornada_bulk` separa os dias com batida pendente, deixa-os de fora do atestado e **devolve a lista** para tratamento individual com o horário real.
+  - A exclusão é por par **(escala, dia)**: uma pendência no dia 5 não impede atestar os dias 6 a 30 do mesmo servidor. Pendência já tratada deixa de bloquear.
+  - A grade mostra o que ficou de fora — por dia e horário no modo por servidor, agrupado por pessoa no modo global.
+
+### 🔍 Observações
+- É a mesma regra de precedência de `fn_precedencia_origem` (relógio > terminal > ajuste), trazida para o fluxo do coordenador: **onde existe horário real disponível, ele ganha do declarado**.
+- Atestar em massa continua existindo, e deve: quando ninguém bateu, alguém precisa declarar o que houve. Deixa apenas de atropelar o que foi batido.
+- **Retificação da 1.22.0:** aquela versão registrou a validação em massa como "exposição residual à vedação 2". Conferido em produção depois das correções: ela já grava com origem `ajuste_coordenador` e `sintetica = true`, e a folha já a pinta como `manual` — o sistema não a apresenta como batida. Um coordenador declarando, com justificativa e rótulo próprio, é tratamento autorizado pelo Art. 82, parágrafo único. O problema real era o de precedência, corrigido aqui.
+- `fn_confirmar_presenca_manual_bulk` não foi alterada.
+
+---
+
 ## [1.22.0] - 2026-08-08
 
 ### ⚖️ Conformidade com a Portaria 671/2021

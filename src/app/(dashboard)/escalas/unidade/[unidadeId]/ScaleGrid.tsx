@@ -2138,7 +2138,7 @@ export function ScaleGrid({
     setLoading(true)
     try {
       const { data: { user } } = await supabase.auth.getUser()
-      const { data, error } = await supabase.rpc('fn_confirmar_presenca_manual_bulk', {
+      const { data, error } = await supabase.rpc('fn_atestar_jornada_bulk', {
         p_escala_mensal_ids: [bulkServerModal.escalaMensalId],
         p_dias: days,
         p_categorias: bulkServerModal.categorias,
@@ -2151,11 +2151,19 @@ export function ScaleGrid({
 
       await fetchData()
       setBulkServerModal(null)
+      // Dias com ponto registrado no terminal ficam de fora do atestado em massa: existe
+      // horário real esperando decisão, e atestar por cima gravaria o contratual por cima dele.
+      const pendentes: any[] = data?.pendentes || []
       setAlertModal({
         isOpen: true,
-        title: 'Validação Concluída',
-        message: `Presenças do servidor ${bulkServerModal.servidorNome} validadas com sucesso para os dias ${start} a ${end}!`,
-        type: 'success'
+        title: pendentes.length ? 'Atestado Concluído — com pendências' : 'Atestado Concluído',
+        message: pendentes.length
+          ? `Jornada atestada em ${data.atestados} registro(s) para ${bulkServerModal.servidorNome}. `
+            + `${pendentes.length} dia(s) ficaram de fora porque têm ponto registrado no terminal `
+            + `aguardando revisão: ${pendentes.map(p => `dia ${p.dia} (${p.primeira_batida})`).join(', ')}. `
+            + `Abra cada um e use o horário real da batida.`
+          : `Jornada atestada em ${data?.atestados ?? 0} registro(s) para ${bulkServerModal.servidorNome}, dias ${start} a ${end}.`,
+        type: pendentes.length ? 'warning' : 'success'
       })
     } catch (err: any) {
       console.error('Erro na validação por servidor:', err)
@@ -2231,7 +2239,7 @@ export function ScaleGrid({
     setLoading(true)
     try {
       const { data: { user } } = await supabase.auth.getUser()
-      const { data, error } = await supabase.rpc('fn_confirmar_presenca_manual_bulk', {
+      const { data, error } = await supabase.rpc('fn_atestar_jornada_bulk', {
         p_escala_mensal_ids: escalaMensalIds,
         p_dias: days,
         p_categorias: bulkGlobalModal.categorias,
@@ -2244,11 +2252,22 @@ export function ScaleGrid({
 
       await fetchData()
       setBulkGlobalModal(null)
+      const pendentesG: any[] = data?.pendentes || []
+      // Agrupa por servidor: numa validação global a lista de dias soltos seria ilegível.
+      const porServidor = pendentesG.reduce((acc: Record<string, number[]>, p: any) => {
+        (acc[p.servidor_nome] = acc[p.servidor_nome] || []).push(p.dia)
+        return acc
+      }, {})
       setAlertModal({
         isOpen: true,
-        title: 'Validação Global Concluída',
-        message: `Presenças em massa validadas com sucesso para ${escalaMensalIds.length} servidor(es) nos dias ${start} a ${end}!`,
-        type: 'success'
+        title: pendentesG.length ? 'Atestado Concluído — com pendências' : 'Atestado Global Concluído',
+        message: pendentesG.length
+          ? `Jornada atestada em ${data.atestados} registro(s) para ${escalaMensalIds.length} servidor(es). `
+            + `${pendentesG.length} dia(s) ficaram de fora por terem ponto registrado no terminal `
+            + `aguardando revisão — ${Object.entries(porServidor).map(([n, ds]) => `${n}: dia(s) ${(ds as number[]).join(', ')}`).join(' | ')}. `
+            + `Abra cada um e use o horário real da batida.`
+          : `Jornada atestada em ${data?.atestados ?? 0} registro(s) para ${escalaMensalIds.length} servidor(es), dias ${start} a ${end}.`,
+        type: pendentesG.length ? 'warning' : 'success'
       })
     } catch (err: any) {
       console.error('Erro na validação em massa global:', err)

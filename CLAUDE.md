@@ -146,9 +146,17 @@ registrar.** Onde ele tem meio, preencher é fabricar.
 vermelho = nada foi registrado. Pintar de vermelho o que foi aceito ensina o servidor a não
 insistir, produzindo na prática o efeito que a lei quer evitar.
 
-⚠️ **Exposição residual:** a validação **em massa** (`fn_confirmar_presenca_manual_bulk`) ainda
-grava horário derivado da jornada. Faz sentido para ausências justificadas, não para afirmar
-horário cumprido.
+**Validação em massa** (v1.22.1): `fn_atestar_jornada_bulk` envolve
+`fn_confirmar_presenca_manual_bulk` e **pula os dias que têm batida pendente de revisão**,
+devolvendo a lista ao chamador. É a regra de `fn_precedencia_origem` trazida para o fluxo do
+coordenador: onde existe horário real disponível, ele ganha do declarado. A exclusão é por par
+(escala, dia), não por servidor nem por período.
+
+ℹ️ Uma nota anterior aqui chamava a validação em massa de "exposição residual à vedação 2".
+**Era impreciso.** Conferido em produção em 08/08/2026: ela grava com origem
+`ajuste_coordenador` e `sintetica = true`, e a folha a pinta como `manual` — o sistema não a
+apresenta como batida. Coordenador declarando, com justificativa e rótulo próprio, é tratamento
+autorizado pelo Art. 82, parágrafo único. A vedação 2 é o *sistema* marcar sozinho.
 
 `fn_confirmar_presenca` e `fn_confirmar_presenca_manual` **não foram alteradas** por nada disso —
 todo o comportamento novo entra por funções que as envolvem (armadilha 1).
