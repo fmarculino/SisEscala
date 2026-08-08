@@ -332,9 +332,17 @@ Formato `.sisrep`, tela de importação, subcomandos do coletor. Depois de 4/5 p
 ### Fase 7 — cadastro push SisEscala → REP e biometria
 Fila de pendências, coletor aplica, tela de "servidores pendentes de biometria" (cadastro presencial — o template vem do sensor e não é enviável por API). Deliberadamente por último: hoje isso é feito manualmente e funciona.
 
-### Fase 7b — marcação por matrícula + PIN no relógio (proposta, 08/08/2026)
+### Fase 7b — marcação por matrícula + PIN no relógio — ❌ **DESCARTADA (usuário, 08/08/2026)**
 
-Pedido do usuário: além da digital, permitir marcar no **relógio** com matrícula + PIN, com o PIN
+> Proposta levantada e retirada pelo próprio usuário depois da análise abaixo. **Não implementar.**
+> Mantida no plano como registro da decisão e do motivo — se alguém propuser de novo, a análise
+> já está feita.
+>
+> Razão da retirada: o relógio é equipamento **não supervisionado**, e PIN ali reintroduz o
+> "bater ponto pelo colega" que a biometria existe para impedir — agora respaldado por AFD
+> assinado, o que torna o registro falso *mais* difícil de contestar.
+
+Pedido original: além da digital, permitir marcar no **relógio** com matrícula + PIN, com o PIN
 enviado pelo sistema, controlado por chave global e por unidade.
 
 **Tecnicamente possível.** O Control iD autentica por identificador + senha, e o objeto de
@@ -437,6 +445,55 @@ Critério sugerido, para substituir "um mês":
 - `fn_conferir_reconciliacao` sem divergência **não explicada** no período;
 - toda pendência gerada com causa classificada (esqueceu de bater / dedo não lido / fora de
   escala / deriva de relógio).
+
+### 2b. Desenho do piloto da Fase 4 (definido com o usuário em 08/08/2026)
+
+**Grupo:** os 6 servidores já vinculados, no setor de **Informática (TI) da SMS** — onde o
+usuário tem controle direto e é ele próprio um dos participantes.
+
+**Método:** durante um mês, cada um marca **nos dois** — relógio **e** terminal web. Isso dá um
+par de controle por evento, que é exatamente o "lado a lado" que a Fase 4 pede: dá para medir se
+o REP capturou tudo, a deriva entre os dois, e se a alocação ao passo bateu.
+
+**Cobertura conferida em 08/08/2026** (154 linhas de `escala_diaria` em agosto):
+
+| | |
+|---|---|
+| CPF preenchido nos 6 (chave de junção com o AFD) | ✅ |
+| PIS nos 6 | ❌ nulo — Fase 9, não bloqueia |
+| categorias | 84 `Regular/MT`, 21 `Regular/M`, 9 `Regular/T`, **7 `Plantão/MT`**, 33 Sobreaviso |
+| jornadas distintas | `08H ÀS 18H`, `08H ÀS 14H`, `14H ÀS 18H` |
+
+#### ⚠️ Duas lacunas de cobertura, e o que fazer
+
+**1. `permite_marca_intervalo = false` na SMS** — o piloto exercita **só o fluxo de 2 batidas**
+(entrada + saída). O trabalho mais difícil da reconciliação nunca roda: alocar 4 batidas a 4
+passos, distinguir saída-para-intervalo de saída-final, aplicar o guard do Art. 71.
+
+→ **Decisão: a Fase 5 tem que começar por unidade SEM marcação de intervalo.** Unidades com
+intervalo exigem um segundo piloto. Ligar `permite_marca_intervalo` na SMS só para o teste foi
+descartado: mudaria o comportamento de **toda** a unidade, não só dos 6.
+
+**2. Nenhum turno cruza a meia-noite** — jornadas 14-18, 08-18, 08-14 e `Plantão MT` 07-19, tudo
+diurno. O caminho `fim > 1440` e o **cursor de ontem** (o bloco inteiro que roda antes do de hoje
+em `fn_confirmar_presenca`) ficam sem teste. É o trecho mais arriscado do motor de blocos.
+
+→ **Escalar um `Plantão N` para um voluntário durante o mês.** Uma noite só cobre o cursor de
+ontem, a saída de madrugada e a fusão com o turno seguinte. Custo: um plantão.
+
+#### Testes de graça que o grupo já permite
+
+- **Sobreaviso não pode virar presença** (armadilha 6, três camadas de defesa). São 33 dias de
+  Sobreaviso no grupo — pedir que alguém bata no relógio num desses dias, de propósito. Se
+  aparecer presença, uma das três camadas falhou.
+- **Servidor que esquece de bater** — dia sem batida tem que virar pendência, nunca horário
+  fictício (decisão 1 do plano).
+
+#### Pré-requisito prático
+
+O terminal web exige coordenador na sessão (`p_coordenador_id`). Confirmar que os 6 têm estação
+acessível **antes** de começar — senão "marcar nos dois" não acontece e isso só se descobre no
+fim do mês.
 
 ### 3. Deriva de relógio não tem mecanismo
 
