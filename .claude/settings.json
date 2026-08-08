@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(file supabase/migrations/2026080713*.sql)"
+    ]
+  }
+}

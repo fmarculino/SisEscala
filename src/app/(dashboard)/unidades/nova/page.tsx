@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { ArrowLeft, Save } from 'lucide-react'
 import { GeoLocationPicker } from '@/components/GeoLocationPicker'
 import { UnidadeIntervaloSettings } from '@/components/UnidadeIntervaloSettings'
+import { UnidadeDadosFiscais } from '@/components/UnidadeDadosFiscais'
 
 export default function NovaUnidadePage() {
   const [loading, setLoading] = useState(false)
@@ -76,6 +77,8 @@ export default function NovaUnidadePage() {
               Recomendado: PNG com fundo transparente. Resolução máxima sugerida: 400x120px (máx. 1MB).
             </p>
           </div>
+
+          <UnidadeDadosFiscais />
 
           <GeoLocationPicker />
 

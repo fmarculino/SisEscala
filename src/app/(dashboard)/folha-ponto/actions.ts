@@ -4,6 +4,7 @@ import { createClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { hasSectorAccess, UserProfile, applyAccessFilters } from '@/utils/permissions'
 import { autoCloseExpiredScalesAndTimesheets, isCompetencyClosed } from '@/utils/autoClose'
+import { resolverMarcacaoDoDia, COLUNAS_PRESENCA_FOLHA } from '@/utils/folha/origemMarcacao'
 
 // Helper: Get user profile with unit/sector permissions
 async function getUserProfile(supabase: any): Promise<UserProfile> {
@@ -301,16 +302,15 @@ export async function executeGerarFolhaPonto(
     // Fetch all shifts from escala_diaria (including Extra and Plantão) for the specific scale of this folha
     const { data: escalaDiaria, error: diError } = await supabase
       .from('escala_diaria')
-      .select('id, dia, categoria, dicionario_turnos_id, presenca_entrada_em, presenca_intervalo_saida_em, presenca_intervalo_retorno_em, presenca_saida_em, intervalo_nao_usufruido, presenca_confirmada, dicionario_turnos(codigo, slots)')
+      .select(`id, dia, categoria, dicionario_turnos_id, ${COLUNAS_PRESENCA_FOLHA}, intervalo_nao_usufruido, presenca_confirmada, dicionario_turnos(codigo, slots)`)
       .eq('escala_mensal_id', escala.id)
 
     if (diError) throw diError
 
-    // Fetch manual validation logs for the specific scale of this folha
-    const { data: logs } = await supabase
-      .from('logs_sobreaviso')
-      .select('dia, categoria, validacao_manual, motivo_acionamento')
-      .eq('escala_mensal_id', escala.id)
+    // A origem de cada marcacao vem das flags presenca_*_manual da propria linha de
+    // escala_diaria (ver src/utils/folha/origemMarcacao.ts). A consulta a logs_sobreaviso que
+    // existia aqui foi removida: ela nunca mais recebe validacao manual de Regular/Plantao/
+    // Extra desde 20260807020000, e por isso reportava validacao manual como batida real.
 
     // Fetch holidays
     const startDate = `${resolvedAno}-${String(resolvedMes).padStart(2, '0')}-01`
@@ -511,35 +511,28 @@ export async function executeGerarFolhaPonto(
           registro.observacao = `AFASTAMENTO PARCIAL: ${getAfastamentoObservacao(rawAfastamento)}${registro.observacao ? ' | ' + registro.observacao : ''}`.toUpperCase()
         }
 
-        // Check if entry/exit was validated manually by a coordinator
-        const isManualEntrada = logs?.some((log: any) => 
-          log.dia === day && 
-          log.categoria === 'Regular' && 
-          log.validacao_manual === true && 
-          log.motivo_acionamento?.toLowerCase().includes('entrada')
-        )
-        const isManualSaida = logs?.some((log: any) => 
-          log.dia === day && 
-          log.categoria === 'Regular' && 
-          log.validacao_manual === true && 
-          log.motivo_acionamento?.toLowerCase().includes('saida')
-        )
-
-        // Check if there was presence confirmada on any shift for this day (Regular, Extra, Plantão)
+        // Consolida os turnos do dia (Regular, Extra, Plantão) e resolve, para cada passo,
+        // o horário vencedor junto da origem daquele horário específico.
         const dayShifts = escalaDiaria?.filter((d: any) => d.dia === day) || []
-        const allEntradas = dayShifts.map((s: any) => s.presenca_entrada_em).filter(Boolean)
-        const allIntervaloSaidas = dayShifts.map((s: any) => s.presenca_intervalo_saida_em).filter(Boolean)
-        const allIntervaloRetornos = dayShifts.map((s: any) => s.presenca_intervalo_retorno_em).filter(Boolean)
-        const allSaidas = dayShifts.map((s: any) => s.presenca_saida_em).filter(Boolean)
-        
-        const realEntradaTime = allEntradas.length > 0 ? new Date(Math.min(...allEntradas.map((t: any) => new Date(t).getTime()))) : null
-        const realIntervaloSaidaTime = allIntervaloSaidas.length > 0 ? new Date(Math.min(...allIntervaloSaidas.map((t: any) => new Date(t).getTime()))) : null
-        const realIntervaloRetornoTime = allIntervaloRetornos.length > 0 ? new Date(Math.max(...allIntervaloRetornos.map((t: any) => new Date(t).getTime()))) : null
-        const realSaidaTime = allSaidas.length > 0 ? new Date(Math.max(...allSaidas.map((t: any) => new Date(t).getTime()))) : null
+
+        const marcEntrada = resolverMarcacaoDoDia(dayShifts, 'entrada')
+        const marcIntervaloSaida = resolverMarcacaoDoDia(dayShifts, 'intervalo_saida')
+        const marcIntervaloRetorno = resolverMarcacaoDoDia(dayShifts, 'intervalo_retorno')
+        const marcSaida = resolverMarcacaoDoDia(dayShifts, 'saida')
+
+        const realEntradaTime = marcEntrada.horario
+        const realIntervaloSaidaTime = marcIntervaloSaida.horario
+        const realIntervaloRetornoTime = marcIntervaloRetorno.horario
+        const realSaidaTime = marcSaida.horario
+
+        const isManualEntrada = marcEntrada.manual
+        const isManualIntervaloSaida = marcIntervaloSaida.manual
+        const isManualIntervaloRetorno = marcIntervaloRetorno.manual
+        const isManualSaida = marcSaida.manual
 
         const hasRealEntrada = realEntradaTime !== null && !isManualEntrada
-        const hasRealIntervaloSaida = realIntervaloSaidaTime !== null
-        const hasRealIntervaloRetorno = realIntervaloRetornoTime !== null
+        const hasRealIntervaloSaida = realIntervaloSaidaTime !== null && !isManualIntervaloSaida
+        const hasRealIntervaloRetorno = realIntervaloRetornoTime !== null && !isManualIntervaloRetorno
         const hasRealSaida = realSaidaTime !== null && !isManualSaida
 
         // Calculate official time markers (in minutes from midnight)
@@ -630,6 +623,9 @@ export async function executeGerarFolhaPonto(
             } else if (hasRealIntervaloSaida && realIntervaloSaidaTime) {
               registro.saida_intervalo = realIntervaloSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
               registro.origem_saida_intervalo = 'real'
+            } else if (isManualIntervaloSaida && realIntervaloSaidaTime) {
+              registro.saida_intervalo = realIntervaloSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+              registro.origem_saida_intervalo = 'manual'
             } else if (shouldGenerate(officialSaidaIntervaloMin)) {
               const outOffset = getDeterministicOffset(`${seedBase}-lunchout`, maxVar)
               const genOutMin = (officialSaidaIntervaloMin + outOffset + 24 * 60) % (24 * 60)
@@ -644,6 +640,9 @@ export async function executeGerarFolhaPonto(
             } else if (hasRealIntervaloRetorno && realIntervaloRetornoTime) {
               registro.retorno_intervalo = realIntervaloRetornoTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
               registro.origem_retorno_intervalo = 'real'
+            } else if (isManualIntervaloRetorno && realIntervaloRetornoTime) {
+              registro.retorno_intervalo = realIntervaloRetornoTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+              registro.origem_retorno_intervalo = 'manual'
             } else if (shouldGenerate(officialRetornoIntervaloMin)) {
               const returnOffset = getDeterministicOffset(`${seedBase}-lunchreturn`, maxVar)
               const genReturnMin = (officialRetornoIntervaloMin + returnOffset + 24 * 60) % (24 * 60)
@@ -977,14 +976,10 @@ export async function sincronizarFolhaPonto(folhaId: string) {
     // Fetch all shifts from escala_diaria (Regular, Extra, Plantão) for the specific scale of this folha
     const { data: escalaDiaria } = await supabase
       .from('escala_diaria')
-      .select('id, dia, categoria, dicionario_turnos_id, presenca_entrada_em, presenca_intervalo_saida_em, presenca_intervalo_retorno_em, presenca_saida_em, intervalo_nao_usufruido, presenca_confirmada, dicionario_turnos(codigo, slots)')
+      .select(`id, dia, categoria, dicionario_turnos_id, ${COLUNAS_PRESENCA_FOLHA}, intervalo_nao_usufruido, presenca_confirmada, dicionario_turnos(codigo, slots)`)
       .eq('escala_mensal_id', escala.id)
 
-    // Fetch manual validation logs for the specific scale of this folha
-    const { data: logs } = await supabase
-      .from('logs_sobreaviso')
-      .select('dia, categoria, validacao_manual, motivo_acionamento')
-      .eq('escala_mensal_id', escala.id)
+    // Origem das marcacoes vem das flags presenca_*_manual — ver origemMarcacao.ts.
 
     const currentShifts = escalaDiaria || []
     const fingerprint = generateFingerprint(currentShifts.filter(d => d.categoria === 'Regular'))
@@ -1190,34 +1185,28 @@ export async function sincronizarFolhaPonto(folhaId: string) {
           registro.observacao = `AFASTAMENTO PARCIAL: ${getAfastamentoObservacao(rawAfastamento)}${registro.observacao ? ' | ' + registro.observacao : ''}`.toUpperCase()
         }
 
-        const isManualEntrada = logs?.some(log => 
-          log.dia === day && 
-          log.categoria === 'Regular' && 
-          log.validacao_manual === true && 
-          log.motivo_acionamento?.toLowerCase().includes('entrada')
-        )
-        const isManualSaida = logs?.some(log => 
-          log.dia === day && 
-          log.categoria === 'Regular' && 
-          log.validacao_manual === true && 
-          log.motivo_acionamento?.toLowerCase().includes('saida')
-        )
-
-        // Check if there was presence confirmada on any shift for this day (Regular, Extra, Plantão)
+        // Consolida os turnos do dia (Regular, Extra, Plantão) e resolve, para cada passo,
+        // o horário vencedor junto da origem daquele horário específico.
         const dayShifts = currentShifts.filter(d => d.dia === day)
-        const allEntradas = dayShifts.map(s => s.presenca_entrada_em).filter(Boolean)
-        const allIntervaloSaidas = dayShifts.map(s => s.presenca_intervalo_saida_em).filter(Boolean)
-        const allIntervaloRetornos = dayShifts.map(s => s.presenca_intervalo_retorno_em).filter(Boolean)
-        const allSaidas = dayShifts.map(s => s.presenca_saida_em).filter(Boolean)
-        
-        const realEntradaTime = allEntradas.length > 0 ? new Date(Math.min(...allEntradas.map(t => new Date(t).getTime()))) : null
-        const realIntervaloSaidaTime = allIntervaloSaidas.length > 0 ? new Date(Math.min(...allIntervaloSaidas.map(t => new Date(t).getTime()))) : null
-        const realIntervaloRetornoTime = allIntervaloRetornos.length > 0 ? new Date(Math.max(...allIntervaloRetornos.map(t => new Date(t).getTime()))) : null
-        const realSaidaTime = allSaidas.length > 0 ? new Date(Math.max(...allSaidas.map(t => new Date(t).getTime()))) : null
+
+        const marcEntrada = resolverMarcacaoDoDia(dayShifts, 'entrada')
+        const marcIntervaloSaida = resolverMarcacaoDoDia(dayShifts, 'intervalo_saida')
+        const marcIntervaloRetorno = resolverMarcacaoDoDia(dayShifts, 'intervalo_retorno')
+        const marcSaida = resolverMarcacaoDoDia(dayShifts, 'saida')
+
+        const isManualEntrada = marcEntrada.manual
+        const isManualIntervaloSaida = marcIntervaloSaida.manual
+        const isManualIntervaloRetorno = marcIntervaloRetorno.manual
+        const isManualSaida = marcSaida.manual
+
+        const realEntradaTime = marcEntrada.horario
+        const realIntervaloSaidaTime = marcIntervaloSaida.horario
+        const realIntervaloRetornoTime = marcIntervaloRetorno.horario
+        const realSaidaTime = marcSaida.horario
 
         const hasRealEntrada = realEntradaTime !== null && !isManualEntrada
-        const hasRealIntervaloSaida = realIntervaloSaidaTime !== null
-        const hasRealIntervaloRetorno = realIntervaloRetornoTime !== null
+        const hasRealIntervaloSaida = realIntervaloSaidaTime !== null && !isManualIntervaloSaida
+        const hasRealIntervaloRetorno = realIntervaloRetornoTime !== null && !isManualIntervaloRetorno
         const hasRealSaida = realSaidaTime !== null && !isManualSaida
 
         const officialEntradaMin = startHour * 60 + startMin
@@ -1302,6 +1291,9 @@ export async function sincronizarFolhaPonto(folhaId: string) {
             } else if (hasRealIntervaloSaida && realIntervaloSaidaTime) {
               registro.saida_intervalo = realIntervaloSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
               registro.origem_saida_intervalo = 'real'
+            } else if (isManualIntervaloSaida && realIntervaloSaidaTime) {
+              registro.saida_intervalo = realIntervaloSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+              registro.origem_saida_intervalo = 'manual'
             } else if (shouldGenerate(officialSaidaIntervaloMin)) {
               const outOffset = getDeterministicOffset(`${seedBase}-lunchout`, maxVar)
               const genOutMin = (officialSaidaIntervaloMin + outOffset + 24 * 60) % (24 * 60)
@@ -1315,6 +1307,9 @@ export async function sincronizarFolhaPonto(folhaId: string) {
             } else if (hasRealIntervaloRetorno && realIntervaloRetornoTime) {
               registro.retorno_intervalo = realIntervaloRetornoTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
               registro.origem_retorno_intervalo = 'real'
+            } else if (isManualIntervaloRetorno && realIntervaloRetornoTime) {
+              registro.retorno_intervalo = realIntervaloRetornoTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+              registro.origem_retorno_intervalo = 'manual'
             } else if (shouldGenerate(officialRetornoIntervaloMin)) {
               const returnOffset = getDeterministicOffset(`${seedBase}-lunchreturn`, maxVar)
               const genReturnMin = (officialRetornoIntervaloMin + returnOffset + 24 * 60) % (24 * 60)

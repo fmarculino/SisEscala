@@ -4,6 +4,47 @@ import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 
+/**
+ * Le um campo de texto do formulario devolvendo null quando vazio, em vez de string vazia.
+ * As CHECK constraints de cnpj/responsavel_cpf so aceitam NULL ou o formato exato — '' seria
+ * rejeitado pelo banco.
+ */
+function textoOuNulo(formData: FormData, campo: string): string | null {
+  const valor = (formData.get(campo) as string | null)?.trim()
+  return valor ? valor : null
+}
+
+/** Idem, mas descarta qualquer caractere de mascara. Ver UnidadeDadosFiscais.tsx. */
+function digitosOuNulo(formData: FormData, campo: string): string | null {
+  const digitos = ((formData.get(campo) as string | null) || '').replace(/\D/g, '')
+  return digitos || null
+}
+
+/** Campos fiscais compartilhados por createUnidade e updateUnidade. */
+function lerDadosFiscais(formData: FormData) {
+  return {
+    cnpj: digitosOuNulo(formData, 'cnpj'),
+    razao_social: textoOuNulo(formData, 'razao_social'),
+    responsavel_nome: textoOuNulo(formData, 'responsavel_nome'),
+    responsavel_cpf: digitosOuNulo(formData, 'responsavel_cpf'),
+    responsavel_cargo: textoOuNulo(formData, 'responsavel_cargo'),
+  }
+}
+
+/**
+ * As CHECK constraints do banco devolvem uma mensagem crua e incompreensivel para o usuario
+ * final. Traduz as duas que este formulario pode disparar.
+ */
+function traduzirErroUnidade(mensagem: string): string {
+  if (mensagem.includes('chk_unidade_cnpj')) {
+    return 'CNPJ inválido: informe os 14 dígitos completos ou deixe o campo em branco.'
+  }
+  if (mensagem.includes('chk_unidade_responsavel_cpf')) {
+    return 'CPF do responsável inválido: informe os 11 dígitos completos ou deixe o campo em branco.'
+  }
+  return mensagem
+}
+
 export async function createUnidade(formData: FormData) {
   const supabase = await createClient()
 
@@ -53,11 +94,12 @@ export async function createUnidade(formData: FormData) {
     logo_url,
     permite_marca_intervalo,
     tipo_intervalo,
-    tolerancia_intervalo_minutos
+    tolerancia_intervalo_minutos,
+    ...lerDadosFiscais(formData)
   })
 
   if (error) {
-    return { error: error.message }
+    return { error: traduzirErroUnidade(error.message) }
   }
 
   revalidatePath('/unidades')
@@ -84,7 +126,8 @@ export async function updateUnidade(id: string, formData: FormData) {
     raio_geofence,
     permite_marca_intervalo,
     tipo_intervalo,
-    tolerancia_intervalo_minutos
+    tolerancia_intervalo_minutos,
+    ...lerDadosFiscais(formData)
   }
 
   const removeLogo = formData.get('remove_logo') === 'true'
@@ -122,7 +165,7 @@ export async function updateUnidade(id: string, formData: FormData) {
     .eq('id', id)
 
   if (error) {
-    return { error: error.message }
+    return { error: traduzirErroUnidade(error.message) }
   }
 
   // Processar e salvar as configurações de comunicação da unidade (se enviadas)

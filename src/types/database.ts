@@ -81,6 +81,13 @@ export interface Database {
           permite_marca_intervalo?: boolean
           tipo_intervalo?: 'flexivel' | 'rigido'
           tolerancia_intervalo_minutos?: number
+          // Dados fiscais e responsavel legal (20260807120000). cnpj e responsavel_cpf
+          // guardam SOMENTE DIGITOS — ver UnidadeDadosFiscais.tsx.
+          cnpj?: string | null
+          razao_social?: string | null
+          responsavel_nome?: string | null
+          responsavel_cpf?: string | null
+          responsavel_cargo?: string | null
         }
       }
       setores: {

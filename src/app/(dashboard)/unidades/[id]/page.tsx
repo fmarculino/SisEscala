@@ -7,6 +7,7 @@ import { GeoLocationPicker } from '@/components/GeoLocationPicker'
 import { LogoUploadManager } from '@/components/LogoUploadManager'
 import { UnidadeCommunicationSettings } from '@/components/UnidadeCommunicationSettings'
 import { UnidadeIntervaloSettings } from '@/components/UnidadeIntervaloSettings'
+import { UnidadeDadosFiscais } from '@/components/UnidadeDadosFiscais'
 
 export default async function EditUnidadePage({
   params,
@@ -114,10 +115,18 @@ export default async function EditUnidadePage({
               />
             </div>
 
-            <GeoLocationPicker 
-              defaultLat={unidade.latitude} 
-              defaultLong={unidade.longitude} 
-              defaultRaio={unidade.raio_geofence} 
+            <UnidadeDadosFiscais
+              initialCnpj={unidade.cnpj}
+              initialRazaoSocial={unidade.razao_social}
+              initialResponsavelNome={unidade.responsavel_nome}
+              initialResponsavelCpf={unidade.responsavel_cpf}
+              initialResponsavelCargo={unidade.responsavel_cargo}
+            />
+
+            <GeoLocationPicker
+              defaultLat={unidade.latitude}
+              defaultLong={unidade.longitude}
+              defaultRaio={unidade.raio_geofence}
             />
 
             <UnidadeIntervaloSettings 
