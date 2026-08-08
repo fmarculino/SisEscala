@@ -449,7 +449,16 @@ dois lados lerem o mesmo campo; a eliminação real é a Fase 3.
 - A partir daqui `T4`, `N4`, `N6`, `M7` param de ser adivinhação. São os únicos da Classe B com
   uso real em produção (84 lançamentos).
 
-### Fase 3 — Fonte única — ✅ **PRONTA, aguardando aplicação**
+### Fase 3 — Fonte única — ✅ **APLICADA E VERIFICADA em 08/08/2026**
+
+| conferência | resultado |
+|---|---|
+| lote vs. chamadas individuais (maior setor de 08/2026, 21 escalas, 444 dias-servidor) | ✅ **430 = 430, ZERO divergências** — incluindo `escala_diaria_ids`, campos de intervalo e `permite_intervalo` |
+| custo | ✅ **493 ms** numa ida só, contra ~34 s uma a uma (**69×**) |
+
+A igualdade está **provada sobre dados reais**, não assumida. O frontend não precisou de
+redeploy: a RPC é chamada em runtime.
+
 
 Migration: [`20260808120000_add_fn_blocos_previstos_mes.sql`](../../supabase/migrations/20260808120000_add_fn_blocos_previstos_mes.sql)
 · frontend em `ScaleGrid.tsx`.
@@ -546,6 +555,50 @@ MARCOS SOUSA 19/07, JESSICA BARROS 25/07) — tratamento administrativo, fora do
 | 5 | `M2N` / `M4N` | a noite emenda na manhã seguinte → começam às **19:00** |
 | 6 | 16 batidas recusadas | **sem migration** — coordenador valida pelo fluxo normal |
 | 7 | 92 dias de jun/jul | **nada** — competência fechada, sem horário fabricado |
+
+### Fase 3c — âncoras restantes (`20260808130000`) — pronta, aguardando aplicação
+
+Fecha a armadilha dos códigos nunca usados: eles continuavam no dropdown e cairiam no mesmo
+fallback que quebrou a LUCILIA. Migration **só de dados** — nenhuma função é tocada, porque o
+mecanismo de âncora existe desde a Fase 1.
+
+Base: a planilha original do sistema, passada pelo usuário em 08/08/2026.
+
+| família | âncora | conferência |
+|---|---|---|
+| `T?N` (7) | tarde antes da noite, `19h − (duração − 12)` | planilha: "TARDE Xh, NOITE 12h" ✅ |
+| `MT?` + `MTN` (6) | 07:00, manhã cheia + tarde de X horas | planilha: "MANHÃ 6h, TARDE Xh" ✅ |
+| `I` `M4I` `IT4` (3) | intermediário = **11:00–15:00** | única leitura em que os três fecham contíguos |
+
+Total: **27 códigos ancorados**. `MT4N` fica `NULL` — genuinamente ambíguo e nunca usado.
+
+**Efeito: zero, e a migration aborta se deixar de ser.** Nenhum dos 16 códigos aparece em uma
+linha de `escala_diaria` (6.514 linhas). Um guard conta os usos e falha se algum tiver passado a
+ser escalado entre o levantamento e a aplicação.
+
+#### O falso alarme do `M?N` — e como se resolveu
+
+A planilha lista `M2N` como "MANHÃ: 2HRS, NOITE: 12HRS", mesma ordem que `T2N` usa
+cronologicamente. Isso parecia contradizer a âncora de 19:00 já aplicada, e eu levantei como
+possível erro em produção. **Era alarme falso — dei peso demais à ordem das palavras.**
+
+O teste que decide: a noite é fixa 19:00–07:00; a outra parte encosta antes (termina 19:00) ou
+depois (começa 07:00). Qual das duas põe o trecho no período que o **nome** dele diz?
+
+| família | encostando ANTES | encostando DEPOIS |
+|---|---|---|
+| `T?N` | **5 de 7** caem de tarde | 0 de 7 |
+| `M?N` | 2 de 7 caem de manhã | **7 de 7** caem de manhã |
+
+`M2N` antes seria 17:00–19:00, que é *tarde*. Depois é 07:00–09:00, manhã de verdade.
+A planilha expande as letras na ordem do código (`M2N`), não na ordem do relógio — no `T2N` as
+duas coincidem por acaso.
+
+Reforçando: todo código combinado do dicionário é **um bloco contínuo**; e o motor monta blocos
+a partir de linhas distintas, nunca divide uma linha em duas — `M?N` como dois blocos não seria
+representável. Quem precisar de manhã + noite separadas lança `M2` + `N`, que já funciona.
+
+**Conclusão: a âncora de 19:00 está correta. Nada a reverter.**
 
 ### Ainda em aberto (não bloqueia nada)
 

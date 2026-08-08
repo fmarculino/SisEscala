@@ -561,7 +561,7 @@ export function ScaleGrid({
     return 0
   }, [mes, ano, daysInMonth])
 
-  const getShiftStartHour = useCallback((codigo: string): number => {
+  const getShiftStartHour = useCallback((codigo: string, horasComputadas?: number): number => {
     const c = codigo.toUpperCase().trim()
     // Família M?N (MN, M2N...M8N): a noite emenda na manhã seguinte, então começa às 19h
     // igual ao N — o trecho "manhã" é a continuação a partir das 07h. Precisa vir ANTES do
@@ -569,9 +569,20 @@ export function ScaleGrid({
     // dicionario_turnos.horario_inicio por 20260808100000; se as duas divergirem, a grade
     // desenha um turno e o terminal cobra outro. MTN não entra (tem T e é 07h-07h).
     if (/^M[0-9]*N$/.test(c)) return 19
+    // Família T?N (TN, T2N...T8N): a tarde vem ANTES da noite, que termina sempre às 07:00 do
+    // dia seguinte — então início = 31 − duração (TN 18h→13:00, T2N 14h→17:00, T8N 20h→11:00).
+    // Precisa vir ANTES do startsWith('T'), senão T2N cairia em 13:00 contra a âncora de 17:00.
+    // Espelha dicionario_turnos.horario_inicio gravado em 20260808130000. MT4N não casa
+    // (tem M e T) e não é ancorado.
+    if (/^T[0-9]*N$/.test(c) && horasComputadas) return 31 - horasComputadas
     if (c.startsWith('M') || c === 'MT' || c === 'MTN') return 7
     if (c.startsWith('T')) return 13
     if (c.startsWith('N')) return 19
+    // Intermediário = 11:00-15:00, o turno que cobre o vale entre a manhã e a tarde.
+    // Único horário em que I (4h), M4I (manhã 4h + interm.) e IT4 (interm. + tarde 4h) fecham
+    // contíguos. Precisa vir antes do includes('T'), senão IT4 cairia em 13:00 contra a âncora
+    // de 11:00. M4I começa com M e já resolve em 07:00 acima. Ver 20260808130000.
+    if (c.startsWith('I')) return 11
     if (c.includes('M')) return 7
     if (c.includes('T')) return 13
     if (c.includes('N')) return 19
@@ -589,7 +600,9 @@ export function ScaleGrid({
     // Família M?N: 19h + duração. MN 19->13h(+1), M2N 19->09h(+1), M4N 19->11h(+1).
     // Substitui o antigo `MN -> 31`, que assumia início às 07h. Ver 20260808100000.
     if (/^M[0-9]*N$/.test(c)) return 19 + (horasComputadas ?? 18)
-    if (c === 'TN') return 31
+    // Família T?N inteira termina às 07:00 do dia seguinte (=31), não só o TN.
+    // Substitui o antigo `TN -> 31`, que deixava T2N..T8N caírem no cálculo genérico.
+    if (/^T[0-9]*N$/.test(c)) return 31
     if (c === 'N' || c === 'N12') return 31
     
     const match = c.match(/^([0-9]+)\s*H\s*(?:AS|ÀS|A)\s*([0-9]+)\s*H/)
@@ -601,7 +614,7 @@ export function ScaleGrid({
     }
 
     if (horasComputadas) {
-      const start = getShiftStartHour(c)
+      const start = getShiftStartHour(c, horasComputadas)
       return start + horasComputadas
     }
     if (c === 'M' || c.startsWith('M')) return 13
@@ -1637,7 +1650,7 @@ export function ScaleGrid({
       const parts = turno.horario_inicio.split(':')
       if (parts.length >= 2) startH = parseInt(parts[0], 10)
     } else if (turno.codigo) {
-      startH = getShiftStartHour(turno.codigo)
+      startH = getShiftStartHour(turno.codigo, Number(turno.horas_computadas))
     }
 
     if (turno.horario_fim) {
@@ -2407,7 +2420,7 @@ export function ScaleGrid({
 
               const t = turnos.find(x => x.id === turnoId)
               if (t && (!ent || !sai)) {
-                const startHour = getShiftStartHour(t.codigo)
+                const startHour = getShiftStartHour(t.codigo, Number(t.horas_computadas))
                 const endHourVal = getShiftEndHour(t.codigo, Number(t.horas_computadas))
 
                 if (localPresence?.entrada && !ent) {
