@@ -1,4 +1,5 @@
--- Migration: Ancora as familias T?N, MT? e MTN (fecha a armadilha dos codigos nao usados)
+-- Migration: Ancora as familias T?N, MT?, MTN e INTERMEDIARIO
+--            (fecha a armadilha dos codigos nunca usados)
 -- Data: 2026-08-08
 --
 -- POR QUE ISTO EXISTE
@@ -15,8 +16,10 @@
 --   Nao era um bug existente - era um bug esperando alguem escalar um MTN.
 --
 -- O QUE ESTA MIGRATION FAZ
---   Grava a ancora de 13 desses 37, nas familias em que o codigo determina a hora.
---   Regras confirmadas pelo usuario em 08/08/2026.
+--   Grava a ancora de 16 desses 37, nas familias em que o codigo determina a hora:
+--   T?N (7), MT? + MTN (6) e INTERMEDIARIO (3). Sobem de 11 para 27 os codigos ancorados.
+--   Regras confirmadas pelo usuario em 08/08/2026, conferidas contra a planilha original
+--   que serviu de base para o sistema.
 --
 --   NENHUMA FUNCAO E ALTERADA. O mecanismo de ancora (NIVEL 2 da cadeia) ja existe desde
 --   20260808100000; esta migration so preenche dados. Por isso nao ha copia mecanica aqui.
@@ -41,41 +44,47 @@
 --
 -- MTN - 24h corridas, 07:00 as 07:00 do dia seguinte.
 --
--- O QUE CONTINUA NULL DE PROPOSITO (24 codigos)
+-- O QUE CONTINUA NULL DE PROPOSITO (21 codigos)
 --   M1 M2 M3 M5 M8 | T1 T2 T3 T5 T7 T8 | N1 N2 N3 N5 N7 N8 N9 N10 N11
 --     Sao a Classe B: o codigo da a duracao e o periodo, nao a hora. Nas palavras do usuario,
 --     "M2 sao 2h de plantao mas ele pode se encaixar em qualquer periodo da manha". Ancorar
 --     seria voltar a adivinhar exatamente o que este trabalho todo veio eliminar. Eles usam
 --     escala_diaria.hora_inicio_prevista (Fase 2).
 --
---   I, M4I, IT4 ("intermediario") - semantica desconhecida, nunca usados. Nao se deduz.
---
 --   MT4N (22h) - manha 6 + tarde 4 + noite 12. Terminando as 07:00 comecaria as 09:00;
---     comecando as 07:00 terminaria as 05:00. Nenhuma das duas fecha limpo. Nao se deduz.
+--     comecando as 07:00 terminaria as 05:00, e a "noite" cairia em 17:00-05:00, fora do
+--     padrao 19-07. Nenhuma leitura fecha limpo. Nao se deduz, e nunca foi usado.
+--
+--   (I, M4I e IT4 estavam nesta lista ate a planilha original chegar - ver secao 3, que os
+--    resolve. Se voce esta lendo uma copia antiga deste arquivo, e por isso.)
 --
 -- EFEITO: ZERO, E ISSO E DEMONSTRAVEL
---   Nenhum dos 13 codigos aparece em uma unica linha de escala_diaria em producao
+--   Nenhum dos 16 codigos aparece em uma unica linha de escala_diaria em producao
 --   (6.514 linhas, 06/07/08 de 2026). A migration aborta se isso deixar de ser verdade -
 --   ver a trava abaixo. Nao ha escala existente para mudar de comportamento.
 --
 --   Isto e prevencao, nao correcao.
 --
 -- CONFERENCIA APOS APLICAR
---   -- 1. passaram a ser 24 codigos ancorados, e todo fim bate com horas_computadas:
+--   -- 1. passaram a ser 27 codigos ancorados, e todo fim bate com horas_computadas:
 --   SELECT codigo, horario_inicio,
 --          ((extract(hour from horario_inicio)::int + horas_computadas::int) % 24) AS fim,
 --          (extract(hour from horario_inicio)::int + horas_computadas::int) >= 24 AS vira_o_dia
 --     FROM public.dicionario_turnos
 --    WHERE horario_inicio IS NOT NULL
 --    ORDER BY horario_inicio, codigo;
---   -- esperado: 24 linhas. Toda a familia T?N e a N terminam em fim=7, vira_o_dia=true.
+--   -- esperado: 27 linhas. Toda a familia T?N e a N terminam em fim=7, vira_o_dia=true.
 --
 --   -- 2. nada mudou de comportamento (tem que continuar identico ao pos-Fase-3):
 --   SELECT count(*) FROM public.escala_diaria ed
 --     JOIN public.dicionario_turnos dt ON dt.id = ed.dicionario_turnos_id
 --    WHERE dt.codigo IN ('TN','T2N','T3N','T4N','T5N','T7N','T8N',
---                        'MT3','MT4','MT5','MT7','MT8','MTN');
+--                        'MT3','MT4','MT5','MT7','MT8','MTN',
+--                        'I','M4I','IT4');
 --   -- esperado: 0
+--
+--   RESULTADO EM 08/08/2026: 27 ancorados em homologacao e producao, nenhum de Sobreaviso,
+--   e as travas da secao 4 passaram - inclusive a que exige efeito zero.
 
 
 -- ============================================================================
@@ -194,7 +203,7 @@ BEGIN
         RAISE EXCEPTION 'Turno ancorado com horas_computadas > 24: %', v_bad;
     END IF;
 
-    -- O efeito tem que ser zero: se algum dos 13 tiver passado a ser usado entre o
+    -- O efeito tem que ser zero: se algum dos 16 tiver passado a ser usado entre o
     -- levantamento e a aplicacao, a migration deixa de ser inocua e precisa de conferencia.
     SELECT count(*) INTO v_usos
       FROM public.escala_diaria ed

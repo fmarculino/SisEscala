@@ -1,7 +1,24 @@
 # Ancoragem de horário dos plantões — diagnóstico e plano
 
 **Data:** 08/08/2026
-**Status:** Plano — nada implementado. **Fase 0 (censo em produção, somente leitura) CONCLUÍDA em 08/08/2026.**
+**Status:** ✅ **CONCLUÍDO em 08/08/2026** — Fases 0, 1, 2, 3 e 3c aplicadas em produção e
+verificadas. Fase 4 recomendada como desnecessária; Fase 5 cancelada por decisão do usuário.
+
+## Resumo do que foi entregue
+
+| # | migration | efeito medido |
+|---|---|---|
+| 1 | `20260808100000` âncora no dicionário (11 códigos) | **144 dias-servidor corrigidos**, 0 mudança de fusão |
+| 2 | `20260808110000` `hora_inicio_prevista` por dia | efeito zero (527/527 idênticos), destrava `T4`/`N4`/`N6`/`M7` |
+| 3 | `20260808120000` `fn_blocos_previstos_mes` | grade e terminal iguais por construção; 430=430, **493 ms** vs 34 s |
+| 3c | `20260808130000` famílias restantes (+16 códigos) | efeito zero; fecha a armadilha dos 37 códigos nunca usados |
+
+**27 dos 64 códigos ancorados.** 21 continuam `NULL` de propósito (Classe B, usam a hora por
+dia). Só `MT4N` fica sem definição — ambíguo e nunca usado.
+
+**O incidente que originou tudo:** LUCILIA, LAUREN e FERNANDA voltaram a bater ponto no mesmo
+dia. As 16 batidas reais recusadas são recuperáveis pelo fluxo normal do coordenador.
+
 **Origem:** servidora LUCILIA LIMA AZEVEDO (CAF, jornada regular `13H ÀS 19H`) não conseguiu
 registrar a entrada de um plantão `MT` no dia 08/08/2026. Tentativa às 07:34:26 negada.
 
