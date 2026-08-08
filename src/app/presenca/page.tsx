@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { CheckCircle, Loader2, UserCheck, ShieldCheck, XCircle, ArrowLeft, LogOut, CheckSquare, Eye, EyeOff } from 'lucide-react'
+import { CheckCircle, Loader2, UserCheck, ShieldCheck, XCircle, AlertTriangle, ArrowLeft, LogOut, CheckSquare, Eye, EyeOff } from 'lucide-react'
 import Link from 'next/link'
 
 export default function PresencaTerminalPage() {
@@ -17,7 +17,11 @@ export default function PresencaTerminalPage() {
   // Terminal states
   const [matricula, setMatricula] = useState('')
   const [pin, setPin] = useState('')
-  const [status, setStatus] = useState<{ type: 'success' | 'error' | 'idle', message: string }>({ type: 'idle', message: '' })
+  // 'alerta' = a batida FOI registrada, mas fora do horário previsto e vai para revisão do
+  // coordenador. Não é erro e não pode ser pintado como tal: a Portaria 671/2021 veda restrição
+  // de horário à marcação de ponto, então recusar seria ilegal — e passar sensação de recusa
+  // faz o servidor tentar de novo ou desistir de registrar o horário real.
+  const [status, setStatus] = useState<{ type: 'success' | 'alerta' | 'error' | 'idle', message: string }>({ type: 'idle', message: '' })
 
   // 1. Check for supervisor session on load
   useEffect(() => {
@@ -80,7 +84,9 @@ export default function PresencaTerminalPage() {
     setStatus({ type: 'idle', message: '' })
 
     try {
-      const { data, error } = await supabase.rpc('fn_confirmar_presenca', {
+      // fn_registrar_ponto envolve fn_confirmar_presenca e NUNCA recusa por horário: confirmada
+      // a identidade, a batida é sempre registrada. Devolve tipo = sucesso | alerta | erro.
+      const { data, error } = await supabase.rpc('fn_registrar_ponto', {
         p_matricula: matricula,
         p_pin_servidor: pin,
         p_coordenador_id: supervisor.id
@@ -90,26 +96,36 @@ export default function PresencaTerminalPage() {
 
       // PostgREST might return the scalar jsonb result as an array or a flat object
       const resultObj = Array.isArray(data) ? data[0] : data
+      const tipo: string = resultObj?.tipo || (resultObj?.success ? 'sucesso' : 'erro')
 
-      if (resultObj && resultObj.success) {
-        setStatus({ 
-          type: 'success', 
-          message: resultObj.message || 'Presença confirmada com sucesso!' 
+      if (tipo === 'sucesso') {
+        setStatus({
+          type: 'success',
+          message: resultObj?.message || 'Presença confirmada com sucesso!'
         })
-        // Clear inputs immediately
         setMatricula('')
         setPin('')
-        // Auto clear success message after 3 seconds
         setTimeout(() => {
           setStatus({ type: 'idle', message: '' })
           matriculaInputRef.current?.focus()
         }, 3000)
-      } else {
-        setStatus({ 
-          type: 'error', 
-          message: (resultObj && resultObj.message) || 'Erro na validação: Verifique os dados inseridos ou a janela de horário.' 
+      } else if (tipo === 'alerta') {
+        setStatus({
+          type: 'alerta',
+          message: resultObj?.message || 'Ponto registrado fora do horário previsto. Seu coordenador vai revisar.'
         })
-        // Auto clear inputs and error message after 3 seconds for the next user
+        setMatricula('')
+        setPin('')
+        // Mais tempo que o sucesso: o servidor precisa ler que ficou pendente de revisão.
+        setTimeout(() => {
+          setStatus({ type: 'idle', message: '' })
+          matriculaInputRef.current?.focus()
+        }, 6000)
+      } else {
+        setStatus({
+          type: 'error',
+          message: resultObj?.message || 'Não foi possível registrar. Confira a matrícula e o PIN.'
+        })
         setTimeout(() => {
           setStatus({ type: 'idle', message: '' })
           setMatricula('')
@@ -264,16 +280,34 @@ export default function PresencaTerminalPage() {
                 })()}
               </h2>
               <p className="text-zinc-500 font-medium">Informe sua matrícula e PIN individual para registrar sua <b>entrada ou saída</b> hoje.</p>
+              {/* Comunica ao servidor que não existe horário bloqueado. Sem isso, quem chega
+                  fora do previsto tende a nem tentar registrar — e o horário real se perde. */}
+              <p className="mt-2 text-xs text-zinc-400 font-medium">
+                Você pode registrar <b>a qualquer horário</b>. Se estiver fora do previsto, o ponto é
+                registrado do mesmo jeito e seu coordenador revisa.
+              </p>
             </div>
 
-            {/* Status Feedback */}
+            {/* Status Feedback
+                Três estados, e a cor de cada um comunica uma coisa diferente:
+                  verde   — registrado dentro do horário previsto;
+                  âmbar   — registrado, porém fora do previsto: vai para revisão do coordenador.
+                            NÃO é vermelho de propósito. Vermelho lê-se como recusa, e recusar
+                            marcação por horário é vedado pela Portaria 671/2021;
+                  vermelho — só quando nada foi registrado, isto é, matrícula ou PIN inválidos. */}
             {status.type !== 'idle' && (
               <div className={`p-6 rounded-2xl flex items-center gap-4 border animate-in fade-in slide-in-from-top-4 ${
-                status.type === 'success' 
-                  ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400' 
-                  : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-400'
+                status.type === 'success'
+                  ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400'
+                  : status.type === 'alerta'
+                    ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300'
+                    : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-400'
               }`}>
-                {status.type === 'success' ? <CheckCircle className="h-8 w-8 shrink-0" /> : <XCircle className="h-8 w-8 shrink-0" />}
+                {status.type === 'success'
+                  ? <CheckCircle className="h-8 w-8 shrink-0" />
+                  : status.type === 'alerta'
+                    ? <AlertTriangle className="h-8 w-8 shrink-0" />
+                    : <XCircle className="h-8 w-8 shrink-0" />}
                 <p className="text-lg font-black uppercase tracking-tight leading-none">{status.message}</p>
               </div>
             )}

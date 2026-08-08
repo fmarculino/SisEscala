@@ -117,6 +117,21 @@ export function ScaleGrid({
     if (!error && data) {
       setLogsTentativas(data)
     }
+
+    // Batidas que o terminal registrou FORA da janela prevista. Desde 20260808100000 elas não
+    // são mais recusadas — ficam pendentes de revisão, e é aqui que o coordenador as encontra,
+    // no mesmo lugar onde já decide sobre presença.
+    const { data: pend } = await supabase
+      .from('marcacoes_ponto')
+      .select('id, servidor_id, ocorrido_em, observacao, origem')
+      .in('servidor_id', servantIds)
+      .eq('origem', 'terminal')
+      .like('observacao', '%pendente de revisao%')
+      .gte('ocorrido_em', startRange)
+      .lte('ocorrido_em', endRange)
+      .order('ocorrido_em')
+
+    setMarcacoesPendentes(pend || [])
   }, [supabase, escalaMensalInicial, mes, ano])
 
   const [unidadedata, setUnidadedata] = useState<any>(null)
@@ -262,6 +277,7 @@ export function ScaleGrid({
   } | null>(null)
   
   const [logsTentativas, setLogsTentativas] = useState<any[]>([])
+  const [marcacoesPendentes, setMarcacoesPendentes] = useState<any[]>([])
 
   const [manualPresenceModal, setManualPresenceModal] = useState<{
     isOpen: boolean;
@@ -273,6 +289,10 @@ export function ScaleGrid({
     escalaMensalId: string;
     isReverting: boolean;
     justificativa?: string;
+    // Horários informados pelo servidor, em HH:MM. NÃO vêm pré-preenchidos de propósito:
+    // herdar o horário da jornada é a "marcação automática por horário contratual" vedada pela
+    // Portaria 671/2021, e respondia por ~25% das entradas e saídas da folha.
+    horarios?: { entrada?: string; intervalo_saida?: string; intervalo_retorno?: string; saida?: string };
   } | null>(null)
 
   const [bulkServerModal, setBulkServerModal] = useState<{
@@ -1993,6 +2013,19 @@ export function ScaleGrid({
         })
         return
       }
+
+      const algumHorario = Object.values(manualPresenceModal.horarios || {}).some(v => !!v)
+      if (!algumHorario) {
+        setAlertModal({
+          isOpen: true,
+          title: 'Informe o Horário Cumprido',
+          message: 'Informe ao menos um horário. O sistema não preenche mais o horário da jornada '
+            + 'automaticamente: registrar horário contratual como se fosse cumprido é vedado pela '
+            + 'Portaria 671/2021. Pergunte ao servidor o horário real e digite aqui.',
+          type: 'warning'
+        })
+        return
+      }
     }
 
     setLoading(true)
@@ -2010,11 +2043,26 @@ export function ScaleGrid({
         })
         if (error) throw error
       } else {
-        const { data, error } = await supabase.rpc('fn_confirmar_presenca_manual', {
-          p_escala_mensal_id: manualPresenceModal.escalaMensalId,
-          p_dia: manualPresenceModal.dia,
-          p_categoria: manualPresenceModal.categoria,
-          p_tipo: manualPresenceModal.tipo,
+        // Grava os horários INFORMADOS pelo servidor, não os derivados da jornada.
+        // fn_confirmar_presenca_manual continua existindo e serve à validação em massa, onde
+        // não há horário individual a informar — aqui, no caso a caso, existe.
+        const { data: linha, error: errLinha } = await supabase
+          .from('escala_diaria')
+          .select('id')
+          .eq('escala_mensal_id', manualPresenceModal.escalaMensalId)
+          .eq('dia', manualPresenceModal.dia)
+          .eq('categoria', manualPresenceModal.categoria)
+          .maybeSingle()
+        if (errLinha) throw errLinha
+        if (!linha?.id) throw new Error('Não encontrei a linha de escala deste dia.')
+
+        const horarios = Object.fromEntries(
+          Object.entries(manualPresenceModal.horarios || {}).filter(([, v]) => !!v)
+        )
+
+        const { data, error } = await supabase.rpc('fn_registrar_presenca_informada', {
+          p_escala_diaria_id: linha.id,
+          p_horarios: horarios,
           p_validador_id: user.id,
           p_justificativa: (manualPresenceModal.justificativa || '').trim()
         })
@@ -4903,6 +4951,43 @@ export function ScaleGrid({
           return d.getDate() === manualPresenceModal.dia && d.getMonth() + 1 === mes && d.getFullYear() === ano
         })
 
+        // Batidas fora da janela que o terminal registrou para este servidor neste dia.
+        const cellPendentes = marcacoesPendentes.filter(m => {
+          if (m.servidor_id !== manualPresenceModal.servidorId) return false
+          const d = new Date(m.ocorrido_em)
+          return d.getDate() === manualPresenceModal.dia && d.getMonth() + 1 === mes && d.getFullYear() === ano
+        })
+
+        type PassoPresenca = 'entrada' | 'intervalo_saida' | 'intervalo_retorno' | 'saida'
+        const rotuloPasso = (p: PassoPresenca) => ({
+          entrada: 'Entrada',
+          intervalo_saida: 'Saída Interv.',
+          intervalo_retorno: 'Retorno Interv.',
+          saida: 'Saída',
+        }[p])
+
+        // Quais campos de horário o escopo escolhido pede. Espelha os escopos de
+        // fn_confirmar_presenca_manual (CLAUDE.md, tabela de escopos): dia completo grava os
+        // quatro passos, 1º período entrada + saída para o intervalo, 2º período retorno +
+        // saída final — e os de intervalo só existem onde a unidade registra intervalo.
+        const unidadeMarcaIntervalo = !!unidadedata?.permite_marca_intervalo
+          && (manualPresenceModal.categoria === 'Regular' || manualPresenceModal.categoria === 'Plantão')
+
+        const passosDoEscopo: PassoPresenca[] = (() => {
+          switch (manualPresenceModal.tipo) {
+            case 'completo':
+              return unidadeMarcaIntervalo
+                ? ['entrada', 'intervalo_saida', 'intervalo_retorno', 'saida']
+                : ['entrada', 'saida']
+            case 'periodo_1':
+              return unidadeMarcaIntervalo ? ['entrada', 'intervalo_saida'] : ['entrada']
+            case 'periodo_2':
+              return unidadeMarcaIntervalo ? ['intervalo_retorno', 'saida'] : ['saida']
+            default:
+              return [manualPresenceModal.tipo as PassoPresenca]
+          }
+        })()
+
         return (
           <Modal
             isOpen={manualPresenceModal.isOpen}
@@ -4919,7 +5004,10 @@ export function ScaleGrid({
                 </button>
                 <button
                   onClick={handleConfirmManualPresence}
-                  disabled={loading || (!manualPresenceModal.isReverting && !manualPresenceModal.justificativa?.trim())}
+                  disabled={loading || (!manualPresenceModal.isReverting && (
+                    !manualPresenceModal.justificativa?.trim() ||
+                    !Object.values(manualPresenceModal.horarios || {}).some(v => !!v)
+                  ))}
                   className={`flex-1 px-4 py-2 rounded-xl font-bold flex items-center justify-center gap-2 disabled:opacity-50 ${
                     manualPresenceModal.isReverting 
                       ? "bg-red-600 hover:bg-red-700 text-white" 
@@ -4971,6 +5059,70 @@ export function ScaleGrid({
                       <span className="block text-[10px] font-normal opacity-80 mt-0.5">{p2Sub}</span>
                     </button>
                   </div>
+                </div>
+              )}
+
+              {/* Batidas registradas fora da janela prevista. Âmbar, não vermelho: elas FORAM
+                  registradas — o terminal não recusa mais por horário. Cada uma traz um botão
+                  que joga o horário real no campo, para o coordenador não redigitar. */}
+              {!manualPresenceModal.isReverting && cellPendentes.length > 0 && (
+                <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700 rounded-xl space-y-2">
+                  <div className="flex items-center gap-1.5 text-amber-800 dark:text-amber-300 text-xs font-bold">
+                    <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                    <span>Ponto registrado no terminal fora do horário previsto:</span>
+                  </div>
+                  {cellPendentes.map(m => {
+                    const hhmm = new Date(m.ocorrido_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                    return (
+                      <div key={m.id} className="flex items-center gap-2 pl-5">
+                        <strong className="text-sm text-amber-900 dark:text-amber-200 tabular-nums">{hhmm}</strong>
+                        <div className="flex gap-1 flex-wrap">
+                          {passosDoEscopo.map(p => (
+                            <button
+                              key={p}
+                              type="button"
+                              onClick={() => setManualPresenceModal(prev => prev
+                                ? { ...prev, horarios: { ...(prev.horarios || {}), [p]: hhmm } }
+                                : null)}
+                              className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100 hover:bg-amber-300 dark:hover:bg-amber-700 transition-all"
+                            >
+                              usar em {rotuloPasso(p)}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              {/* Horários informados pelo servidor. Sem pré-preenchimento: o previsto aparece só
+                  como referência no placeholder. Ver 20260808110000. */}
+              {!manualPresenceModal.isReverting && (
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider block">
+                    Horários Cumpridos <span className="text-red-500">*</span>
+                  </label>
+                  <div className={`grid gap-2 ${passosDoEscopo.length > 2 ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2'}`}>
+                    {passosDoEscopo.map(p => (
+                      <div key={p}>
+                        <label className="block text-[10px] font-semibold text-zinc-500 mb-0.5">{rotuloPasso(p)}</label>
+                        <input
+                          type="time"
+                          value={manualPresenceModal.horarios?.[p] || ''}
+                          onChange={(e) => setManualPresenceModal(prev => prev
+                            ? { ...prev, horarios: { ...(prev.horarios || {}), [p]: e.target.value } }
+                            : null)}
+                          className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2 py-1.5 text-sm tabular-nums focus:border-amber-500 focus:ring-amber-500"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-zinc-500 leading-snug">
+                    Informe o horário que o servidor <b>declara ter cumprido</b>. O sistema não preenche
+                    mais o horário da jornada sozinho — registrar horário contratual como se fosse
+                    cumprido é vedado pela Portaria 671/2021.
+                  </p>
                 </div>
               )}
 

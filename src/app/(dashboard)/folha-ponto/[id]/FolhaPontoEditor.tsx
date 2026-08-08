@@ -385,7 +385,10 @@ export function FolhaPontoEditor({
 
   const borderClass = (origin: string) => {
     if (origin === 'real') return 'border-l-4 border-l-emerald-500 bg-emerald-50/20 dark:bg-emerald-950/10'
-    if (origin === 'ficticio') return 'border-l-4 border-l-blue-400 border-dashed bg-blue-50/10 dark:bg-blue-950/5'
+    // Pre-assinalacao do periodo de repouso (CLT Art. 74 par. 2). Nao e batida nem ajuste:
+    // e horario declarado, e so existe no intervalo de unidade que nao marca intervalo.
+    // 'ficticio' permanece no mapa para as folhas anteriores a 08/08/2026.
+    if (origin === 'pre_assinalado' || origin === 'ficticio') return 'border-l-4 border-l-blue-400 border-dashed bg-blue-50/10 dark:bg-blue-950/5'
     if (origin === 'manual') return 'border-l-4 border-l-amber-500 bg-amber-50/20 dark:bg-amber-950/10'
     return 'border-l-4 border-l-zinc-200 dark:border-l-zinc-800'
   }

@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { hasSectorAccess, UserProfile, applyAccessFilters } from '@/utils/permissions'
 import { autoCloseExpiredScalesAndTimesheets, isCompetencyClosed } from '@/utils/autoClose'
 import { resolverMarcacaoDoDia, COLUNAS_PRESENCA_FOLHA } from '@/utils/folha/origemMarcacao'
+import { podePreAssinalarIntervalo } from '@/utils/folha/preAssinalacao'
 
 // Helper: Get user profile with unit/sector permissions
 async function getUserProfile(supabase: any): Promise<UserProfile> {
@@ -299,6 +300,15 @@ export async function executeGerarFolhaPonto(
       .single()
     const maxVar = configVar?.valor ? parseInt(configVar.valor as string, 10) : 15
 
+    // Pre-assinalacao do intervalo so vale onde a unidade NAO exige que o servidor marque o
+    // intervalo no ponto. Onde exige, o horario tem de vir de batida. Ver preAssinalacao.ts.
+    const { data: unidadeIntervalo } = await supabase
+      .from('unidades')
+      .select('permite_marca_intervalo')
+      .eq('id', escala.unidade_id)
+      .maybeSingle()
+    const podePreAssinalar = podePreAssinalarIntervalo(unidadeIntervalo?.permite_marca_intervalo)
+
     // Fetch all shifts from escala_diaria (including Extra and Plantão) for the specific scale of this folha
     const { data: escalaDiaria, error: diError } = await supabase
       .from('escala_diaria')
@@ -576,16 +586,10 @@ export async function executeGerarFolhaPonto(
         } else if (isManualEntrada && realEntradaTime) {
           registro.entrada = realEntradaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_entrada = 'manual'
-        } else if (shouldGenerate(officialEntradaMin)) {
-          let targetEntradaMin = officialEntradaMin
-          if (pfFimMin !== null && officialEntradaMin < pfFimMin) {
-            targetEntradaMin = pfFimMin
-          }
-          const offset = getDeterministicOffset(`${seedBase}-entrada`, maxVar)
-          const genMin = (targetEntradaMin + offset + 24 * 60) % (24 * 60)
-          registro.entrada = formatMinutesToTimeStr(genMin)
-          registro.origem_entrada = 'ficticio'
         }
+        // Entrada NUNCA e gerada pelo sistema: o servidor sempre tem como registrar, entao
+        // preencher aqui seria marcacao automatica por horario contratual (Portaria 671/2021).
+        // Dia sem batida fica vazio e vira tratamento do coordenador. Ver utils/folha/preAssinalacao.ts
 
         // 2. Exit Time
         if (shouldPreserve && registroExistente?.origem_saida === 'manual') {
@@ -597,16 +601,8 @@ export async function executeGerarFolhaPonto(
         } else if (isManualSaida && realSaidaTime) {
           registro.saida = realSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_saida = 'manual'
-        } else if (shouldGenerate(officialSaidaMin)) {
-          let targetSaidaMin = officialSaidaMin
-          if (pfInicioMin !== null && officialEntradaMin < pfInicioMin) {
-            targetSaidaMin = pfInicioMin
-          }
-          const offset = getDeterministicOffset(`${seedBase}-saida`, maxVar)
-          const genMin = (targetSaidaMin + offset + 24 * 60) % (24 * 60)
-          registro.saida = formatMinutesToTimeStr(genMin)
-          registro.origem_saida = 'ficticio'
         }
+        // Saida NUNCA e gerada pelo sistema. Mesma razao da entrada.
 
         // 3. Lunch Interval
         if (intervaloMinutos > 0) {
@@ -626,11 +622,12 @@ export async function executeGerarFolhaPonto(
             } else if (isManualIntervaloSaida && realIntervaloSaidaTime) {
               registro.saida_intervalo = realIntervaloSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
               registro.origem_saida_intervalo = 'manual'
-            } else if (shouldGenerate(officialSaidaIntervaloMin)) {
-              const outOffset = getDeterministicOffset(`${seedBase}-lunchout`, maxVar)
-              const genOutMin = (officialSaidaIntervaloMin + outOffset + 24 * 60) % (24 * 60)
-              registro.saida_intervalo = formatMinutesToTimeStr(genOutMin)
-              registro.origem_saida_intervalo = 'ficticio'
+            } else if (podePreAssinalar && shouldGenerate(officialSaidaIntervaloMin)) {
+              // Pre-assinalacao do periodo de repouso (CLT Art. 74 par. 2): horario FIXO, sem
+              // offset. So acontece quando a unidade nao exige marcacao de intervalo — ali o
+              // servidor nao tem como registrar o repouso.
+              registro.saida_intervalo = formatMinutesToTimeStr(officialSaidaIntervaloMin)
+              registro.origem_saida_intervalo = 'pre_assinalado'
             }
 
             // Lunch return
@@ -643,11 +640,9 @@ export async function executeGerarFolhaPonto(
             } else if (isManualIntervaloRetorno && realIntervaloRetornoTime) {
               registro.retorno_intervalo = realIntervaloRetornoTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
               registro.origem_retorno_intervalo = 'manual'
-            } else if (shouldGenerate(officialRetornoIntervaloMin)) {
-              const returnOffset = getDeterministicOffset(`${seedBase}-lunchreturn`, maxVar)
-              const genReturnMin = (officialRetornoIntervaloMin + returnOffset + 24 * 60) % (24 * 60)
-              registro.retorno_intervalo = formatMinutesToTimeStr(genReturnMin)
-              registro.origem_retorno_intervalo = 'ficticio'
+            } else if (podePreAssinalar && shouldGenerate(officialRetornoIntervaloMin)) {
+              registro.retorno_intervalo = formatMinutesToTimeStr(officialRetornoIntervaloMin)
+              registro.origem_retorno_intervalo = 'pre_assinalado'
             }
           }
         }
@@ -1042,6 +1037,15 @@ export async function sincronizarFolhaPonto(folhaId: string) {
       .single()
     const maxVar = configVar?.valor ? parseInt(configVar.valor as string, 10) : 15
 
+    // Pre-assinalacao do intervalo so vale onde a unidade NAO exige que o servidor marque o
+    // intervalo no ponto. Onde exige, o horario tem de vir de batida. Ver preAssinalacao.ts.
+    const { data: unidadeIntervalo } = await supabase
+      .from('unidades')
+      .select('permite_marca_intervalo')
+      .eq('id', escala.unidade_id)
+      .maybeSingle()
+    const podePreAssinalar = podePreAssinalarIntervalo(unidadeIntervalo?.permite_marca_intervalo)
+
     // Fetch timezone and setup current local time limit
     const { data: configTimezone } = await supabase
       .from('configuracoes_globais')
@@ -1245,16 +1249,10 @@ export async function sincronizarFolhaPonto(folhaId: string) {
         } else if (isManualEntrada && realEntradaTime) {
           registro.entrada = realEntradaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_entrada = 'manual'
-        } else if (shouldGenerate(officialEntradaMin)) {
-          let targetEntradaMin = officialEntradaMin
-          if (pfFimMin !== null && officialEntradaMin < pfFimMin) {
-            targetEntradaMin = pfFimMin
-          }
-          const offset = getDeterministicOffset(`${seedBase}-entrada`, maxVar)
-          const genMin = (targetEntradaMin + offset + 24 * 60) % (24 * 60)
-          registro.entrada = formatMinutesToTimeStr(genMin)
-          registro.origem_entrada = 'ficticio'
         }
+        // Entrada NUNCA e gerada pelo sistema: o servidor sempre tem como registrar, entao
+        // preencher aqui seria marcacao automatica por horario contratual (Portaria 671/2021).
+        // Dia sem batida fica vazio e vira tratamento do coordenador. Ver utils/folha/preAssinalacao.ts
 
         // 2. Exit Time
         if (shouldPreserve && registroExistente?.origem_saida === 'manual') {
@@ -1266,16 +1264,8 @@ export async function sincronizarFolhaPonto(folhaId: string) {
         } else if (isManualSaida && realSaidaTime) {
           registro.saida = realSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_saida = 'manual'
-        } else if (shouldGenerate(officialSaidaMin)) {
-          let targetSaidaMin = officialSaidaMin
-          if (pfInicioMin !== null && officialEntradaMin < pfInicioMin) {
-            targetSaidaMin = pfInicioMin
-          }
-          const offset = getDeterministicOffset(`${seedBase}-saida`, maxVar)
-          const genMin = (targetSaidaMin + offset + 24 * 60) % (24 * 60)
-          registro.saida = formatMinutesToTimeStr(genMin)
-          registro.origem_saida = 'ficticio'
         }
+        // Saida NUNCA e gerada pelo sistema. Mesma razao da entrada.
 
         // 3. Lunch Interval
         if (intervaloMinutos > 0) {
@@ -1294,11 +1284,12 @@ export async function sincronizarFolhaPonto(folhaId: string) {
             } else if (isManualIntervaloSaida && realIntervaloSaidaTime) {
               registro.saida_intervalo = realIntervaloSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
               registro.origem_saida_intervalo = 'manual'
-            } else if (shouldGenerate(officialSaidaIntervaloMin)) {
-              const outOffset = getDeterministicOffset(`${seedBase}-lunchout`, maxVar)
-              const genOutMin = (officialSaidaIntervaloMin + outOffset + 24 * 60) % (24 * 60)
-              registro.saida_intervalo = formatMinutesToTimeStr(genOutMin)
-              registro.origem_saida_intervalo = 'ficticio'
+            } else if (podePreAssinalar && shouldGenerate(officialSaidaIntervaloMin)) {
+              // Pre-assinalacao do periodo de repouso (CLT Art. 74 par. 2): horario FIXO, sem
+              // offset. So acontece quando a unidade nao exige marcacao de intervalo — ali o
+              // servidor nao tem como registrar o repouso.
+              registro.saida_intervalo = formatMinutesToTimeStr(officialSaidaIntervaloMin)
+              registro.origem_saida_intervalo = 'pre_assinalado'
             }
 
             if (shouldPreserve && registroExistente?.origem_retorno_intervalo === 'manual') {
@@ -1310,11 +1301,9 @@ export async function sincronizarFolhaPonto(folhaId: string) {
             } else if (isManualIntervaloRetorno && realIntervaloRetornoTime) {
               registro.retorno_intervalo = realIntervaloRetornoTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
               registro.origem_retorno_intervalo = 'manual'
-            } else if (shouldGenerate(officialRetornoIntervaloMin)) {
-              const returnOffset = getDeterministicOffset(`${seedBase}-lunchreturn`, maxVar)
-              const genReturnMin = (officialRetornoIntervaloMin + returnOffset + 24 * 60) % (24 * 60)
-              registro.retorno_intervalo = formatMinutesToTimeStr(genReturnMin)
-              registro.origem_retorno_intervalo = 'ficticio'
+            } else if (podePreAssinalar && shouldGenerate(officialRetornoIntervaloMin)) {
+              registro.retorno_intervalo = formatMinutesToTimeStr(officialRetornoIntervaloMin)
+              registro.origem_retorno_intervalo = 'pre_assinalado'
             }
           }
         }

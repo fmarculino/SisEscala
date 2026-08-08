@@ -2,6 +2,46 @@
 
 Todas as alterações notáveis deste projeto são registradas neste arquivo.
 
+## [1.22.0] - 2026-08-08
+
+### ⚖️ Conformidade com a Portaria 671/2021
+
+A Portaria 671/2021 veda, em qualquer registrador eletrônico de ponto — inclusive no REP-P, que é o registrador **via programa**, categoria em que o terminal do SisEscala se enquadra:
+
+1. restrições de horário à marcação do ponto;
+2. marcação automática usando horários predeterminados ou contratuais;
+3. exigência de autorização prévia para marcar sobrejornada;
+4. qualquer dispositivo que permita alterar o dado registrado pelo empregado.
+
+O sistema incorria na 1 e na 2. Esta versão corrige ambas.
+
+#### 🚨 Alterações de Comportamento (Breaking)
+- **O terminal não recusa mais batida fora do horário previsto**:
+  - Confirmada a identidade, a batida é **sempre** registrada. Antes, quem chegava atrasado, saía mais cedo ou fazia hora extra simplesmente não conseguia registrar, e o horário real se perdia.
+  - Fora da janela, a marcação nasce **pendente de revisão** e o coordenador decide — em vez de virar presença aprovada automaticamente.
+  - O feedback mudou de vermelho (recusa) para **âmbar (alerta)**: *"Ponto registrado às HH:MM. Fora do horário previsto — seu coordenador vai revisar."* Vermelho ficou reservado ao único caso que ainda é recusado: matrícula ou PIN inválidos, que é falta de identificação, não restrição de horário.
+- **A folha não gera mais horário fictício para entrada e saída do turno**:
+  - Em todas as unidades o servidor tem como registrar entrada e saída, então preencher ali era marcação automática por horário contratual. Dia sem batida agora fica **vazio** e vira tratamento do coordenador.
+  - Medido em produção: afeta ~5–6% das células de entrada/saída nas competências fechadas.
+- **O intervalo passa a ser pré-assinalado, não sorteado**:
+  - Mantido apenas onde a unidade **não exige** marcação de intervalo — ali o servidor não tem como registrar o repouso, e a CLT Art. 74 §2º nomeia exatamente esse mecanismo: *"com a pré-assinalação do período de repouso"*.
+  - O deslocamento aleatório de ±1 a 14 minutos foi removido: pré-assinalação pressupõe horário pré-anotado. A origem passou de `ficticio` para `pre_assinalado`.
+- **A validação manual passa a exigir o horário informado pelo servidor**:
+  - O coordenador digita o horário que o servidor declara ter cumprido, em vez de o sistema herdar o da jornada. Nas competências fechadas, a validação manual respondia por 24–29% das entradas e saídas — 4 a 5× mais que o horário fictício.
+  - Os campos **não vêm pré-preenchidos** de propósito.
+
+### 🚀 Funcionalidades Adicionadas
+- **Fila de revisão dentro do modal da grade**: as batidas registradas fora da janela aparecem em âmbar, com um botão que joga o horário real no campo correspondente — o coordenador não redigita.
+- **`fn_registrar_ponto`**: nova entrada oficial do terminal. Envolve `fn_confirmar_presenca` sem reescrevê-la e devolve `tipo = sucesso | alerta | erro`.
+- **`fn_registrar_presenca_informada`**, **`fn_marcacoes_pendentes_revisao`** e **`fn_aceitar_marcacao_pendente`**: registram o horário real, nunca o previsto, e preservam a marcação original como tratamento append-only.
+
+### 🔍 Observações
+- `fn_confirmar_presenca` e `fn_confirmar_presenca_manual` **não foram alteradas**. Todo o comportamento novo entra por funções que as envolvem — decisão tomada por causa das seis regressões já registradas nessas duas funções.
+- **Exposição residual conhecida**: a validação **em massa** continua gravando horário derivado da jornada. Faz sentido para ausências justificadas, não para afirmar horários cumpridos; tratamento previsto para uma versão futura.
+- Folhas já geradas mantêm o que têm. A mudança aparece em nova geração ou sincronização.
+
+---
+
 ## [Não versionado] - Integração com relógio de ponto (em andamento)
 
 Implementação faseada do plano `docs/planos/2026-08-08-integracao-relogio-de-ponto-rep.md`.

@@ -116,6 +116,43 @@ equipamento não supervisionado, e PIN ali reintroduz o "bater ponto pelo colega
 respaldado por AFD assinado, o que torna o registro falso *mais* difícil de contestar. Some-se
 que `servidores.pin_acesso` é bcrypt e não é recuperável para envio ao device.
 
+## Conformidade da marcação de ponto (v1.22.0) — não regredir
+
+A Portaria 671/2021 veda, em **qualquer** registrador — e o **REP-P é o registrador via
+programa**, ou seja, o terminal `/presenca` se enquadra:
+
+1. **restrições de horário à marcação**;
+2. **marcação automática usando horários predeterminados ou contratuais**;
+3. exigência de autorização prévia para sobrejornada;
+4. qualquer dispositivo que permita alterar o dado registrado pelo empregado.
+
+O sistema incorria na 1 e na 2. Três regras saíram disso e **nenhuma pode ser desfeita sem
+decisão jurídica**:
+
+| regra | onde vive | o que quebra se voltar atrás |
+|---|---|---|
+| Batida **nunca** é recusada por horário. Só matrícula/PIN inválidos recusam. | `fn_registrar_ponto` (`20260808100000`) | volta a vedação 1: o horário real se perde e o controle vira imprestável como prova (Súmula 338 do TST) |
+| Entrada e saída do turno **nunca** são geradas pelo sistema | `src/utils/folha/preAssinalacao.ts`, aplicado nas 4 cópias da geração de folha | volta a vedação 2 |
+| Validação manual grava o horário **informado**, não o derivado da jornada | `fn_registrar_presenca_informada` (`20260808110000`) | volta a vedação 2 pela porta do coordenador — era 24–29% das entradas/saídas |
+
+**O que continua permitido:** pré-assinalação do intervalo (CLT Art. 74 §2º), e **somente** onde
+a unidade não exige marcação de intervalo — ali o servidor não tem como registrar o repouso.
+Horário **fixo**, sem o offset aleatório antigo, origem `pre_assinalado`.
+
+O critério que separa um caso do outro: **o sistema só preenche onde o servidor não tem como
+registrar.** Onde ele tem meio, preencher é fabricar.
+
+⚠️ **Cor importa.** No terminal, âmbar = registrado fora do previsto (vai para revisão);
+vermelho = nada foi registrado. Pintar de vermelho o que foi aceito ensina o servidor a não
+insistir, produzindo na prática o efeito que a lei quer evitar.
+
+⚠️ **Exposição residual:** a validação **em massa** (`fn_confirmar_presenca_manual_bulk`) ainda
+grava horário derivado da jornada. Faz sentido para ausências justificadas, não para afirmar
+horário cumprido.
+
+`fn_confirmar_presenca` e `fn_confirmar_presenca_manual` **não foram alteradas** por nada disso —
+todo o comportamento novo entra por funções que as envolvem (armadilha 1).
+
 ## Armadilhas conhecidas
 
 ### 1. `CREATE OR REPLACE` já apagou lógica crítica seis vezes
