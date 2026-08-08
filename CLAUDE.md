@@ -32,6 +32,54 @@ docs/                    planos, evolução por versão, diagnósticos
 
 `ScaleGrid.tsx` (~5.000 linhas) é a grade de escala — o maior arquivo do frontend.
 
+## Módulo de marcações (integração com relógio de ponto) — em construção
+
+Iniciado em 08/08/2026. Plano em [`docs/planos/2026-08-08-integracao-relogio-de-ponto-rep.md`](docs/planos/2026-08-08-integracao-relogio-de-ponto-rep.md),
+faseado de 0 a 9. **Fases 0–3 aplicadas em produção; a 4 está pela metade.**
+
+O relógio é um **REP-C certificado** (Control iD iDClass, AFD assinado, memória inviolável) e o
+SisEscala passa a ser o **PTRP** da Portaria 671/2021: pode complementar e tratar, **nunca**
+alterar o dado original, e deve manter histórico.
+
+### O modelo separa três coisas que hoje estão fundidas numa coluna só
+
+| camada | tabela | mutabilidade |
+|---|---|---|
+| evidência bruta | `rep_afd_registros` | `linha_bruta` imutável, com cadeia de hash |
+| o fato | `marcacoes_ponto` | **INSERT-only** — trigger bloqueia UPDATE/DELETE |
+| o juízo do coordenador | `marcacoes_tratamentos` | append-only |
+| projeção (cache) | `escala_diaria.presenca_*` | reconstruível por `fn_reconciliar_marcacoes_dia` |
+
+Origem em `marcacao_origem`; a prioridade vem de `fn_precedencia_origem` (rep 1 → terminal 2 →
+ajuste_coordenador 3 → ajuste_servidor 4) e é aplicada **em um único lugar**, a reconciliação.
+Não replicar no frontend.
+
+### Regras que não podem ser quebradas
+
+- **Nunca fabricar horário.** Passo sem marcação vira pendência, não timestamp sintético. É o
+  oposto de `fn_salvar_saida_bloco`, que inventa até 5 timestamps por batida.
+- **Nunca descartar batida.** Órfã, excedente, duplicada e fora de escala continuam registradas.
+- **Marcação perdedora por precedência continua visível** (`substituida_por_precedencia`).
+- `fn_projecao_marcacoes_dia` é a **fonte única** compartilhada por reconciliar e conferir. Se
+  cada uma derivar por conta própria, o portão de conferência deixa de validar o que será aplicado.
+
+### Antes de mexer
+
+`fn_blocos_previstos_dia` (`20260808040000`) é **cópia mecânica** do trecho de montagem de blocos
+de `fn_confirmar_presenca`. Não editar à mão — regerar pelo script (`scratchpad/gen_blocos.js`),
+que aborta se a contagem de ocorrências divergir.
+
+`fn_conferir_reconciliacao` é o substituto do framework de testes: roda a projeção sobre meses
+reais e devolve toda divergência. O portão da Fase 2 está registrado em
+[`docs/evolucao/2026-08-08-portao-fase2-reconciliacao-de-marcacoes.md`](docs/evolucao/2026-08-08-portao-fase2-reconciliacao-de-marcacoes.md).
+
+### Pendências que bloqueiam a Fase 5
+
+1. 103 marcações de intervalo existem em unidades com `permite_marca_intervalo = false`
+   (artefatos da regressão de `20260804080000`). A reconciliação as **apagaria** — decisão
+   explícita necessária, não pode ser efeito colateral.
+2. As três regras de intervalo divergentes (armadilha 9) só convergem na Fase 8.
+
 ## Armadilhas conhecidas
 
 ### 1. `CREATE OR REPLACE` já apagou lógica crítica seis vezes
@@ -135,6 +183,12 @@ Timestamps redondos (`:00:00`) são gerados por validação manual. Batidas reai
 segundos e microssegundos. Ao auditar dados de ponto, **essa distinção decide se um registro pode
 ser movido ou precisa ser refeito** — mover um horário sintético para outro campo fabrica um
 registro de ponto falso.
+
+⚠️ **A heurística não vale para o relógio de ponto.** O AFD registra com precisão de **minuto**
+(`2026-08-07T22:20:00-0300`), então toda batida de REP tem segundos zerados sem ser sintética.
+Por isso `fn_ingerir_afd` passa `sintetica = false` explicitamente para origem `rep`, e
+`marcacoes_ponto.sintetica` é campo gravado, não derivado na leitura. Nunca reintroduzir a
+inferência por segundos em cima de marcação de relógio.
 
 ### 6. Fusão de blocos: Sobreaviso nunca funde
 
@@ -245,6 +299,29 @@ Vale para **todas** as categorias, inclusive Plantão. No cadastro atual, toda j
 `intervalo_minutos = 0`. A duração vem de `horas_totais` (Regular) ou `horas_computadas` do turno
 (Plantão/Extra). `ScaleGrid.tsx` espelha essa regra para escolher entre 2 e 4 segmentos — se alterar
 uma ponta, altere a outra.
+
+### 10. O identificador do AFD é CPF com **um** zero à esquerda
+
+O registro tipo 3 do AFD (a marcação) carrega apenas `NSR + data/hora + identificador(12) + CRC`.
+**A matrícula não aparece em nenhuma marcação** — só no tipo 5 (cadastro) e no `load_users.fcgi`.
+Por isso `rep_vinculos_servidor` é a única ponte, e precisa ser populada **antes** de qualquer
+`remove_users.fcgi`: apagado o usuário do relógio, os NSRs antigos ficam órfãos para sempre.
+
+O identificador é o CPF preenchido a 12 posições. A inversa é `right(ident, 11)`, **nunca**
+`ltrim(ident, '0')`:
+
+```
+053638930459 → ltrim → 53638930459  (11)  CPF 53638930459  ✅
+008943857128 → ltrim →  8943857128  (10)  CPF 08943857128  ❌ perdeu um dígito
+```
+
+**37% dos servidores com CPF preenchido começam com zero** (47 de 127, medido em 08/08/2026),
+então o erro atinge um terço da base de forma aparentemente aleatória — e o sintoma é órfã
+fantasma no módulo de pendências, que leva alguém a vincular a pessoa errada na mão. Corrigido
+em `20260808090000`.
+
+Agrava: quem usa relógio tende a ter `cpf` nulo no SisEscala, e `pis_pasep` está vazio em 100%
+dos registros. Auditor fiscal casa por PIS/NIS — é projeto de qualidade de dados da Fase 9.
 
 ## Convenções
 
