@@ -1,0 +1,127 @@
+-- Migration: Ancora de horario de inicio para plantoes de codigo canonico (Fase 1)
+-- Data: 2026-08-08
+--
+-- SINTOMA RELATADO
+--   08/08/2026: tres servidoras nao conseguiram registrar a entrada de um plantao MT.
+--   LUCILIA LIMA AZEVEDO tentou as 06:37, 06:38, 07:34 e 07:34 - todas negadas. O plantao MT
+--   e 07:00-19:00 no mundo real, mas o sistema esperava 13:00.
+--
+-- CAUSA
+--   O horario de inicio de um turno NAO esta gravado em lugar nenhum. Ele e re-inferido por uma
+--   cascata de COALESCE dentro de fn_confirmar_presenca. Quando o servidor tem SO o plantao no
+--   dia (sem turno Regular), fn_obter_horario_regular_dia devolve NULL, todas as regras de
+--   alinhamento falham, e a cascata cai no ultimo recurso:
+--
+--       substring(j.nome from '^([0-9]+)')     -- j = JORNADA CONTRATUAL DO SERVIDOR
+--
+--   Ou seja: o plantao passa a ser ancorado no horario da jornada pessoal da servidora, que e
+--   justamente o dado que nao tem relacao nenhuma com ele. LUCILIA tem jornada '13H AS 19H',
+--   entao o MT dela virou 13:00 + 12h = 13:00-01:00. Janela de entrada 12:30-13:30.
+--
+-- CENSO EM PRODUCAO (08/08/2026, somente leitura, autorizado pelo usuario)
+--   527 dias-servidor com Plantao em 06,07,08/2026. Rodando fn_blocos_previstos_dia em todos:
+--     138 dias com janela ERRADA (40% dos plantoes sozinhos no bloco), 26 servidores
+--      95 ja com entrada gravada | 43 sem entrada | 46 em agosto (competencia aberta)
+--      16 batidas REAIS recusadas por este bug (filtro de fn_batidas_reais_recusadas)
+--
+--   O erro varia com a JORNADA DA PESSOA, nao com o codigo do turno:
+--     44x MT jor=08H AS 18H -> 08:00-20:00 | 25x MT jor=18H AS 06H -> 18:00-06:00
+--     23x MT jor=08H AS 12H -> 08:00-20:00 | 22x MT jor=13H AS 19H -> 13:00-01:00
+--   Os 190 casos que acertam acertam por coincidencia: a jornada delas comeca as 07:00.
+--
+-- CORRECAO
+--   Grava a ancora em vez de adivinhar. dicionario_turnos ganha horario_inicio, preenchido
+--   para os 11 codigos cuja hora e determinada pelo proprio codigo, confirmados pelo usuario
+--   em 08/08/2026:
+--
+--       MT = 07:00-19:00    M = 07:00-13:00    T = 13:00-19:00    N = 19:00-07:00
+--       familia M?N: comeca as 19:00, a noite emenda na manha seguinte
+--       (M2N 19:00-09:00, M4N 19:00-11:00, e assim por diante)
+--
+--   Os outros 53 codigos ficam com horario_inicio NULL e mantem exatamente o comportamento
+--   atual. Em particular T4 (81x), N4, N6 e M7 NAO recebem ancora: para eles o codigo da a
+--   duracao e o periodo, nao a hora - "M2 sao 2h em qualquer ponto da manha". Esses sao a
+--   Fase 2 (hora por dia em escala_diaria).
+--
+-- POR QUE A ANCORA SO VALE QUANDO NAO HA TURNO REGULAR NO DIA
+--   Simulacao sobre os 527 dias reais (a simulacao reproduz fn_blocos_previstos_dia 527/527)
+--   mostrou que aplicar a ancora INDISTINTAMENTE mudaria 193 dias, nao 144 - e os 49 extras
+--   sao todos dias em que o plantao e sequencia do expediente:
+--
+--     20x ANDRESA: Regular M (jor 08H AS 14H) + Plantao T. A ancora poria o T as 13:00,
+--         SOBREPONDO uma hora do turno Regular que so termina as 14:00. Escala impossivel.
+--     20x ANDRESA: Regular M (jor 08H AS 12H) + Plantao T. A ancora quebraria a fusao:
+--         de um bloco 08:00-18:00 (2 batidas) para dois blocos (4 batidas).
+--      8x Regular N + Extra + Plantao MT: o bloco viraria 24h corridas.
+--      1x Regular MT + Plantao N: bloco unico viraria dois.
+--
+--   Quando ha turno Regular no dia, o alinhamento atual expressa a intencao correta - o plantao
+--   e continuacao da jornada. A ancora so entra onde essa referencia nao existe, que e
+--   exatamente onde a cascata cai no fallback errado.
+--
+--   Com a restricao: 144 dias corrigidos, ZERO mudanca de fusao de bloco, ZERO efeito colateral.
+--   Conferido pela simulacao (scratchpad/sim3.mjs).
+--
+-- EFEITO RETROATIVO: NENHUM TIMESTAMP E ALTERADO
+--   Esta migration nao escreve em escala_diaria. Ela muda a JANELA prevista, nao a batida
+--   gravada. Os 95 dias que ja tem entrada continuam com o horario que tem.
+--
+--   Auditoria feita em 08/08/2026 sobre os 138 dias de janela errada, entradas E saidas:
+--   ZERO timestamps sinteticos divergentes do horario correto. Nenhuma folha tem hora
+--   fabricada a partir da janela errada, nem em jun/jul nem em agosto. O dano deste bug foi
+--   IMPEDIR batidas (16 recusadas), nao corromper horarios.
+--
+--   As 16 batidas recusadas NAO tem migration de dados (decisao do usuario, 08/08/2026):
+--   depois desta migration, as 16 caem dentro da tolerancia de 90 min de
+--   fn_batidas_reais_recusadas, entao a validacao normal do coordenador ja grava o horario
+--   REAL - com justificativa e confirmado_por_id, que uma migration nao teria.
+--
+--   Junho e julho ficam como estao (competencia Fechada, folha Revisada, nenhum horario
+--   fabricado). Decisao do usuario em 08/08/2026.
+--
+-- COMO ESTE ARQUIVO FOI PRODUZIDO
+--   Por copia mecanica via script (scratchpad/gen_ancora.js), conforme CLAUDE.md armadilha 1 -
+--   os corpos NAO foram redigitados. O script extrai cada funcao da sua versao VIGENTE:
+--       fn_confirmar_presenca        <- 20260807050000
+--       fn_confirmar_presenca_manual <- 20260807100000   (NAO a copia de 20260807050000)
+--       fn_blocos_previstos_dia      <- 20260808040000
+--   aplica UMA insercao por ramo 'Plantao' (2 + 1 + 1 = 4 no total) e ABORTA se qualquer
+--   contagem divergir. Invariantes conferidos antes e depois da substituicao:
+--       fn_confirmar_presenca        : 14 guards <> 'Sobreaviso', 2 fn_jornada_tem_intervalo,
+--                                      2 categoria IN (Regular,Plantao,Extra), 2 ORDER BY
+--                                      start_hour ASC, 3 fn_ajuste_intervalo_flexivel
+--       fn_confirmar_presenca_manual : 10 casts p_categoria::escala_categoria, 7
+--                                      justificativa_manual, 8 presenca_entrada_manual,
+--                                      1 guard p_categoria <> 'Sobreaviso'
+--       fn_blocos_previstos_dia      : 7 guards <> 'Sobreaviso', 1 ORDER BY start_hour ASC
+--
+--   CLAUDE.md registra que scratchpad/gen_blocos.js se perdeu. gen_ancora.js o substitui e
+--   passa a cobrir as tres funcoes de uma vez, o que remove a chance de elas divergirem.
+--
+-- CONFERENCIA APOS APLICAR
+--   -- 1. a ancora ficou nos 11 codigos certos:
+--   SELECT codigo, horario_inicio,
+--          (horario_inicio + (horas_computadas || ' hours')::interval)::time AS fim_calculado
+--     FROM public.dicionario_turnos
+--    WHERE horario_inicio IS NOT NULL ORDER BY horario_inicio, codigo;
+--   -- esperado: M 07:00->13:00 | MT 07:00->19:00 | T 13:00->19:00 | N 19:00->07:00
+--   --           MN 19:00->13:00 | M2N 19:00->09:00 | M3N 19:00->10:00 | M4N 19:00->11:00
+--   --           M5N 19:00->12:00 | M7N 19:00->14:00 | M8N 19:00->15:00
+--
+--   -- 2. o caso LUCILIA (08/08/2026) tem que devolver 07:00-19:00:
+--   SELECT b.inicio_previsto, b.fim_previsto
+--     FROM public.escala_mensal em
+--     CROSS JOIN LATERAL public.fn_blocos_previstos_dia(em.servidor_id, DATE '2026-08-08') b
+--    WHERE em.servidor_id = (SELECT id FROM public.servidores WHERE nome ILIKE 'LUCILIA LIMA%')
+--      AND em.ano = 2026 AND em.mes = 8;
+--
+--   -- 3. nenhum dia COM turno Regular pode ter mudado de horario. Conferir ANDRESA, que e o
+--   --    caso limite (Regular M + Plantao T): tem que continuar em bloco unico.
+--   SELECT b.inicio_previsto, b.fim_previsto, array_length(b.escala_diaria_ids, 1) AS turnos
+--     FROM public.escala_mensal em
+--     CROSS JOIN LATERAL public.fn_blocos_previstos_dia(em.servidor_id, DATE '2026-08-07') b
+--    WHERE em.servidor_id = (SELECT id FROM public.servidores WHERE nome ILIKE 'ANDRESA MELO%')
+--      AND em.ano = 2026 AND em.mes = 8;
+--   -- esperado: UM bloco, 2 turnos.
+
+

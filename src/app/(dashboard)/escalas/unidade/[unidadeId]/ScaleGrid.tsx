@@ -240,6 +240,13 @@ export function ScaleGrid({
   const [currentSector, setCurrentSector] = useState<any>(null)
 
   // Modal & Alert states
+  // Modal de hora de início para turnos de duração livre (T4, N4, N6, M7...). Abre ao lançar
+  // o turno na grade — decisão de 08/08/2026: a hora é informada na hora de escalar.
+  const [horaModal, setHoraModal] = useState<{
+    isOpen: boolean, servidorId: string, servidorNome: string, categoria: RowCategory,
+    day: number, turnoCodigo: string, horasComputadas: number, valor: string
+  }>({ isOpen: false, servidorId: '', servidorNome: '', categoria: 'Plantão', day: 0, turnoCodigo: '', horasComputadas: 0, valor: '' })
+
   const [alertModal, setAlertModal] = useState<{ isOpen: boolean, title: string, message: string, type: 'default' | 'danger' | 'success' | 'warning' }>({
     isOpen: false,
     title: '',
@@ -484,6 +491,26 @@ export function ScaleGrid({
     return initial
   })
 
+  // Hora de início informada pelo coordenador (escala_diaria.hora_inicio_prevista).
+  // Só existe para os turnos de "duração livre" — aqueles em que o código do turno diz a
+  // duração e o período, mas não a hora (T4, N4, N6, M7...). Ver a migration 20260808110000
+  // e docs/planos/2026-08-08-ancoragem-de-horario-dos-plantoes.md.
+  // Guardado como 'HH:00' (hora cheia — o motor de blocos trabalha em horas inteiras e há
+  // CHECK no banco impedindo minutos).
+  const [gridHoras, setGridHoras] = useState<Record<string, Record<RowCategory, Record<number, string>>>>(() => {
+    const initial: Record<string, Record<RowCategory, Record<number, string>>> = {}
+    escalaMensalInicial.forEach(em => {
+      initial[em.servidor_id] = { 'Regular': {}, 'Extra': {}, 'Plantão': {}, 'Sobreaviso': {} }
+      escalaDiariaInicial
+        .filter(ed => ed.escala_mensal_id === em.id && ed.hora_inicio_prevista)
+        .forEach(ed => {
+          const cat = (ed.categoria || 'Regular') as RowCategory
+          initial[em.servidor_id][cat][ed.dia] = String(ed.hora_inicio_prevista).slice(0, 5)
+        })
+    })
+    return initial
+  })
+
   const [presenceData, setPresenceData] = useState<Record<string, Record<RowCategory, Record<number, { entrada: boolean, intervalo_saida: boolean, intervalo_retorno: boolean, saida: boolean, entrada_em?: string | null, intervalo_saida_em?: string | null, intervalo_retorno_em?: string | null, saida_em?: string | null, is_entrada_manual?: boolean, is_intervalo_saida_manual?: boolean, is_intervalo_retorno_manual?: boolean, is_saida_manual?: boolean }>>>>(() => {
     const initial: Record<string, Record<RowCategory, Record<number, { entrada: boolean, intervalo_saida: boolean, intervalo_retorno: boolean, saida: boolean, entrada_em?: string | null, intervalo_saida_em?: string | null, intervalo_retorno_em?: string | null, saida_em?: string | null, is_entrada_manual?: boolean, is_intervalo_saida_manual?: boolean, is_intervalo_retorno_manual?: boolean, is_saida_manual?: boolean }>>> = {}
     escalaMensalInicial.forEach(em => {
@@ -536,6 +563,12 @@ export function ScaleGrid({
 
   const getShiftStartHour = useCallback((codigo: string): number => {
     const c = codigo.toUpperCase().trim()
+    // Família M?N (MN, M2N...M8N): a noite emenda na manhã seguinte, então começa às 19h
+    // igual ao N — o trecho "manhã" é a continuação a partir das 07h. Precisa vir ANTES do
+    // startsWith('M'), senão M2N cairia em 07h. Espelha a âncora gravada em
+    // dicionario_turnos.horario_inicio por 20260808100000; se as duas divergirem, a grade
+    // desenha um turno e o terminal cobra outro. MTN não entra (tem T e é 07h-07h).
+    if (/^M[0-9]*N$/.test(c)) return 19
     if (c.startsWith('M') || c === 'MT' || c === 'MTN') return 7
     if (c.startsWith('T')) return 13
     if (c.startsWith('N')) return 19
@@ -553,7 +586,9 @@ export function ScaleGrid({
     const c = codigo.toUpperCase().trim()
     if (c === 'MTN') return 31
     if (c === 'MT') return 19
-    if (c === 'MN') return 31
+    // Família M?N: 19h + duração. MN 19->13h(+1), M2N 19->09h(+1), M4N 19->11h(+1).
+    // Substitui o antigo `MN -> 31`, que assumia início às 07h. Ver 20260808100000.
+    if (/^M[0-9]*N$/.test(c)) return 19 + (horasComputadas ?? 18)
     if (c === 'TN') return 31
     if (c === 'N' || c === 'N12') return 31
     
@@ -573,6 +608,54 @@ export function ScaleGrid({
     if (c === 'T' || c.startsWith('T')) return 19
     return 19
   }, [getShiftStartHour])
+
+  // Um turno é "ancorado" quando o próprio código determina a hora — o banco diz isso em
+  // dicionario_turnos.horario_inicio (M, T, N, MT e a família M?N, gravados em 20260808100000).
+  // Os demais são de duração livre: o código dá duração e período, e só quem escala sabe a hora.
+  // Ler do dicionário em vez de manter uma lista aqui é o que impede a grade de divergir do
+  // terminal quando alguém ancorar um código novo.
+  const isTurnoAncorado = useCallback((turnoId?: string | null) => {
+    if (!turnoId) return true
+    return !!turnos.find(t => t.id === turnoId)?.horario_inicio
+  }, [turnos])
+
+  const precisaHoraInicio = useCallback((categoria: RowCategory, turnoId?: string | null) => {
+    if (!turnoId) return false
+    // Regular tem a hora no nome da jornada; Sobreaviso não marca presença (CLAUDE.md armadilha 6).
+    if (categoria === 'Regular' || categoria === 'Sobreaviso') return false
+    return !isTurnoAncorado(turnoId)
+  }, [isTurnoAncorado])
+
+  // Sugestão por encadeamento: o turno de duração livre normalmente emenda no fim do que já
+  // existe no dia, na ordem Regular -> Extra -> Plantão. É o caso relatado em 08/08/2026:
+  // "regular de 8h às 18h, 2h extras, e um plantão N4 que estende até as 24h" -> sugere 20:00.
+  // É só sugestão: fica editável, e o valor gravado é o que o coordenador confirmar.
+  const sugerirHoraInicio = useCallback((servidorId: string, day: number, categoria: RowCategory): string => {
+    const serverRows = gridData[servidorId] || {}
+    let fim: number | null = null
+
+    const regularId = serverRows['Regular']?.[day]
+    if (regularId) {
+      const emRecord = escalaMensal.find(e => e.servidor_id === servidorId)
+      const jornada = emRecord?.jornada_id ? jornadas.find(j => j.id === emRecord.jornada_id) : null
+      const m = jornada?.nome?.match(/(?:ÀS|AS|A)\s*([0-9]+)/i)
+      if (m) fim = parseInt(m[1], 10)
+      else {
+        const t = turnos.find(x => x.id === regularId)
+        if (t) fim = getShiftEndHour(t.codigo, Number(t.horas_computadas))
+      }
+    }
+
+    // Extra empurra o fim para frente (é extensão do expediente, não turno paralelo).
+    const extraId = serverRows['Extra']?.[day]
+    if (extraId && categoria !== 'Extra' && fim !== null) {
+      const t = turnos.find(x => x.id === extraId)
+      if (t?.horas_computadas) fim += Number(t.horas_computadas)
+    }
+
+    if (fim === null) return ''
+    return `${String(fim % 24).padStart(2, '0')}:00`
+  }, [gridData, escalaMensal, jornadas, turnos, getShiftEndHour])
 
   // Motor de Compliance: validação de interjornada e DSR
   const complianceViolations = useMemo(() => {
@@ -1201,12 +1284,39 @@ export function ScaleGrid({
       }
     }
 
+    // Turno de duração livre: o código não determina a hora, então pergunta ao coordenador.
+    // A sugestão vem do encadeamento com o que já existe no dia; ele pode alterar.
+    if (precisaHoraInicio(categoria, turnoId)) {
+      const t = turnos.find(x => x.id === turnoId)
+      const servidor = todosServidoresSetor.find(s => s.id === servidorId)
+      setHoraModal({
+        isOpen: true,
+        servidorId,
+        servidorNome: servidor?.nome || '',
+        categoria,
+        day,
+        turnoCodigo: t?.codigo || '',
+        horasComputadas: Number(t?.horas_computadas) || 0,
+        valor: gridHoras[servidorId]?.[categoria]?.[day] || sugerirHoraInicio(servidorId, day, categoria)
+      })
+    } else {
+      // Turno ancorado (ou célula limpa): a hora vem do dicionário, então descarta qualquer
+      // hora que tenha ficado de um turno anterior nesta célula — senão viraria dado órfão
+      // que o banco recusaria ou que ninguém entenderia depois.
+      setGridHoras(prev => {
+        if (!prev[servidorId]?.[categoria]?.[day]) return prev
+        const catData = { ...prev[servidorId][categoria] }
+        delete catData[day]
+        return { ...prev, [servidorId]: { ...prev[servidorId], [categoria]: catData } }
+      })
+    }
+
     setGridData(prev => {
-      const serverData = prev[servidorId] || { 
-        'Regular': {}, 
-        'Extra': {}, 
-        'Plantão': {}, 
-        'Sobreaviso': {} 
+      const serverData = prev[servidorId] || {
+        'Regular': {},
+        'Extra': {},
+        'Plantão': {},
+        'Sobreaviso': {}
       }
       const catData = serverData[categoria] || {}
 
@@ -2235,11 +2345,22 @@ export function ScaleGrid({
               }
             }
 
+            // Hora informada pelo coordenador, só para turno de duração livre. Precisa estar
+            // SEMPRE no payload (mesmo null): o upsert monta o SET a partir das chaves
+            // enviadas, então omitir a coluna faria a limpeza de uma hora nunca chegar ao banco.
+            // O banco recusa hora em categoria Regular (chk_hora_prevista_nao_regular), então
+            // a mesma condição de precisaHoraInicio vale aqui.
+            const horaCel = gridHoras[em.servidor_id]?.[categoria as RowCategory]?.[day]
+            const horaPrevista = precisaHoraInicio(categoria as RowCategory, turnoId) && horaCel
+              ? `${horaCel.slice(0, 2)}:00:00`
+              : null
+
             const item: any = {
               escala_mensal_id: em.id,
               dia: day,
               categoria: categoria,
               dicionario_turnos_id: turnoId,
+              hora_inicio_prevista: horaPrevista,
               presenca_entrada_em: ent,
               presenca_saida_em: sai,
               presenca_confirmada: conf,
@@ -3139,12 +3260,43 @@ export function ScaleGrid({
                                   placeholder="-"
                                 />
                                 {activeEvent && (
-                                  <div 
+                                  <div
                                     className="absolute top-0.5 left-0.5 w-1.5 h-1.5 rounded-full"
                                     style={{ backgroundColor: activeEvent.tipos_eventos?.cor || '#EF4444' }}
                                     title={`Afastamento: ${activeEvent.tipos_eventos?.nome}`}
                                   />
                                 )}
+                                {/* Turno de duração livre: mostra a hora definida, ou avisa que
+                                    ainda falta. Sem isso o coordenador não teria como ver nem
+                                    corrigir o que informou. Clicar reabre o modal. */}
+                                {precisaHoraInicio(cat, turno?.id) && (() => {
+                                  const hora = gridHoras[em.servidor_id]?.[cat]?.[day]
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={() => setHoraModal({
+                                        isOpen: true,
+                                        servidorId: em.servidor_id,
+                                        servidorNome: todosServidoresSetor.find(s => s.id === em.servidor_id)?.nome || '',
+                                        categoria: cat,
+                                        day,
+                                        turnoCodigo: turno?.codigo || '',
+                                        horasComputadas: Number(turno?.horas_computadas) || 0,
+                                        valor: hora || sugerirHoraInicio(em.servidor_id, day, cat)
+                                      })}
+                                      title={hora
+                                        ? `Início às ${hora} (informado pelo coordenador). Clique para alterar.`
+                                        : `O código ${turno?.codigo} não define a hora de início. Clique para informar.`}
+                                      className={`absolute bottom-0 left-0 right-0 text-[7px] leading-none py-px font-bold ${
+                                        hora
+                                          ? 'text-blue-600 dark:text-blue-400'
+                                          : 'text-amber-600 dark:text-amber-400'
+                                      }`}
+                                    >
+                                      {hora || '?h'}
+                                    </button>
+                                  )
+                                })()}
                               </div>
                             )}
 
@@ -4498,6 +4650,69 @@ export function ScaleGrid({
           </div>
         </div>
       )}
+
+      {/* Hora de início de turno de duração livre (T4, N4, N6, M7...).
+          O código do turno diz a duração e o período, não a hora — só quem escala sabe.
+          Ver docs/planos/2026-08-08-ancoragem-de-horario-dos-plantoes.md */}
+      <Modal
+        isOpen={horaModal.isOpen}
+        onClose={() => setHoraModal(prev => ({ ...prev, isOpen: false }))}
+        title={`Horário do turno ${horaModal.turnoCodigo}`}
+        footer={
+          <>
+            <button
+              onClick={() => setHoraModal(prev => ({ ...prev, isOpen: false }))}
+              className="flex-1 px-4 py-2 rounded-xl border border-zinc-300 dark:border-zinc-700 font-bold"
+            >
+              Definir depois
+            </button>
+            <button
+              onClick={() => {
+                setGridHoras(prev => {
+                  const serverData = prev[horaModal.servidorId] || { 'Regular': {}, 'Extra': {}, 'Plantão': {}, 'Sobreaviso': {} }
+                  const catData = { ...(serverData[horaModal.categoria] || {}) }
+                  if (horaModal.valor) catData[horaModal.day] = horaModal.valor
+                  else delete catData[horaModal.day]
+                  return { ...prev, [horaModal.servidorId]: { ...serverData, [horaModal.categoria]: catData } }
+                })
+                setHoraModal(prev => ({ ...prev, isOpen: false }))
+              }}
+              className="flex-1 px-4 py-2 rounded-xl bg-zinc-900 dark:bg-white dark:text-zinc-900 text-white font-bold"
+            >
+              Confirmar
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            <span className="font-bold">{horaModal.servidorNome}</span> — dia {horaModal.day}.
+            O código <span className="font-bold">{horaModal.turnoCodigo}</span> define a duração
+            ({horaModal.horasComputadas}h) e o período, mas não a hora de início. Informe quando começa.
+          </p>
+          <select
+            value={horaModal.valor}
+            onChange={(e) => setHoraModal(prev => ({ ...prev, valor: e.target.value }))}
+            className="w-full px-3 py-2 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-transparent font-bold"
+          >
+            <option value="">Não informar (o sistema estima)</option>
+            {Array.from({ length: 24 }, (_, h) => {
+              const hh = `${String(h).padStart(2, '0')}:00`
+              const fimH = (h + horaModal.horasComputadas) % 24
+              const vira = h + horaModal.horasComputadas >= 24
+              return (
+                <option key={hh} value={hh}>
+                  {hh} às {String(fimH).padStart(2, '0')}:00{vira ? ' (dia seguinte)' : ''}
+                </option>
+              )
+            })}
+          </select>
+          <p className="text-xs text-zinc-500">
+            Sem informar, o sistema continua estimando pela escala do dia — que é justamente o que
+            deixou servidores sem conseguir bater o ponto. O horário aqui vale para este dia apenas.
+          </p>
+        </div>
+      </Modal>
 
       {/* Modals Extras */}
       <Modal

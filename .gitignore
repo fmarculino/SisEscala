@@ -38,3 +38,7 @@ next-env.d.ts
 
 # scratch/temporary files
 /scratch/
+# artefatos de conferencia gerados pelos scripts de scratchpad/ (os geradores ficam versionados)
+scratchpad/d2_*.sql
+scratchpad/diff_*.sql
+scratchpad/prod_*.json

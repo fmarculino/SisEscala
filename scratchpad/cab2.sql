@@ -1,0 +1,97 @@
+-- Migration: Hora de inicio por dia para plantoes de duracao livre (Fase 2)
+-- Data: 2026-08-08
+--
+-- O QUE FALTAVA DEPOIS DA FASE 1
+--   20260808100000 ancorou os 11 codigos cuja hora e determinada pelo proprio codigo
+--   (MT, M, T, N e a familia M?N) e corrigiu 144 dias-servidor em producao.
+--
+--   Sobrou a outra metade do problema: os codigos em que o codigo do turno da a DURACAO e o
+--   PERIODO, mas NAO a hora. Em producao sao 84 lancamentos - 81 T4, 1 N4, 1 N6, 1 M7.
+--   Nas palavras do usuario: "M2 sao 2h de plantao mas ele pode se encaixar em qualquer
+--   periodo da manha, T1 e 1h que pode se encaixar em qualquer periodo da tarde".
+--
+--   Nenhuma heuristica resolve isso, porque a informacao nao existe no dado. Ela existe na
+--   cabeca de quem monta a escala. Esta migration cria o lugar para grava-la.
+--
+-- O CASO QUE ISSO RESOLVE
+--   Relatado pelo usuario em 08/08/2026: "o servidor tem horario regular de 8h as 18h, ai ele
+--   faz 2hs extras e nao pode mais continuar trabalhando, entao o que se faz e dar um plantao
+--   tipo N4 e essa pessoa vai estender o turno dela ate as 24hs".
+--
+--   Hoje o Extra e o N4 sao ancorados AMBOS no fim do turno Regular (18:00), em vez de se
+--   encadearem. O bloco fecha as 22:00 e as 2h extras somem da janela. Com esta migration o
+--   coordenador informa N4 = 20:00 ao escalar, e o bloco fecha as 24:00 como deveria.
+--
+-- CADEIA DE PRECEDENCIA COMPLETA APOS ESTA MIGRATION
+--   1. escala_diaria.hora_inicio_prevista   <- ESTA MIGRATION (o coordenador informou)
+--   2. dicionario_turnos.horario_inicio     <- 20260808100000 (o codigo determina)
+--   3. Regular: regex sobre o nome da jornada
+--   4. cascata de inferencia legada         <- intacta, ultimo recurso
+--
+--   Os niveis 1 e 2 sao DADO GRAVADO. O nivel 4 nunca foi removido, entao nada que hoje
+--   funciona passa a falhar.
+--
+-- EFEITO IMEDIATO: NENHUM
+--   A coluna nasce NULL nas 6.514 linhas de escala_diaria e nao ha backfill (ver secao 2).
+--   Enquanto ninguem preencher pela grade, fn_confirmar_presenca, fn_confirmar_presenca_manual
+--   e fn_blocos_previstos_dia devolvem exatamente o que devolviam antes.
+--
+--   Isso e verificavel: rodar fn_blocos_previstos_dia sobre os 527 dias-servidor com Plantao
+--   antes e depois desta migration tem que dar 527 resultados identicos. Ver CONFERENCIA.
+--
+-- POR QUE NAO ACEITA MINUTOS (ainda)
+--   O motor de blocos trabalha em horas inteiras (v_start_min := r.start_hour * 60). Aceitar
+--   13:30 aqui truncaria para 13:00 em silencio. A constraint chk_hora_inicio_prevista_hora_cheia
+--   faz a gravacao FALHAR em vez de truncar.
+--
+--   Conferido em producao: as 17 jornadas sao todas de hora cheia e todo turno do dicionario
+--   comeca em hora cheia - nenhum caso real e perdido. Minutos entram na Fase 3, que reescreve
+--   as funcoes de qualquer forma para extrair fn_horario_previsto_turno; la a constraint cai
+--   com um simples DROP CONSTRAINT, sem reescrever funcao de presenca.
+--
+-- POR QUE NAO VALE PARA REGULAR
+--   Para Regular o nome da jornada continua sendo a fonte - folha de ponto e motor de
+--   compliance dependem dela. A funcao ignora o campo nessa categoria, e a constraint
+--   chk_hora_prevista_nao_regular impede gravar ali um valor que nao teria efeito.
+--
+-- COMO ESTE ARQUIVO FOI PRODUZIDO
+--   Por copia mecanica via script (scratchpad/gen_hora_dia.js), conforme CLAUDE.md armadilha 1.
+--   Fonte vigente das TRES funcoes apos a Fase 1: 20260808100000.
+--   UMA insercao por COALESCE externo de start_hour (2 + 1 + 1 = 4), com 26 invariantes
+--   conferidos antes e depois, incluindo:
+--     - os 22 guards <> 'Sobreaviso' nos corpos (14 + 1 + 7)
+--     - as 4 ancoras da Fase 1 (extract(hour from dt.horario_inicio))
+--     - 10 casts p_categoria::escala_categoria, 7 justificativa_manual, 8 presenca_entrada_manual
+--     - fn_jornada_tem_intervalo, fn_ajuste_intervalo_flexivel, ORDER BY start_hour ASC
+--     - e que o NIVEL 1 aparece ANTES do NIVEL 2 em cada funcao (ordem de precedencia)
+--   O script ABORTA se qualquer contagem divergir. diff antes/depois: so linhas adicionadas.
+--
+-- CONFERENCIA APOS APLICAR
+--   -- 1. a coluna existe, esta NULL em tudo, e as constraints pegam:
+--   SELECT count(*) AS total, count(hora_inicio_prevista) AS preenchidas
+--     FROM public.escala_diaria;
+--   -- esperado: preenchidas = 0
+--
+--   -- 2. as constraints recusam o que devem recusar (as duas tem que dar ERRO):
+--   -- UPDATE public.escala_diaria SET hora_inicio_prevista = '13:30'
+--   --  WHERE categoria = 'Plantão' LIMIT 1;                  -> chk_..._hora_cheia
+--   -- UPDATE public.escala_diaria SET hora_inicio_prevista = '13:00'
+--   --  WHERE categoria = 'Regular' LIMIT 1;                  -> chk_hora_prevista_nao_regular
+--
+--   -- 3. NADA mudou de comportamento (o teste que importa). Os casos ja verificados na
+--   --    Fase 1 tem que devolver exatamente o mesmo:
+--   SELECT b.inicio_previsto, b.fim_previsto, array_length(b.escala_diaria_ids, 1) AS turnos
+--     FROM public.escala_mensal em
+--     CROSS JOIN LATERAL public.fn_blocos_previstos_dia(em.servidor_id, DATE '2026-08-08') b
+--    WHERE em.servidor_id = (SELECT id FROM public.servidores WHERE nome ILIKE 'LUCILIA LIMA%')
+--      AND em.ano = 2026 AND em.mes = 8;
+--   -- esperado: 07:00 a 19:00, 1 turno (identico ao pos-Fase 1)
+--
+--   -- 4. teste funcional do nivel 1, num dia de T4 com turno Regular:
+--   --    gravar a hora e conferir que o bloco passa a respeita-la.
+--   -- UPDATE public.escala_diaria SET hora_inicio_prevista = '15:00'
+--   --  WHERE id = '<id de um Plantão T4>';
+--   -- depois rodar fn_blocos_previstos_dia no dia e conferir que o T4 comeca as 15:00.
+--   -- LEMBRAR DE DESFAZER se for so teste.
+
+

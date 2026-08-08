@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(file supabase/migrations/2026080713*.sql)"
+      "Bash(file supabase/migrations/2026080713*.sql)",
+      "Bash(sed 's/:.*//')",
+      "Bash(node -e ' *)",
+      "Bash(node --input-type=module -e ' *)"
     ]
   }
 }
