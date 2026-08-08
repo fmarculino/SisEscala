@@ -152,6 +152,15 @@ devolvendo a lista ao chamador. É a regra de `fn_precedencia_origem` trazida pa
 coordenador: onde existe horário real disponível, ele ganha do declarado. A exclusão é por par
 (escala, dia), não por servidor nem por período.
 
+**Portal do servidor** (v1.23.0): a folha deixou de ser editável ali. A célula vazia (desde que
+o fictício de entrada/saída foi removido) virava uma edição livre na folha oficial, sem revisão
+e sem marcação — o mesmo problema da vedação 2, só que pela porta do servidor em vez da do
+sistema. Agora ele **solicita** (`fn_solicitar_ajuste_ponto`), o pedido vira marcação
+`ajuste_servidor` (precedência 4, a mais baixa) pendente de revisão, e só o coordenador grava em
+`escala_diaria`. Bloqueio em duas camadas: `FolhaPontoEditor` desabilita os inputs quando
+`isPortal`, e `salvarFolhaPontoServidor` recusa no servidor qualquer alteração de horário —
+importa porque o portal autentica só por PIN e a action é chamável direto.
+
 ℹ️ Uma nota anterior aqui chamava a validação em massa de "exposição residual à vedação 2".
 **Era impreciso.** Conferido em produção em 08/08/2026: ela grava com origem
 `ajuste_coordenador` e `sintetica = true`, e a folha a pinta como `manual` — o sistema não a

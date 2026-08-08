@@ -1,12 +1,13 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { 
-  validatePin, getServidorEscalas, logoutPortal, findServidorByMatricula, 
-  getEscalaDetails, createSwapRequest, getSwapRequests, cancelSwapRequest, 
-  getFolhaPontoServidor, salvarFolhaPontoServidor, verificarDivergenciaEscalaServidor, 
+import {
+  validatePin, getServidorEscalas, logoutPortal, findServidorByMatricula,
+  getEscalaDetails, createSwapRequest, getSwapRequests, cancelSwapRequest,
+  getFolhaPontoServidor, salvarFolhaPontoServidor, verificarDivergenciaEscalaServidor,
   sincronizarFolhaPontoServidor, gerarFolhaPontoServidor, checkFolhaPontoHabilitada,
-  checkJustificativasHabilitada, getJustificativasServidor, sugerirJustificativaServidor
+  checkJustificativasHabilitada, getJustificativasServidor, sugerirJustificativaServidor,
+  solicitarAjustePonto
 } from './actions'
 import { FolhaPontoEditor } from '@/app/(dashboard)/folha-ponto/[id]/FolhaPontoEditor'
 import { createClient } from '@/utils/supabase/client'
@@ -41,6 +42,13 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
   const [folhaData, setFolhaData] = useState<any | null>(null)
   const [loadingFolha, setLoadingFolha] = useState(false)
   const [generatingPortalFolha, setGeneratingPortalFolha] = useState(false)
+
+  // Solicitação de ajuste de ponto (portal não edita a folha, ver 20260808130000)
+  const [ajusteModal, setAjusteModal] = useState<{ dia: number } | null>(null)
+  const [ajusteHorarios, setAjusteHorarios] = useState<Record<string, string>>({})
+  const [ajusteJustificativa, setAjusteJustificativa] = useState('')
+  const [ajusteEnviando, setAjusteEnviando] = useState(false)
+  const [ajusteFeedback, setAjusteFeedback] = useState<{ tipo: 'ok' | 'erro'; texto: string } | null>(null)
 
   // Justificativas Portal States
   const [justificativasList, setJustificativasList] = useState<any[]>([])
@@ -117,6 +125,44 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
       setError('Erro ao carregar folha de ponto: ' + err.message)
     } finally {
       setLoadingFolha(false)
+    }
+  }
+
+  function handleAbrirAjuste(dia: number) {
+    setAjusteModal({ dia })
+    setAjusteHorarios({})
+    setAjusteJustificativa('')
+    setAjusteFeedback(null)
+  }
+
+  async function handleEnviarAjuste() {
+    if (!ajusteModal || !folhaData) return
+
+    const algumHorario = Object.values(ajusteHorarios).some(v => !!v)
+    if (!algumHorario) {
+      setAjusteFeedback({ tipo: 'erro', texto: 'Informe ao menos um horário.' })
+      return
+    }
+    if (!ajusteJustificativa.trim()) {
+      setAjusteFeedback({ tipo: 'erro', texto: 'Explique o motivo da solicitação.' })
+      return
+    }
+
+    setAjusteEnviando(true)
+    setAjusteFeedback(null)
+    try {
+      const horarios = Object.fromEntries(Object.entries(ajusteHorarios).filter(([, v]) => !!v))
+      const res = await solicitarAjustePonto(folhaData.id, ajusteModal.dia, horarios, ajusteJustificativa.trim())
+      if (res.error) {
+        setAjusteFeedback({ tipo: 'erro', texto: res.error })
+      } else {
+        setAjusteFeedback({ tipo: 'ok', texto: res.message || 'Solicitação enviada ao seu coordenador.' })
+        setTimeout(() => setAjusteModal(null), 2500)
+      }
+    } catch (err: any) {
+      setAjusteFeedback({ tipo: 'erro', texto: err.message || 'Não foi possível enviar a solicitação.' })
+    } finally {
+      setAjusteEnviando(false)
     }
   }
 
@@ -887,7 +933,7 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
                     </div>
                   </div>
                 ) : (
-                  <FolhaPontoEditor 
+                  <FolhaPontoEditor
                     folha={folhaData}
                     profile={null}
                     isPortal={true}
@@ -896,6 +942,7 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
                     verifyDivergenceAction={verificarDivergenciaEscalaServidor}
                     syncAction={sincronizarFolhaPontoServidor}
                     regenerateAction={gerarFolhaPontoServidor}
+                    onSolicitarAjuste={handleAbrirAjuste}
                   />
                 )}
               </div>
@@ -1002,6 +1049,110 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
         modoAssinatura="manual"
         onClose={() => setJustificativasPrintOpen(false)}
       />
+    )}
+
+    {/* Solicitação de ajuste de ponto.
+        O portal não edita a folha (20260808130000): o servidor informa o horário que cumpriu
+        e a solicitação vira marcação pendente para o coordenador decidir. */}
+    {ajusteModal && (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-bold text-zinc-900 dark:text-white">
+              Informar horário — dia {ajusteModal.dia}
+            </h3>
+            <button
+              onClick={() => setAjusteModal(null)}
+              className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            Informe o horário que você cumpriu. Isso não altera a folha diretamente — seu
+            coordenador vai revisar e decidir.
+          </p>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 mb-1">Entrada</label>
+              <input
+                type="time"
+                value={ajusteHorarios.entrada || ''}
+                onChange={(e) => setAjusteHorarios(prev => ({ ...prev, entrada: e.target.value }))}
+                className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 mb-1">Saída</label>
+              <input
+                type="time"
+                value={ajusteHorarios.saida || ''}
+                onChange={(e) => setAjusteHorarios(prev => ({ ...prev, saida: e.target.value }))}
+                className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 mb-1">Saída p/ intervalo</label>
+              <input
+                type="time"
+                value={ajusteHorarios.intervalo_saida || ''}
+                onChange={(e) => setAjusteHorarios(prev => ({ ...prev, intervalo_saida: e.target.value }))}
+                className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 mb-1">Retorno do intervalo</label>
+              <input
+                type="time"
+                value={ajusteHorarios.intervalo_retorno || ''}
+                onChange={(e) => setAjusteHorarios(prev => ({ ...prev, intervalo_retorno: e.target.value }))}
+                className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 mb-1">
+              Motivo <span className="text-red-500">*</span>
+            </label>
+            <textarea
+              value={ajusteJustificativa}
+              onChange={(e) => setAjusteJustificativa(e.target.value)}
+              rows={2}
+              placeholder="Ex.: esqueci de bater o ponto na entrada."
+              className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm resize-none"
+            />
+          </div>
+
+          {ajusteFeedback && (
+            <div className={`text-xs font-medium rounded-lg px-3 py-2 ${
+              ajusteFeedback.tipo === 'ok'
+                ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400'
+                : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
+            }`}>
+              {ajusteFeedback.texto}
+            </div>
+          )}
+
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={() => setAjusteModal(null)}
+              className="flex-1 px-4 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold text-sm"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleEnviarAjuste}
+              disabled={ajusteEnviando}
+              className="flex-1 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {ajusteEnviando ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Enviar Solicitação'}
+            </button>
+          </div>
+        </div>
+      </div>
     )}
   </>
   )

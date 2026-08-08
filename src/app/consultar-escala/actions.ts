@@ -653,6 +653,70 @@ export async function checkIfFolhaHasPendingPastTimes(folha: any, escala: any, t
 }
 
 // Server Action: Save employee's timesheet from the portal
+/**
+ * Solicitação de ajuste de ponto pelo servidor.
+ *
+ * Substitui a edição direta da folha pelo portal. O servidor informa o horário que cumpriu; isso
+ * vira marcação de origem `ajuste_servidor` (precedência 4, a mais baixa) pendente de revisão do
+ * coordenador — não entra na folha por conta própria.
+ *
+ * A validação de posse acontece no banco (`fn_solicitar_ajuste_ponto` confere se o dia pertence
+ * ao servidor), porque o portal autentica apenas por PIN e o cookie é o único vínculo aqui.
+ */
+export async function solicitarAjustePonto(
+  folhaId: string,
+  dia: number,
+  horarios: Record<string, string>,
+  justificativa: string
+) {
+  try {
+    const supabase = await createAdminClient()
+    const cookieStore = await cookies()
+    const portalServidorId = cookieStore.get('portal_servidor_id')?.value
+
+    if (!portalServidorId) {
+      return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
+    }
+
+    const { data: folha } = await supabase
+      .from('folha_ponto')
+      .select('id, servidor_id, escala_mensal_id')
+      .eq('id', folhaId)
+      .single()
+
+    if (!folha) return { error: 'Folha de ponto não encontrada.' }
+    if (folha.servidor_id !== portalServidorId) return { error: 'Acesso negado.' }
+
+    // Resolve a linha do dia. Regular é a categoria natural de uma solicitação do servidor;
+    // Sobreaviso é excluído porque tem ciclo próprio e não registra presença.
+    const { data: linhas } = await supabase
+      .from('escala_diaria')
+      .select('id, categoria')
+      .eq('escala_mensal_id', folha.escala_mensal_id)
+      .eq('dia', dia)
+
+    const alvo = (linhas || []).find(l => l.categoria === 'Regular')
+      || (linhas || []).find(l => l.categoria !== 'Sobreaviso')
+
+    if (!alvo) return { error: 'Não há turno registrado para você neste dia.' }
+
+    const { data, error } = await supabase.rpc('fn_solicitar_ajuste_ponto', {
+      p_servidor_id: portalServidorId,
+      p_escala_diaria_id: alvo.id,
+      p_horarios: horarios,
+      p_justificativa: justificativa,
+    })
+
+    if (error) throw error
+    if (data && !data.success) return { error: data.message }
+
+    return { success: true, message: data?.message }
+  } catch (error: any) {
+    console.error('Erro ao solicitar ajuste de ponto:', error)
+    return { error: error.message || 'Não foi possível enviar a solicitação.' }
+  }
+}
+
 export async function salvarFolhaPontoServidor(folhaId: string, registros: any[]) {
   try {
     const supabase = await createAdminClient()
@@ -680,10 +744,30 @@ export async function salvarFolhaPontoServidor(folhaId: string, registros: any[]
       return { error: 'Esta competência está encerrada e todos os dados estão congelados para auditoria.' }
     }
 
-    // Bloquear alteração de marcações reais (origem = 'real') pelo portal
+    // O portal NÃO altera horário de ponto. Desde 20260808130000 o servidor solicita ajuste
+    // (fn_solicitar_ajuste_ponto) e o coordenador decide; a folha aqui é somente leitura.
+    //
+    // Isto é defesa de servidor, não só de interface: os inputs já vêm desabilitados quando
+    // isPortal, mas a action é chamável direto e o portal autentica apenas por PIN. Antes da
+    // v1.22.0 o risco era menor porque entrada e saída sempre traziam horário gerado; agora
+    // essas células nascem vazias, e uma célula vazia editável é autodeclaração de ponto sem
+    // nenhuma conferência.
     const oldRegistros = folha.registros as any[]
     for (const r of registros) {
       const oldR = oldRegistros?.find((o: any) => o.dia === r.dia)
+      if (oldR) {
+        const alterouHorario =
+          r.entrada !== oldR.entrada ||
+          r.saida_intervalo !== oldR.saida_intervalo ||
+          r.retorno_intervalo !== oldR.retorno_intervalo ||
+          r.saida !== oldR.saida
+        if (alterouHorario) {
+          return {
+            error: 'A folha não é editável por aqui. Use "informar horário" no dia desejado — '
+              + 'sua solicitação vai para o coordenador com o horário que você informar.'
+          }
+        }
+      }
       if (oldR) {
         if (oldR.origem_entrada === 'real' && r.entrada !== oldR.entrada) {
           return { error: 'Não é permitido alterar marcações reais de entrada.' }

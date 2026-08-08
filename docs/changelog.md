@@ -2,6 +2,26 @@
 
 Todas as alterações notáveis deste projeto são registradas neste arquivo.
 
+## [1.23.0] - 2026-08-08
+
+### 🚨 Alterações de Comportamento (Breaking)
+- **O portal do servidor deixa de permitir edição direta da folha de ponto**:
+  - A v1.22.0 removeu a geração automática de horário para entrada e saída, e a célula vazia resultante virou uma porta perigosa: o servidor editava qualquer campo não marcado como `real`, e a edição ia direto para `folha_ponto.registros` sem passar por revisão, sem criar marcação e sem deixar rastro de quem alterou o quê. Trocamos "ajustar um horário fictício limitado" por "declarar do zero na folha oficial, sem conferência".
+  - Os quatro campos de horário e a observação da folha agora são **somente leitura** no portal, em todas as camadas: interface (`FolhaPontoEditor`) e servidor (`salvarFolhaPontoServidor` recusa qualquer alteração de horário, mesmo se chamada diretamente).
+
+### 🚀 Funcionalidades Adicionadas
+- **Solicitação de ajuste de ponto pelo servidor**:
+  - Em dias de trabalho sem entrada ou saída registrada, aparece o botão **"informar horário"** na folha do portal. O servidor informa o horário que cumpriu e o motivo; isso vira uma marcação de origem `ajuste_servidor` — a mais baixa das quatro precedências (perde para relógio, terminal e ajuste do coordenador) — **pendente de revisão**, sem tocar a folha.
+  - A fila de revisão do coordenador (`fn_marcacoes_pendentes_revisao`) passa a incluir essas solicitações lado a lado com as batidas fora da janela, distinguíveis pela origem.
+  - O atestado de jornada em massa (`fn_atestar_jornada_bulk`) passa a pular também os dias com solicitação pendente do servidor, pela mesma razão que já pulava batidas do terminal: não atropelar informação real com horário contratual.
+  - Passo que já tem horário registrado recusa a solicitação — contestar um registro existente não é autoatendimento, fica com o coordenador.
+
+### 🔍 Observações
+- O servidor mantém a voz (ele é quem sabe o horário real), o coordenador mantém a decisão, e tudo fica rastreado — a mesma lógica de precedência e revisão construída para o terminal nesta mesma data, agora estendida ao portal.
+- `fn_confirmar_presenca_manual` e `fn_confirmar_presenca_manual_bulk` não foram alteradas.
+
+---
+
 ## [1.22.1] - 2026-08-08
 
 ### 🛠️ Correções de Erros (Fixes)

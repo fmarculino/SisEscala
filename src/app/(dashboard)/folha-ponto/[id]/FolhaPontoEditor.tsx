@@ -22,6 +22,12 @@ interface FolhaPontoEditorProps {
   folha: any
   profile: any
   isPortal?: boolean
+  /**
+   * Portal: abre a solicitação de ajuste para o dia. O servidor não edita a folha oficial —
+   * ele informa o horário e o coordenador decide. Ver fn_solicitar_ajuste_ponto
+   * (20260808130000) e a precedência 4 de `ajuste_servidor`.
+   */
+  onSolicitarAjuste?: (dia: number) => void
   onBack?: () => void
   saveAction?: (folhaId: string, registros: any[], status?: string, cargo?: string) => Promise<{ success?: boolean; error?: string }>
   verifyDivergenceAction?: (folhaId: string) => Promise<{ divergent: boolean; affectedDays?: number[]; error?: string }>
@@ -33,6 +39,7 @@ export function FolhaPontoEditor({
   folha, 
   profile,
   isPortal = false,
+  onSolicitarAjuste,
   onBack,
   saveAction,
   verifyDivergenceAction,
@@ -761,7 +768,7 @@ export function FolhaPontoEditor({
                           type="time" 
                           value={r.entrada || ''} 
                           onChange={(e) => handleCellChange(r.dia, 'entrada', e.target.value)}
-                          disabled={!isEditable || (r.origem_entrada === 'real' && profile?.role !== 'super_admin')}
+                          disabled={isPortal || !isEditable || (r.origem_entrada === 'real' && profile?.role !== 'super_admin')}
                           className="w-full bg-transparent border-none text-center outline-none font-bold text-zinc-900 dark:text-white font-mono disabled:opacity-50"
                         />
                       ) : (
@@ -776,7 +783,7 @@ export function FolhaPontoEditor({
                           type="time" 
                           value={r.saida_intervalo || ''} 
                           onChange={(e) => handleCellChange(r.dia, 'saida_intervalo', e.target.value)}
-                          disabled={!isEditable || (r.origem_saida_intervalo === 'real' && profile?.role !== 'super_admin')}
+                          disabled={isPortal || !isEditable || (r.origem_saida_intervalo === 'real' && profile?.role !== 'super_admin')}
                           className="w-full bg-transparent border-none text-center outline-none font-bold text-zinc-900 dark:text-white font-mono disabled:opacity-50"
                         />
                       ) : (
@@ -791,7 +798,7 @@ export function FolhaPontoEditor({
                           type="time" 
                           value={r.retorno_intervalo || ''} 
                           onChange={(e) => handleCellChange(r.dia, 'retorno_intervalo', e.target.value)}
-                          disabled={!isEditable || (r.origem_retorno_intervalo === 'real' && profile?.role !== 'super_admin')}
+                          disabled={isPortal || !isEditable || (r.origem_retorno_intervalo === 'real' && profile?.role !== 'super_admin')}
                           className="w-full bg-transparent border-none text-center outline-none font-bold text-zinc-900 dark:text-white font-mono disabled:opacity-50"
                         />
                       ) : (
@@ -806,7 +813,7 @@ export function FolhaPontoEditor({
                           type="time" 
                           value={r.saida || ''} 
                           onChange={(e) => handleCellChange(r.dia, 'saida', e.target.value)}
-                          disabled={!isEditable || (r.origem_saida === 'real' && profile?.role !== 'super_admin')}
+                          disabled={isPortal || !isEditable || (r.origem_saida === 'real' && profile?.role !== 'super_admin')}
                           className="w-full bg-transparent border-none text-center outline-none font-bold text-zinc-900 dark:text-white font-mono disabled:opacity-50"
                         />
                       ) : (
@@ -830,16 +837,32 @@ export function FolhaPontoEditor({
                       )}
                     </td>
 
-                    {/* Observações */}
+                    {/* Observações — e, no portal, o atalho para solicitar ajuste.
+                        O botão mora aqui de propósito: acrescentar uma coluna própria
+                        desalinharia a tabela, que tem cabeçalho fixo e é usada na impressão. */}
                     <td className="px-3 py-1.5 border-r border-zinc-200 dark:border-zinc-700 font-medium">
-                      <input 
-                        type="text" 
-                        value={r.observacao || ''} 
-                        onChange={(e) => handleCellChange(r.dia, 'observacao', e.target.value)}
-                        disabled={!isEditable}
-                        className="w-full bg-transparent border-none text-left outline-none text-zinc-700 dark:text-zinc-300 font-semibold disabled:opacity-50"
-                        placeholder={isOffDay ? '' : 'Digitar observação...'}
-                      />
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={r.observacao || ''}
+                          onChange={(e) => handleCellChange(r.dia, 'observacao', e.target.value)}
+                          disabled={isPortal || !isEditable}
+                          className="w-full bg-transparent border-none text-left outline-none text-zinc-700 dark:text-zinc-300 font-semibold disabled:opacity-50"
+                          placeholder={isOffDay ? '' : 'Digitar observação...'}
+                        />
+                        {/* Só em dia de trabalho com célula vazia — o caso de esquecimento de batida. */}
+                        {isPortal && onSolicitarAjuste && isWorkDay && !r.afastamento && !r.feriado
+                          && (!r.entrada || !r.saida) && (
+                          <button
+                            type="button"
+                            onClick={() => onSolicitarAjuste(r.dia)}
+                            className="shrink-0 px-2 py-1 text-[10px] font-bold rounded-md bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-900/70 transition-all whitespace-nowrap print:hidden"
+                            title="Informar o horário que você cumpriu neste dia"
+                          >
+                            informar horário
+                          </button>
+                        )}
+                      </div>
                     </td>
 
                     {/* Visto (Assinatura Rubrica) */}
