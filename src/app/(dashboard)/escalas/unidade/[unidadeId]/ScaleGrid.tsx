@@ -609,6 +609,59 @@ export function ScaleGrid({
     return 19
   }, [getShiftStartHour])
 
+  // FONTE ÚNICA DE HORÁRIO PREVISTO (Fase 3).
+  //
+  // A previsão que a grade desenha passa a vir de fn_blocos_previstos_mes, que é um LATERAL
+  // sobre a MESMA fn_blocos_previstos_dia que o terminal usa. Antes a grade re-derivava o
+  // horário com regras próprias e discordava do terminal — num dia de Regular M (08H-14H) +
+  // Plantão T, a grade previa 13:00 e o terminal exigia 14:00.
+  //
+  // Mapa: escala_diaria_id -> bloco previsto (já com fusão de blocos e intervalo aplicados).
+  // Enquanto não carrega, ou para célula ainda não salva no banco, cai no cálculo local.
+  const [blocosPrevistos, setBlocosPrevistos] = useState<Map<string, any>>(new Map())
+
+  useEffect(() => {
+    const ids = escalaMensal.map(e => e.id).filter(Boolean)
+    if (ids.length === 0) { setBlocosPrevistos(new Map()); return }
+    let cancelado = false
+    ;(async () => {
+      const { data, error } = await supabase.rpc('fn_blocos_previstos_mes', { p_escala_mensal_ids: ids })
+      if (cancelado) return
+      if (error || !Array.isArray(data)) {
+        // Silencioso de propósito: sem a RPC a grade continua funcionando com o cálculo
+        // local. Perde-se a garantia de igualdade com o terminal, não a tela.
+        console.warn('fn_blocos_previstos_mes indisponível, usando cálculo local:', error?.message)
+        return
+      }
+      const m = new Map<string, any>()
+      for (const b of data) {
+        for (const edId of (b.escala_diaria_ids || [])) m.set(edId, b)
+      }
+      setBlocosPrevistos(m)
+    })()
+    return () => { cancelado = true }
+  }, [supabase, escalaMensal])
+
+  // (servidor, categoria, dia) -> escala_diaria_id, para achar o bloco da célula.
+  // Só cobre o que está salvo no banco; célula recém-lançada ainda não tem id.
+  const edIdPorCelula = useMemo(() => {
+    const m = new Map<string, string>()
+    const emPorId = new Map(escalaMensal.map(e => [e.id, e]))
+    for (const ed of escalaDiariaInicial) {
+      const em = emPorId.get(ed.escala_mensal_id)
+      if (!em) continue
+      m.set(`${em.servidor_id}|${ed.categoria}|${ed.dia}`, ed.id)
+    }
+    return m
+  }, [escalaDiariaInicial, escalaMensal])
+
+  const blocoDaCelula = useCallback((servidorId?: string, cat?: string, day?: number) => {
+    if (!servidorId || !cat || !day) return null
+    const edId = edIdPorCelula.get(`${servidorId}|${cat}|${day}`)
+    if (!edId) return null
+    return blocosPrevistos.get(edId) || null
+  }, [edIdPorCelula, blocosPrevistos])
+
   // Um turno é "ancorado" quando o próprio código determina a hora — o banco diz isso em
   // dicionario_turnos.horario_inicio (M, T, N, MT e a família M?N, gravados em 20260808100000).
   // Os demais são de duração livre: o código dá duração e período, e só quem escala sabe a hora.
@@ -1555,6 +1608,28 @@ export function ScaleGrid({
     const turno = turnos.find(t => t.id === turnoId)
     if (!turno) return null
 
+    // FONTE ÚNICA (Fase 3): o bloco previsto vem de fn_blocos_previstos_mes, que envelopa a
+    // mesma fn_blocos_previstos_dia usada pelo terminal. O que aparece aqui é literalmente o
+    // que o terminal vai cobrar — inclusive fusão de blocos e intervalo.
+    // O cálculo local abaixo só roda se a célula ainda não estiver salva no banco ou se a RPC
+    // não tiver respondido.
+    const bloco = blocoDaCelula(servidorId, cat, day)
+    if (bloco) {
+      const iso =
+        tipo === 'entrada'           ? bloco.inicio_previsto :
+        tipo === 'saida'             ? bloco.fim_previsto :
+        tipo === 'intervalo_saida'   ? bloco.intervalo_inicio_previsto :
+        tipo === 'intervalo_retorno' ? bloco.intervalo_fim_previsto : null
+      if (iso) {
+        return new Date(iso).toLocaleTimeString('pt-BR', {
+          hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo'
+        })
+      }
+      // Passo de intervalo nulo é resposta legítima: o bloco não tem intervalo previsto
+      // (CLT Art. 71, ou unidade sem marcação). Não cair no cálculo local, que inventaria um.
+      if (tipo === 'intervalo_saida' || tipo === 'intervalo_retorno') return null
+    }
+
     let startH = 7
     let endH = 19
 
@@ -2320,16 +2395,26 @@ export function ScaleGrid({
               if (!confBy) {
                 confBy = validadorId
               }
+              // FONTE ÚNICA (Fase 3): o horário sintético gravado aqui tem que ser o MESMO que
+              // o terminal considera previsto. Antes vinha da regra local da grade, que
+              // discordava do backend — e aqui não é cosmético, isso vira timestamp em
+              // escala_diaria. Usa o bloco do banco quando a célula já existe lá.
+              const blocoSalvar = blocoDaCelula(em.servidor_id, categoria, day)
+              if (blocoSalvar) {
+                if (localPresence?.entrada && !ent) ent = blocoSalvar.inicio_previsto
+                if (localPresence?.saida && !sai) sai = blocoSalvar.fim_previsto
+              }
+
               const t = turnos.find(x => x.id === turnoId)
-              if (t) {
+              if (t && (!ent || !sai)) {
                 const startHour = getShiftStartHour(t.codigo)
                 const endHourVal = getShiftEndHour(t.codigo, Number(t.horas_computadas))
-                
+
                 if (localPresence?.entrada && !ent) {
                   // Construct entry ISO
                   ent = `${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(startHour).padStart(2, '0')}:00:00-03:00`
                 }
-                
+
                 if (localPresence?.saida && !sai) {
                   // Construct exit ISO
                   const endHourValNorm = endHourVal % 24

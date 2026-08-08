@@ -449,12 +449,52 @@ dois lados lerem o mesmo campo; a eliminação real é a Fase 3.
 - A partir daqui `T4`, `N4`, `N6`, `M7` param de ser adivinhação. São os únicos da Classe B com
   uso real em produção (84 lançamentos).
 
-### Fase 3 — Fonte única (mata a divergência grade↔terminal)
+### Fase 3 — Fonte única — ✅ **PRONTA, aguardando aplicação**
 
-- Extrair `fn_horario_previsto_turno` e fazer `fn_confirmar_presenca`,
-  `fn_confirmar_presenca_manual`, `fn_blocos_previstos_dia` e `ScaleGrid.tsx` chamarem a mesma
-  coisa. `getShiftStartHour`/`getShiftEndHour` viram wrappers da RPC ou são removidas.
-- Conferência: um dia em que grade e terminal discordem passa a ser impossível por construção.
+Migration: [`20260808120000_add_fn_blocos_previstos_mes.sql`](../../supabase/migrations/20260808120000_add_fn_blocos_previstos_mes.sql)
+· frontend em `ScaleGrid.tsx`.
+
+#### O desenho mudou: não extraí `fn_horario_previsto_turno`
+
+O plano original era extrair a cascata de `start_hour` de `fn_confirmar_presenca` para uma
+função nova e fazer todo mundo chamá-la. **Descartado.** Extrair aquele `COALESCE` exige
+*reestruturar* o corpo da função — exatamente a operação que já produziu seis regressões reais.
+
+E é desnecessário: **`fn_blocos_previstos_dia` já é a fonte única.** Ela nasceu como cópia
+mecânica do motor de blocos, e as Fases 1 e 2 a mantiveram em sincronia — as três funções foram
+alteradas pelo mesmo script, no mesmo commit. Faltava só poder consultá-la para uma **grade
+inteira** de uma vez.
+
+`fn_blocos_previstos_mes(uuid[])` é um `LATERAL` sobre ela. **Zero lógica nova** — o mesmo padrão
+que `fn_conferir_reconciliacao` já usa. Por construção, o que a grade desenha é literalmente o
+que o terminal vai cobrar; não "uma regra equivalente". Se um dia divergir, o bug está na função
+envelopada, nunca no envelope.
+
+**A migration não altera nenhuma função existente.** Cria uma função nova que ninguém chamava.
+
+#### Por que em lote
+
+Medido em produção: a maior grade de 08/2026 tem 21 servidores. Uma chamada por (servidor, dia)
+via HTTP daria ~651 chamadas × 52 ms ≈ **34 s** — quase tudo latência de rede. Em lote o
+`LATERAL` roda inteiro no servidor. A função percorre só os dias que têm linha em
+`escala_diaria`, não `1..31`.
+
+#### O que mudou no frontend
+
+- `getShiftForecastTime` passa a ler o bloco do banco; o cálculo local só roda para célula
+  ainda não salva ou se a RPC não respondeu (degrada, não quebra).
+- Passo de intervalo nulo é resposta **legítima** (bloco sem intervalo por CLT Art. 71 ou
+  unidade sem marcação) — não cai no cálculo local, que inventaria um horário.
+- **O salvamento também.** `ScaleGrid.tsx` usava a regra local para gravar os timestamps
+  sintéticos de entrada/saída em `escala_diaria`. Ali a divergência não era cosmética: virava
+  horário errado gravado. Agora usa o bloco do banco.
+
+#### O que a Fase 3 NÃO cobriu
+
+`getShiftStartHour`/`getShiftEndHour` continuam existindo e sendo usadas pelo motor de
+compliance (interjornada/DSR), pela geração de PDF e pela sugestão de encadeamento. Não são as
+que causam o descasamento com o terminal, e cada uma tem semântica própria a conferir antes de
+migrar. Ficam para uma Fase 3b, se valer a pena.
 
 ### Fase 4 — Encadeamento sequencial — ⚠️ **provavelmente desnecessária**
 

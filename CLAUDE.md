@@ -8,8 +8,14 @@ Ver também [`.agents/AGENTS.md`](.agents/AGENTS.md) — regras que **complement
 
 ## Stack
 
-Next.js 15 (App Router) · TypeScript · Tailwind 4 · Supabase (Postgres + RLS + Auth) · Vercel
+Next.js 15 (App Router) · TypeScript · Tailwind 4 · Supabase (Postgres + RLS + Auth)
 Sem framework de testes. `npm run build` e `npx tsc --noEmit` são a única verificação automática.
+(`npm run lint` **não roda** — o ESLint nunca foi configurado e o comando abre prompt interativo.)
+
+**Deploy: Coolify na VPS, não Vercel.** App em `sisescala.maraba.pa.gov.br`, mesmo host do
+Supabase de produção. Webhook do GitHub dispara o deploy automático a cada push na `main`.
+Uma nota anterior aqui dizia "Vercel" — os headers de produção não têm nenhuma assinatura da
+Vercel, e isso já levou a afirmar que um push tinha deployado sem ter como verificar.
 
 ```
 src/app/(dashboard)/     telas internas (escalas, folha-ponto, relatórios, cadastros)
