@@ -35,6 +35,22 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
+  // Rotas de API que NÃO podem depender de sessão de navegador. Cada uma tem autenticação
+  // própria — segredo de cron/webhook — ou é pública por natureza.
+  //
+  // Redirecionar uma dessas para /login não devolve erro: devolve HTTP 307 e a página de login.
+  // Quem chama é máquina, não gente, então o sintoma é a chamada "dar certo" e não fazer nada.
+  // Foi o que aconteceu com /api/version: a auto-atualização do terminal (v1.27.0) faz
+  // `fetch('/api/version')`, recebia o HTML do login, o `r.json()` estourava e o `catch` engolia —
+  // o terminal nunca se atualizou em produção, exatamente a falha que a v1.27.0 existia para
+  // corrigir. Conferido em 09/08/2026: `curl /api/version` devolvia 307 para /login.
+  const rotasApiPublicas = [
+    '/api/templates',      // link de recuperação de senha
+    '/api/version',        // auto-atualização do terminal de ponto — pública por natureza
+    '/api/cron',           // protegida por CRON_SECRET
+    '/api/avisos-ponto',   // despachar (CRON_SECRET) e webhook (WHATSAPP_WEBHOOK_SECRET)
+  ]
+
   if (
     !user &&
     !request.nextUrl.pathname.startsWith('/login') &&
@@ -44,7 +60,7 @@ export async function updateSession(request: NextRequest) {
     !request.nextUrl.pathname.startsWith('/sobreaviso') &&
     !request.nextUrl.pathname.startsWith('/presenca') &&
     !request.nextUrl.pathname.startsWith('/consultar-escala') &&
-    !request.nextUrl.pathname.startsWith('/api/templates')
+    !rotasApiPublicas.some(rota => request.nextUrl.pathname.startsWith(rota))
   ) {
     // no user, potentially respond by redirecting the user to the login page
     const url = request.nextUrl.clone()

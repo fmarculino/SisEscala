@@ -4,6 +4,47 @@ import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 
+const normalizarCpf = (cpf?: string | null) => (cpf || '').replace(/\D/g, '')
+
+/**
+ * Confere se o CPF já pertence a outro cadastro.
+ *
+ * Passa pela RPC de propósito. Um `.from('servidores').eq('cpf', ...)` daqui usaria o cliente do
+ * usuário logado e cairia na policy "Users can view relevant servers", que escopa por
+ * unidade/setor — quem não enxerga a outra unidade não acha a duplicata e cadastra de novo.
+ * É a mesma causa raiz da colisão de matrícula corrigida em 20260807110000, e foi assim que
+ * VIVIAN MARTINS MACEDO acabou com dois cadastros (T2600019 e T2600014) em produção.
+ *
+ * `fn_cpf_ja_cadastrado` é SECURITY DEFINER e enxerga a tabela inteira. O índice único
+ * `servidores_cpf_unico` continua sendo o backstop — esta checagem existe para a mensagem.
+ */
+async function verificarCpfDuplicado(
+  supabase: any,
+  cpf: string | null | undefined,
+  ignorarId?: string
+): Promise<string | null> {
+  const limpo = normalizarCpf(cpf)
+  if (!limpo) return null
+
+  const { data, error } = await supabase.rpc('fn_cpf_ja_cadastrado', {
+    p_cpf: limpo,
+    p_ignorar_id: ignorarId || null,
+  })
+
+  // Falha de rede/RPC não pode travar o cadastro: o índice único ainda segura a duplicata.
+  if (error) {
+    console.warn('Falha ao verificar CPF duplicado (o índice único ainda protege):', error.message)
+    return null
+  }
+
+  const encontrado = Array.isArray(data) ? data[0] : data
+  if (!encontrado) return null
+
+  const onde = encontrado.unidade_nome ? ` na unidade ${encontrado.unidade_nome}` : ''
+  return `Este CPF já está cadastrado para ${encontrado.nome} (matrícula ${encontrado.matricula})${onde}. ` +
+    `Cada servidor deve ter um cadastro único — se a pessoa mudou de lotação, transfira o cadastro existente em vez de criar outro.`
+}
+
 function extractDadosComplementares(formData: FormData) {
   return {
     data_nascimento: (formData.get('data_nascimento') as string)?.trim() || null,
@@ -80,6 +121,14 @@ export async function createServidor(formData: FormData) {
     }
   }
 
+  // A matrícula sozinha nunca protegeu a unicidade do cadastro: deixada em branco, a trigger
+  // trg_atribuir_matricula_temporaria gera uma NOVA, então cadastrar a mesma pessoa duas vezes
+  // não colide com nada. O CPF é a chave de identidade real.
+  const erroCpf = await verificarCpfDuplicado(supabase, cpf)
+  if (erroCpf) {
+    return { error: erroCpf }
+  }
+
   const ignora_janela_presenca = formData.has('ignora_janela_presenca') ? formData.get('ignora_janela_presenca') === 'true' : false
   const intervalo_flexivel = formData.get('intervalo_flexivel') === 'true'
 
@@ -106,18 +155,21 @@ export async function createServidor(formData: FormData) {
   })
 
   if (error) {
-    return { error: traduzirErroMatricula(error) }
+    return { error: traduzirErroCadastro(error) }
   }
 
   revalidatePath('/servidores')
   redirect('/servidores')
 }
 
-// A checagem prévia de matrícula duplicada é limitada pela RLS: uma matrícula existente em
-// unidade que o usuário não enxerga passa batida e só estoura na constraint. Traduz o erro
-// técnico do Postgres para algo acionável.
-function traduzirErroMatricula(error: { message?: string; code?: string }): string {
+// As checagens prévias são limitadas pela RLS: um registro existente em unidade que o usuário
+// não enxerga passa batida e só estoura na constraint. Traduz o erro técnico do Postgres para
+// algo acionável.
+function traduzirErroCadastro(error: { message?: string; code?: string }): string {
   const msg = error?.message || ''
+  if (error?.code === '23505' && /servidores_cpf_unico|\bcpf\b/i.test(msg)) {
+    return 'Este CPF já está cadastrado para outro servidor, possivelmente em uma unidade que você não visualiza. Cada servidor deve ter um cadastro único — localize o cadastro existente e transfira a lotação em vez de criar outro.'
+  }
   if (error?.code === '23505' && /matricula/i.test(msg)) {
     return 'Esta matrícula já está cadastrada para outro servidor, possivelmente em uma unidade que você não visualiza. Confirme a matrícula ou deixe o campo em branco para gerar uma temporária.'
   }
@@ -409,10 +461,51 @@ export async function importServidores(csvText: string) {
     return { error: 'Nenhum servidor válido encontrado no arquivo CSV enviado.' }
   }
 
+  // ---------------------------------------------------------------------------------------
+  // Unicidade do cadastro. O insert é em lote: uma linha duplicada aborta o arquivo inteiro na
+  // constraint, com uma mensagem do Postgres que não diz QUAL linha. Conferir antes permite
+  // apontar a linha e não deixar o coordenador adivinhando.
+  //
+  // São duas conferências diferentes, e as duas são necessárias:
+  //   1. dentro do próprio CSV — o arquivo pode repetir a mesma pessoa;
+  //   2. contra o banco — via RPC SECURITY DEFINER, porque a RLS esconderia um cadastro de
+  //      outra unidade e a importação recriaria a pessoa (foi assim que nasceu a duplicata de
+  //      VIVIAN MARTINS MACEDO).
+  // ---------------------------------------------------------------------------------------
+  const problemas: string[] = []
+  const vistosNoArquivo = new Map<string, number>()
+
+  for (let idx = 0; idx < servers.length; idx++) {
+    const cpfLimpo = normalizarCpf(servers[idx].cpf)
+    if (!cpfLimpo) continue
+
+    const linha = startRow + idx + 1
+
+    const anterior = vistosNoArquivo.get(cpfLimpo)
+    if (anterior !== undefined) {
+      problemas.push(`Linha ${linha}: CPF ${cpfLimpo} (${servers[idx].nome}) repetido — já aparece na linha ${anterior}.`)
+      continue
+    }
+    vistosNoArquivo.set(cpfLimpo, linha)
+
+    const erroCpf = await verificarCpfDuplicado(supabase, cpfLimpo)
+    if (erroCpf) {
+      problemas.push(`Linha ${linha} (${servers[idx].nome}): ${erroCpf}`)
+    }
+  }
+
+  if (problemas.length > 0) {
+    return {
+      error: `A importação foi cancelada — nenhum servidor foi cadastrado. Corrija o arquivo:\n\n` +
+        problemas.slice(0, 20).join('\n') +
+        (problemas.length > 20 ? `\n\n…e mais ${problemas.length - 20} problema(s).` : '')
+    }
+  }
+
   const { error } = await supabase.from('servidores').insert(servers)
 
   if (error) {
-    return { error: `Erro ao salvar servidores no banco de dados: ${traduzirErroMatricula(error)}` }
+    return { error: `Erro ao salvar servidores no banco de dados: ${traduzirErroCadastro(error)}` }
   }
 
   revalidatePath('/servidores')
@@ -456,6 +549,13 @@ export async function updateServidor(id: string, formData: FormData) {
     if (existing) {
       return { error: 'Esta matrícula já está cadastrada para outro servidor.' }
     }
+  }
+
+  // Preencher o CPF de um cadastro antigo é justamente quando a duplicata aparece: o registro
+  // existia sem CPF e, ao ganhar um, colide com outro cadastro da mesma pessoa.
+  const erroCpf = await verificarCpfDuplicado(supabase, cpf, id)
+  if (erroCpf) {
+    return { error: erroCpf }
   }
 
   // Query current lotação before updating to check for changes
@@ -674,10 +774,10 @@ export async function updateServidor(id: string, formData: FormData) {
       .eq('id', id)
 
     if (fallbackRes.error) {
-      return { error: traduzirErroMatricula(fallbackRes.error) }
+      return { error: traduzirErroCadastro(fallbackRes.error) }
     }
   } else if (error) {
-    return { error: traduzirErroMatricula(error) }
+    return { error: traduzirErroCadastro(error) }
   }
 
   revalidatePath('/servidores')

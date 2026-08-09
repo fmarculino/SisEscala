@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { GeoLocationPicker } from '@/components/GeoLocationPicker'
 import { LogoUploadManager } from '@/components/LogoUploadManager'
 import { UnidadeCommunicationSettings } from '@/components/UnidadeCommunicationSettings'
+import { UnidadeAvisoPontoSettings } from '@/components/UnidadeAvisoPontoSettings'
 import { UnidadeIntervaloSettings } from '@/components/UnidadeIntervaloSettings'
 import { UnidadeDadosFiscais } from '@/components/UnidadeDadosFiscais'
 
@@ -29,7 +30,9 @@ export default async function EditUnidadePage({
     .eq('chave', `unidade_comunicacao_${id}`)
     .maybeSingle()
 
-  const initialComunicacao = comConfig?.valor || unidade?.configuracoes_comunicacao || null
+  // Fonte única. O fallback para `unidade.configuracoes_comunicacao` foi removido: a coluna não
+  // existe em produção e o `select('*')` nunca a trouxe. Ver o comentário em unidades/actions.ts.
+  const initialComunicacao = comConfig?.valor || null
 
   if (!unidade) {
     return <div>Unidade não encontrada</div>
@@ -133,6 +136,12 @@ export default async function EditUnidadePage({
               initialPermiteIntervalo={unidade.permite_marca_intervalo}
               initialTipoIntervalo={unidade.tipo_intervalo}
               initialToleranciaMinutos={unidade.tolerancia_intervalo_minutos}
+            />
+
+            <UnidadeAvisoPontoSettings
+              initialHabilitado={unidade.aviso_ponto_whatsapp}
+              initialEventos={unidade.aviso_ponto_eventos}
+              permiteMarcaIntervalo={unidade.permite_marca_intervalo}
             />
 
             <UnidadeCommunicationSettings initialConfig={initialComunicacao} />

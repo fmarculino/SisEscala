@@ -6,6 +6,7 @@ import { unstable_cache, revalidatePath } from 'next/cache'
 import { autoCloseExpiredScalesAndTimesheets, isCompetencyClosed } from '@/utils/autoClose'
 import { resolverMarcacaoDoDia, COLUNAS_PRESENCA_FOLHA } from '@/utils/folha/origemMarcacao'
 import { podePreAssinalarIntervalo } from '@/utils/folha/preAssinalacao'
+import { TERMO_ATIVACAO, TERMO_DESATIVACAO, TERMO_VERSAO } from '@/utils/avisoPonto'
 
 
 export async function findServidorByMatricula(matricula: string) {
@@ -2537,3 +2538,115 @@ export async function sugerirJustificativaServidor(dados: {
   }
 }
 
+
+// =========================================================================
+// AVISO DE PONTO POR WHATSAPP — preferência do próprio servidor
+// =========================================================================
+// O aviso é OPT-IN: o default no banco é não enviar, e quem quiser receber ativa aqui.
+//
+// Não é preciosismo. O sinal dominante para banimento de número no WhatsApp é taxa de bloqueio
+// e denúncia — quem recebe mensagem que não pediu bloqueia. E o número em uso é o MESMO que
+// serve o acionamento de sobreaviso, então um banimento derrubaria o fluxo de urgência da rede.
+// Sob a LGPD, consentimento livre e documentado do titular também é a posição mais forte.
+
+/**
+ * Estado atual da preferência, para montar a tela.
+ */
+export async function getPreferenciaAvisoPonto() {
+  const cookieStore = await cookies()
+  const portalServidorId = cookieStore.get('portal_servidor_id')?.value
+
+  if (!portalServidorId) {
+    return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
+  }
+
+  const supabase = await createAdminClient()
+
+  const { data, error } = await supabase
+    .from('servidores')
+    .select('id, telefone, aviso_ponto_status, aviso_ponto_definido_em, aviso_ponto_confirmado_em, aviso_ponto_expira_em, unidade_id')
+    .eq('id', portalServidorId)
+    .single()
+
+  if (error || !data) {
+    return { error: 'Não foi possível carregar sua preferência.' }
+  }
+
+  // Sem telefone utilizável e exclusivo, ativar geraria opt-in que nunca entrega nada.
+  const { data: telefoneOk } = await supabase.rpc('fn_telefone_aviso_ponto', {
+    p_servidor_id: portalServidorId,
+  })
+
+  // A unidade precisa estar habilitada, senão o servidor ativa e não recebe — e conclui que
+  // o sistema está quebrado.
+  let unidadeHabilitada = false
+  if (data.unidade_id) {
+    const { data: unidade } = await supabase
+      .from('unidades')
+      .select('aviso_ponto_whatsapp')
+      .eq('id', data.unidade_id)
+      .maybeSingle()
+    unidadeHabilitada = !!unidade?.aviso_ponto_whatsapp
+  }
+
+  return {
+    status: data.aviso_ponto_status || 'inativo',
+    definidoEm: data.aviso_ponto_definido_em,
+    confirmadoEm: data.aviso_ponto_confirmado_em,
+    expiraEm: data.aviso_ponto_expira_em,
+    telefone: data.telefone,
+    telefoneUtilizavel: !!telefoneOk,
+    unidadeHabilitada,
+  }
+}
+
+/**
+ * Liga ou desliga o aviso, registrando o termo que o servidor leu.
+ *
+ * ATIVAR não ativa: é o **passo 1** do double opt-in. Grava o aceite do Portal e dispara uma
+ * mensagem no WhatsApp pedindo confirmação. O aviso só passa a valer quando a resposta chega em
+ * `/api/avisos-ponto/webhook`. Enquanto isso o status fica `pendente_confirmacao` e nenhuma
+ * mensagem de registro é enviada.
+ *
+ * O `servidor_id` vem SEMPRE do cookie de sessão do portal, nunca de parâmetro — a action é
+ * chamável direto e o portal autentica apenas por PIN. É a mesma defesa de
+ * `salvarFolhaPontoServidor`.
+ *
+ * O texto do termo também não vem do cliente: vem de `@/utils/avisoPonto`, o mesmo módulo que a
+ * tela usa para exibir. Aceitar o texto do cliente permitiria gravar "ciência" de qualquer coisa.
+ */
+export async function definirPreferenciaAvisoPonto(ativar: boolean) {
+  const cookieStore = await cookies()
+  const portalServidorId = cookieStore.get('portal_servidor_id')?.value
+
+  if (!portalServidorId) {
+    return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
+  }
+
+  const supabase = await createAdminClient()
+
+  const { data, error } = ativar
+    ? await supabase.rpc('fn_solicitar_aviso_ponto', {
+        p_servidor_id: portalServidorId,
+        p_termo_texto: TERMO_ATIVACAO,
+        p_termo_versao: TERMO_VERSAO,
+        p_prazo_horas: 48,
+      })
+    : await supabase.rpc('fn_desativar_aviso_ponto', {
+        p_servidor_id: portalServidorId,
+        p_termo_texto: TERMO_DESATIVACAO,
+        p_termo_versao: TERMO_VERSAO,
+      })
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  const res = Array.isArray(data) ? data[0] : data
+  if (!res?.success) {
+    return { error: res?.message || 'Não foi possível salvar sua preferência.' }
+  }
+
+  revalidatePath('/consultar-escala')
+  return { success: true, status: res.status as string, message: res.message as string }
+}

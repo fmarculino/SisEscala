@@ -19,6 +19,7 @@ import {
 import { ScalePrintView } from '@/components/ScalePrintView'
 import { PortalScaleGrid } from '@/app/consultar-escala/PortalScaleGrid'
 import { PortalFeriasLicencasSection } from '@/app/consultar-escala/PortalFeriasLicencasSection'
+ import { AvisoPontoSection } from '@/app/consultar-escala/AvisoPontoSection'
 import { SugerirJustificativaModal } from '@/components/justificativas/SugerirJustificativaModal'
 import { RelatorioEventoPrintView } from '@/components/reports/RelatorioEventoPrintView'
 
@@ -38,7 +39,7 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
   // Timesheet & Justificativas module integration states
   const [folhaHabilitada, setFolhaHabilitada] = useState(false)
   const [justificativasHabilitada, setJustificativasHabilitada] = useState(true)
-  const [viewMode, setViewMode] = useState<'escala' | 'folha' | 'ferias' | 'justificativas'>('escala')
+  const [viewMode, setViewMode] = useState<'escala' | 'folha' | 'ferias' | 'justificativas' | 'avisos'>('escala')
   const [folhaData, setFolhaData] = useState<any | null>(null)
   const [loadingFolha, setLoadingFolha] = useState(false)
   const [generatingPortalFolha, setGeneratingPortalFolha] = useState(false)
@@ -653,6 +654,16 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
                           >
                             🏖️ Férias e Licenças
                           </button>
+                          <button
+                            onClick={() => setViewMode('avisos')}
+                            className={`px-4 py-2 text-xs font-black uppercase rounded-lg transition-all ${
+                              viewMode === 'avisos'
+                                ? 'bg-white dark:bg-zinc-900 text-emerald-600 shadow-sm'
+                                : 'text-zinc-500 hover:text-zinc-850 dark:hover:text-zinc-300'
+                            }`}
+                          >
+                            💬 Avisos
+                          </button>
                           {justificativasHabilitada && (
                             <button
                               onClick={handleViewJustificativas}
@@ -679,6 +690,10 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
                 
                 {viewMode === 'ferias' && (
                   <PortalFeriasLicencasSection servidor={servidor} />
+                )}
+
+                {viewMode === 'avisos' && (
+                  <AvisoPontoSection />
                 )}
 
                 {viewMode === 'justificativas' && (

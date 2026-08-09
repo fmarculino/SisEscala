@@ -153,7 +153,8 @@ export default function NovoServidorPage() {
     const message = `Olá *${nome}*, seu PIN de acesso ao Portal do Servidor SisEscala é: *${currentPin}*`
 
     try {
-      const res = await sendWhatsAppMessageAction({ phone, message })
+      // Sem `unidadeId` o envio ignora o canal próprio da unidade e sai sempre pelo global.
+      const res = await sendWhatsAppMessageAction({ phone, message, unidadeId: selectedUnidade || undefined })
       if (res.success) {
         await dialog.alert({
           type: 'success',

@@ -102,7 +102,8 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
 
     setWaSending(true)
     try {
-      const res = await sendWhatsAppMessageAction({ phone, message })
+      // Sem `unidadeId` o envio ignora o canal próprio da unidade e sai sempre pelo global.
+      const res = await sendWhatsAppMessageAction({ phone, message, unidadeId: selectedUnidade || undefined })
       if (res.success) {
         await dialog.alert({
           type: 'success',

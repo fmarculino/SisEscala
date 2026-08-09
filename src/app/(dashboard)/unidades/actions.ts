@@ -118,6 +118,17 @@ export async function updateUnidade(id: string, formData: FormData) {
   const tipo_intervalo = (formData.get('tipo_intervalo') as string) || 'flexivel'
   const tolerancia_intervalo_minutos = formData.get('tolerancia_intervalo_minutos') ? parseInt(formData.get('tolerancia_intervalo_minutos') as string) : 5
 
+  // Aviso de ponto por WhatsApp. Os campos só entram no update quando o formulário os enviou:
+  // um form que não renderize a seção não pode DESLIGAR o aviso de uma unidade por omissão.
+  const avisoPonto: any = {}
+  if (formData.has('aviso_ponto_whatsapp')) {
+    avisoPonto.aviso_ponto_whatsapp = formData.get('aviso_ponto_whatsapp') === 'true'
+    avisoPonto.aviso_ponto_eventos = ((formData.get('aviso_ponto_eventos') as string) || '')
+      .split(',')
+      .map(e => e.trim())
+      .filter(Boolean)
+  }
+
   const updateData: any = {
     nome,
     endereco,
@@ -127,6 +138,7 @@ export async function updateUnidade(id: string, formData: FormData) {
     permite_marca_intervalo,
     tipo_intervalo,
     tolerancia_intervalo_minutos,
+    ...avisoPonto,
     ...lerDadosFiscais(formData)
   }
 
@@ -168,27 +180,38 @@ export async function updateUnidade(id: string, formData: FormData) {
     return { error: traduzirErroUnidade(error.message) }
   }
 
-  // Processar e salvar as configurações de comunicação da unidade (se enviadas)
+  // Configurações de comunicação da unidade — o canal próprio que substitui o global.
+  //
+  // FONTE ÚNICA: `configuracoes_globais`, chave `unidade_comunicacao_<id>`. É de lá que
+  // sendWhatsAppMessageAction lê (communication.ts), e é a única via que sempre funcionou.
+  //
+  // Havia aqui um segundo UPDATE em `unidades.configuracoes_comunicacao`, coluna que NÃO EXISTE
+  // em produção — conferido por sonda em 09/08/2026:
+  //     column unidades.configuracoes_comunicacao does not exist
+  // Pior que ser inútil, era invisível duas vezes: o `try/catch` não pegava nada (o supabase-js
+  // devolve `{ error }`, não lança), e o `catch` externo só cobria o JSON.parse. A tela sempre
+  // reportou sucesso, mesmo quando nada foi salvo.
   const comunicacaoRaw = formData.get('configuracoes_comunicacao') as string
   if (comunicacaoRaw) {
+    let parsedConfig: unknown
     try {
-      const parsedConfig = JSON.parse(comunicacaoRaw)
-      
-      // 1. Tentar salvar na coluna da tabela unidades (se a coluna existir no schema)
-      try {
-        await supabase.from('unidades').update({ configuracoes_comunicacao: parsedConfig }).eq('id', id)
-      } catch (errCol) {
-        // Ignora silenciosamente caso a coluna ainda não exista
-      }
-
-      // 2. Salvar na chave global de contingência
-      await supabase.from('configuracoes_globais').upsert({
-        chave: `unidade_comunicacao_${id}`,
-        valor: parsedConfig,
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'chave' })
+      parsedConfig = JSON.parse(comunicacaoRaw)
     } catch (e) {
-      console.warn('Erro ao salvar configuracoes_comunicacao da unidade:', e)
+      return { error: 'As configurações de comunicação da unidade vieram em formato inválido e não foram salvas.' }
+    }
+
+    const { error: comunicacaoError } = await supabase.from('configuracoes_globais').upsert({
+      chave: `unidade_comunicacao_${id}`,
+      valor: parsedConfig,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'chave' })
+
+    // Falha aqui não pode passar como sucesso: a unidade continuaria enviando pelo canal global
+    // sem ninguém saber que o canal próprio não foi gravado.
+    if (comunicacaoError) {
+      return {
+        error: `Os dados da unidade foram salvos, mas as configurações de comunicação NÃO foram: ${comunicacaoError.message}`
+      }
     }
   }
 

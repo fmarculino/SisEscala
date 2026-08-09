@@ -2,6 +2,47 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.28.0] - 2026-08-09
+
+### Fixed
+- **Rotas de API redirecionadas para `/login` — a v1.27.0 nasceu inerte em produção** (`src/utils/supabase/middleware.ts`):
+  - A lista de exceções do middleware liberava apenas `/api/templates`. Todo o restante sob `/api` recebia **HTTP 307 para `/login`** quando não havia sessão de navegador — e quem chama essas rotas é **máquina, não gente**.
+  - O sintoma é o pior possível: redirect não é erro. O `fetch` segue para `/login`, recebe HTML com status **200**, e a chamada "dá certo" sem fazer nada.
+  - Efeito medido em produção em 09/08/2026 (`curl` devolvendo 307): a auto-atualização do terminal de ponto — a feature central da **v1.27.0** — fazia `fetch('/api/version')`, recebia o HTML do login, o `r.json()` estourava e o `catch` (que existe para tolerar rede instável de portaria) engolia em silêncio. **O terminal nunca se atualizou sozinho**, pela mesma classe de falha silenciosa que a v1.27.0 foi escrita para corrigir.
+  - `/api/cron` estava igualmente bloqueada — convém conferir se o fechamento automático de escalas e a geração de rascunhos vinham de fato rodando.
+  - As rotas públicas por natureza ou com autenticação própria passam a ser listadas explicitamente: `/api/templates`, `/api/version`, `/api/cron` e `/api/avisos-ponto`. Cada uma mantém sua própria defesa (`CRON_SECRET`, `WHATSAPP_WEBHOOK_SECRET`).
+
+- **Configuração de comunicação da unidade nunca era gravada na coluna que o código tentava** (`src/app/(dashboard)/unidades/actions.ts`):
+  - `updateUnidade` gravava em `unidades.configuracoes_comunicacao`, coluna que **não existe em produção**. O erro era invisível duas vezes: o `try/catch` não pegava nada (o supabase-js devolve `{ error }`, não lança) e o `catch` externo só cobria o `JSON.parse`. A tela sempre reportou sucesso.
+  - Fonte única passa a ser `configuracoes_globais`, chave `unidade_comunicacao_<id>` — de onde `sendWhatsAppMessageAction` já lia. O erro do upsert agora **aparece na tela**.
+  - `sharePinWhatsApp` passou a enviar `unidadeId`: sem ele o PIN saía sempre pelo canal global, ignorando o canal próprio da unidade.
+
+### Added
+- **Cadastro único de servidor por CPF** (migration `20260809110000`):
+  - Produção tinha a mesma pessoa cadastrada duas vezes (VIVIAN MARTINS MACEDO, `T2600019` e `T2600014`, mesmo CPF/nome/e-mail/telefone).
+  - Causa raiz: `servidores` tem `UNIQUE` só em `matricula` e **nada** em `cpf`; e com a matrícula em branco a trigger `trg_atribuir_matricula_temporaria` gera uma **nova**. Cadastrar a mesma pessoa duas vezes não colidia com nada — a única proteção de unicidade era contornada pelo caminho mais usado (15 matrículas temporárias em produção).
+  - Agravante idêntico ao de `20260807110000`: checagem feita do frontend passa pela RLS, que escopa `servidores` por unidade — quem não enxerga a outra unidade não acha a duplicata.
+  - Índice único parcial `servidores_cpf_unico` sobre o CPF normalizado (backstop real), `fn_cpf_ja_cadastrado` **`SECURITY DEFINER`** (mensagem útil, enxerga a tabela inteira), `fn_possiveis_duplicidades_servidor` (cobre os 31% sem CPF, que o índice não alcança) e `fn_cpf_digito_valido` (aviso, não `CHECK`: 4 CPFs já gravados reprovam).
+  - Limpeza decide por **histórico, não por data** — o cadastro mais antigo era o fantasma (0 referências, setor ALMOXARIFADO) e o mais novo tinha 10 marcações de ponto (setor CAF). Aborta se dois cadastros do mesmo CPF tiverem histórico.
+  - Checagem aplicada nas três portas de escrita, incluindo duplicidade **dentro do próprio CSV** na importação em massa, que antes não conferia nada.
+
+- **Aviso de registro de ponto por WhatsApp, com double opt-in** (migrations `20260809120000` e `20260809130000`):
+  - Quem bate no terminal não levava nada consigo — a tela some em 3 s (6 s no caso âmbar) — enquanto quem bate no REP-C sai com papel na mão.
+  - É um **aviso informativo** e a mensagem diz isso: **não** é o Comprovante de Registro de Ponto do Art. 79 da Portaria 671/2021, que exige NSR, nº INPI, hash SHA-256 e assinatura ICP-Brasil — quatro campos hoje inatingíveis. O comprovante de verdade é o PDF no Portal (fase própria), que é o que atende o Art. 80.
+  - **Double opt-in**: aceite do termo no Portal (autenticado por PIN) **+** resposta confirmando no próprio WhatsApp, via webhook. Resolve três coisas de uma vez — o sinal dominante de spam é conversa de mão única e a resposta transforma o número em interlocutor (o número é o **mesmo** do acionamento de sobreaviso); a resposta prova **posse** do aparelho, que o PIN não prova; e é a posição mais forte sob a LGPD.
+  - Pedido não respondido **expira em 48 h e não é reenviado** — silêncio é resposta, e insistir é o que gera bloqueio. `PARAR` é honrado em qualquer estado.
+  - Enfileiramento por gatilho em `marcacoes_ponto`, envio por worker (`/api/avisos-ponto/despachar`): nenhuma chamada HTTP entra no caminho de quem está batendo o ponto, e o disparo independe da versão do bundle do terminal. Todo o gatilho sob `EXCEPTION WHEN OTHERS`.
+  - O passo (entrada/saída/intervalo) é **lido** de `escala_diaria`, não inferido: o trigger de sync já gravou o valor quando este dispara. Sem casamento = pendente de revisão = evento `fora_janela`. Nenhuma função de presença foi alterada.
+  - Configuração por unidade (`aviso_ponto_whatsapp`, `aviso_ponto_eventos`) com `DEFAULT false`: aplicar a migration não envia nada a ninguém.
+  - `logs_webhook_whatsapp` guarda o payload bruto de toda mensagem recebida — permite descobrir o formato real do provedor por `SELECT`, em vez de caçar em log de container, e serve como evidência da resposta que sustenta o consentimento.
+
+### Notes
+- O termo de ciência tem **fonte única** em `src/utils/avisoPonto.ts`: o texto exibido e o gravado em `logs_preferencia_aviso_ponto.termo_texto` são o mesmo literal, e a server action **não aceita** o termo vindo do cliente. Um registro que provasse ciência de texto diferente do lido perderia todo o valor.
+- Casamento telefone → servidor pelos **últimos 8 dígitos** (o WhatsApp devolve o número brasileiro ora com, ora sem o 9º dígito). Se o sufixo casar com dois cadastros, a função **recusa decidir**. Medido em produção: zero sufixos ambíguos.
+- Divulgação no terminal **adiada deliberadamente** — decisão de 09/08/2026, registrada no plano. Adesão baixa no piloto significará que ninguém foi avisado da opção, não que ela não interessa.
+- Piloto definido: **HMM** (4 servidores, todos com telefone, pico de 4 batidas/dia). Expansão HMM → CTA → USF ENFERMEIRA ZEZINHA → SMS → LACEM; a ZEZINHA em terceiro por ser a única unidade com marcação de intervalo.
+- Planos em `docs/planos/2026-08-09-comprovante-de-ponto-por-whatsapp.md` e `docs/planos/2026-08-09-cadastro-unico-de-servidor.md`. Passo a passo de ativação em `docs/runbooks/2026-08-09-ativar-aviso-de-ponto-passo-a-passo.md`.
+
 ## [1.25.0] - 2026-08-09
 
 ### Fixed
