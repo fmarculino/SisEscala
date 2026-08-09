@@ -2,6 +2,59 @@
 
 Todas as alterações notáveis deste projeto são registradas neste arquivo.
 
+## [1.24.0] - 2026-08-08
+
+### ✨ Acionamento de sobreaviso com destino
+
+Plano completo em `docs/planos/2026-08-08-acionamento-de-sobreaviso-com-destino.md`.
+Migrations `202608081[5-9]0000` aplicadas em homologação e produção em 08/08/2026, com a
+conferência registrada no plano.
+
+- **O painel de sobreaviso do dashboard passa a ser global.** Todo coordenador/admin vê quem está
+  de sobreaviso em toda a secretaria, com o período completo (`19:00 → 07:00`) em vez de só o
+  horário de início. Antes cada um via apenas o próprio setor — mas quem está de sobreaviso é
+  acionado por várias unidades.
+- **Acionamento vira popup, não navegação para a escala.** Quem aciona pode não ter acesso àquela
+  escala; o botão levava para uma tela que ele não podia abrir.
+- **O chamado passa a ter destino.** Unidade + setor + ponto de referência livre, pré-selecionados
+  com a lotação de quem aciona e alteráveis para qualquer lugar da rede. O `cheguei no local`
+  confere o **destino**, não a unidade da escala.
+  - Medido em produção: as 8 chegadas com GPS existentes foram todas conferidas contra a sala da
+    TI; em dois casos o destino real estava a **3,3 km** e **4,0 km** dali. O servidor ia até a
+    própria lotação só para o botão aceitar, e só então se deslocava.
+  - ⚠️ Consequência a avisar a quem opera: `sobreaviso_tempo_chegada_minutos` (90 min) passa a
+    cronometrar o deslocamento até o local do chamado. Chamados que hoje "chegam" no prazo podem
+    passar a estourar.
+- **Ver é global; acionar é por abrangência.** Novo campo `setores.sobreaviso_abrangencia`
+  (`geral` × `unidade`, padrão `unidade`), editável por admin na tela de setores. Equipes que
+  atendem a rede (TI, manutenção, transporte) são acionáveis por qualquer coordenador; o
+  sobreaviso próprio de uma unidade continua restrito ao escopo dela. Sobreaviso bloqueado
+  continua **visível**, com o motivo escrito.
+- **O acionamento sai do navegador e vira regra de banco** (`fn_acionar_sobreaviso`). Antes era um
+  `INSERT` direto sob uma policy `FOR ALL` — dava para gravar `status = 'Chegou'` sem token, sem
+  GPS e sem ninguém aceitar. Janela ativa e "já tem chamado em aberto" viviam só no frontend.
+  Índice único parcial fecha a corrida entre dois coordenadores acionando a mesma pessoa.
+- **A janela do sobreaviso ganha fonte única** (`fn_janela_sobreaviso_dia`). Existiam duas
+  heurísticas diferentes — uma no dashboard, outra no `ScaleGrid` — e nenhuma era o que o banco
+  cobraria. Conferido sobre os 67 sobreavisos de produção: **0 divergências**.
+- **Registro de quem acionou** (`acionado_por`) e da prova de chegada
+  (`chegada_distancia_metros`, `chegada_geofence_aplicado`). Sem a segunda, "validado dentro do
+  raio" e "aceito porque não havia coordenada cadastrada" eram indistinguíveis — os dois gravavam
+  `tipo_validacao_chegada = 'GPS'`.
+
+### 🛠️ Correções de Erros (Fixes)
+
+- **Relatório de plantão/sobreaviso nunca leu acionamento nenhum**: o `select` pedia a coluna
+  `data_hora_chamado`, que **nunca existiu** (o nome é `data_hora_acionamento`). O PostgREST
+  respondia **400** e o código caía num `|| []`, tratando *todo* sobreaviso como não acionado —
+  sem erro visível em lugar nenhum. Corrigido o nome, adicionado tratamento do erro e as colunas
+  de destino.
+- **`logs_sobreaviso` não é uma tabela de acionamentos**: das 522 linhas de produção, **509 são
+  artefatos** de validação de presença (`fn_confirmar_presenca` e a validação manual também
+  escrevem ali, com status `Chegou`) e apenas **13 são acionamentos reais**. Corrigir só o nome da
+  coluna acima teria trocado um erro por outro — o relatório sairia de "nenhum acionado" para
+  "quase todos". O filtro de acionamento real entrou junto, no relatório e no painel.
+
 ## [1.23.1] - 2026-08-08
 
 ### 🛠️ Correções de Erros (Fixes)

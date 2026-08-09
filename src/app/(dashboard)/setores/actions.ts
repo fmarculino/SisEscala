@@ -178,6 +178,24 @@ export async function updateSetor(id: string, formData: FormData) {
     raio_geofence
   }
 
+  // Abrangência do sobreaviso — Fase 6b do plano
+  // docs/planos/2026-08-08-acionamento-de-sobreaviso-com-destino.md
+  //
+  // "geral" abre o acionamento deste sobreaviso para qualquer coordenador da secretaria. É a
+  // chave que tira a proteção de escopo, então só super_admin/admin mexe. Quando o campo não
+  // vem no formulário (coordenador editando), a coluna não entra no update e fica como está —
+  // e não vira 'unidade' por omissão.
+  const abrangenciaEnviada = formData.get('sobreaviso_abrangencia') as string | null
+  if (abrangenciaEnviada === 'geral' || abrangenciaEnviada === 'unidade') {
+    const { data: { user: editor } } = await supabase.auth.getUser()
+    const { data: perfilEditor } = await supabase
+      .from('profiles').select('role').eq('id', editor?.id).single()
+
+    if (perfilEditor && ['super_admin', 'admin'].includes(perfilEditor.role)) {
+      updateData.sobreaviso_abrangencia = abrangenciaEnviada
+    }
+  }
+
   const removeLogo = formData.get('remove_logo') === 'true'
   if (removeLogo) {
     updateData.logo_url = null

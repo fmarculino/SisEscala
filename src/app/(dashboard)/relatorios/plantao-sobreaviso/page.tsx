@@ -133,12 +133,48 @@ export default async function PlantaoSobreavisoPage({ searchParams }: Props) {
   // 3. Fetch on-call acionamentos logs
   const scaleIds = filteredScales.map((e: any) => e.id)
   
-  const { data: rawLogs } = await supabase
+  // ATENÇÃO: até 08/08/2026 este select pedia `data_hora_chamado`, coluna que NUNCA existiu em
+  // logs_sobreaviso (o nome real é data_hora_acionamento). O PostgREST respondia 400 e o código
+  // caía no `|| []` logo abaixo — ou seja, este relatório vinha tratando TODO sobreaviso como
+  // não acionado, sem erro visível em lugar nenhum. Conferido contra produção:
+  //   .../logs_sobreaviso?select=...,data_hora_chamado,... -> 400 column does not exist
+  //
+  // O log do erro é descartado pela desestruturação. Por isso `logError` é conferido aqui.
+  const { data: rawLogs, error: logError } = await supabase
     .from('logs_sobreaviso')
-    .select('id, escala_mensal_id, dia, status, motivo_acionamento, data_hora_chamado, data_hora_chegada')
+    .select(`
+      id, escala_mensal_id, dia, status, motivo_acionamento, acionado_por,
+      data_hora_acionamento, data_hora_chegada,
+      chegada_distancia_metros, chegada_geofence_aplicado,
+      destino_referencia,
+      destino_unidade:unidades!destino_unidade_id(nome),
+      destino_setor:setores!destino_setor_id(dicionario_setores(nome)),
+      acionador:profiles!acionado_por(full_name)
+    `)
     .in('escala_mensal_id', scaleIds.length > 0 ? scaleIds : ['00000000-0000-0000-0000-000000000000'])
 
+  if (logError) {
+    console.error('Relatório de sobreaviso: falha ao carregar logs_sobreaviso —', logError.message)
+  }
+
   const logs = rawLogs || []
+
+  // logs_sobreaviso NÃO é uma tabela só de acionamentos: fn_confirmar_presenca e
+  // fn_confirmar_presenca_manual também escrevem aqui quando validam presença de Sobreaviso.
+  // Medido em produção em 08/08/2026: de 522 linhas, 509 são desse tipo e apenas 13 são
+  // acionamentos de verdade — e os artefatos entram com status 'Chegou'.
+  //
+  // Sem este filtro, consertar o select acima trocaria um erro por outro: o relatório sairia de
+  // "nenhum sobreaviso foi acionado" direto para "quase todos foram".
+  // Mesmo critério de fn_painel_sobreaviso_dia.
+  const ehAcionamentoReal = (l: any) => {
+    if (l.acionado_por) return true
+    const m: string = l.motivo_acionamento || ''
+    return !(/^O próprio usuário confirmou/i.test(m)
+          || /^Validação Manual/i.test(m)
+          || /^REVERSÃO/i.test(m))
+  }
+  const logsAcionamento = logs.filter(ehAcionamentoReal)
 
   // 4. Process Diagnostics Data per Server
   const serverMap: Record<string, any> = {}
@@ -202,7 +238,7 @@ export default async function PlantaoSobreavisoPage({ searchParams }: Props) {
         currentServer.sobreavisoScheduledHours += horas
 
         // Check if this on-call was activated in logs
-        const isActivated = logs.some(l => 
+        const isActivated = logsAcionamento.some(l => 
           l.escala_mensal_id === item.id && 
           l.dia === ed.dia && 
           (l.status === 'Chegou' || l.status === 'Aceito')
@@ -277,7 +313,7 @@ export default async function PlantaoSobreavisoPage({ searchParams }: Props) {
         }
         currentTrend.sobreavisoScheduledHours += horas
 
-        const isActivated = logs.some(l => 
+        const isActivated = logsAcionamento.some(l => 
           l.escala_mensal_id === item.id && 
           l.dia === ed.dia && 
           (l.status === 'Chegou' || l.status === 'Aceito')

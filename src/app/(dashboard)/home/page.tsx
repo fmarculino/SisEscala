@@ -1,12 +1,18 @@
 import { createClient } from '@/utils/supabase/server'
 import {
   Users, Building2, Calendar, ArrowRight, Clock, Phone,
-  AlertTriangle, CheckCircle2, CalendarDays, BarChart3,
-  ShieldCheck, FileText, Zap, UserCheck, Activity, TrendingUp, Navigation2
+  CheckCircle2, CalendarDays, BarChart3,
+  ShieldCheck, FileText
 } from 'lucide-react'
 import Link from 'next/link'
 import { applyAccessFilters } from '@/utils/permissions'
 import { HistoricoChart } from './_components/HistoricoChart'
+import { SobreavisoPanel } from './_components/SobreavisoPanel'
+import {
+  getPainelSobreaviso,
+  getDestinosSobreaviso,
+  getLotacaoDoAcionador
+} from '@/app/actions/sobreaviso'
 
 export default async function DashboardHome() {
   const supabase = await createClient()
@@ -59,13 +65,8 @@ export default async function DashboardHome() {
   `).eq('mes', currentMonth).eq('ano', currentYear)
   escalasQuery = applyAccessFilters(escalasQuery, userProfile)
 
-  // 3. Escala diária de hoje e ontem (para capturar turnos noturnos em andamento)
-  const yesterday = new Date(today)
-  yesterday.setDate(yesterday.getDate() - 1)
-  const yesterdayDay = yesterday.getDate()
-  const yesterdayMonth = yesterday.getMonth() + 1
-  const yesterdayYear = yesterday.getFullYear()
-
+  // 3. Escala diária de hoje. "Ontem" saiu daqui junto com o painel de sobreaviso: quem cobre
+  // o turno noturno que atravessa a meia-noite agora é fn_painel_sobreaviso_dia.
   let diariaTodayQuery = supabase.from('escala_diaria').select(`
     id, dia, categoria, presenca_confirmada, presenca_entrada_em, presenca_saida_em,
     dicionario_turnos(id, codigo, horas_computadas, tipo, slots),
@@ -79,20 +80,13 @@ export default async function DashboardHome() {
     .eq('escala_mensal.ano', currentYear)
   diariaTodayQuery = applyAccessFilters(diariaTodayQuery, userProfile, { unidadeField: 'escala_mensal.unidade_id', setorField: 'escala_mensal.setor_id' })
 
-  // Query sobreaviso de ontem para verificar turnos que cruzam a meia-noite (N12, D24)
-  let diariaYesterdaySobreavisoQuery = supabase.from('escala_diaria').select(`
-    id, dia, categoria, presenca_confirmada, presenca_entrada_em, presenca_saida_em,
-    dicionario_turnos(id, codigo, horas_computadas, tipo, slots),
-    escala_mensal!inner(
-      id, servidor_id, unidade_id, setor_id, mes, ano, status,
-      servidores(id, nome, telefone),
-      unidades(id, nome)
-    )
-  `).eq('dia', yesterdayDay)
-    .eq('categoria', 'Sobreaviso')
-    .eq('escala_mensal.mes', yesterdayMonth)
-    .eq('escala_mensal.ano', yesterdayYear)
-  diariaYesterdaySobreavisoQuery = applyAccessFilters(diariaYesterdaySobreavisoQuery, userProfile, { unidadeField: 'escala_mensal.unidade_id', setorField: 'escala_mensal.setor_id' })
+  // NOTA (08/08/2026): as consultas de sobreaviso saíram daqui.
+  // O painel passou a ser global — todo coordenador/admin vê o sobreaviso de toda a secretaria,
+  // porque quem está de sobreaviso atende várias unidades. Com applyAccessFilters, cada um via
+  // só o próprio setor. A leitura agora é fn_painel_sobreaviso_dia (SECURITY DEFINER, com guard
+  // de papel), que também devolve a janela do plantão e quem pode acionar cada um — as mesmas
+  // funções que fn_acionar_sobreaviso aplica ao gravar.
+  // Ver docs/planos/2026-08-08-acionamento-de-sobreaviso-com-destino.md
 
   // 4. Afastamentos ativos
   const yyyy = today.getFullYear()
@@ -104,29 +98,6 @@ export default async function DashboardHome() {
     servidores(id, nome, unidade_id),
     tipos_eventos(nome, cor)
   `).lte('data_inicio', todayStr).gte('data_fim', todayStr)
-
-  // 5. Logs de sobreaviso de hoje e ontem (para status dos acionamentos)
-  let sobreavisoLogsQuery = supabase.from('logs_sobreaviso').select(`
-    id, servidor_id, unidade_id, escala_mensal_id, dia, status,
-    data_hora_acionamento, data_hora_aceite, data_hora_chegada,
-    token_magic_link, motivo_acionamento, categoria,
-    escala_mensal!inner(mes, ano)
-  `).eq('dia', todayDay)
-    .eq('categoria', 'Sobreaviso')
-    .eq('escala_mensal.mes', currentMonth)
-    .eq('escala_mensal.ano', currentYear)
-  sobreavisoLogsQuery = applyAccessFilters(sobreavisoLogsQuery, userProfile)
-
-  let sobreavisoLogsYesterdayQuery = supabase.from('logs_sobreaviso').select(`
-    id, servidor_id, unidade_id, escala_mensal_id, dia, status,
-    data_hora_acionamento, data_hora_aceite, data_hora_chegada,
-    token_magic_link, motivo_acionamento, categoria,
-    escala_mensal!inner(mes, ano)
-  `).eq('dia', yesterdayDay)
-    .eq('categoria', 'Sobreaviso')
-    .eq('escala_mensal.mes', yesterdayMonth)
-    .eq('escala_mensal.ano', yesterdayYear)
-  sobreavisoLogsYesterdayQuery = applyAccessFilters(sobreavisoLogsYesterdayQuery, userProfile)
 
   // 6. Historical data: last 3 months of escala_diaria for chart
   const months: { mes: number; ano: number; label: string }[] = []
@@ -167,10 +138,7 @@ export default async function DashboardHome() {
     { count: unidadesCount },
     { data: escalasData },
     { data: diariaToday },
-    { data: diariaYesterdaySobreaviso },
     { data: afastamentosData },
-    { data: sobreavisoLogsToday },
-    { data: sobreavisoLogsYesterday },
     ...historicalResults
   ] = await Promise.all([
     serversQuery,
@@ -178,11 +146,16 @@ export default async function DashboardHome() {
     unitsQuery,
     escalasQuery,
     diariaTodayQuery,
-    diariaYesterdaySobreavisoQuery,
     afastamentosQuery,
-    sobreavisoLogsQuery,
-    sobreavisoLogsYesterdayQuery,
     ...historicalPromises
+  ])
+
+  // Sobreaviso em bloco separado: estas três devolvem arrays/objetos, não o { data } do
+  // PostgREST, e misturá-las no Promise.all acima quebraria a inferência do destructuring.
+  const [sobreavisoItens, sobreavisoDestinos, sobreavisoLotacao] = await Promise.all([
+    getPainelSobreaviso(),
+    getDestinosSobreaviso(),
+    getLotacaoDoAcionador()
   ])
 
   // ======================================================================
@@ -191,10 +164,7 @@ export default async function DashboardHome() {
 
   const escalas = (escalasData || []) as any[]
   const diaria = (diariaToday || []) as any[]
-  const diariaYesterday = (diariaYesterdaySobreaviso || []) as any[]
   const afastamentos = (afastamentosData || []) as any[]
-  const logsToday = (sobreavisoLogsToday || []) as any[]
-  const logsYesterday = (sobreavisoLogsYesterday || []) as any[]
 
   // --- KPIs ---
   const serversList = (serversData || []) as any[]
@@ -211,110 +181,12 @@ export default async function DashboardHome() {
   // Afastamentos ativos count
   const afastamentosAtivos = afastamentos.length
 
-  // Helper para calcular a janela exata de horário de um turno de sobreaviso
-  function getShiftWindow(dia: number, mes: number, ano: number, turno: any) {
-    const codigo = (turno?.codigo || '').toUpperCase()
-    const slots = Array.isArray(turno?.slots) ? turno.slots : []
-
-    let startHour = 7
-    let endHour = 19
-    let isCrossMidnight = false
-
-    if (codigo === 'N12' || codigo === 'SN' || (slots.length > 0 && slots[0] === 'N')) {
-      startHour = 19
-      endHour = 7
-      isCrossMidnight = true
-    } else if (codigo === 'MTNS' || codigo === 'D24' || (slots.includes('M') && slots.includes('T') && slots.includes('N'))) {
-      startHour = 7
-      endHour = 7
-      isCrossMidnight = true
-    } else if (codigo === 'M6' || codigo === 'M' || (slots.length === 1 && slots[0] === 'M')) {
-      startHour = 7
-      endHour = 13
-    } else if (codigo === 'T6' || codigo === 'T' || (slots.length === 1 && slots[0] === 'T')) {
-      startHour = 13
-      endHour = 19
-    } else if (codigo === 'T4') {
-      startHour = 14
-      endHour = 18
-    } else if (codigo === 'D12' || codigo === 'SD' || (slots.includes('M') && slots.includes('T'))) {
-      startHour = 7
-      endHour = 19
-    }
-
-    const startTime = new Date(ano, mes - 1, dia, startHour, 0, 0)
-    const endTime = new Date(ano, mes - 1, isCrossMidnight ? dia + 1 : dia, endHour, 0, 0)
-
-    return { startTime, endTime, startHour, endHour, isCrossMidnight }
-  }
-
-  // Processar itens de sobreaviso combinando ontem e hoje
-  const rawSobreavisoToday = diaria.filter((d: any) => d.categoria === 'Sobreaviso').map(d => ({ ...d, isYesterday: false }))
-  const rawSobreavisoYesterday = diariaYesterday.map(d => ({ ...d, isYesterday: true }))
-
-  const rawSobreavisoItems = [...rawSobreavisoYesterday, ...rawSobreavisoToday]
-
-  const sobreavisoPanelAll = rawSobreavisoItems.map((d: any) => {
-    const em = d.escala_mensal
-    const servidor = em?.servidores
-    const unidade = em?.unidades
-    const turno = d.dicionario_turnos
-    const serverLogs = d.isYesterday
-      ? logsYesterday.filter((l: any) => l.servidor_id === em?.servidor_id && l.dia === d.dia)
-      : logsToday.filter((l: any) => l.servidor_id === em?.servidor_id && l.dia === d.dia)
-
-    const log = serverLogs[serverLogs.length - 1] || null
-
-    const { startTime, endTime, startHour } = getShiftWindow(d.dia, em?.mes, em?.ano, turno)
-
-    const isAtivoAgora = today >= startTime && today < endTime
-    const isFuturo = today < startTime
-    const isEncerrado = today >= endTime
-
-    const startStr = `${String(startHour).padStart(2, '0')}:00`
-    const timeStatusText = isAtivoAgora
-      ? 'Ativo Agora'
-      : isFuturo
-      ? `Inicia às ${startStr}`
-      : 'Encerrado'
-
-    return {
-      servidorNome: servidor?.nome || 'Desconhecido',
-      servidorTelefone: servidor?.telefone || null,
-      unidadeNome: unidade?.nome || 'Sem unidade',
-      unidadeId: em?.unidade_id,
-      setorId: em?.setor_id,
-      turnoCodigo: turno?.codigo || '—',
-      turnoHoras: Number(turno?.horas_computadas || 0),
-      logStatus: log?.status || null,
-      logId: log?.id || null,
-      logToken: log?.token_magic_link || null,
-      allLogs: serverLogs,
-      escalaMensalId: em?.id,
-      servidorId: em?.servidor_id,
-      dia: d.dia,
-      mes: em?.mes,
-      ano: em?.ano,
-      startTime,
-      endTime,
-      isAtivoAgora,
-      isFuturo,
-      isEncerrado,
-      timeStatusText,
-    }
-  })
-
-  // Filtrar fora os plantões de ontem que já se encerraram (ex: encerraram às 07:00 da manhã)
-  const sobreavisoPanel = sobreavisoPanelAll.filter(item => !item.isEncerrado)
-
-  // Ordenar: primeiro os ativos agora, depois os futuros organizados pelo horário de início
-  sobreavisoPanel.sort((a, b) => {
-    if (a.isAtivoAgora && !b.isAtivoAgora) return -1
-    if (!a.isAtivoAgora && b.isAtivoAgora) return 1
-    return a.startTime.getTime() - b.startTime.getTime()
-  })
-
-  const sobreavisoAtivosCount = sobreavisoPanel.filter(item => item.isAtivoAgora).length
+  // O painel de sobreaviso nao e mais montado aqui. A janela do plantao vinha de uma tabela
+  // fixa de codigos neste arquivo (getShiftWindow) e de OUTRA heuristica, por prefixo, no
+  // ScaleGrid. Com o botao Acionar passando a depender da janela, duas heuristicas viraram
+  // risco: habilitar por uma regra e gravar por outra. A fonte unica agora e
+  // fn_janela_sobreaviso_dia, consumida por fn_painel_sobreaviso_dia.
+  const sobreavisoAtivosCount = sobreavisoItens.filter(i => i.ativo_agora).length
 
   // --- ESCALAS STATUS GRID ---
   type EscalaStatusItem = { unidadeNome: string; setorNome: string; status: string; unidadeId: string; setorId: string }
@@ -440,7 +312,7 @@ export default async function DashboardHome() {
             { label: 'Servidores', value: servidoresAtivos, icon: Users, color: 'text-purple-600', bg: 'bg-purple-50 dark:bg-purple-900/20', sub: `Hoje: ${emServicoHoje} em serviço | Inativos: ${servidoresInativos}` },
             { label: 'Escalas Ativas', value: totalEscalasCriadas, icon: Calendar, color: 'text-amber-600', bg: 'bg-amber-50 dark:bg-amber-900/20', sub: `De ${setoresCount} setores | ${escalasFechadas} fechadas` },
             { label: 'Afastados Agora', value: afastamentosAtivos, icon: CalendarDays, color: 'text-rose-600', bg: 'bg-rose-50 dark:bg-rose-900/20', sub: 'Ausências registradas' },
-            { label: 'Sobreaviso Hoje', value: sobreavisoAtivosCount, icon: Phone, color: 'text-orange-600', bg: 'bg-orange-50 dark:bg-orange-900/20', sub: `${sobreavisoAtivosCount} ativo(s) agora | ${sobreavisoPanel.length} total` },
+            { label: 'Sobreaviso Hoje', value: sobreavisoAtivosCount, icon: Phone, color: 'text-orange-600', bg: 'bg-orange-50 dark:bg-orange-900/20', sub: `${sobreavisoAtivosCount} ativo(s) agora | ${sobreavisoItens.length} total` },
             { label: 'Unidades', value: unidadesCount || 0, icon: Building2, color: 'text-blue-600', bg: 'bg-blue-50 dark:bg-blue-900/20', sub: 'Unidades cadastradas' },
           ].map((kpi, i) => (
             <div
@@ -466,138 +338,13 @@ export default async function DashboardHome() {
       {/* ============================================================ */}
       {/* SECTION 2 — SOBREAVISO PANEL */}
       {/* ============================================================ */}
-      <div className="rounded-2xl border-2 border-amber-200 dark:border-amber-800/50 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/20 p-6 shadow-sm">
-        <div className="flex items-center justify-between mb-5">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-amber-500 rounded-xl text-white shadow-lg shadow-amber-500/30">
-              <Zap className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="text-sm font-black uppercase tracking-widest text-amber-800 dark:text-amber-300">
-                Sobreaviso Ativo Hoje
-              </h2>
-              <p className="text-xs text-amber-600/70 dark:text-amber-400/60">
-                <span className="font-bold text-amber-800 dark:text-amber-200">{sobreavisoAtivosCount} ativo{sobreavisoAtivosCount !== 1 ? 's' : ''} agora</span> • {sobreavisoPanel.length} escalado{sobreavisoPanel.length !== 1 ? 's' : ''}
-              </p>
-            </div>
-          </div>
-          <Link
-            href="/relatorios/plantao-sobreaviso"
-            className="text-[10px] font-bold uppercase tracking-widest text-amber-700 dark:text-amber-400 hover:text-amber-900 dark:hover:text-amber-200 transition-colors flex items-center gap-1"
-          >
-            Histórico <ArrowRight className="h-3 w-3" />
-          </Link>
-        </div>
-
-        {sobreavisoPanel.length === 0 ? (
-          <div className="text-center py-8">
-            <Phone className="h-10 w-10 text-amber-300 dark:text-amber-700 mx-auto mb-3 opacity-50" />
-            <p className="text-sm font-semibold text-amber-700/60 dark:text-amber-400/40">
-              Nenhum servidor escalado para sobreaviso hoje.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {sobreavisoPanel.map((item, i) => (
-              <div
-                key={i}
-                className={`flex items-center justify-between bg-white dark:bg-zinc-900 rounded-xl p-4 border transition-all ${
-                  item.isAtivoAgora
-                    ? 'border-emerald-400/80 dark:border-emerald-700/80 shadow-md ring-1 ring-emerald-500/20'
-                    : 'border-amber-100 dark:border-zinc-800 shadow-sm hover:shadow-md'
-                }`}
-              >
-                <div className="flex items-center gap-4 flex-1 min-w-0">
-                  <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${
-                    item.isAtivoAgora
-                      ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
-                      : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'
-                  }`}>
-                    <Users className="h-4 w-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-sm font-bold text-zinc-900 dark:text-white truncate">
-                        {item.servidorNome}
-                      </p>
-                      {/* Real-time Time Window Badge */}
-                      <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
-                        item.isAtivoAgora
-                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
-                          : 'bg-amber-100/80 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
-                      }`}>
-                        {item.isAtivoAgora ? (
-                          <>
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                            Ativo Agora
-                          </>
-                        ) : (
-                          <>
-                            <Clock className="h-2.5 w-2.5" />
-                            {item.timeStatusText}
-                          </>
-                        )}
-                      </span>
-                    </div>
-                    <p className="text-[10px] text-zinc-500 dark:text-zinc-400 flex items-center gap-2 mt-0.5">
-                      <span className="flex items-center gap-1">
-                        <Building2 className="h-3 w-3" /> {item.unidadeNome}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Clock className="h-3 w-3" /> {item.turnoCodigo} ({item.turnoHoras}h)
-                      </span>
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3 flex-shrink-0">
-                  {/* Badge de Múltiplos Acionamentos (se houver mais de 1 no dia) */}
-                  {item.allLogs && item.allLogs.length > 1 && (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800" title={`${item.allLogs.length} chamados registrados para este servidor no mesmo dia`}>
-                      ⚡ {item.allLogs.length} Chamados
-                    </span>
-                  )}
-
-                  {/* Log Status Badge (se acionado) */}
-                  {item.logStatus && (
-                    <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                      item.logStatus === 'Aceito'
-                        ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/30 animate-pulse'
-                        : item.logStatus === 'Chegou'
-                        ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border border-blue-300 dark:border-blue-800'
-                        : item.logStatus === 'Aguardando'
-                        ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
-                        : item.logStatus === 'Recusado' || item.logStatus === 'Timeout'
-                        ? 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300 border border-red-300 dark:border-red-800'
-                        : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
-                    }`}>
-                      {item.logStatus === 'Aceito' && <Navigation2 className="h-3 w-3 fill-current" />}
-                      {item.logStatus === 'Chegou' && <CheckCircle2 className="h-3 w-3" />}
-                      {item.logStatus === 'Aguardando' && <Clock className="h-3 w-3" />}
-                      {(item.logStatus === 'Recusado' || item.logStatus === 'Timeout') && <AlertTriangle className="h-3 w-3" />}
-                      {item.logStatus === 'Aceito' ? 'Em Deslocamento' : item.logStatus === 'Chegou' ? 'No Local' : item.logStatus}
-                    </span>
-                  )}
-
-                  {/* Action: Link to scale grid to trigger sobreaviso */}
-                  <Link
-                    href={`/escalas/unidade/${item.unidadeId}?setor=${item.setorId}&mes=${item.mes}&ano=${item.ano}`}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider shadow-sm hover:shadow-md transition-all ${
-                      item.isAtivoAgora
-                        ? 'bg-amber-500 hover:bg-amber-600 text-white'
-                        : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-zinc-300'
-                    }`}
-                    title="Ir para a escala deste servidor para acionar sobreaviso"
-                  >
-                    <Zap className="h-3 w-3" />
-                    {item.logStatus ? 'Ver Escala' : item.isAtivoAgora ? 'Acionar' : 'Ver Escala'}
-                  </Link>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      {/* Painel global: todo coordenador/admin ve o sobreaviso de toda a secretaria.
+          Quem pode acionar cada um vem de fn_painel_sobreaviso_dia, nao daqui. */}
+      <SobreavisoPanel
+        itens={sobreavisoItens}
+        destinos={sobreavisoDestinos}
+        lotacao={sobreavisoLotacao}
+      />
 
       {/* ============================================================ */}
       {/* SECTION 3 & 4 — ESCALAS STATUS + AFASTAMENTOS (Side by Side) */}

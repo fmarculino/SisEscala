@@ -17,6 +17,7 @@ import { generateTemplate, TEMPLATE_OPTIONS, type TemplateType, countWorkDays } 
 import { generateIntelligentScale } from '@/utils/intelligentScaleGenerator'
 import { SwapRequestPanel } from '@/components/SwapRequestPanel'
 import { sendWhatsAppMessageAction } from '@/app/actions/communication'
+import { AcionarSobreavisoModal } from '@/components/sobreaviso/AcionarSobreavisoModal'
 
 interface ScaleGridProps {
   unidadeId: string
@@ -1561,36 +1562,17 @@ export function ScaleGrid({
 
 
 
-  const confirmTriggerSobreaviso = async () => {
-    if (!triggerModal || !motivo) return
-
-    setLoading(true)
-    try {
-      const { data, error } = await supabase.from('logs_sobreaviso').insert({
-        servidor_id: triggerModal.servidorId,
-        unidade_id: unidadeId,
-        escala_mensal_id: triggerModal.escalaMensalId,
-        dia: triggerModal.dia,
-        motivo_acionamento: motivo,
-        status: 'Aguardando'
-      }).select('token_magic_link').single()
-
-      if (error) throw error
-      
-      const link = `${window.location.origin}/sobreaviso/${data.token_magic_link}`
-      setGeneratedLink(link)
-    } catch (error: any) {
-      console.error('Erro ao acionar sobreaviso:', error)
-      setAlertModal({
-        isOpen: true,
-        title: 'Falha no Acionamento',
-        message: error.message,
-        type: 'danger'
-      })
-    } finally {
-      setLoading(false)
-    }
-  }
+  // confirmTriggerSobreaviso foi removida na Fase 8 do plano
+  // docs/planos/2026-08-08-acionamento-de-sobreaviso-com-destino.md
+  //
+  // Ela inseria direto em logs_sobreaviso a partir do navegador. Com a policy FOR ALL, isso
+  // permitia gravar qualquer linha dentro do escopo do coordenador — inclusive status='Chegou'
+  // sem token, sem GPS e sem ninguém aceitar nada. Todas as travas (janela ativa, chamado em
+  // aberto) viviam só no frontend, e o painel global tornaria isso uma corrida entre
+  // coordenadores de unidades diferentes.
+  //
+  // O acionamento agora é fn_acionar_sobreaviso, chamada pelo AcionarSobreavisoModal — que
+  // também é onde se informa o destino do chamado.
 
   const isRedIndicator = (day: number, categoria: string, tipo: 'entrada' | 'saida') => {
     // REGRA: Somente mostra indicadores vermelhos se a confirmação de presença estiver exigida nas configurações
@@ -3948,162 +3930,23 @@ export function ScaleGrid({
         servidoresEventos={servidoresEventos}
         permitirPlantaoExtra={configs['permitir_plantao_extra_durante_eventos'] === 'true'}
       />
-      {/* Modal de Acionamento de Sobreaviso */}
+      {/* Modal de Acionamento de Sobreaviso — Fase 8 do plano
+          docs/planos/2026-08-08-acionamento-de-sobreaviso-com-destino.md
+          Passou a ser o MESMO componente do painel do dashboard, pela MESMA RPC. O modal
+          antigo daqui inseria direto em logs_sobreaviso, o que a policy nao permite mais, e
+          nao tinha como informar o destino do chamado. */}
       {triggerModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] backdrop-blur-sm">
-          <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-2xl w-full max-w-md p-6 border border-zinc-200 dark:border-zinc-800">
-            <div className="flex items-center gap-3 mb-4 text-orange-600">
-              <Zap className="h-6 w-6 fill-current" />
-              <h2 className="text-xl font-bold">Acionar Sobreaviso</h2>
-            </div>
-            
-            <div className="space-y-4">
-              {!generatedLink ? (
-                <>
-                  <div>
-                    <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-1">Informações do Acionamento:</p>
-                    <div className="bg-zinc-100 dark:bg-zinc-800 p-3 rounded-lg space-y-1">
-                      <p className="font-bold text-zinc-900 dark:text-white">{triggerModal.servidorNome}</p>
-                      <p className="text-xs text-zinc-600 dark:text-zinc-400 uppercase">{unidadeId} - {setorId}</p>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-sm text-zinc-600 dark:text-zinc-400 block mb-1">Motivo do Acionamento:</label>
-                    <textarea 
-                      value={motivo}
-                      onChange={(e) => setMotivo(e.target.value)}
-                      className="w-full h-24 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-3 text-sm focus:ring-2 focus:ring-orange-500 outline-none resize-none"
-                      placeholder="Descreva o motivo do acionamento..."
-                    />
-                  </div>
-
-                  <div className="flex gap-3 pt-2">
-                    <button 
-                      onClick={handleCloseModal}
-                      className="flex-1 px-4 py-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-medium hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
-                    >
-                      Cancelar
-                    </button>
-                    <button 
-                      onClick={confirmTriggerSobreaviso}
-                      disabled={loading || !motivo}
-                      className="flex-1 px-4 py-2 rounded-lg bg-orange-600 text-white font-medium hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
-                    >
-                      {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Confirmar'}
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
-                  <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 p-4 rounded-lg text-center">
-                    <p className="text-emerald-700 dark:text-emerald-400 text-sm font-medium mb-1">
-                      Acionamento Registrado!
-                    </p>
-                    <p className="text-xs text-emerald-600 dark:text-emerald-500">
-                      Envie o link abaixo para o servidor confirmar o chamado.
-                    </p>
-                  </div>
-
-                  <div className="bg-zinc-100 dark:bg-zinc-800 p-3 rounded-lg break-all text-[10px] font-mono text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700">
-                    {generatedLink}
-                  </div>
-
-                  <div className="flex flex-col gap-2">
-                    <button 
-                      onClick={() => {
-                        const tempoAceite = configsGlobais.find(c => c.chave === 'sobreaviso_tempo_aceite_minutos')?.valor || '30'
-                        const text = `Olá *${triggerModal.servidorNome}*, você foi acionado(a) para um chamado de Sobreaviso.\n\n*Motivo:*\n${motivo}\n\n*Você tem ${tempoAceite} minutos para aceitar esse chamado.*\n\n*Para confirmar seu aceite, acesse o link abaixo:*\n${generatedLink}`
-                        navigator.clipboard.writeText(text)
-                        setAlertModal({
-                          isOpen: true,
-                          title: 'Link Copiado',
-                          message: 'Mensagem completa copiada para a área de transferência!',
-                          type: 'success'
-                        })
-                      }}
-                      className="w-full px-4 py-2 rounded-lg bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 font-bold hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
-                    >
-                      Copiar Link
-                    </button>
-                    
-                    <button 
-                      onClick={async () => {
-                        const tempoAceite = configsGlobais.find(c => c.chave === 'sobreaviso_tempo_aceite_minutos')?.valor || '30'
-                        const textMessage = `Olá *${triggerModal.servidorNome}*, você foi acionado(a) para um chamado de Sobreaviso.\n\n*Motivo:*\n${motivo}\n\n*Você tem ${tempoAceite} minutos para aceitar esse chamado.*\n\n*Para confirmar seu aceite, acesse o link abaixo:*\n${generatedLink}`
-                        
-                        const servidorMatch = escalaMensal.find(em => em.servidor_id === triggerModal.servidorId)?.servidores || todosServidoresSetor.find(s => s.id === triggerModal.servidorId)
-                        const phone = servidorMatch?.telefone || ''
-
-                        setWaSending(true)
-                        setWaError('')
-                        
-                        const cleanPhone = phone.replace(/\D/g, '')
-                        const fallback = `https://api.whatsapp.com/send?phone=${cleanPhone.startsWith('55') ? cleanPhone : '55' + cleanPhone}&text=${encodeURIComponent(textMessage)}`
-                        setWaFallbackUrl(fallback)
-
-                        try {
-                          const res = await sendWhatsAppMessageAction({ phone, message: textMessage, unidadeId: unidadeId })
-                          if (res.success) {
-                            setAlertModal({
-                              isOpen: true,
-                              title: 'Notificação Disparada',
-                              message: 'A mensagem de sobreaviso foi enviada via API para o WhatsApp do servidor! Você também pode clicar no botão manual abaixo caso prefira enviar via WhatsApp Web.',
-                              type: 'success'
-                            })
-                          } else {
-                            if (res.fallbackUrl) {
-                              setWaFallbackUrl(res.fallbackUrl)
-                            }
-                            setWaError(res.error || 'O envio automático via API falhou.')
-                          }
-                        } catch (err: any) {
-                          setWaError('Falha ao conectar com o serviço de WhatsApp.')
-                        } finally {
-                          setWaSending(false)
-                        }
-                      }}
-                      disabled={waSending}
-                      className="w-full px-4 py-2.5 rounded-xl bg-green-600 text-white font-bold hover:bg-green-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 text-sm shadow-md shadow-green-600/20"
-                    >
-                      {waSending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                      {waSending ? 'Disparando Notificação...' : 'Enviar via WhatsApp (Automático)'}
-                    </button>
-
-                    {/* Botão de Envio via WhatsApp Web (Manual / Contingência) */}
-                    <a
-                      href={waFallbackUrl || `https://api.whatsapp.com/send?phone=&text=${encodeURIComponent(`Olá ${triggerModal.servidorNome}, acesse: ${generatedLink}`)}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="block w-full py-2.5 px-4 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-center font-bold rounded-xl text-xs uppercase tracking-wider transition-all"
-                    >
-                      💬 Abrir no WhatsApp Web / App (Manual)
-                    </a>
-
-                    {/* Exibição de Erro caso a API falhe */}
-                    {waError && (
-                      <div className="p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/40 rounded-xl text-xs space-y-1">
-                        <p className="text-red-700 dark:text-red-400 font-bold">{waError}</p>
-                        <p className="text-zinc-500 text-[10px]">Utilize o botão manual acima para enviar a mensagem diretamente pelo WhatsApp Web.</p>
-                      </div>
-                    )}
-
-                    <button 
-                      onClick={() => {
-                        setWaError('')
-                        setWaFallbackUrl('')
-                        handleCloseModal()
-                      }}
-                      className="w-full px-4 py-2 rounded-lg text-zinc-600 dark:text-zinc-400 text-xs hover:underline"
-                    >
-                      Fechar
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <AcionarSobreavisoModal
+          alvo={{
+            escalaMensalId: triggerModal.escalaMensalId,
+            dia: triggerModal.dia,
+            servidorNome: triggerModal.servidorNome,
+            unidadeOrigemId: unidadeId,
+            contexto: `Plantão de sobreaviso do dia ${triggerModal.dia}`
+          }}
+          onClose={handleCloseModal}
+          onSucesso={() => { void fetchData() }}
+        />
       )}
 
       {/* Modal de Histórico de Acionamentos de Sobreaviso do Dia */}
@@ -4257,23 +4100,16 @@ export function ScaleGrid({
               const latestLog = dayLogs[dayLogs.length - 1]
               const isInTransitOrWaiting = latestLog?.status === 'Aceito' || latestLog?.status === 'Aguardando'
 
-              const isShiftActiveNow = (() => {
-                const now = new Date()
-                const turnoMatch = turnos.find(t => t.id === sobreavisoHistoryModal.turnoId)
-                let startHour = 7
-                let endHour = 16
-                let endDayOffset = 0
-                const code = turnoMatch?.codigo || ''
-                if (code.startsWith('MTN')) { startHour = 7; endHour = 7; endDayOffset = 1 }
-                else if (code.startsWith('N')) { startHour = 19; endHour = 7; endDayOffset = 1 }
-                else if (code.startsWith('T')) { startHour = 13; endHour = 19; endDayOffset = 0 }
-                else if (code.startsWith('M') && !code.startsWith('MT')) { startHour = 7; endHour = 13; endDayOffset = 0 }
-                else if (code.startsWith('D') || code.startsWith('MT')) { startHour = 7; endHour = (code === 'MT') ? 16 : 19; endDayOffset = 0 }
-
-                const start = new Date(ano, mes - 1, sobreavisoHistoryModal.dia, startHour, 0, 0)
-                const end = new Date(ano, mes - 1, sobreavisoHistoryModal.dia + endDayOffset, endHour, 0, 0)
-                return now >= start && now < end
-              })()
+              // A heuristica de janela que existia aqui foi removida na Fase 8 do plano
+              // docs/planos/2026-08-08-acionamento-de-sobreaviso-com-destino.md
+              //
+              // Ela deduzia a janela do sobreaviso por prefixo do codigo (code.startsWith),
+              // enquanto o dashboard usava outra tabela de codigos. Duas heuristicas para a
+              // mesma pergunta, e nenhuma delas era o que o banco cobraria.
+              //
+              // Quem decide agora e fn_janela_sobreaviso_dia, dentro de fn_acionar_sobreaviso.
+              // O botao fica habilitado e a RPC recusa dizendo a janela exata do plantao -
+              // melhor um erro preciso do que um botao cinza sem explicacao.
 
               return (
                 <div className="space-y-3 pt-2 border-t border-zinc-100 dark:border-zinc-800">
@@ -4284,17 +4120,17 @@ export function ScaleGrid({
                     </div>
                   )}
 
-                  {!isShiftActiveNow && !isInTransitOrWaiting && (
+                  {!isInTransitOrWaiting && (
                     <div className="p-3 bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl text-xs text-zinc-600 dark:text-zinc-400 font-medium flex items-center gap-2">
                       <Info className="h-4 w-4 text-zinc-500 flex-shrink-0" />
-                      <span>O período deste plantão de sobreaviso encerrou ou está fora da janela ativa. Exibindo apenas a consulta do histórico dos acionamentos.</span>
+                      <span>Fora da janela do plantão, o acionamento é recusado com o horário exato em que ele vale.</span>
                     </div>
                   )}
 
                   <div className="flex items-center justify-between gap-3">
                     <button
                       type="button"
-                      disabled={isInTransitOrWaiting || !isShiftActiveNow}
+                      disabled={isInTransitOrWaiting}
                       onClick={() => {
                         const s = sobreavisoHistoryModal
                         setSobreavisoHistoryModal(null)

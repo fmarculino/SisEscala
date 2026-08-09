@@ -170,6 +170,38 @@ autorizado pelo Art. 82, parágrafo único. A vedação 2 é o *sistema* marcar 
 `fn_confirmar_presenca` e `fn_confirmar_presenca_manual` **não foram alteradas** por nada disso —
 todo o comportamento novo entra por funções que as envolvem (armadilha 1).
 
+## Acionamento de sobreaviso com destino (08/08/2026)
+
+Plano em [`docs/planos/2026-08-08-acionamento-de-sobreaviso-com-destino.md`](docs/planos/2026-08-08-acionamento-de-sobreaviso-com-destino.md).
+**As 5 migrations `202608081[5-9]0000` estão aplicadas em homologação e em produção**, conferidas
+por sonda (backfill, índice único, FK composta, gatilho e CHECK). A única defesa não verificada
+por fora é a policy — precisa de JWT de coordenador.
+
+O sobreaviso era tratado como se pertencesse à unidade da escala. Quem está de sobreaviso atende
+a rede inteira, e o `cheguei no local` conferia o GPS contra a **origem**. Medido nas 8 chegadas
+com GPS que existem: todas conferidas contra o setor da TI, e em dois casos o destino real estava
+a **3,3 km** e **4,0 km** dali — o servidor ia até a própria sala para o botão aceitar, e só então
+se deslocava.
+
+| o que mudou | onde |
+|---|---|
+| janela do Sobreaviso ganha **fonte única** no banco | `fn_janela_sobreaviso_dia` |
+| chegada confere o **destino** (setor → unidade → origem) | `register_sobreaviso_arrival` |
+| acionamento vira RPC; INSERT direto do cliente **deixa de existir** | `fn_acionar_sobreaviso` |
+| painel do dashboard passa a ser **global** | `fn_painel_sobreaviso_dia` |
+| quem pode acionar | `setores.sobreaviso_abrangencia` (`geral` × `unidade`) |
+
+**Ver é global; acionar é por abrangência.** Default `'unidade'` — fecha por padrão. Só a TI da
+SMS entra marcada como `geral` na migration; CAF e Transporte ficam para a tela.
+
+⚠️ **`fn_blocos_previstos_dia` não serve para Sobreaviso** — exclui a categoria por construção
+(armadilha 6), e os 5 códigos de sobreaviso têm `horario_inicio = NULL` de propósito. Por isso a
+janela precisou de função própria. Não tente ancorar código de Sobreaviso no dicionário.
+
+⚠️ **Efeito colateral a avisar antes de ligar:** `sobreaviso_tempo_chegada_minutos` (90 min) hoje
+cronometra o deslocamento até a unidade de origem. Passando a cronometrar até o local do chamado,
+chamados que hoje "chegam" no prazo podem estourar. É o comportamento correto, não é silencioso.
+
 ## Armadilhas conhecidas
 
 ### 1. `CREATE OR REPLACE` já apagou lógica crítica seis vezes
@@ -339,8 +371,23 @@ Sintoma quando quebra: servidor não consegue bater a saída, e `logs_tentativas
 
 **Sobreaviso não marca presença, ponto.** Ciclo próprio em `logs_sobreaviso`: acionamento →
 aceite (magic link por WhatsApp/e-mail/SMS) → chegada (GPS ou validação manual). Nada disso
-entra na folha de ponto, que lê só `Regular` e `Extra`. Em 522 acionamentos de produção,
-**zero** usaram o terminal (514 Manual, 8 GPS).
+entra na folha de ponto, que lê só `Regular` e `Extra`.
+
+⚠️ **`logs_sobreaviso` não é uma tabela de acionamentos.** Uma nota anterior aqui dizia
+"522 acionamentos de produção, 514 Manual e 8 GPS". **É enganoso** — medido em 08/08/2026:
+
+| linhas | o que é |
+|---|---|
+| 325 | artefato de validação manual de presença |
+| 183 | artefato do terminal (`O próprio usuário confirmou…`) |
+| 1 | artefato de validação manual na grade |
+| **13** | **acionamento real — um coordenador digitou um motivo** |
+
+`fn_confirmar_presenca` e `fn_confirmar_presenca_manual` também escrevem aqui, e os artefatos
+entram com status `Chegou`. Dos 13 reais, **9 usaram o link mágico e 8 registraram chegada com
+GPS** — o fluxo é usado; o número inflado é que escondia isso. **Ao contar acionamento, filtre
+os artefatos** (`acionado_por IS NOT NULL` ou motivo que não case com os prefixos acima). Contar
+tudo já produziu um relatório afirmando o oposto da realidade.
 
 Três camadas de defesa, todas devem ser preservadas:
 

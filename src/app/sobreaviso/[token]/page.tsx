@@ -34,10 +34,17 @@ export default function ProfessionalOvercallPage() {
         console.error('Supabase error:', error)
         setError(`Link inválido ou expirado. Detalhe: ${error?.message || 'Chamado não encontrado no banco de dados.'}`)
       } else {
+        // `unidades` no payload descreve o DESTINO do chamado desde a Fase 3 do plano
+        // docs/planos/2026-08-08-acionamento-de-sobreaviso-com-destino.md — nome, setor,
+        // referência e as coordenadas contra as quais a chegada será conferida.
+        // Antes vinha a unidade da escala, e por isso o servidor precisava ir até a própria
+        // lotação para o botão de chegada aceitar, e só então se deslocar para o chamado.
         const flattenedData = {
           ...data.log,
           servidores: data.servidores,
-          unidades: data.unidades
+          unidades: data.unidades,
+          origem: data.origem,
+          acionado_por: data.acionado_por
         }
         
         // Fetch configs
@@ -254,7 +261,7 @@ export default function ProfessionalOvercallPage() {
         if (unitLat && unitLong) {
           const distance = getDistance(lat, long, unitLat, unitLong)
           if (distance > radius) {
-            void dialog.alert(`Você está a ${Math.round(distance)}m da unidade. A chegada só pode ser registrada num raio de ${radius}m.`)
+            void dialog.alert(`Você está a ${Math.round(distance)}m do local do chamado. A chegada só pode ser registrada num raio de ${radius}m.`)
             setLoading(false)
             return
           }
@@ -369,11 +376,34 @@ export default function ProfessionalOvercallPage() {
             <h2 className="text-xl font-semibold text-zinc-900 dark:text-white">
               {log?.servidores?.nome}
             </h2>
-            <p className="text-zinc-600 dark:text-zinc-400">Você foi acionado para a unidade:</p>
-            <div className="inline-flex items-center text-blue-600 font-bold bg-blue-50 dark:bg-blue-900/20 px-4 py-2 rounded-lg">
-              <MapPin className="mr-2 h-4 w-4" />
-              {log?.unidades?.nome}
+            <p className="text-zinc-600 dark:text-zinc-400">Você foi acionado para:</p>
+            <div className="inline-flex flex-col items-center text-blue-600 font-bold bg-blue-50 dark:bg-blue-900/20 px-4 py-3 rounded-lg">
+              <span className="flex items-center">
+                <MapPin className="mr-2 h-4 w-4" />
+                {log?.unidades?.nome}
+              </span>
+              {log?.unidades?.setor && (
+                <span className="text-sm font-semibold opacity-80">{log.unidades.setor}</span>
+              )}
+              {log?.unidades?.referencia && (
+                <span className="text-xs font-medium opacity-70 italic mt-0.5">
+                  {log.unidades.referencia}
+                </span>
+              )}
             </div>
+
+            {/* O destino quase nunca é a unidade da escala — dizer de onde veio o chamado
+                evita a dúvida de "mas meu plantão não é ali". */}
+            {log?.origem?.unidade && log.origem.unidade !== log?.unidades?.nome && (
+              <p className="text-[11px] text-zinc-400">
+                Seu plantão de sobreaviso é de {log.origem.unidade}
+                {log.origem.setor ? ` — ${log.origem.setor}` : ''}
+              </p>
+            )}
+
+            {log?.acionado_por?.nome && (
+              <p className="text-[11px] text-zinc-400">Acionado por {log.acionado_por.nome}</p>
+            )}
 
             {log?.motivo_acionamento && (
               <div className="bg-amber-50 dark:bg-amber-900/20 p-4 rounded-xl border border-amber-200 dark:border-amber-800 text-left">
@@ -487,7 +517,7 @@ export default function ProfessionalOvercallPage() {
             {status === 'Aceito' && (
               <div className="space-y-4">
                 <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-xl text-green-700 dark:text-green-400 text-center font-medium">
-                  Chamado Aceito! Dirija-se à unidade.
+                  Chamado aceito! Dirija-se ao local informado acima.
                 </div>
 
                 {timeLeft !== null && (
@@ -511,7 +541,7 @@ export default function ProfessionalOvercallPage() {
                     className="w-full flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl transition-all shadow-lg disabled:opacity-50 disabled:grayscale"
                   >
                     <Navigation className="mr-3 h-6 w-6" />
-                    {loading ? 'Processando...' : 'Registrar Chegada na Unidade'}
+                    {loading ? 'Processando...' : 'Registrar Chegada no Local'}
                   </button>
                 ) : (
                   <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl text-blue-700 dark:text-blue-400 text-center font-medium">

@@ -11,9 +11,10 @@ interface EditSetorFormProps {
   unidades: any[]
   setoresPai: any[]
   dicionario: any[]
+  podeEditarAbrangencia?: boolean
 }
 
-export default function EditSetorForm({ setor, unidades, setoresPai, dicionario }: EditSetorFormProps) {
+export default function EditSetorForm({ setor, unidades, setoresPai, dicionario, podeEditarAbrangencia = false }: EditSetorFormProps) {
   const [nomeSetor, setNomeSetor] = useState(setor.nome || '')
   const [selectedUnidade, setSelectedUnidade] = useState(setor.unidade_id || '')
   const [loading, setLoading] = useState(false)
@@ -229,8 +230,34 @@ export default function EditSetorForm({ setor, unidades, setoresPai, dicionario 
           </div>
         </div>
 
+        {/* Abrangência do sobreaviso — Fase 6b.
+            Só aparece para quem administra: é o campo que libera o acionamento deste
+            sobreaviso para fora da unidade. */}
+        {podeEditarAbrangencia && (
+          <div>
+            <label htmlFor="sobreaviso_abrangencia" className="block text-sm font-black uppercase tracking-widest text-zinc-500 dark:text-zinc-400 mb-2">
+              Sobreaviso deste setor atende
+            </label>
+            <select
+              name="sobreaviso_abrangencia"
+              id="sobreaviso_abrangencia"
+              defaultValue={setor.sobreaviso_abrangencia || 'unidade'}
+              className="w-full rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/40 px-4 py-3 text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="unidade">Somente esta unidade</option>
+              <option value="geral">Toda a secretaria</option>
+            </select>
+            <p className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400 leading-relaxed">
+              Todos os coordenadores <strong>veem</strong> o sobreaviso de todas as unidades no
+              painel. Esta opção decide quem pode <strong>acionar</strong>: com
+              &ldquo;Toda a secretaria&rdquo;, qualquer coordenador ou administrador aciona —
+              é o caso de equipes como TI, manutenção e transporte, que atendem a rede inteira.
+            </p>
+          </div>
+        )}
+
         {/* Geolocalização */}
-        <GeoLocationPicker 
+        <GeoLocationPicker
           defaultLat={setor.latitude} 
           defaultLong={setor.longitude} 
           defaultRaio={setor.raio_geofence} 

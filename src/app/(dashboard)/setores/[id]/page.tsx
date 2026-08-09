@@ -124,8 +124,9 @@ export default async function EditSetorPage({
         <EditSetorForm 
           setor={setor}
           unidades={unidades || []} 
-          setoresPai={setoresPai || []} 
+          setoresPai={setoresPai || []}
           dicionario={dicionario || []}
+          podeEditarAbrangencia={['super_admin', 'admin'].includes(profile?.role)}
         />
       </div>
     </div>
