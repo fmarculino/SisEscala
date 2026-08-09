@@ -123,10 +123,6 @@ export async function updateUnidade(id: string, formData: FormData) {
   const avisoPonto: any = {}
   if (formData.has('aviso_ponto_whatsapp')) {
     avisoPonto.aviso_ponto_whatsapp = formData.get('aviso_ponto_whatsapp') === 'true'
-    avisoPonto.aviso_ponto_eventos = ((formData.get('aviso_ponto_eventos') as string) || '')
-      .split(',')
-      .map(e => e.trim())
-      .filter(Boolean)
   }
 
   const updateData: any = {

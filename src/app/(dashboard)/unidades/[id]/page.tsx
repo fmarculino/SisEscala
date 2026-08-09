@@ -138,11 +138,7 @@ export default async function EditUnidadePage({
               initialToleranciaMinutos={unidade.tolerancia_intervalo_minutos}
             />
 
-            <UnidadeAvisoPontoSettings
-              initialHabilitado={unidade.aviso_ponto_whatsapp}
-              initialEventos={unidade.aviso_ponto_eventos}
-              permiteMarcaIntervalo={unidade.permite_marca_intervalo}
-            />
+            <UnidadeAvisoPontoSettings initialHabilitado={unidade.aviso_ponto_whatsapp} />
 
             <UnidadeCommunicationSettings initialConfig={initialComunicacao} />
           </div>

@@ -473,10 +473,36 @@ Uma semana. Conferir taxa de entrega, reclamação de ruído e — principalment
 do WhatsApp**, já que o mesmo número serve o sobreaviso. Expandir depois, unidade a unidade, pelo
 toggle.
 
-**Ordem de expansão sugerida:** HMM → CTA → USF ENFERMEIRA ZEZINHA → SMS → LACEM. A ZEZINHA vem em
-terceiro de propósito: é a **única** unidade com `permite_marca_intervalo = true`, ou seja, a única
-onde existem 4 passos por dia — é ali que a configuração de eventos por unidade é exercitada de
-verdade. As duas maiores por último, quando a sessão já tiver histórico.
+### ⚠️ Piloto redefinido em 09/08/2026 — **SMS / TI**, e a habilitação passou a ser por SETOR
+
+O usuário optou por começar pela **TI da SMS** (6 servidores, todos com telefone), depois a
+**USF ENFERMEIRA ZEZINHA**, e então as demais. É o mesmo grupo do piloto do REP, com o coordenador
+como participante — padrão já estabelecido neste projeto.
+
+Isso expôs um defeito do desenho original: **o toggle era por unidade**. Ligar SMS habilitaria os
+**78** servidores da secretaria quando a intenção são **6** — 13× o escopo. O double opt-in impede
+que alguém receba sem pedir, mas tornaria a opção *visível* a 78 pessoas, e adesão fora do grupo
+desmontaria a leitura do piloto.
+
+Corrigido em `20260809150000`: `setores.aviso_ponto_whatsapp` com três estados —
+`NULL` herda a unidade (padrão), `true`/`false` sobrepõem. Mesma forma da geolocalização por setor
+(v1.7.0). A precedência vive em **um lugar só**, `fn_aviso_ponto_habilitado(unidade_id, setor_id)`;
+reimplementá-la em cada chamador é como o módulo de marcações acabou com três regras de intervalo
+divergentes.
+
+Distribuição medida em produção (09/08/2026):
+
+| unidade | setor | servidores | c/ telefone |
+|---|---|---|---|
+| SMS | **TECNOLOGIA DA INFORMAÇÃO** ← piloto | **6** | 6 |
+| SMS | CAF · DMAC · ALMOXARIFADO · outros | 72 | 69 |
+| ENF ZEZINHA | TEC ENFERMAGEM (maior) | 15 | 15 |
+| ENF ZEZINHA | demais 9 setores | 39 | 38 |
+
+**Ordem:** SMS/TI → USF ENFERMEIRA ZEZINHA → demais. A ZEZINHA em segundo continua sendo a escolha
+certa para o *segundo* passo: é a **única** unidade com `permite_marca_intervalo = true`, ou seja,
+a única onde existem 4 passos por dia — é ali que a configuração de eventos é exercitada de verdade.
+Convém começar por um setor dela também, e não pela unidade inteira.
 
 ⚠️ **O gatilho do piloto é o toggle, não o deploy.** Como o default é `false`, aplicar a migration
 não envia nada. Ligar o HMM é um ato deliberado da coordenação.

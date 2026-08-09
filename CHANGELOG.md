@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.30.0] - 2026-08-09
+
+### Added
+- **Aviso de ponto habilitado por SETOR, com herança da unidade** (migration `20260809150000`):
+  - O toggle nasceu por **unidade**, e isso é grosso demais para o piloto: a TI da SMS tem **6** servidores, mas ligar a unidade SMS habilitaria os **78** da secretaria — 13× o escopo pretendido. O double opt-in impede que alguém receba sem pedir, mas tornaria a opção **visível** a 78 pessoas, e adesão fora do grupo desmontaria a leitura do piloto.
+  - `setores.aviso_ponto_whatsapp` com três estados: `NULL` herda a unidade (padrão de todos os setores existentes), `true`/`false` sobrepõem. Mesma forma da geolocalização por setor (v1.7.0).
+  - A precedência vive em **um lugar só**, `fn_aviso_ponto_habilitado(unidade_id, setor_id)`. Reimplementá-la em cada chamador é como o módulo de marcações acabou com três regras de intervalo divergentes.
+  - Novo campo no cadastro do setor, e o Portal do Servidor passa a consultar a RPC em vez de ler a coluna da unidade.
+
+### Removed
+- **`unidades.aviso_ponto_eventos`** — a unidade deixa de escolher **quais** registros avisam (migration `20260809160000`):
+  - Essa coluna e `servidores.aviso_ponto_modo` respondiam a **mesma pergunta** de dois lugares, e no gatilho eram dois `IF` consecutivos com o da unidade rodando **primeiro**.
+  - Dano 1: o servidor escolhia "todas as batidas" e recebia só duas, porque a unidade tinha desmarcado os passos de intervalo — nada na tela dele explicava. O sistema prometia uma coisa e a unidade sobrepunha em silêncio.
+  - Dano 2: `fora_janela` estava na lista da unidade e podia ser **desmarcado**, quebrando a única garantia válida em todos os modos. É justamente o caso em que o silêncio prejudica quem bateu.
+  - Duas fontes para a mesma regra é como o módulo de marcações acabou com três regras de intervalo divergentes (armadilha 9). **A unidade decide SE envia; o servidor decide O QUE recebe.**
+  - A coluna é **removida**, não apenas ignorada: coluna que ninguém lê e ninguém mostra é como `unidades.configuracoes_comunicacao` — fica anos parecendo que configura algo.
+
+### Notes
+- Migrations `20260809150000` e `20260809160000` são **arquivos gerados** (`scratchpad/gen_setor.js` e `gen_sem_eventos.js`), que copiam o corpo das funções vigentes e aplicam substituições pontuais, abortando se qualquer contagem ou guard divergir (CLAUDE.md, armadilha 1). Conferido: fora dos blocos intencionalmente alterados, `fn_enfileirar_aviso_ponto` ficou **byte a byte idêntica**.
+- O `DROP COLUMN` vem **depois** do `CREATE OR REPLACE` na mesma migration: enquanto a versão anterior do gatilho estiver ativa ela ainda lê a coluna, e derrubá-la antes quebraria toda batida até a função ser recriada.
+- Piloto redefinido: **SMS / TECNOLOGIA DA INFORMAÇÃO** (6 servidores, todos com telefone) → **USF ENFERMEIRA ZEZINHA** → demais. É o mesmo grupo do piloto do REP, com o coordenador como participante.
+- Ligar um setor **não inscreve ninguém**: cada servidor ainda precisa ativar no Portal e confirmar pelo WhatsApp.
+
 ## [1.29.0] - 2026-08-09
 
 ### Added

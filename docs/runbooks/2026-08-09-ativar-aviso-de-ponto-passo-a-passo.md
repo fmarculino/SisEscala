@@ -252,13 +252,25 @@ não acertou, me mandar o formato real.
 
 Só agora alguma mensagem pode sair.
 
-1. **Ligue a unidade.** SisEscala → *Unidades* → **HMM - Hospital Municipal de Marabá** → seção
-   *Aviso de ponto por WhatsApp* → marque **Habilitar o envio nesta unidade** → *Salvar*.
+**Ligue por SETOR, não por unidade.** Desde a v1.30.0 o setor sobrepõe a unidade
+(`fn_aviso_ponto_habilitado`): ligar a unidade SMS habilitaria os **78** servidores da secretaria
+quando a intenção é a TI, que tem **6**.
 
-   Deixe os eventos no padrão: **Entrada**, **Saída** e **Fora do horário previsto**.
+1. **Ligue o setor.** SisEscala → *Setores* → **TECNOLOGIA DA INFORMAÇÃO** (unidade SMS) → campo
+   *Aviso de ponto por WhatsApp* → **Habilitar neste setor** → *Salvar*.
 
-2. **Avise os 4 servidores do HMM** que a opção existe e que precisa ser ativada por eles no
+   A unidade SMS permanece como está. Os eventos continuam vindo da unidade — deixe no padrão:
+   **Entrada**, **Saída** e **Fora do horário previsto**.
+
+2. **Avise os 6 servidores da TI** que a opção existe e precisa ser ativada por eles no
    Portal do Servidor, aba **💬 Avisos**.
+
+   Confira quem ficou habilitado antes de avisar (esperado: 6):
+
+   ```sql
+   SELECT count(*) FROM servidores s
+    WHERE public.fn_aviso_ponto_habilitado(s.unidade_id, s.setor_id);
+   ```
 
    > Lembre-se: nada é enviado a quem não ativar. Se ninguém ativar, nada acontece — e isso não é
    > defeito.

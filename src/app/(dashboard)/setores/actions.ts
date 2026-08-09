@@ -185,6 +185,15 @@ export async function updateSetor(id: string, formData: FormData) {
   // chave que tira a proteção de escopo, então só super_admin/admin mexe. Quando o campo não
   // vem no formulário (coordenador editando), a coluna não entra no update e fica como está —
   // e não vira 'unidade' por omissão.
+  // Três estados: 'herda' grava NULL (a precedência cai para a unidade), 'true'/'false' sobrepõem.
+  // Campo ausente no formulário não entra no update — não pode virar NULL por omissão.
+  const avisoPontoEnviado = formData.get('aviso_ponto_whatsapp') as string | null
+  if (avisoPontoEnviado === 'herda') {
+    updateData.aviso_ponto_whatsapp = null
+  } else if (avisoPontoEnviado === 'true' || avisoPontoEnviado === 'false') {
+    updateData.aviso_ponto_whatsapp = avisoPontoEnviado === 'true'
+  }
+
   const abrangenciaEnviada = formData.get('sobreaviso_abrangencia') as string | null
   if (abrangenciaEnviada === 'geral' || abrangenciaEnviada === 'unidade') {
     const { data: { user: editor } } = await supabase.auth.getUser()

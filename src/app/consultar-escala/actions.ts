@@ -2564,7 +2564,7 @@ export async function getPreferenciaAvisoPonto() {
 
   const { data, error } = await supabase
     .from('servidores')
-    .select('id, telefone, aviso_ponto_status, aviso_ponto_modo, aviso_ponto_definido_em, aviso_ponto_confirmado_em, aviso_ponto_expira_em, unidade_id')
+    .select('id, telefone, aviso_ponto_status, aviso_ponto_modo, aviso_ponto_definido_em, aviso_ponto_confirmado_em, aviso_ponto_expira_em, unidade_id, setor_id')
     .eq('id', portalServidorId)
     .single()
 
@@ -2577,17 +2577,17 @@ export async function getPreferenciaAvisoPonto() {
     p_servidor_id: portalServidorId,
   })
 
-  // A unidade precisa estar habilitada, senão o servidor ativa e não recebe — e conclui que
-  // o sistema está quebrado.
-  let unidadeHabilitada = false
-  if (data.unidade_id) {
-    const { data: unidade } = await supabase
-      .from('unidades')
-      .select('aviso_ponto_whatsapp')
-      .eq('id', data.unidade_id)
-      .maybeSingle()
-    unidadeHabilitada = !!unidade?.aviso_ponto_whatsapp
-  }
+  // O envio precisa estar habilitado para a lotação do servidor, senão ele ativa, não recebe e
+  // conclui que o sistema está quebrado.
+  //
+  // Vai pela RPC, e não por leitura de coluna: a habilitação é resolvida pelo SETOR com herança
+  // da unidade, e reimplementar essa precedência aqui a colocaria em dois lugares — foi assim que
+  // o módulo de marcações acabou com três regras de intervalo divergentes.
+  const { data: habilitado } = await supabase.rpc('fn_aviso_ponto_habilitado', {
+    p_unidade_id: data.unidade_id,
+    p_setor_id: data.setor_id,
+  })
+  const unidadeHabilitada = habilitado === true
 
   return {
     status: data.aviso_ponto_status || 'inativo',

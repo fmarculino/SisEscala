@@ -233,6 +233,34 @@ export default function EditSetorForm({ setor, unidades, setoresPai, dicionario,
         {/* Abrangência do sobreaviso — Fase 6b.
             Só aparece para quem administra: é o campo que libera o acionamento deste
             sobreaviso para fora da unidade. */}
+        {/* Aviso de ponto por WhatsApp. Três estados de propósito: o padrão é HERDAR a unidade,
+            e é isso que permite ligar um piloto num setor só sem expor a unidade inteira —
+            a TI da SMS tem 6 servidores, a unidade tem 78. */}
+        <div>
+          <label htmlFor="aviso_ponto_whatsapp" className="block text-sm font-black uppercase tracking-widest text-zinc-500 dark:text-zinc-400 mb-2">
+            Aviso de ponto por WhatsApp
+          </label>
+          <select
+            name="aviso_ponto_whatsapp"
+            id="aviso_ponto_whatsapp"
+            defaultValue={
+              setor.aviso_ponto_whatsapp === true ? 'true'
+                : setor.aviso_ponto_whatsapp === false ? 'false'
+                : 'herda'
+            }
+            className="w-full rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/40 px-4 py-3 text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="herda">Seguir a configuração da unidade (padrão)</option>
+            <option value="true">Habilitar neste setor</option>
+            <option value="false">Desabilitar neste setor</option>
+          </select>
+          <p className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400 leading-relaxed">
+            Habilitar aqui <strong>não inscreve ninguém</strong>: cada servidor ainda precisa ativar
+            no Portal do Servidor e confirmar pelo WhatsApp. Serve para liberar o recurso a um setor
+            de cada vez, sem expor a unidade inteira.
+          </p>
+        </div>
+
         {podeEditarAbrangencia && (
           <div>
             <label htmlFor="sobreaviso_abrangencia" className="block text-sm font-black uppercase tracking-widest text-zinc-500 dark:text-zinc-400 mb-2">
