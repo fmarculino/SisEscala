@@ -2,6 +2,15 @@
 
 Todas as alterações notáveis deste projeto são registradas neste arquivo.
 
+## [1.26.2] - 2026-08-09
+
+### 🐛 "Confirmar Validação" ficava desabilitado com batida selecionada
+
+- A condição `disabled` do botão continuou exigindo `horarios` preenchido, sem conhecer
+  `selecoes` — a v1.26.0 atualizou o `handleConfirmManualPresence`, mas não o botão. Resultado:
+  selecionar a batida travava justamente o caminho que preserva o horário real, e o coordenador
+  era obrigado a digitar por cima. Batida selecionada agora habilita o botão como horário digitado.
+
 ## [1.26.1] - 2026-08-09
 
 ### 🐛 Modal alto escondia o botão de confirmar

@@ -5068,9 +5068,14 @@ export function ScaleGrid({
                 </button>
                 <button
                   onClick={handleConfirmManualPresence}
+                  // Batida SELECIONADA vale tanto quanto horário digitado: o passo já tem horário,
+                  // só que vindo do terminal. Exigir digitação aqui trancaria justamente o caminho
+                  // que preserva o horário real — que é o preferível dos dois.
                   disabled={loading || (!manualPresenceModal.isReverting && (
-                    !manualPresenceModal.justificativa?.trim() ||
-                    !Object.values(manualPresenceModal.horarios || {}).some(v => !!v)
+                    !manualPresenceModal.justificativa?.trim() || (
+                      !Object.values(manualPresenceModal.horarios || {}).some(v => !!v) &&
+                      !Object.values(manualPresenceModal.selecoes || {}).some(v => !!v)
+                    )
                   ))}
                   className={`flex-1 px-4 py-2 rounded-xl font-bold flex items-center justify-center gap-2 disabled:opacity-50 ${
                     manualPresenceModal.isReverting 
