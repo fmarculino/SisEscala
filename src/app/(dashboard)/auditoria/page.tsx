@@ -112,7 +112,10 @@ export default function AuditoriaPage() {
     if (activeTab === 'sobreaviso' || activeTab === 'presenca') {
       query = supabase
         .from('logs_sobreaviso')
-        .select('*, servidores!inner(nome, matricula), unidades!inner(nome), validador:profiles!validado_por(full_name)')
+        // A FK precisa ser nomeada: desde 20260808160000 existem DUAS de logs_sobreaviso para
+        // unidades (unidade_id = origem da escala, destino_unidade_id = local do chamado). Sem a
+        // dica o PostgREST responde 300/PGRST201 e a tela inteira fica sem dados.
+        .select('*, servidores!inner(nome, matricula), unidades!logs_sobreaviso_unidade_id_fkey!inner(nome), validador:profiles!validado_por(full_name)')
       
       if (activeTab === 'sobreaviso') {
         query = query.or('categoria.eq.Sobreaviso,categoria.is.null')
@@ -405,7 +408,9 @@ export default function AuditoriaPage() {
     if (activeTab === 'sobreaviso' || activeTab === 'presenca') {
       query = supabase
         .from('logs_sobreaviso')
-        .select('*, servidores!inner(nome, matricula), unidades!inner(nome, latitude, longitude), validador:profiles!validado_por(full_name)', { count: 'exact' })
+        // Idem: FK nomeada. Aqui as coordenadas são as da unidade de ORIGEM, que é o que esta
+        // consulta sempre mostrou. O local do chamado vive em destino_unidade_id.
+        .select('*, servidores!inner(nome, matricula), unidades!logs_sobreaviso_unidade_id_fkey!inner(nome, latitude, longitude), validador:profiles!validado_por(full_name)', { count: 'exact' })
       
       if (activeTab === 'sobreaviso') {
         query = query.or('categoria.eq.Sobreaviso,categoria.is.null')

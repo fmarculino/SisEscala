@@ -25,10 +25,14 @@ export function NotificationListener() {
             console.log('Refusal Detected, fetching details...')
             const { data: logDetails, error } = await supabase
               .from('logs_sobreaviso')
+              // FK nomeada: desde 20260808160000 ha DUAS FKs de logs_sobreaviso para unidades
+              // (unidade_id = origem, destino_unidade_id = local do chamado). Sem a dica o
+              // PostgREST responde 300/PGRST201 e a notificacao de recusa nunca chega.
+              // Aqui interessa o DESTINO: a mensagem avisa que a pessoa recusou ir ate o local.
               .select(`
                 *,
                 servidores (nome),
-                unidades (nome)
+                unidades!logs_sobreaviso_destino_unidade_id_fkey (nome)
               `)
               .eq('id', payload.new.id)
               .single()

@@ -140,6 +140,11 @@ export default async function PlantaoSobreavisoPage({ searchParams }: Props) {
   //   .../logs_sobreaviso?select=...,data_hora_chamado,... -> 400 column does not exist
   //
   // O log do erro é descartado pela desestruturação. Por isso `logError` é conferido aqui.
+  //
+  // Os embeds precisam de FK nomeada: `unidades!destino_unidade_id` porque desde
+  // 20260808160000 há duas FKs para unidades (origem e destino), e `destino_setor` pelo NOME DA
+  // CONSTRAINT porque aquela FK é composta — (destino_setor_id, destino_unidade_id) →
+  // setores(id, unidade_id) — e o PostgREST não resolve composta pela dica de coluna (PGRST200).
   const { data: rawLogs, error: logError } = await supabase
     .from('logs_sobreaviso')
     .select(`
@@ -148,7 +153,7 @@ export default async function PlantaoSobreavisoPage({ searchParams }: Props) {
       chegada_distancia_metros, chegada_geofence_aplicado,
       destino_referencia,
       destino_unidade:unidades!destino_unidade_id(nome),
-      destino_setor:setores!destino_setor_id(dicionario_setores(nome)),
+      destino_setor:setores!fk_logs_sobreaviso_destino_setor(dicionario_setores(nome)),
       acionador:profiles!acionado_por(full_name)
     `)
     .in('escala_mensal_id', scaleIds.length > 0 ? scaleIds : ['00000000-0000-0000-0000-000000000000'])

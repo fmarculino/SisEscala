@@ -44,6 +44,15 @@ conferência registrada no plano.
 
 ### 🛠️ Correções de Erros (Fixes)
 
+- **`HTTP 300 / PGRST201` em Auditoria, notificações e relatório** (regressão da própria 1.24.0,
+  detectada antes de qualquer usuário reclamar): a nova FK `destino_unidade_id` deu a
+  `logs_sobreaviso` **duas** FKs para `unidades`, e todo `select` que embutia `unidades(...)` sem
+  dizer qual passou a ser ambíguo. A tela de **Auditoria** ficou sem dado nenhum. O mesmo vale
+  para `profiles`, que ganhou `acionado_por` ao lado de `validado_por`. Corrigido com FK nomeada
+  nos três pontos; a FK composta do setor de destino exige o **nome da constraint**
+  (`setores!fk_logs_sobreaviso_destino_setor`), porque a dica por coluna dá `PGRST200`.
+  Nem `tsc` nem `npm run build` detectam isso — a string do `select` é opaca. Registrado como
+  armadilha 8b no `CLAUDE.md`.
 - **Relatório de plantão/sobreaviso nunca leu acionamento nenhum**: o `select` pedia a coluna
   `data_hora_chamado`, que **nunca existiu** (o nome é `data_hora_acionamento`). O PostgREST
   respondia **400** e o código caía num `|| []`, tratando *todo* sobreaviso como não acionado —

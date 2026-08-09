@@ -431,6 +431,34 @@ por volta das 12h em jornadas 08:00–18:00 (almoço) e ficavam a 250–295 min 
 Incluindo os 4 passos, a distância cai para p50 = 51 min. Tolerância adotada: **90 min**
 (aproveita 89%; o resto cai no horário previsto, que é o comportamento seguro).
 
+### 8b. FK nova quebra todo embed implícito daquela tabela
+
+`logs_sobreaviso` sempre teve `unidade_id`. Ao ganhar `destino_unidade_id` (`20260808160000`),
+passou a ter **duas** FKs para `unidades` — e todo `select` que embutia `unidades(...)` **sem
+dizer qual** virou `HTTP 300 / PGRST201` de uma vez. Aconteceu em três lugares em produção,
+incluindo a tela de **Auditoria**, que ficou sem dado nenhum.
+
+```
+unidades(nome)                                    ❌ ambíguo
+unidades!logs_sobreaviso_unidade_id_fkey(nome)    ✅ origem
+unidades!destino_unidade_id(nome)                 ✅ destino (dica por coluna serve em FK simples)
+```
+
+`profiles` sofreu o mesmo com `acionado_por` ao lado de `validado_por`.
+
+⚠️ **FK composta não aceita dica por coluna.** `(destino_setor_id, destino_unidade_id) →
+setores(id, unidade_id)` só embute pelo **nome da constraint**:
+`setores!fk_logs_sobreaviso_destino_setor(...)`. Com a dica de coluna dá `PGRST200`.
+
+**Nada disso quebra `tsc` nem `npm run build`** — a string do `select` é opaca para o
+TypeScript, exatamente como o corpo de uma função plpgsql (armadilha 1). Depois de adicionar
+qualquer FK, varra os `select` que embutem a tabela alvo e **execute cada um** contra o banco:
+
+```js
+// para cada tabela: se der PGRST201, todo embed sem dica daquela tabela está quebrado
+await fetch(`${U}/rest/v1/logs_sobreaviso?select=id,${tabela}(*)&limit=1`, { headers: H })
+```
+
 ### 8. PostgREST corta em 1000 linhas
 
 Consultas via REST retornam no máximo 1000 registros, **silenciosamente** — `limit=2000` não
