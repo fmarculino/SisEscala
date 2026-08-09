@@ -199,6 +199,34 @@ não acertou, me mandar o formato real.
 
 ### Como fazer
 
+### ⚠️ Antes de tudo: a caixa por onde o aviso sai é a caixa que recebe a resposta
+
+Este foi o erro que derrubou o primeiro teste, e ele se repete a cada unidade nova.
+
+O SisEscala **envia** pela API do AstraCalls, usando um SID de sessão. A **resposta** do servidor
+cai na caixa do Chatwoot ligada a **essa mesma sessão**. Se a regra de automação escutar outra
+caixa, ela nunca dispara — e a confirmação nunca chega, sem erro em lugar nenhum.
+
+Some-se que a sessão global corresponde a uma caixa de **atendimento ao público**. Deixar o aviso
+ali mistura o tráfego do SisEscala com mensagem de paciente.
+
+**Como acertar:**
+
+1. No Chatwoot, abra a caixa que você quer usar → aba **Conexão** → anote o nome da sessão
+   (ex.: `inbox5_acc6`).
+2. No AstraCalls, clique nessa sessão e copie o **ID** (ex.: `a08e3c4b2cb2d551f742cb68318c655d`).
+   Se preferir, dá para listar tudo de uma vez:
+
+   ```bash
+   curl -s -H "X-API-Key: <a chave do Astra>" https://astracall.atb.app.br/api/sessions
+   ```
+
+3. SisEscala → *Configurações* → **Sessão dedicada ao Aviso de Ponto** → cole o ID → Salvar.
+4. A regra de automação (abaixo) tem que apontar para **essa mesma caixa**.
+
+> Trocar a sessão troca o **número** que fala com o servidor. Quem já tinha um pedido pendente
+> precisa **cancelar e reativar** no Portal — responder na conversa antiga cai na caixa errada.
+
 1. **Configure o webhook.** O painel do AstraChat é baseado em Chatwoot, então isso é feito por
    **regra de automação** (*Configurações → Automação → Adicionar regra*):
 
