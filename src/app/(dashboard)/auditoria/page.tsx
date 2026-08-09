@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/utils/supabase/client'
-import { ShieldCheck, Zap, Clock, MapPin, UserCheck, AlertCircle, Building2, Filter, FileDown, RotateCcw, ChevronLeft, ChevronRight, Search, LayoutList, CheckCircle2, XCircle } from 'lucide-react'
+import { ShieldCheck, Zap, Clock, MapPin, UserCheck, AlertCircle, Building2, Filter, FileDown, RotateCcw, ChevronLeft, ChevronRight, Search, LayoutList, CheckCircle2, XCircle, Calendar, ExternalLink, Loader2 } from 'lucide-react'
 import { applyAccessFilters, type UserProfile } from '@/utils/permissions'
 
 interface LogSobreaviso {
@@ -61,12 +62,99 @@ interface LogTentativaNegada {
   setor_nome?: string;
   turno_codigo?: string;
   detalhes_escala?: Record<string, any>;
+  servidores?: { id: string; unidade_id?: string; setor_id?: string };
 }
 
 export default function AuditoriaPage() {
+  const router = useRouter()
   const [logs, setLogs] = useState<(LogSobreaviso | LogSistema | LogTentativaNegada)[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'sobreaviso' | 'presenca' | 'sistema' | 'negadas'>('sobreaviso')
+  const [navigatingEscalaId, setNavigatingEscalaId] = useState<string | null>(null)
+
+  const handleNavigateToEscala = async (log: LogTentativaNegada) => {
+    setNavigatingEscalaId(log.id)
+    try {
+      let targetUnidadeId: string | undefined = log.servidores?.unidade_id
+      let targetSetorId: string | undefined = log.servidores?.setor_id
+      let targetMes: number | undefined
+      let targetAno: number | undefined
+
+      // 1. Tentar mapear por nome de unidade caso ID não esteja disponível
+      if (!targetUnidadeId && log.unidade_nome) {
+        const foundU = unidades.find(u => u.nome.trim().toLowerCase() === log.unidade_nome?.trim().toLowerCase())
+        if (foundU) {
+          targetUnidadeId = foundU.id
+        } else {
+          const { data: uData } = await supabase
+            .from('unidades')
+            .select('id')
+            .ilike('nome', log.unidade_nome.trim())
+            .maybeSingle()
+          if (uData?.id) targetUnidadeId = uData.id
+        }
+      }
+
+      // 2. Tentar mapear por nome de setor caso ID não esteja disponível
+      if (!targetSetorId && log.setor_nome) {
+        const foundS = setores.find(s => 
+          s.nome.trim().toLowerCase() === log.setor_nome?.trim().toLowerCase() &&
+          (!targetUnidadeId || s.unidade_id === targetUnidadeId)
+        )
+        if (foundS) {
+          targetSetorId = foundS.id
+        } else {
+          const { data: sData } = await supabase
+            .from('setores')
+            .select('id, dicionario_setores!inner(nome)')
+            .ilike('dicionario_setores.nome', log.setor_nome.trim())
+            .limit(1)
+            .maybeSingle()
+          if (sData?.id) targetSetorId = sData.id
+        }
+      }
+
+      // 3. Se houver escala_diaria_id nos detalhes, buscar no banco os detalhes exatos de escala_mensal
+      if (log.detalhes_escala?.escala_diaria_id) {
+        const { data: ed } = await supabase
+          .from('escala_diaria')
+          .select('escala_mensal(unidade_id, setor_id, mes, ano)')
+          .eq('id', log.detalhes_escala.escala_diaria_id)
+          .maybeSingle()
+
+        if (ed?.escala_mensal) {
+          const em = Array.isArray(ed.escala_mensal) ? ed.escala_mensal[0] : ed.escala_mensal
+          if (em) {
+            if (em.unidade_id) targetUnidadeId = em.unidade_id
+            if (em.setor_id) targetSetorId = em.setor_id
+            if (em.mes) targetMes = Number(em.mes)
+            if (em.ano) targetAno = Number(em.ano)
+          }
+        }
+      }
+
+      // 4. Derivar mês e ano do horário da tentativa caso não determinado via escala_mensal
+      if (!targetMes || !targetAno) {
+        const date = log.data_hora_tentativa ? new Date(log.data_hora_tentativa) : new Date()
+        targetMes = targetMes || (date.getMonth() + 1)
+        targetAno = targetAno || date.getFullYear()
+      }
+
+      // 5. Fallbacks para unidade e setor se ainda indefinidos
+      if (!targetUnidadeId) targetUnidadeId = filtros.unidadeId || unidades[0]?.id
+      if (!targetSetorId) {
+        targetSetorId = filtros.setorId || setores.find(s => s.unidade_id === targetUnidadeId)?.id || setores[0]?.id
+      }
+
+      if (targetUnidadeId && targetSetorId && targetMes && targetAno) {
+        router.push(`/escalas/unidade/${targetUnidadeId}?setor=${targetSetorId}&mes=${targetMes}&ano=${targetAno}`)
+      }
+    } catch (err) {
+      console.error('Erro ao navegar para a escala:', err)
+    } finally {
+      setNavigatingEscalaId(null)
+    }
+  }
   
   // Clear logs when tab changes to avoid showing stale data from the other tab
   useEffect(() => {
@@ -431,7 +519,7 @@ export default function AuditoriaPage() {
     } else if (activeTab === 'negadas') {
       query = supabase
         .from('logs_tentativas_presenca')
-        .select('*', { count: 'exact' })
+        .select('*, servidores(id, unidade_id, setor_id)', { count: 'exact' })
       
       if (filtros.busca) {
         query = query.or(`nome_servidor_detectado.ilike.%${filtros.busca}%,matricula_digitada.ilike.%${filtros.busca}%`)
@@ -1299,7 +1387,17 @@ export default function AuditoriaPage() {
                       </div>
 
                       <div className="bg-zinc-50 dark:bg-zinc-800/50 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800">
-                        <p className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase mb-2">Escala Prevista</p>
+                        <div className="flex justify-between items-center mb-2">
+                          <p className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase">Escala Prevista</p>
+                          <button 
+                            onClick={() => handleNavigateToEscala(log)}
+                            disabled={navigatingEscalaId === log.id}
+                            className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 font-bold flex items-center gap-1 hover:underline disabled:opacity-50"
+                          >
+                            <Calendar className="h-3.5 w-3.5" />
+                            Ver na Escala
+                          </button>
+                        </div>
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
                             <span className="text-zinc-500">Janela de Escala:</span>
@@ -1322,12 +1420,29 @@ export default function AuditoriaPage() {
                       )}
                     </div>
 
-                    <button 
-                      onClick={() => setSelectedLog(null)}
-                      className="w-full py-3 bg-zinc-900 dark:bg-white dark:text-zinc-900 text-white font-bold rounded-xl hover:opacity-90 transition-opacity"
-                    >
-                      Fechar
-                    </button>
+                    <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                      <button 
+                        onClick={() => handleNavigateToEscala(log)}
+                        disabled={navigatingEscalaId === log.id}
+                        className="flex-1 py-3 px-4 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20 disabled:opacity-50"
+                      >
+                        {navigatingEscalaId === log.id ? (
+                          <Loader2 className="h-5 w-5 animate-spin" />
+                        ) : (
+                          <>
+                            <Calendar className="h-5 w-5" />
+                            Ir para a Escala do Problema
+                            <ExternalLink className="h-4 w-4 ml-0.5 opacity-70" />
+                          </>
+                        )}
+                      </button>
+                      <button 
+                        onClick={() => setSelectedLog(null)}
+                        className="py-3 px-6 bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold rounded-xl hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-all"
+                      >
+                        Fechar
+                      </button>
+                    </div>
                   </div>
                 );
               })()
