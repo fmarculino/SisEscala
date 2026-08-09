@@ -37,6 +37,21 @@ interface ScaleGridProps {
 
 type RowCategory = 'Regular' | 'Extra' | 'Plantão' | 'Sobreaviso'
 
+type PassoPresenca = 'entrada' | 'intervalo_saida' | 'intervalo_retorno' | 'saida'
+
+// Uma batida real que o coordenador escolheu para um passo. `fonte` diz de onde ela veio, e o
+// banco resolve cada uma por um caminho diferente (fn_validar_presenca_manual):
+//   marcacao  → linha em marcacoes_ponto (batida registrada fora da janela, desde a v1.22.0)
+//   tentativa → linha em logs_tentativas_presenca (recusa anterior ao wrapper)
+// O que trafega é o ID, nunca o horário: o servidor relê o timestamp da fonte, com os segundos.
+type SelecaoBatida = { fonte: 'marcacao' | 'tentativa'; id: string; hora: string }
+
+// Com segundos de propósito: é o que distingue batida real de horário sintético (armadilha 5).
+// Esconder os segundos aqui apagaria justamente a evidência que a seleção existe para preservar.
+const horaComSegundos = (d: Date) => d.toLocaleTimeString('pt-BR', {
+  hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Sao_Paulo'
+})
+
 export function ScaleGrid({
   unidadeId,
   setorId,
@@ -108,12 +123,14 @@ export function ScaleGrid({
     const startRange = `${ano}-${mes.toString().padStart(2, '0')}-01T00:00:00Z`
     const endRange = `${ano}-${mes.toString().padStart(2, '0')}-${lastDay.toString().padStart(2, '0')}T23:59:59Z`
 
-    const { data, error } = await supabase
-      .from('logs_tentativas_presenca')
-      .select('*')
-      .in('servidor_id', servantIds)
-      .gte('data_hora_tentativa', startRange)
-      .lte('data_hora_tentativa', endRange)
+    // Vem da RPC, e não da tabela, por causa da coluna `elegivel`: nem toda tentativa recusada
+    // prova presença (PIN inválido, sem escala). A regra vive em fn_tentativa_recusada_elegivel
+    // e é a mesma que fn_batidas_reais_recusadas usa — duplicá-la aqui criaria divergência.
+    const { data, error } = await supabase.rpc('fn_tentativas_recusadas_mes', {
+      p_servidor_ids: servantIds,
+      p_mes: mes,
+      p_ano: ano
+    })
 
     if (!error && data) {
       setLogsTentativas(data)
@@ -294,6 +311,10 @@ export function ScaleGrid({
     // herdar o horário da jornada é a "marcação automática por horário contratual" vedada pela
     // Portaria 671/2021, e respondia por ~25% das entradas e saídas da folha.
     horarios?: { entrada?: string; intervalo_saida?: string; intervalo_retorno?: string; saida?: string };
+    // Batidas REAIS escolhidas pelo coordenador, por passo. Atribuição 1:1 — uma batida serve um
+    // passo, um passo aceita um horário. Selecionado ganha de digitado: o horário real preserva
+    // segundos, origem `terminal` e o vínculo com a marcação, que digitar perderia.
+    selecoes?: Partial<Record<PassoPresenca, SelecaoBatida>>;
   } | null>(null)
 
   const [bulkServerModal, setBulkServerModal] = useState<{
@@ -2016,13 +2037,14 @@ export function ScaleGrid({
       }
 
       const algumHorario = Object.values(manualPresenceModal.horarios || {}).some(v => !!v)
-      if (!algumHorario) {
+      const algumaSelecao = Object.values(manualPresenceModal.selecoes || {}).some(v => !!v)
+      if (!algumHorario && !algumaSelecao) {
         setAlertModal({
           isOpen: true,
-          title: 'Informe o Horário Cumprido',
-          message: 'Informe ao menos um horário. O sistema não preenche mais o horário da jornada '
-            + 'automaticamente: registrar horário contratual como se fosse cumprido é vedado pela '
-            + 'Portaria 671/2021. Pergunte ao servidor o horário real e digite aqui.',
+          title: 'Selecione ou Informe o Horário',
+          message: 'Selecione uma batida registrada no terminal ou informe ao menos um horário. '
+            + 'O sistema não preenche mais o horário da jornada automaticamente: registrar horário '
+            + 'contratual como se fosse cumprido é vedado pela Portaria 671/2021.',
           type: 'warning'
         })
         return
@@ -2044,7 +2066,10 @@ export function ScaleGrid({
         })
         if (error) throw error
       } else {
-        // Grava os horários INFORMADOS pelo servidor, não os derivados da jornada.
+        // Duas naturezas de horário na mesma chamada, e o banco as grava com origens diferentes:
+        // batida SELECIONADA entra com o horário real (origem `terminal`, segundos preservados,
+        // vínculo com a marcação); horário DIGITADO entra como declaração do coordenador
+        // (`ajuste_coordenador`). fn_validar_presenca_manual resolve as duas numa transação só.
         // fn_confirmar_presenca_manual continua existindo e serve à validação em massa, onde
         // não há horário individual a informar — aqui, no caso a caso, existe.
         const { data: linha, error: errLinha } = await supabase
@@ -2057,12 +2082,21 @@ export function ScaleGrid({
         if (errLinha) throw errLinha
         if (!linha?.id) throw new Error('Não encontrei a linha de escala deste dia.')
 
-        const horarios = Object.fromEntries(
-          Object.entries(manualPresenceModal.horarios || {}).filter(([, v]) => !!v)
+        const selecoes = Object.fromEntries(
+          Object.entries(manualPresenceModal.selecoes || {})
+            .filter(([, v]) => !!v)
+            .map(([passo, v]) => [passo, { fonte: v!.fonte, id: v!.id }])
         )
 
-        const { data, error } = await supabase.rpc('fn_registrar_presenca_informada', {
+        // Passo com batida selecionada ignora o que houver digitado: o fato ganha da declaração.
+        const horarios = Object.fromEntries(
+          Object.entries(manualPresenceModal.horarios || {})
+            .filter(([passo, v]) => !!v && !selecoes[passo])
+        )
+
+        const { data, error } = await supabase.rpc('fn_validar_presenca_manual', {
           p_escala_diaria_id: linha.id,
+          p_selecoes: selecoes,
           p_horarios: horarios,
           p_validador_id: user.id,
           p_justificativa: (manualPresenceModal.justificativa || '').trim()
@@ -4844,20 +4878,49 @@ export function ScaleGrid({
           }
         }
         const labelTipo = formatTipoLabel(manualPresenceModal.tipo)
-        const cellDeniedAttempts = logsTentativas.filter(l => {
-          if (l.servidor_id !== manualPresenceModal.servidorId) return false
-          const d = new Date(l.data_hora_tentativa)
+        const noDiaDaCelula = (iso: string) => {
+          const d = new Date(iso)
           return d.getDate() === manualPresenceModal.dia && d.getMonth() + 1 === mes && d.getFullYear() === ano
-        })
+        }
+
+        const cellDeniedAttempts = logsTentativas.filter(l =>
+          l.servidor_id === manualPresenceModal.servidorId && noDiaDaCelula(l.data_hora_tentativa))
 
         // Batidas fora da janela que o terminal registrou para este servidor neste dia.
-        const cellPendentes = marcacoesPendentes.filter(m => {
-          if (m.servidor_id !== manualPresenceModal.servidorId) return false
-          const d = new Date(m.ocorrido_em)
-          return d.getDate() === manualPresenceModal.dia && d.getMonth() + 1 === mes && d.getFullYear() === ano
-        })
+        const cellPendentes = marcacoesPendentes.filter(m =>
+          m.servidor_id === manualPresenceModal.servidorId && noDiaDaCelula(m.ocorrido_em))
 
-        type PassoPresenca = 'entrada' | 'intervalo_saida' | 'intervalo_retorno' | 'saida'
+        // A MESMA batida física aparece nas duas listas: desde a v1.22.0 (20260808100000) uma
+        // batida fora da janela gera tentativa em logs_tentativas_presenca E marcação pendente em
+        // marcacoes_ponto. Exibir as duas confundiria, e selecionar as duas gravaria em dobro.
+        // A marcação vence porque é ela que tem id em marcacoes_ponto. 5s de folga porque os dois
+        // now() do banco não são o mesmo instante.
+        type BatidaDoDia = {
+          fonte: 'marcacao' | 'tentativa'
+          id: string
+          quando: Date
+          elegivel: boolean
+          motivo?: string
+          previstoNaEpoca?: string | null
+        }
+        const batidasDoDia: BatidaDoDia[] = [
+          ...cellPendentes.map((m): BatidaDoDia => ({
+            fonte: 'marcacao', id: m.id, quando: new Date(m.ocorrido_em), elegivel: true
+          })),
+          ...cellDeniedAttempts.map((l): BatidaDoDia => ({
+            fonte: 'tentativa', id: l.id, quando: new Date(l.data_hora_tentativa),
+            // `elegivel` vem de fn_tentativa_recusada_elegivel, no banco. Tentativa de PIN
+            // inválido não prova nem identidade: vira ponto a partir de erro de digitação.
+            elegivel: !!l.elegivel, motivo: l.mensagem_erro,
+            previstoNaEpoca: l.escala_prevista_inicio
+          })),
+        ]
+          .sort((a, b) => a.quando.getTime() - b.quando.getTime())
+          .filter((b, _i, todas) => b.fonte === 'marcacao' || !todas.some(o =>
+            o.fonte === 'marcacao' && Math.abs(o.quando.getTime() - b.quando.getTime()) <= 5000))
+
+        const batidasSelecionaveis = batidasDoDia.filter(b => b.elegivel)
+
         const rotuloPasso = (p: PassoPresenca) => ({
           entrada: 'Entrada',
           intervalo_saida: 'Saída Interv.',
@@ -4886,6 +4949,92 @@ export function ScaleGrid({
               return [manualPresenceModal.tipo as PassoPresenca]
           }
         })()
+
+        // O previsto vem do BANCO (fn_blocos_previstos_mes, via blocoDaCelula) — a mesma fonte
+        // que o terminal cobra, já com a âncora espelho da jornada noturna (armadilha 4, nível
+        // 2-A). Sem ele o coordenador decide às cegas, e a sugestão de passo não tem âncora.
+        const blocoCelula = blocoDaCelula(
+          manualPresenceModal.servidorId, manualPresenceModal.categoria, manualPresenceModal.dia)
+        const previstoIso = (p: PassoPresenca): string | null => {
+          if (!blocoCelula) return null
+          return (p === 'entrada'           ? blocoCelula.inicio_previsto
+                : p === 'saida'             ? blocoCelula.fim_previsto
+                : p === 'intervalo_saida'   ? blocoCelula.intervalo_inicio_previsto
+                : p === 'intervalo_retorno' ? blocoCelula.intervalo_fim_previsto : null) || null
+        }
+        const previstoHHMM = (p: PassoPresenca) => {
+          const iso = previstoIso(p)
+          if (!iso) return null
+          return new Date(iso).toLocaleTimeString('pt-BR', {
+            hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo'
+          })
+        }
+
+        const selecoes = manualPresenceModal.selecoes || {}
+        const passoDaBatida = (id: string) =>
+          (Object.keys(selecoes) as PassoPresenca[]).find(p => selecoes[p]?.id === id) || null
+
+        // Sugestão de qual passo cada batida preenche: mesma ideia de fn_batidas_reais_recusadas
+        // — proximidade ao previsto, gulosa, sem reuso, 90 min de tolerância. Aqui ela só
+        // pré-seleciona o passo no momento do clique; quem grava é o banco, e o coordenador pode
+        // trocar. Sem previsto no bloco, o palpite é a ordem cronológica.
+        const sugestaoPorBatida = (() => {
+          const out = new Map<string, PassoPresenca>()
+          const pares: { id: string; passo: PassoPresenca; dist: number }[] = []
+          for (const b of batidasSelecionaveis) {
+            for (const p of passosDoEscopo) {
+              const iso = previstoIso(p)
+              if (!iso) continue
+              const dist = Math.abs(b.quando.getTime() - new Date(iso).getTime())
+              if (dist <= 90 * 60 * 1000) pares.push({ id: b.id, passo: p, dist })
+            }
+          }
+          pares.sort((a, b) => a.dist - b.dist)
+          const passosUsados = new Set<PassoPresenca>()
+          for (const par of pares) {
+            if (out.has(par.id) || passosUsados.has(par.passo)) continue
+            out.set(par.id, par.passo)
+            passosUsados.add(par.passo)
+          }
+          // Sobrou batida sem par: cai no primeiro passo ainda livre, em ordem cronológica.
+          for (const b of batidasSelecionaveis) {
+            if (out.has(b.id)) continue
+            const livre = passosDoEscopo.find(p => !passosUsados.has(p))
+            if (!livre) break
+            out.set(b.id, livre)
+            passosUsados.add(livre)
+          }
+          return out
+        })()
+
+        const alternarBatida = (b: BatidaDoDia, passo?: PassoPresenca) => {
+          setManualPresenceModal(prev => {
+            if (!prev) return null
+            const atuais = { ...(prev.selecoes || {}) }
+            const passoAtual = (Object.keys(atuais) as PassoPresenca[])
+              .find(p => atuais[p]?.id === b.id)
+
+            if (passoAtual && !passo) {
+              delete atuais[passoAtual]
+              return { ...prev, selecoes: atuais }
+            }
+
+            const destino = passo
+              || sugestaoPorBatida.get(b.id)
+              || passosDoEscopo.find(p => !atuais[p])
+              || passosDoEscopo[0]
+            if (!destino) return prev
+
+            // Um passo aceita um horário e uma batida serve um passo: as duas direções da
+            // exclusão mútua precisam valer, senão a mesma batida entraria duas vezes.
+            if (passoAtual) delete atuais[passoAtual]
+            atuais[destino] = { fonte: b.fonte, id: b.id, hora: horaComSegundos(b.quando) }
+
+            const horarios = { ...(prev.horarios || {}) }
+            delete horarios[destino]
+            return { ...prev, selecoes: atuais, horarios }
+          })
+        }
 
         return (
           <Modal
@@ -4961,79 +5110,144 @@ export function ScaleGrid({
                 </div>
               )}
 
-              {/* Batidas registradas fora da janela prevista. Âmbar, não vermelho: elas FORAM
-                  registradas — o terminal não recusa mais por horário. Cada uma traz um botão
-                  que joga o horário real no campo, para o coordenador não redigitar. */}
-              {!manualPresenceModal.isReverting && cellPendentes.length > 0 && (
+              {/* Batidas do dia — tentativas recusadas e marcações fora da janela na MESMA lista,
+                  deduplicadas: desde a v1.22.0 o mesmo evento físico gera as duas. Selecionar
+                  manda o ID ao banco, não o horário: é assim que os segundos, a origem `terminal`
+                  e o vínculo com a marcação sobrevivem. Copiar o HH:MM para o campo, como antes,
+                  rebaixava a batida real a declaração do coordenador. */}
+              {!manualPresenceModal.isReverting && batidasDoDia.length > 0 && (
                 <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700 rounded-xl space-y-2">
                   <div className="flex items-center gap-1.5 text-amber-800 dark:text-amber-300 text-xs font-bold">
                     <AlertTriangle className="h-4 w-4 flex-shrink-0" />
-                    <span>Ponto registrado no terminal fora do horário previsto:</span>
+                    <span>Batidas registradas no terminal neste dia:</span>
                   </div>
-                  {cellPendentes.map(m => {
-                    const hhmm = new Date(m.ocorrido_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                  {batidasDoDia.map(b => {
+                    const passoSel = passoDaBatida(b.id)
                     return (
-                      <div key={m.id} className="flex items-center gap-2 pl-5">
-                        <strong className="text-sm text-amber-900 dark:text-amber-200 tabular-nums">{hhmm}</strong>
-                        <div className="flex gap-1 flex-wrap">
-                          {passosDoEscopo.map(p => (
-                            <button
-                              key={p}
-                              type="button"
-                              onClick={() => setManualPresenceModal(prev => prev
-                                ? { ...prev, horarios: { ...(prev.horarios || {}), [p]: hhmm } }
-                                : null)}
-                              className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100 hover:bg-amber-300 dark:hover:bg-amber-700 transition-all"
-                            >
-                              usar em {rotuloPasso(p)}
-                            </button>
-                          ))}
-                        </div>
+                      <div key={`${b.fonte}-${b.id}`} className="flex items-start gap-2 flex-wrap">
+                        {b.elegivel ? (
+                          <input
+                            type="checkbox"
+                            checked={!!passoSel}
+                            onChange={() => alternarBatida(b)}
+                            className="mt-0.5 h-4 w-4 rounded border-amber-400 text-emerald-600 focus:ring-emerald-500"
+                            aria-label={`Usar a batida das ${horaComSegundos(b.quando)}`}
+                          />
+                        ) : (
+                          <span className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                        )}
+                        <strong className={`text-sm tabular-nums ${b.elegivel ? 'text-amber-900 dark:text-amber-200' : 'text-zinc-500 line-through'}`}>
+                          {horaComSegundos(b.quando)}
+                        </strong>
+
+                        {b.elegivel && passosDoEscopo.length > 1 && (
+                          <select
+                            value={passoSel || ''}
+                            onChange={(e) => alternarBatida(b, e.target.value as PassoPresenca)}
+                            disabled={!passoSel}
+                            className="text-[11px] rounded-md border border-amber-300 dark:border-amber-700 bg-white dark:bg-zinc-800 px-1.5 py-0.5 disabled:opacity-50"
+                          >
+                            <option value="" disabled>selecione o passo</option>
+                            {passosDoEscopo.map(p => (
+                              <option key={p} value={p}>{rotuloPasso(p)}</option>
+                            ))}
+                          </select>
+                        )}
+
+                        {/* Inelegível continua VISÍVEL — nunca descartar batida. Só não pode
+                            virar horário de folha: PIN inválido não prova nem identidade. */}
+                        {!b.elegivel && (
+                          <span className="text-[11px] text-zinc-500 leading-snug">
+                            {b.motivo}
+                            {b.previstoNaEpoca ? ` (previsão vigente na época: ${b.previstoNaEpoca})` : ''}
+                            <span className="block italic">Não comprova presença — não pode ser usada como horário.</span>
+                          </span>
+                        )}
                       </div>
                     )
                   })}
+                  {batidasSelecionaveis.length > 0 && (
+                    <p className="text-[10px] text-amber-700 dark:text-amber-400 leading-snug">
+                      Marcar usa o <b>horário exato</b> em que o servidor registrou. Deixe desmarcado
+                      para digitar outro horário — é o caso de quem chegou no horário e só bateu depois.
+                    </p>
+                  )}
                 </div>
               )}
 
               {/* Horários informados pelo servidor. Sem pré-preenchimento: o previsto aparece só
-                  como referência no placeholder. Ver 20260808110000. */}
+                  como referência ao lado do rótulo. Ver 20260808110000. */}
               {!manualPresenceModal.isReverting && (
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider block">
                     Horários Cumpridos <span className="text-red-500">*</span>
                   </label>
                   <div className={`grid gap-2 ${passosDoEscopo.length > 2 ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2'}`}>
-                    {passosDoEscopo.map(p => (
-                      <div key={p}>
-                        <label className="block text-[10px] font-semibold text-zinc-500 mb-0.5">{rotuloPasso(p)}</label>
-                        <input
-                          type="time"
-                          value={manualPresenceModal.horarios?.[p] || ''}
-                          onChange={(e) => setManualPresenceModal(prev => prev
-                            ? { ...prev, horarios: { ...(prev.horarios || {}), [p]: e.target.value } }
-                            : null)}
-                          className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2 py-1.5 text-sm tabular-nums focus:border-amber-500 focus:ring-amber-500"
-                        />
-                      </div>
-                    ))}
+                    {passosDoEscopo.map(p => {
+                      const sel = selecoes[p]
+                      const previsto = previstoHHMM(p)
+                      return (
+                        <div key={p}>
+                          <label className="flex items-baseline justify-between gap-1 text-[10px] font-semibold text-zinc-500 mb-0.5">
+                            <span>{rotuloPasso(p)}</span>
+                            {previsto && <span className="font-normal tabular-nums">previsto {previsto}</span>}
+                          </label>
+                          {sel ? (
+                            // Campo travado: o horário é o da batida, não há o que digitar. O ✕
+                            // libera para digitação, que é o caminho de quem vai declarar outro.
+                            <div className="w-full flex items-center gap-1 rounded-lg border border-emerald-400 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-1.5">
+                              <span className="text-sm tabular-nums font-bold text-emerald-800 dark:text-emerald-300 flex-1">{sel.hora}</span>
+                              <button
+                                type="button"
+                                title="Usar outro horário"
+                                onClick={() => setManualPresenceModal(prev => {
+                                  if (!prev) return null
+                                  const atuais = { ...(prev.selecoes || {}) }
+                                  delete atuais[p]
+                                  return { ...prev, selecoes: atuais }
+                                })}
+                                className="text-emerald-700 dark:text-emerald-400 hover:text-emerald-900"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <input
+                              type="time"
+                              value={manualPresenceModal.horarios?.[p] || ''}
+                              onChange={(e) => setManualPresenceModal(prev => prev
+                                ? { ...prev, horarios: { ...(prev.horarios || {}), [p]: e.target.value } }
+                                : null)}
+                              className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2 py-1.5 text-sm tabular-nums focus:border-amber-500 focus:ring-amber-500"
+                            />
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
                   <p className="text-[10px] text-zinc-500 leading-snug">
-                    Informe o horário que o servidor <b>declara ter cumprido</b>. O sistema não preenche
+                    Campo em verde = <b>batida real do terminal</b>, com o horário exato. Digitado =
+                    o horário que o servidor <b>declara ter cumprido</b>. O sistema não preenche
                     mais o horário da jornada sozinho — registrar horário contratual como se fosse
                     cumprido é vedado pela Portaria 671/2021.
                   </p>
                 </div>
               )}
 
+              {/* Histórico da recusa. Fica separado da lista de batidas porque é outra coisa: ali
+                  o coordenador DECIDE, aqui ele só entende o que aconteceu. O horário previsto
+                  mostrado é o gravado no instante da recusa — pode divergir do previsto atual, e é
+                  exatamente essa divergência que denuncia recusa por bug. Nunca recalcular: o log
+                  é evidência. Ver 20260809000000 (plantão diurno em jornada noturna). */}
               {cellDeniedAttempts.length > 0 && (
                 <div className="p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl space-y-1">
                   <div className="flex items-center gap-1.5 text-red-700 dark:text-red-300 text-xs font-bold">
                     <AlertTriangle className="h-4 w-4 flex-shrink-0" />
-                    <span>Tentativa(s) de Ponto Recusada(s) pelo Terminal neste Dia:</span>
+                    <span>Histórico de recusas do terminal neste dia:</span>
                   </div>
                   {cellDeniedAttempts.map(t => (
                     <p key={t.id} className="text-[11px] text-red-600 dark:text-red-400 pl-5">
-                      • <strong>{new Date(t.data_hora_tentativa).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</strong>: {t.mensagem_erro} {t.escala_prevista_inicio ? `(Previsão: ${t.escala_prevista_inicio})` : ''}
+                      • <strong className="tabular-nums">{horaComSegundos(new Date(t.data_hora_tentativa))}</strong>: {t.mensagem_erro} {t.escala_prevista_inicio ? `(previsão vigente na época: ${t.escala_prevista_inicio})` : ''}
                     </p>
                   ))}
                 </div>

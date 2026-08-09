@@ -170,6 +170,44 @@ autorizado pelo Art. 82, parágrafo único. A vedação 2 é o *sistema* marcar 
 `fn_confirmar_presenca` e `fn_confirmar_presenca_manual` **não foram alteradas** por nada disso —
 todo o comportamento novo entra por funções que as envolvem (armadilha 1).
 
+### Seleção da batida real na validação manual (v1.26.0)
+
+Plano em [`docs/planos/2026-08-09-selecao-de-batida-real-na-validacao-manual.md`](docs/planos/2026-08-09-selecao-de-batida-real-na-validacao-manual.md),
+migration `20260809100000`.
+
+Onde o terminal já registrou o horário, o coordenador **seleciona** a batida em vez de digitar.
+`fn_validar_presenca_manual` é a entrada única do modal e reparte:
+
+| o coordenador… | função | origem gravada |
+|---|---|---|
+| seleciona marcação pendente | `fn_aceitar_marcacao_pendente` (já existia, nunca era chamada) | `terminal` |
+| seleciona tentativa recusada | `fn_aceitar_tentativa_recusada` → materializa/reusa marcação → delega à de cima | `terminal` |
+| digita o horário | `fn_registrar_presenca_informada` | `ajuste_coordenador` |
+
+**Digitar não pode ser removido** — é o caso de quem chegou às 06:00, esqueceu de bater e só bateu
+às 06:50. Selecionar é usar o fato; digitar é o coordenador declarar (Art. 82, parágrafo único).
+Os dois na mesma validação, em passos diferentes, é normal.
+
+⚠️ **Nunca mande o horário; mande o id.** Copiar `HH:MM` para o campo (o que o botão
+`usar em <passo>` fazia) perde os segundos, a origem e o `presenca_*_marcacao_id` — a batida real
+vira declaração do coordenador. Pior: se a RPC aceitasse horário como texto, qualquer chamada
+poderia rotular horário inventado como batida real.
+
+⚠️ **Elegibilidade é regra de banco.** `fn_tentativa_recusada_elegivel` é a fonte única (extraída
+de `fn_batidas_reais_recusadas`, que agora a chama). Sem ela, uma tentativa de `PIN inválido` —
+378 das 911 de produção — viraria horário de folha a partir de erro de digitação, possivelmente
+de outra pessoa. Tentativa inelegível continua **visível** no modal, só não é selecionável.
+
+⚠️ **A mesma batida física aparece em duas tabelas.** Desde `20260808100000`, batida fora da
+janela gera tentativa em `logs_tentativas_presenca` **e** marcação pendente em `marcacoes_ponto`.
+A grade dedup por timestamp (5 s) e a função reusa a marcação existente — `marcacoes_ponto` é
+INSERT-only, uma cópia a mais não sai mais de lá.
+
+**O previsto do modal vem de `fn_blocos_previstos_mes`** (via `blocoDaCelula`), não do log. Os dois
+convivem e significam coisas diferentes: `escala_prevista_inicio` do log é **histórico**, gravado
+no instante da recusa, e **não se recalcula** — é ele que denuncia recusa por bug. Rotulado como
+`previsão vigente na época`.
+
 ## Acionamento de sobreaviso com destino (08/08/2026)
 
 Plano em [`docs/planos/2026-08-08-acionamento-de-sobreaviso-com-destino.md`](docs/planos/2026-08-08-acionamento-de-sobreaviso-com-destino.md).

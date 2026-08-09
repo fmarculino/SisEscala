@@ -2,6 +2,46 @@
 
 Todas as alterações notáveis deste projeto são registradas neste arquivo.
 
+## [1.26.0] - 2026-08-09
+
+### ✨ Seleção da batida real na validação manual
+
+Plano em `docs/planos/2026-08-09-selecao-de-batida-real-na-validacao-manual.md`.
+Migration `20260809100000`. ⚠️ **Aplicar a migration antes de publicar o frontend** — o modal
+passa a chamar `fn_validar_presenca_manual`, que só existe depois dela.
+
+- **O coordenador agora seleciona a batida em vez de digitá-la.** Onde o terminal já registrou o
+  horário, marcar a batida grava o **horário real** — com segundos, origem `terminal` e vínculo
+  com a marcação (`presenca_*_marcacao_id`). Antes o botão só copiava o `HH:MM` para o campo, e o
+  registro saía como `07:06:00` / `ajuste_coordenador`: indistinguível de sintético (armadilha 5)
+  e ao contrário da precedência de origem, que manda o horário real ganhar do declarado.
+  - `fn_aceitar_marcacao_pendente` já fazia isso desde a v1.22.0 e **nunca era chamada**.
+- **Digitar continua existindo, e agora é distinguível.** Selecionar é usar o fato; digitar é o
+  coordenador declarar (Art. 82, parágrafo único) — o caso de quem chegou às 06:00, esqueceu de
+  bater e só bateu às 06:50. Na mesma validação um passo pode vir de batida (`terminal`) e outro
+  de declaração (`ajuste_coordenador`). Campo verde = batida; campo em branco = digitação.
+- **O horário previsto aparece no modal**, lido de `fn_blocos_previstos_mes` — a mesma fonte que o
+  terminal cobra e que a grade já pintava em cinza. Faltava ali: o coordenador via só a previsão
+  **gravada no log da recusa**, que num caso real dizia `18:00` enquanto a grade dizia `06:00`.
+  Não é enfeite — é a âncora da sugestão automática de passo (90 min, como
+  `fn_batidas_reais_recusadas`): com `06:00`, o `07:06` fica a 66 min e casa com `Entrada`.
+- **O previsto histórico do log deixa de mentir no presente.** `(Previsão: 18:00)` virou
+  `(previsão vigente na época: 18:00)`. O valor **não é recalculado**: é a evidência de que a
+  batida foi recusada com base numa previsão errada — a corrigida em `20260809000000`.
+- **Tentativa recusada só vira horário de folha se comprovar presença.** O filtro que já existia
+  inline em `fn_batidas_reais_recusadas` foi extraído para `fn_tentativa_recusada_elegivel` e
+  passou a valer também aqui, **no banco**. Das 911 tentativas de produção, 378 eram
+  `Matrícula ou PIN inválidos` — nem identidade provam. Elas continuam **visíveis** no modal, sem
+  controle de seleção e com o motivo à vista.
+- **A mesma batida deixa de aparecer duas vezes.** Desde a v1.22.0 uma batida fora da janela gera
+  tentativa **e** marcação pendente — o mesmo evento, exibido em vermelho e em âmbar com
+  significados opostos. As duas listas viraram uma só, deduplicada por timestamp (5 s de folga), e
+  o banco reusa a marcação existente em vez de inserir uma segunda em `marcacoes_ponto`, que é
+  INSERT-only.
+- **Tudo ou nada.** `fn_validar_presenca_manual` aplica seleções e digitados numa transação só;
+  qualquer recusa desfaz o que já gravou. Sobreaviso e competência encerrada passam a ser
+  barrados nos **dois** caminhos — `fn_aceitar_marcacao_pendente` não checava nenhum dos dois.
+
 ## [1.24.0] - 2026-08-08
 
 ### ✨ Acionamento de sobreaviso com destino
