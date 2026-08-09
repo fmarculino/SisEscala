@@ -3,6 +3,7 @@
 import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
+import { registrarLog, calcularAlteracoes } from '@/utils/auditoria'
 
 const normalizarCpf = (cpf?: string | null) => (cpf || '').replace(/\D/g, '')
 
@@ -157,6 +158,18 @@ export async function createServidor(formData: FormData) {
   if (error) {
     return { error: traduzirErroCadastro(error) }
   }
+
+  // Cadastro novo: registra a identidade com que a pessoa entrou no sistema. Sem PIN.
+  const { data: { user: autorCriacao } } = await supabase.auth.getUser()
+  await registrarLog({
+    acao: 'SERVIDOR_CRIADO',
+    entidade: 'servidor',
+    entidadeId: matriculaFinal || nome,
+    userId: autorCriacao?.id || null,
+    detalhes: { nome, matricula: matriculaFinal, cpf: cpf || null, cargo, vinculo },
+    unidadeId: unidade_id || null,
+    setorId: setor_id || null,
+  })
 
   revalidatePath('/servidores')
   redirect('/servidores')
@@ -559,9 +572,12 @@ export async function updateServidor(id: string, formData: FormData) {
   }
 
   // Query current lotação before updating to check for changes
+  // Traz o registro INTEIRO, e não só a lotação: é ele que serve de "antes" para o diff da
+  // auditoria. Alterar matrícula, CPF ou telefone de um servidor muda a identidade que sustenta
+  // o ponto dele, e até aqui não deixava rastro nenhum.
   const { data: currentServidor, error: fetchError } = await supabase
     .from('servidores')
-    .select('unidade_id, setor_id')
+    .select('*')
     .eq('id', id)
     .single()
 
@@ -780,6 +796,27 @@ export async function updateServidor(id: string, formData: FormData) {
     return { error: traduzirErroCadastro(error) }
   }
 
+  // `pin_acesso` é bcrypt e nunca deve entrar no log com valor. `foto_url` muda a cada upload e
+  // só produziria ruído.
+  const alteracoesServidor = calcularAlteracoes(currentServidor, updateData, {
+    camposSensiveis: ['pin_acesso'],
+    ignorar: ['updated_at', 'created_at', 'foto_url'],
+  })
+
+  if (Object.keys(alteracoesServidor).length > 0) {
+    const { data: { user: autor } } = await supabase.auth.getUser()
+    await registrarLog({
+      acao: 'SERVIDOR_EDITADO',
+      entidade: 'servidor',
+      entidadeId: id,
+      userId: autor?.id || null,
+      alteracoes: alteracoesServidor,
+      detalhes: { nome: nome || currentServidor.nome, transferido: isTransferred },
+      unidadeId: newUnidadeId,
+      setorId: newSetorId,
+    })
+  }
+
   revalidatePath('/servidores')
   redirect('/servidores')
 }
@@ -789,7 +826,7 @@ export async function toggleServidorStatus(id: string, status: 'Ativo' | 'Inativ
 
   const { error } = await supabase
     .from('servidores')
-    .update({ 
+    .update({
       status,
       motivo_inativacao: status === 'Inativo' ? motivo : null
     })
@@ -798,6 +835,18 @@ export async function toggleServidorStatus(id: string, status: 'Ativo' | 'Inativ
   if (error) {
     return { error: error.message }
   }
+
+  // Inativar um servidor tira ele das escalas futuras e do terminal. O motivo importa tanto
+  // quanto o ato — sem ele, "por que fulano parou de aparecer?" não tem resposta.
+  const { data: { user: autorStatus } } = await supabase.auth.getUser()
+  await registrarLog({
+    acao: 'SERVIDOR_STATUS_ALTERADO',
+    entidade: 'servidor',
+    entidadeId: id,
+    userId: autorStatus?.id || null,
+    alteracoes: { status: { de: status === 'Ativo' ? 'Inativo' : 'Ativo', para: status } },
+    detalhes: motivo ? { motivo } : {},
+  })
 
   revalidatePath('/servidores')
   return { success: true }

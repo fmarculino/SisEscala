@@ -2,6 +2,7 @@
 
 import { createClient, createAdminClient } from '@/utils/supabase/server'
 import { executeGerarFolhaPonto } from '@/app/(dashboard)/folha-ponto/actions'
+import { registrarLog } from '@/utils/auditoria'
 
 export async function autoCloseExpiredScalesAndTimesheets() {
   try {
@@ -275,6 +276,20 @@ export async function toggleCompetencyClosure(mes: number, ano: number, lock: bo
       }, { onConflict: 'chave' })
 
     if (error) throw error
+
+    // Encerrar congela um mês inteiro de folha e escala; reabrir descongela. Reabrir uma
+    // competência fechada é exatamente o movimento que uma auditoria quer ver documentado — e
+    // até aqui era invisível: o único rastro era o `encerrado_por` dentro do jsonb, que some
+    // quando a competência é reaberta.
+    await registrarLog({
+      acao: lock ? 'COMPETENCIA_ENCERRADA' : 'COMPETENCIA_REABERTA',
+      entidade: 'competencia',
+      entidadeId: `${mes}/${ano}`,
+      userId: user.id,
+      alteracoes: { encerrada: { de: !lock, para: lock } },
+      detalhes: { mes, ano },
+    })
+
     return { success: true }
   } catch (error: any) {
     console.error('Erro ao gerenciar encerramento de competência:', error)

@@ -110,6 +110,44 @@ export function calcularAlteracoes(
   return resultado
 }
 
+/** Campos de horário da folha. Fora destes, o resto de um registro é derivado ou de apoio. */
+const CAMPOS_FOLHA = ['entrada', 'saida_intervalo', 'retorno_intervalo', 'saida', 'observacao'] as const
+
+/**
+ * Diff da folha de ponto — **por dia e por campo**.
+ *
+ * `folha_ponto.registros` é um `jsonb` sobrescrito inteiro a cada salvamento. Guardar o array como
+ * valor anterior tornaria o log pesado e inútil: numa folha de 31 dias, a mudança de um horário
+ * ficaria escondida no meio de 30 dias idênticos.
+ *
+ * O que a auditoria precisa responder é "a entrada do dia 12 era 08:03 e virou 08:00, e quem fez".
+ * É isso que sai daqui — e nada além.
+ */
+export function calcularAlteracoesFolha(
+  antes: any[] | null | undefined,
+  depois: any[] | null | undefined
+): Record<string, { de: unknown; para: unknown }> {
+  const mudou: Record<string, { de: unknown; para: unknown }> = {}
+  if (!Array.isArray(depois)) return mudou
+
+  const porDia = new Map<number, any>()
+  ;(antes || []).forEach(r => { if (r?.dia != null) porDia.set(Number(r.dia), r) })
+
+  for (const novo of depois) {
+    if (novo?.dia == null) continue
+    const velho = porDia.get(Number(novo.dia))
+    for (const campo of CAMPOS_FOLHA) {
+      const de = velho?.[campo] ?? null
+      const para = novo?.[campo] ?? null
+      const norm = (v: unknown) => (v === '' || v === undefined ? null : v)
+      if (JSON.stringify(norm(de)) === JSON.stringify(norm(para))) continue
+      // Chave "dia 12 · entrada": legível na tela sem precisar decifrar índice de array.
+      mudou[`dia ${novo.dia} · ${campo}`] = { de: norm(de), para: norm(para) }
+    }
+  }
+  return mudou
+}
+
 /**
  * Rótulos legíveis. A tela de auditoria mostra a ação para gente, não para máquina — e um
  * `CONFIGURACAO_ALTERADA` cru obriga quem lê a decifrar convenção interna.

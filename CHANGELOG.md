@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.34.0] - 2026-08-09
+
+### Added
+- **Fase B da auditoria — as quatro lacunas graves passam a ser registradas.** Todas usam o helper único de `src/utils/auditoria.ts`, com `entidade`, `entidade_id`, autoria e **diff dos campos que mudaram**:
+
+  - **Folha de ponto** (`FOLHA_EDITADA`, `FOLHA_STATUS_ALTERADO`) — é o documento legal do ponto, e até aqui guardava apenas `ultima_edicao_por_id`: **só a última edição**, com os horários num `jsonb` sobrescrito inteiro. Não havia como mostrar que a entrada do dia 12 era `08:03` e virou `08:00`, nem quem fez. O diff é **por dia e por campo** (`dia 12 · entrada`), e não o array inteiro — numa folha de 31 dias, a mudança de um horário ficaria escondida no meio de 30 dias idênticos.
+  - **Usuários e permissões** (`USUARIO_PAPEL_ALTERADO`, `USUARIO_PERMISSOES_ALTERADAS`, `USUARIO_EDITADO`, `USUARIO_STATUS_ALTERADO`, `USUARIO_SENHA_REDEFINIDA`) — conceder `acesso_todas_unidades` amplia o alcance de uma pessoa sobre os dados de 183 servidores e não deixava rastro. Mudança de papel ganha ação própria: um coordenador virando admin não é o mesmo que corrigir a grafia de um nome, e numa lista cronológica ficariam indistinguíveis. O vínculo com unidades e setores entra no diff como lista ordenada.
+  - **Competência** (`COMPETENCIA_ENCERRADA`, `COMPETENCIA_REABERTA`) — congela ou descongela um mês inteiro de folha e escala. **Reabrir é justamente o movimento que uma auditoria quer ver documentado**, e o único rastro era o `encerrado_por` dentro do jsonb — que some quando a competência é reaberta.
+  - **Servidores** (`SERVIDOR_CRIADO`, `SERVIDOR_EDITADO`, `SERVIDOR_STATUS_ALTERADO`) — matrícula, CPF, telefone e lotação sustentam a identidade que ampara o ponto. `updateServidor` passou a buscar o registro inteiro para servir de "antes".
+
+### Notes
+- **Campo sensível nunca vai com valor.** `pin_acesso` é registrado como *alterado* sem o conteúdo, e a redefinição de senha grava `(omitido)` nos dois lados: o log precisa provar a troca e não pode contê-la.
+- `foto_url` fica fora do diff — muda a cada upload e só produziria ruído.
+- Falha ao registrar **nunca derruba a operação**: vira `console.error` e a ação segue. Perder uma linha de log é ruim; impedir um coordenador de fechar uma folha porque o log falhou é pior.
+- Fases restantes do estudo: **D** (aba de Avisos de Ponto), **E** (RLS alinhado ao que a tela restringe) e **F** (retenção configurável).
+
 ## [1.33.0] - 2026-08-09
 
 ### Added

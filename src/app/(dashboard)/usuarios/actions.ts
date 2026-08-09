@@ -3,6 +3,7 @@
 import { createClient } from '@/utils/supabase/server'
 import { createClient as createSupabaseAdmin } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
+import { registrarLog, calcularAlteracoes } from '@/utils/auditoria'
 
 const AUTH_ERRORS_PT: Record<string, string> = {
   'User already registered': 'Este e-mail já está cadastrado no sistema.',
@@ -100,6 +101,20 @@ export async function updateUser(formData: FormData) {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   )
 
+  // Estado ANTES da alteração. Conceder `acesso_todas_unidades` amplia o alcance de uma pessoa
+  // sobre os dados de 183 servidores — e até aqui isso não deixava rastro nenhum. É o item mais
+  // clássico de qualquer auditoria de sistema, e o único que responde "quem deu esse acesso".
+  const { data: perfilAntes } = await supabaseAdmin
+    .from('profiles')
+    .select('full_name, role, acesso_todas_unidades, acesso_todos_setores')
+    .eq('id', userId)
+    .maybeSingle()
+
+  const { data: unidadesAntes } = await supabaseAdmin
+    .from('profile_unidades').select('unidade_id').eq('profile_id', userId)
+  const { data: setoresAntes } = await supabaseAdmin
+    .from('profile_setores').select('setor_id').eq('profile_id', userId)
+
   // 1. Update Auth user metadata
   const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
     user_metadata: { full_name: fullName }
@@ -134,6 +149,39 @@ export async function updateUser(formData: FormData) {
     await supabaseAdmin.from('profile_setores').insert(sectorInserts)
   }
 
+  // Mudança de papel ganha ação própria: um coordenador virando admin não é a mesma coisa que
+  // corrigir a grafia de um nome, e numa lista cronológica as duas ficariam indistinguíveis.
+  const antes = {
+    ...perfilAntes,
+    unidades: (unidadesAntes || []).map(u => u.unidade_id).sort(),
+    setores: (setoresAntes || []).map(s => s.setor_id).sort(),
+  }
+  const depois = {
+    full_name: fullName,
+    role,
+    acesso_todas_unidades: acessoTodasUnidades,
+    acesso_todos_setores: acessoTodosSetores,
+    unidades: acessoTodasUnidades ? [] : [...unidadeIds].sort(),
+    setores: acessoTodosSetores ? [] : [...setorIds].sort(),
+  }
+  const alteracoes = calcularAlteracoes(antes, depois)
+
+  if (Object.keys(alteracoes).length > 0) {
+    const mudouPapel = 'role' in alteracoes
+    const mudouEscopo = ['acesso_todas_unidades', 'acesso_todos_setores', 'unidades', 'setores']
+      .some(c => c in alteracoes)
+    await registrarLog({
+      acao: mudouPapel ? 'USUARIO_PAPEL_ALTERADO'
+          : mudouEscopo ? 'USUARIO_PERMISSOES_ALTERADAS'
+          : 'USUARIO_EDITADO',
+      entidade: 'profile',
+      entidadeId: userId,
+      userId: (await (await createClient()).auth.getUser()).data.user?.id || null,
+      alteracoes,
+      detalhes: { alvo: fullName },
+    })
+  }
+
   revalidatePath('/usuarios')
   return { success: true }
 }
@@ -155,6 +203,15 @@ export async function resetPassword(userId: string, newPassword: string) {
   if (error) {
     return { error: translateError(error.message) }
   }
+
+  // Registra QUE a senha mudou, jamais qual. O log precisa provar a troca e não pode contê-la.
+  await registrarLog({
+    acao: 'USUARIO_SENHA_REDEFINIDA',
+    entidade: 'profile',
+    entidadeId: userId,
+    userId: (await (await createClient()).auth.getUser()).data.user?.id || null,
+    alteracoes: { senha: { de: '(omitido)', para: '(omitido)' } },
+  })
 
   return { success: true }
 }
@@ -199,6 +256,15 @@ export async function toggleUserStatus(userId: string, currentStatus: boolean) {
   if (error) {
     return { error: translateError(error.message) }
   }
+
+  // Inativar um usuário retira o acesso dele ao sistema inteiro. Reativar devolve.
+  await registrarLog({
+    acao: 'USUARIO_STATUS_ALTERADO',
+    entidade: 'profile',
+    entidadeId: userId,
+    userId: (await (await createClient()).auth.getUser()).data.user?.id || null,
+    alteracoes: { ativo: { de: currentStatus, para: !currentStatus } },
+  })
 
   revalidatePath('/usuarios')
   return { success: true }

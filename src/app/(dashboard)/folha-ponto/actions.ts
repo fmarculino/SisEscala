@@ -2,6 +2,7 @@
 
 import { createClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { registrarLog, calcularAlteracoesFolha } from '@/utils/auditoria'
 import { hasSectorAccess, UserProfile, applyAccessFilters } from '@/utils/permissions'
 import { autoCloseExpiredScalesAndTimesheets, isCompetencyClosed } from '@/utils/autoClose'
 import { resolverMarcacaoDoDia, COLUNAS_PRESENCA_FOLHA } from '@/utils/folha/origemMarcacao'
@@ -1552,6 +1553,32 @@ export async function salvarFolhaPonto(folhaId: string, registros: any[], status
       .eq('id', folhaId)
 
     if (updateError) throw updateError
+
+    // A folha é o documento legal do ponto. Até aqui o sistema guardava apenas
+    // `ultima_edicao_por_id` — só a ÚLTIMA edição — e os horários vivem num jsonb sobrescrito
+    // inteiro. Não havia como mostrar que a entrada do dia 12 era 08:03 e virou 08:00, nem quem
+    // fez. O diff por dia e campo é justamente essa resposta.
+    const alteracoes = calcularAlteracoesFolha(folha.registros as any[], registros)
+    const mudouStatus = status && status !== folha.status
+
+    if (Object.keys(alteracoes).length > 0 || mudouStatus) {
+      await registrarLog({
+        acao: mudouStatus && Object.keys(alteracoes).length === 0 ? 'FOLHA_STATUS_ALTERADO' : 'FOLHA_EDITADA',
+        entidade: 'folha_ponto',
+        entidadeId: folhaId,
+        userId: userProfile.id,
+        alteracoes: mudouStatus
+          ? { ...alteracoes, status: { de: folha.status, para: status } }
+          : alteracoes,
+        detalhes: {
+          servidor_id: folha.servidor_id,
+          competencia: `${folha.mes}/${folha.ano}`,
+          dias_alterados: new Set(Object.keys(alteracoes).map(k => k.split(' ')[1])).size,
+        },
+        unidadeId: escala.unidade_id,
+        setorId: escala.setor_id,
+      })
+    }
 
     revalidatePath(`/folha-ponto/${folhaId}`)
     return { success: true }
