@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.29.0] - 2026-08-09
+
+### Added
+- **Frequência do aviso escolhida pelo servidor** (migration `20260809140000`):
+  - Quatro opções no Portal: **resumo semanal** (~4 msg/mês), **resumo diário** (~22, **padrão**), **entrada e saída** (~44) e **todas as batidas** (até 88).
+  - O resumo diário é padrão por ser **evidência melhor**, não só por incomodar menos: uma mensagem com as quatro batidas do dia é uma peça só, que a pessoa acha depois — quatro fragmentos ao longo do dia ninguém recupera.
+  - **Os resumos não saem do gatilho.** No instante da batida o sistema não sabe que ela é a última, e nos dias em que a saída não é registrada (esquecimento, ou batida fora da janela que virou pendência) o resumo nunca sairia — justamente o dia em que a pessoa mais precisa dele. Quem produz é `fn_gerar_resumos_aviso_ponto()`, chamada pelo worker a cada minuto: o dia fecha quando **todos** os turnos têm saída (entrega em ≤1 min, na prática "na última batida") ou quando o dia vira — este segundo sai marcado como **incompleto**, com orientação de procurar o coordenador.
+  - Agregação por **(servidor, dia)**, não por linha de `escala_diaria`: um servidor pode ter duas linhas no mesmo dia (Regular + Plantão), e percorrer linha a linha entregaria um resumo com só um dos turnos — com o índice único engolindo o outro em silêncio.
+  - Idempotência por `(servidor_id, tipo, referencia)`. Sem ela o worker, rodando de minuto em minuto, reenviaria o mesmo resumo indefinidamente — o pior comportamento possível para quem escolheu ser pouco incomodado.
+  - `fora_janela` avisa **sempre**, em qualquer modo, e nunca entra em resumo.
+  - Resumo mensal foi **descartado**: é a folha de ponto, que já existe no Portal com mais detalhe do que cabe numa mensagem. O resumo semanal leva o **link** do Portal no rodapé.
+
+### Fixed
+- **Webhook não entendia o payload do Chatwoot** (`src/app/api/avisos-ponto/webhook/route.ts`):
+  - Confirmado com payload real de produção (`automation_event.message_created`): o Chatwoot envia a **conversa**, não a mensagem. O texto está em `messages[].content` e o telefone em `meta.sender.phone_number` — o parser anterior só olhava campos de topo e não achava nada.
+  - O filtro de eco tinha o mesmo defeito: lia `message_type` no topo, onde vem `undefined`. Agora verifica dentro do array — payload cujo array só tem mensagens enviadas é eco e é descartado.
+  - Verificado contra o payload real capturado em `logs_webhook_whatsapp`, mais os casos de eco, histórico misto e provedor genérico (Baileys).
+- **Expiração de opt-in movida para dentro do worker**: este Supabase não tem `pg_cron` (`schema "cron" does not exist`). Uma tarefa que depende de alguém rodar SQL manualmente toda semana não é tarefa, é dívida.
+
+### Notes
+- O worker `/api/avisos-ponto/despachar` passa a devolver `optinsExpirados` e `resumosGerados` no JSON — serve como confirmação simples de que o deploy pegou.
+- Trocar a frequência **não** dispara novo consentimento: o double opt-in já foi dado e continua valendo. Frequência é preferência, não autorização.
+- Plano atualizado em `docs/planos/2026-08-09-comprovante-de-ponto-por-whatsapp.md`; passo a passo em `docs/runbooks/2026-08-09-ativar-aviso-de-ponto-passo-a-passo.md`.
+
 ## [1.28.0] - 2026-08-09
 
 ### Fixed

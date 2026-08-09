@@ -40,6 +40,28 @@ export async function GET(request: Request) {
 
     const supabase = await createAdminClient()
 
+    // Expira aqui, e não num agendamento separado: o Supabase desta instalação não tem `pg_cron`
+    // (conferido em 09/08/2026 — `schema "cron" does not exist`), e uma tarefa que depende de
+    // alguém rodar SQL manualmente toda semana não é uma tarefa, é uma dívida.
+    //
+    // Rodar a cada minuto é irrelevante em custo: é um UPDATE filtrado sobre uma tabela de ~180
+    // linhas que, na prática, casa com zero. E amarra o ciclo de vida do opt-in ao mesmo processo
+    // que envia — se o worker não roda, nada é enviado, então nada precisava expirar mesmo.
+    const { data: expirados, error: expirarError } = await supabase.rpc('fn_expirar_optin_aviso_ponto')
+    if (expirarError) {
+      // Não aborta o envio: expirar é higiene, despachar é o trabalho.
+      console.error('Falha ao expirar opt-ins vencidos:', expirarError.message)
+    }
+
+    // Produz os resumos diários e semanais que já venceram. Fica aqui, e não num agendamento
+    // próprio, pelo mesmo motivo da expiração: não há `pg_cron`. Rodar a cada minuto é o que faz
+    // o resumo diário chegar em até 1 minuto depois da saída — na prática, "na última batida".
+    // É idempotente por (servidor, tipo, referência), então repetir não duplica mensagem.
+    const { data: resumos, error: resumoError } = await supabase.rpc('fn_gerar_resumos_aviso_ponto')
+    if (resumoError) {
+      console.error('Falha ao gerar resumos de ponto:', resumoError.message)
+    }
+
     // Reserva o lote e já incrementa a tentativa. FOR UPDATE SKIP LOCKED lá dentro garante que
     // duas execuções sobrepostas do cron não peguem o mesmo aviso.
     const { data: pendentes, error } = await supabase.rpc('fn_avisos_ponto_pendentes', {
@@ -94,6 +116,8 @@ export async function GET(request: Request) {
       processados: fila.length,
       enviados,
       falhas,
+      optinsExpirados: typeof expirados === 'number' ? expirados : 0,
+      resumosGerados: typeof resumos === 'number' ? resumos : 0,
     })
   } catch (error: any) {
     console.error('Erro no worker de avisos de ponto:', error)

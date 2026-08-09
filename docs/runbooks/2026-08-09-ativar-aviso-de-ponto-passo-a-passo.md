@@ -125,49 +125,64 @@ A primeira resposta tem um campo `configurado`:
 É só **alguém chamando um endereço de tempos em tempos**. O SisEscala não fica rodando sozinho em
 segundo plano: ele age quando é chamado. São duas tarefas:
 
-| tarefa | endereço | frequência | o que faz |
-|---|---|---|---|
-| enviar | `/api/avisos-ponto/despachar` | a cada **1 minuto** | pega até 20 mensagens da fila e envia |
-| expirar | `fn_expirar_optin_aviso_ponto()` | **1× por dia** | quem pediu ativação e não respondeu em 48 h volta a desligado |
+**É uma tarefa só.** O endereço `/api/avisos-ponto/despachar` faz as duas coisas: envia até 20
+mensagens da fila **e** expira os pedidos de confirmação vencidos (quem pediu ativação e não
+respondeu em 48 h volta a desligado).
 
-### Opção A — Scheduled Tasks do Coolify (recomendado)
+> Havia aqui uma segunda tarefa em SQL usando `pg_cron`. **Este Supabase não tem essa extensão**
+> — dá `ERROR: 3F000: schema "cron" does not exist`. A expiração foi movida para dentro do worker,
+> que já roda a cada minuto. Não há nada a agendar no Supabase.
 
-1. Coolify → aplicação **SisEscala** → **Scheduled Tasks** → **+ Add**.
-2. Primeira tarefa:
-   - **Name:** `aviso-ponto-despachar`
-   - **Frequency:** `* * * * *` (todo minuto)
-   - **Command:**
-     ```
-     curl -s "https://sisescala.maraba.pa.gov.br/api/avisos-ponto/despachar?secret=SEU_CRON_SECRET"
-     ```
-3. **Save**.
+### Scheduled Task do Coolify
 
-Troque `SEU_CRON_SECRET` pelo valor que você definiu no passo 1.
+Coolify → aplicação **SisEscala** → **Scheduled Tasks** → **+ Add**:
 
-### Opção B — serviço externo
+| campo | valor |
+|---|---|
+| **Name** | `aviso-ponto-despachar` |
+| **Frequency** | `* * * * *` (todo minuto) |
+| **Timeout** | `300` |
+| **Container name** | deixe **em branco** — o `php` que aparece é só exemplo do campo. Só preencha se a aplicação tiver mais de um container |
+| **Command** | ver abaixo |
 
-Se preferir, [cron-job.org](https://cron-job.org) faz o mesmo: cadastre a URL acima com intervalo
-de 1 minuto. Funciona igual, mas depende de um terceiro estar no ar.
-
-### A tarefa diária de expiração
-
-Essa é SQL, não URL. No Supabase, se a extensão `pg_cron` estiver habilitada:
-
-```sql
-SELECT cron.schedule(
-  'expirar-optin-aviso-ponto',
-  '0 3 * * *',                                  -- todo dia às 03:00
-  $$ SELECT public.fn_expirar_optin_aviso_ponto(); $$
-);
+```
+node -e "fetch('https://sisescala.maraba.pa.gov.br/api/avisos-ponto/despachar?secret=COLE_AQUI_O_CRON_SECRET').then(r=>r.text()).then(console.log)"
 ```
 
-Se `pg_cron` não estiver disponível, **não é urgente**: rode o `SELECT` abaixo manualmente uma vez
-por semana. Enquanto ninguém rodar, o único efeito é um pedido antigo continuar aparecendo como
-"aguardando resposta" no Portal — nada é enviado indevidamente.
+⚠️ **Troque `COLE_AQUI_O_CRON_SECRET` pelo valor real** que você criou no passo 1. Deixar o texto
+de exemplo faz a chamada responder `401 Não autorizado` — e como o cron não reclama de 401, a fila
+simplesmente nunca esvazia, sem nenhum erro aparecer em lugar nenhum.
 
-```sql
-SELECT public.fn_expirar_optin_aviso_ponto();
-```
+**Por que `node` e não `curl`:** esta aplicação não tem Dockerfile próprio, então o Coolify monta o
+container via Nixpacks, e **não há garantia de que `curl` esteja instalado ali**. Se não estiver, a
+tarefa falha em silêncio. `node` está presente por definição — é uma aplicação Node — e a função
+`fetch` é nativa a partir do Node 18.
+
+### Como conferir que a tarefa está mesmo rodando
+
+Não confie em ter salvo: **verifique**.
+
+1. Na própria tela de Scheduled Tasks do Coolify, use **Run now** (ou aguarde 1 minuto) e abra os
+   **logs da tarefa**. A saída esperada é um JSON:
+
+   ```json
+   {"success":true,"timestamp":"...","processados":0,"enviados":0,"falhas":0,"optinsExpirados":0}
+   ```
+
+2. O que cada resposta significa:
+
+   | saída | significa | o que fazer |
+   |---|---|---|
+   | o JSON acima | **funcionando** — fila vazia é o esperado agora | seguir |
+   | `{"error":"Não autorizado"}` | o segredo no comando está errado | conferir o `CRON_SECRET` |
+   | `node: not found` / `curl: not found` | comando não existe no container | usar a outra variante |
+   | log vazio ou tarefa não aparece | não executou | conferir Frequency e Container name |
+
+### Alternativa, se o Scheduled Task não colaborar
+
+[cron-job.org](https://cron-job.org) chama a mesma URL de fora, a cada 1 minuto, e mostra o retorno
+de cada execução — o que também resolve o problema de visibilidade. A desvantagem é depender de um
+terceiro estar no ar.
 
 ---
 
@@ -184,8 +199,15 @@ não acertou, me mandar o formato real.
 
 ### Como fazer
 
-1. **Configure o webhook na AstraCalls.** No painel do AstraCalls, procure por *Webhook*,
-   *Callback* ou *Eventos de mensagem recebida* e aponte para:
+1. **Configure o webhook.** O painel do AstraChat é baseado em Chatwoot, então isso é feito por
+   **regra de automação** (*Configurações → Automação → Adicionar regra*):
+
+   | campo | valor | por quê |
+   |---|---|---|
+   | **Nome** | `Aceite sisescala` | — |
+   | **Evento** | **`Mensagem Criada`** | ⚠️ **não** use `Conversa Criada`. O servidor responde numa conversa que **já existe** (o sistema mandou a mensagem antes), então ela não é criada de novo — a regra nunca dispararia |
+   | **Condições** | nenhuma, ou *tipo da mensagem = recebida* | uma condição em branco invalida a regra ou não casa com nada |
+   | **Ação** | *Enviar evento de Webhook* → a URL abaixo | — |
 
    ```
    https://sisescala.maraba.pa.gov.br/api/avisos-ponto/webhook?secret=SEU_WEBHOOK_SECRET
@@ -193,6 +215,16 @@ não acertou, me mandar o formato real.
 
    Se o painel permitir cabeçalhos em vez de query string, pode usar
    `X-Webhook-Secret: SEU_WEBHOOK_SECRET` — o código aceita os dois.
+
+   Ações extras como *Adicionar Etiqueta* e *Resolver Conversa* são inofensivas; pode manter.
+
+   > **Não é preciso correlacionar a mensagem.** O sistema identifica de quem é a resposta **pelo
+   > número de telefone**: o aceite no Portal já deixou o cadastro daquele servidor em
+   > `pendente_confirmacao` com prazo de 48 h. Não há token nem link a casar.
+   >
+   > Link mágico foi descartado de propósito (é o que o *sobreaviso* usa): clicar num link não
+   > gera mensagem de entrada no WhatsApp, e é a **resposta** que transforma a conversa de mão
+   > única em diálogo — de onde vem toda a proteção contra banimento.
 
 2. **Mande uma mensagem de teste.** Do seu celular, mande qualquer coisa (ex.: `teste`) para o
    número que o sistema usa.
@@ -283,7 +315,7 @@ Nada disso apaga consentimento nem histórico. Religar é marcar o checkbox de n
 - [ ] Passo 0 — aplicar `20260809130000_whatsapp_inbound_log.sql`
 - [ ] Passo 1 — `WHATSAPP_WEBHOOK_SECRET` e `CRON_SECRET` no Coolify, + redeploy
 - [ ] Passo 2 — deploy do código e conferência das duas rotas
-- [ ] Passo 3 — cron de 1 minuto para `/api/avisos-ponto/despachar`
-- [ ] Passo 3b — agendamento diário de `fn_expirar_optin_aviso_ponto()` *(pode esperar)*
+- [ ] Passo 3 — cron de 1 minuto para `/api/avisos-ponto/despachar` (tarefa única; a expiração já
+      vai junto) e **conferir o log da tarefa**
 - [ ] Passo 4 — apontar o webhook na AstraCalls e capturar um payload de teste
 - [ ] Passo 5 — ligar o HMM e avisar os 4 servidores

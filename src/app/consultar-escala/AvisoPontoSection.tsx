@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { MessageSquare, ShieldCheck, AlertTriangle, Loader2, Check, X } from 'lucide-react'
-import { getPreferenciaAvisoPonto, definirPreferenciaAvisoPonto } from './actions'
+import { getPreferenciaAvisoPonto, definirPreferenciaAvisoPonto, definirModoAvisoPonto } from './actions'
 import { TERMO_ATIVACAO, TERMO_DESATIVACAO } from '@/utils/avisoPonto'
 
 /**
@@ -44,6 +44,27 @@ export function AvisoPontoSection() {
     }
     setSalvando(false)
     setConfirmando(null)
+  }
+
+  /**
+   * Ordenado do menos ao mais incômodo. `resumo_diario` é o padrão do banco e vem destacado:
+   * uma mensagem com todas as batidas do dia é registro melhor que quatro fragmentos soltos —
+   * é uma peça só, que a pessoa consegue achar depois.
+   */
+  const MODOS: { chave: string; titulo: string; detalhe: string; volume: string }[] = [
+    { chave: 'resumo_semanal', titulo: 'Resumo semanal', detalhe: 'Toda segunda-feira, com os registros da semana anterior e o link da sua folha.', volume: '~4 por mês' },
+    { chave: 'resumo_diario', titulo: 'Resumo diário (recomendado)', detalhe: 'Uma mensagem ao fim do expediente, com todas as batidas do dia.', volume: '~22 por mês' },
+    { chave: 'entrada_saida', titulo: 'Entrada e saída', detalhe: 'Uma mensagem ao entrar e outra ao sair. Não avisa nas batidas de intervalo.', volume: '~44 por mês' },
+    { chave: 'todas', titulo: 'Todas as batidas', detalhe: 'Confirmação imediata de cada registro, inclusive as de intervalo.', volume: 'até 88 por mês' },
+  ]
+
+  async function salvarModo(modo: string) {
+    setSalvando(true)
+    setFeedback(null)
+    const res: any = await definirModoAvisoPonto(modo)
+    if (res?.error) setErro(res.error)
+    else { setErro(null); setFeedback(res.message); setEstado((e: any) => ({ ...e, modo: res.modo })) }
+    setSalvando(false)
   }
 
   const ROTULO: Record<string, { texto: string; cor: string }> = {
@@ -158,6 +179,52 @@ export function AvisoPontoSection() {
           {status === 'inativo' ? 'Ativar aviso' : pendente ? 'Cancelar pedido' : 'Desativar aviso'}
         </button>
       </div>
+
+      {/* A frequência só aparece depois de o aviso estar valendo — oferecer a escolha a quem ainda
+          não ativou seria pedir uma decisão sobre algo que não está acontecendo. */}
+      {ativo && (
+        <div className="space-y-3 pt-4 border-t border-zinc-100 dark:border-zinc-800">
+          <div>
+            <p className="text-xs font-black uppercase tracking-wider text-zinc-400">
+              Com que frequência você quer receber
+            </p>
+            <p className="text-[11px] text-zinc-500 mt-0.5">
+              Registro fora do horário previsto avisa <b>sempre</b>, em qualquer opção — é quando
+              você mais precisa saber.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-2">
+            {MODOS.map(m => {
+              const escolhido = (estado?.modo || 'resumo_diario') === m.chave
+              return (
+                <label
+                  key={m.chave}
+                  className={`flex items-start gap-3 p-4 rounded-2xl border-2 cursor-pointer transition-all ${escolhido
+                    ? 'border-emerald-600 bg-emerald-50/40 dark:bg-emerald-950/20'
+                    : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700'}`}
+                >
+                  <input
+                    type="radio"
+                    name="aviso_ponto_modo"
+                    checked={escolhido}
+                    disabled={salvando}
+                    onChange={() => salvarModo(m.chave)}
+                    className="mt-0.5 text-emerald-600 focus:ring-emerald-500"
+                  />
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-baseline gap-x-2">
+                      <span className="text-sm font-black text-zinc-900 dark:text-white">{m.titulo}</span>
+                      <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">{m.volume}</span>
+                    </div>
+                    <p className="text-xs text-zinc-500 leading-relaxed">{m.detalhe}</p>
+                  </div>
+                </label>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {feedback && (
         <div className="flex items-center gap-2 p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl text-xs font-bold text-emerald-700 dark:text-emerald-400">

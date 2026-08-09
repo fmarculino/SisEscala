@@ -519,6 +519,38 @@ tocada — armadilha 1 respeitada por construção.
 | 4 | consentimento | **double opt-in**: aceite do termo no Portal **+** resposta confirmando no próprio WhatsApp (§ Fase 1-B) |
 | 5 | enquadramento | **aviso informativo**, nunca "Comprovante" — Fase 6 fica para depois |
 | 6 | divulgação no terminal | **não anunciar por enquanto** — adiada, ver § abaixo |
+| 7 | frequência | **escolhida pelo servidor**, 4 opções, padrão `resumo_diario` — ver § abaixo |
+
+### Frequência escolhida pelo servidor (09/08/2026) — migration `20260809140000`
+
+| opção | mensagens/mês | |
+|---|---|---|
+| Resumo semanal | ~4 | segunda-feira, semana anterior + link do Portal |
+| **Resumo diário** | ~22 | **padrão** |
+| Entrada e saída | ~44 | pula as batidas de intervalo |
+| Todas as batidas | até 88 | confirmação imediata de cada registro |
+
+**O resumo diário é padrão por ser melhor evidência, não só por incomodar menos.** Uma mensagem com
+as quatro batidas do dia é uma peça só, achável depois; quatro fragmentos ao longo do dia ninguém
+recupera.
+
+⚠️ **Os resumos não saem do gatilho.** A ideia original era "resumo na última batida", mas no
+instante da batida o sistema não sabe que ela é a última — e nos dias em que a saída **não** é
+registrada (esquecimento, ou batida fora da janela que virou pendência) o resumo nunca sairia,
+justamente no dia em que a pessoa mais precisa dele. Quem produz é
+`fn_gerar_resumos_aviso_ponto()`, chamada pelo worker a cada minuto. O dia fecha de dois jeitos:
+**todos** os turnos com saída registrada (entrega em ≤1 min, na prática "na última batida") ou o
+dia virou — este segundo sai marcado como **incompleto**, com aviso de procurar o coordenador.
+
+⚠️ **Agregado por (servidor, dia), não por linha de `escala_diaria`.** Um servidor pode ter duas
+linhas no mesmo dia (Regular + Plantão). Percorrer linha a linha entregaria um resumo com só um dos
+turnos, e o índice único engoliria o outro em silêncio — mensagem entregue, incompleta e sem rastro.
+
+⚠️ **`fora_janela` avisa sempre, em qualquer modo**, e nunca entra em resumo.
+
+❌ **Resumo mensal descartado:** é a folha de ponto, que já existe no Portal com muito mais detalhe
+do que cabe numa mensagem. O resumo semanal leva o **link** do Portal no rodapé — o benefício de
+*push* sem transcrever documento que já existe.
 
 ### Ainda em aberto
 

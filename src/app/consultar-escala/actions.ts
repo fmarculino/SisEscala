@@ -2564,7 +2564,7 @@ export async function getPreferenciaAvisoPonto() {
 
   const { data, error } = await supabase
     .from('servidores')
-    .select('id, telefone, aviso_ponto_status, aviso_ponto_definido_em, aviso_ponto_confirmado_em, aviso_ponto_expira_em, unidade_id')
+    .select('id, telefone, aviso_ponto_status, aviso_ponto_modo, aviso_ponto_definido_em, aviso_ponto_confirmado_em, aviso_ponto_expira_em, unidade_id')
     .eq('id', portalServidorId)
     .single()
 
@@ -2591,6 +2591,7 @@ export async function getPreferenciaAvisoPonto() {
 
   return {
     status: data.aviso_ponto_status || 'inativo',
+    modo: data.aviso_ponto_modo || 'resumo_diario',
     definidoEm: data.aviso_ponto_definido_em,
     confirmadoEm: data.aviso_ponto_confirmado_em,
     expiraEm: data.aviso_ponto_expira_em,
@@ -2649,4 +2650,35 @@ export async function definirPreferenciaAvisoPonto(ativar: boolean) {
 
   revalidatePath('/consultar-escala')
   return { success: true, status: res.status as string, message: res.message as string }
+}
+
+/**
+ * Frequência do aviso, escolhida pelo próprio servidor.
+ *
+ * Separada de `definirPreferenciaAvisoPonto` de propósito: mudar de "todas as batidas" para
+ * "resumo diário" é ajuste de preferência, não novo consentimento — não faz sentido pedir o termo
+ * e uma nova confirmação por WhatsApp a cada troca. O consentimento já foi dado e continua valendo.
+ */
+export async function definirModoAvisoPonto(modo: string) {
+  const cookieStore = await cookies()
+  const portalServidorId = cookieStore.get('portal_servidor_id')?.value
+
+  if (!portalServidorId) {
+    return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
+  }
+
+  const supabase = await createAdminClient()
+
+  const { data, error } = await supabase.rpc('fn_definir_modo_aviso_ponto', {
+    p_servidor_id: portalServidorId,
+    p_modo: modo,
+  })
+
+  if (error) return { error: error.message }
+
+  const res = Array.isArray(data) ? data[0] : data
+  if (!res?.success) return { error: res?.message || 'Não foi possível salvar a frequência.' }
+
+  revalidatePath('/consultar-escala')
+  return { success: true, modo: res.modo as string, message: res.message as string }
 }

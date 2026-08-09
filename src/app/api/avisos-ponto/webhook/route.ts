@@ -30,23 +30,103 @@ import { sendWhatsAppMessageAction } from '@/app/actions/communication'
  * não reconhecidos, para que o formato real possa ser lido dos próprios dados.
  */
 function extrairMensagem(body: any): { telefone: string | null; texto: string | null } {
+  // ---- Chatwoot (AstraChat) -------------------------------------------------
+  // Confirmado com payload real de produção em 09/08/2026
+  // (`event: "automation_event.message_created"`): o corpo é a CONVERSA, não a mensagem. O texto
+  // vive em `messages[].content` e o telefone em `meta.sender.phone_number`. Um parser que só
+  // olhasse o topo — como o primeiro que escrevi — não acha nada aqui.
+  if (Array.isArray(body?.messages)) {
+    // `message_type` 0 = recebida, 1 = enviada. Pegar a última RECEBIDA cobre tanto o caso normal
+    // (array com a mensagem que disparou a regra) quanto um payload que traga histórico junto.
+    const recebidas = body.messages.filter((m: any) => m?.message_type === 0 || m?.message_type === 'incoming')
+    const msg = recebidas[recebidas.length - 1]
+
+    // Sem nenhuma recebida, o gatilho veio de mensagem que o próprio sistema enviou. Devolver
+    // vazio faz o chamador registrar e parar — é o que evita responder à própria mensagem.
+    if (msg) {
+      const telBruto =
+        msg?.sender?.phone_number ??
+        body?.meta?.sender?.phone_number ??
+        msg?.sender?.identifier ??
+        body?.meta?.sender?.identifier ??
+        body?.contact_inbox?.source_id ??
+        null
+
+      const conteudo = msg?.content ?? msg?.processed_message_content ?? null
+
+      if (telBruto != null && typeof conteudo === 'string' && conteudo.trim()) {
+        return {
+          telefone: String(telBruto).split('@')[0].replace(/\D/g, '') || null,
+          texto: conteudo,
+        }
+      }
+    }
+
+    // `messages` presente mas sem recebida utilizável: não vale cair no genérico abaixo, que
+    // poderia pescar o telefone do contato e casar com uma mensagem que não existe.
+    return { telefone: null, texto: null }
+  }
+
+  // ---- Demais provedores (Baileys, APIs genéricas) ---------------------------
   const cand = body?.message || body?.data?.message || body?.data || body?.payload || body || {}
 
-  const bruto =
-    cand.from ?? cand.sender ?? cand.phone ?? cand.remoteJid ?? cand.chatId ??
-    cand.author ?? body?.from ?? body?.phone ?? body?.sender ?? null
+  /** Percorre um caminho tipo 'conversation.meta.sender.phone_number' sem estourar. */
+  const caminho = (obj: any, rota: string) =>
+    rota.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj)
+
+  // Ordem importa: o mais específico primeiro. O Chatwoot (base do AstraChat) aninha o remetente
+  // em `sender.phone_number` ou `conversation.meta.sender.phone_number`; provedores tipo Baileys
+  // usam `from`/`remoteJid` como string com JID. Aceitar um objeto por engano produziria
+  // "[object Object]" e, depois de tirar os não-dígitos, uma string vazia — falha silenciosa.
+  const CAMINHOS_TELEFONE = [
+    'sender.phone_number',
+    'sender.identifier',
+    'conversation.meta.sender.phone_number',
+    'conversation.meta.sender.identifier',
+    'contact.phone_number',
+    'from', 'sender', 'phone', 'remoteJid', 'chatId', 'author', 'number', 'waId',
+  ]
+
+  let bruto: unknown = null
+  for (const obj of [cand, body]) {
+    for (const rota of CAMINHOS_TELEFONE) {
+      const v = caminho(obj, rota)
+      // Só serve valor escalar: objeto aqui é sinal de que o caminho certo é mais fundo.
+      if (v != null && (typeof v === 'string' || typeof v === 'number')) { bruto = v; break }
+    }
+    if (bruto != null) break
+  }
 
   // JIDs vêm como "5594984105178@s.whatsapp.net" — o que interessa é a parte antes do @.
-  const telefone = bruto ? String(bruto).split('@')[0].replace(/\D/g, '') || null : null
+  const telefone = bruto == null ? null : (String(bruto).split('@')[0].replace(/\D/g, '') || null)
 
-  const texto =
-    cand.text ?? cand.body ?? cand.message ?? cand.content ??
-    cand.conversation ?? cand.caption ?? body?.text ?? body?.body ?? null
-
-  return {
-    telefone,
-    texto: texto == null ? null : (typeof texto === 'string' ? texto : JSON.stringify(texto)),
+  const CAMINHOS_TEXTO = ['content', 'text', 'body', 'message', 'conversation', 'caption', 'processed_message_content']
+  let texto: unknown = null
+  for (const obj of [cand, body]) {
+    for (const rota of CAMINHOS_TEXTO) {
+      const v = caminho(obj, rota)
+      if (typeof v === 'string' && v.trim()) { texto = v; break }
+    }
+    if (texto != null) break
   }
+
+  return { telefone, texto: texto == null ? null : String(texto) }
+}
+
+/**
+ * O Chatwoot dispara automação também para mensagens que ELE mandou (`message_type: 'outgoing'`).
+ * Sem esse filtro, a própria mensagem de confirmação enviada pelo sistema voltaria pelo webhook —
+ * e a de cortesia responderia a ela, criando eco.
+ */
+function ehMensagemDoProprioSistema(body: any): boolean {
+  // Chatwoot: o tipo fica dentro de `messages[]`, não no topo. Um payload cujo array só tem
+  // mensagens enviadas (`message_type: 1`) é eco da mensagem que o próprio sistema mandou.
+  if (Array.isArray(body?.messages)) {
+    return body.messages.length > 0 &&
+      body.messages.every((m: any) => m?.message_type === 1 || m?.message_type === 'outgoing')
+  }
+  const tipo = body?.message_type ?? body?.message?.message_type ?? body?.data?.message_type
+  return tipo === 'outgoing' || tipo === 1 || body?.fromMe === true || body?.key?.fromMe === true
 }
 
 export async function POST(request: Request) {
@@ -91,6 +171,12 @@ export async function POST(request: Request) {
         resultado,
       })
       if (error) console.error('Falha ao registrar payload do webhook:', error.message)
+    }
+
+    // Eco da própria mensagem do sistema: registra (ajuda a entender o formato) e para aqui.
+    if (ehMensagemDoProprioSistema(body)) {
+      await registrar({ motivo: 'mensagem_do_proprio_sistema' })
+      return NextResponse.json({ success: false, motivo: 'mensagem_do_proprio_sistema' })
     }
 
     // Devolver 200 mesmo sem reconhecer: um 4xx faria o provedor reenfileirar e reentregar em
