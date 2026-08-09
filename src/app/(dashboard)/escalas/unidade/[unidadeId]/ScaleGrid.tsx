@@ -4903,23 +4903,39 @@ export function ScaleGrid({
           motivo?: string
           previstoNaEpoca?: string | null
         }
-        const batidasDoDia: BatidaDoDia[] = [
-          ...cellPendentes.map((m): BatidaDoDia => ({
-            fonte: 'marcacao', id: m.id, quando: new Date(m.ocorrido_em), elegivel: true
-          })),
-          ...cellDeniedAttempts.map((l): BatidaDoDia => ({
-            fonte: 'tentativa', id: l.id, quando: new Date(l.data_hora_tentativa),
+        const batidasDoDia: BatidaDoDia[] = cellPendentes.map((m): BatidaDoDia => ({
+          fonte: 'marcacao', id: m.id, quando: new Date(m.ocorrido_em), elegivel: true
+        }))
+        for (const l of cellDeniedAttempts) {
+          const quando = new Date(l.data_hora_tentativa)
+          const gemea = batidasDoDia.find(o => o.fonte === 'marcacao'
+            && Math.abs(o.quando.getTime() - quando.getTime()) <= 5000)
+          if (gemea) {
+            // A marcação vence, mas o motivo da recusa é dela também — sem herdar, o coordenador
+            // perderia a única explicação de por que aquela batida caiu fora da janela.
+            gemea.motivo = gemea.motivo || l.mensagem_erro
+            gemea.previstoNaEpoca = gemea.previstoNaEpoca || l.escala_prevista_inicio
+            continue
+          }
+          batidasDoDia.push({
+            fonte: 'tentativa', id: l.id, quando,
             // `elegivel` vem de fn_tentativa_recusada_elegivel, no banco. Tentativa de PIN
             // inválido não prova nem identidade: vira ponto a partir de erro de digitação.
             elegivel: !!l.elegivel, motivo: l.mensagem_erro,
             previstoNaEpoca: l.escala_prevista_inicio
-          })),
-        ]
-          .sort((a, b) => a.quando.getTime() - b.quando.getTime())
-          .filter((b, _i, todas) => b.fonte === 'marcacao' || !todas.some(o =>
-            o.fonte === 'marcacao' && Math.abs(o.quando.getTime() - b.quando.getTime()) <= 5000))
+          })
+        }
+        batidasDoDia.sort((a, b) => a.quando.getTime() - b.quando.getTime())
 
         const batidasSelecionaveis = batidasDoDia.filter(b => b.elegivel)
+
+        // Rajada de tentativas repetidas cai toda com a mesma mensagem. Repeti-la em cada linha
+        // triplicava a altura do modal sem dizer nada de novo: quando é uma só, sai no rodapé.
+        const motivosDistintos = Array.from(new Set(
+          batidasDoDia.map(b => `${b.motivo || ''}|${b.previstoNaEpoca || ''}`).filter(k => k !== '|')))
+        const motivoComum = motivosDistintos.length === 1 && batidasDoDia.every(b => b.motivo)
+          ? { texto: batidasDoDia[0].motivo!, previsto: batidasDoDia[0].previstoNaEpoca }
+          : null
 
         const rotuloPasso = (p: PassoPresenca) => ({
           entrada: 'Entrada',
@@ -5121,51 +5137,72 @@ export function ScaleGrid({
                     <AlertTriangle className="h-4 w-4 flex-shrink-0" />
                     <span>Batidas registradas no terminal neste dia:</span>
                   </div>
-                  {batidasDoDia.map(b => {
-                    const passoSel = passoDaBatida(b.id)
-                    return (
-                      <div key={`${b.fonte}-${b.id}`} className="flex items-start gap-2 flex-wrap">
-                        {b.elegivel ? (
-                          <input
-                            type="checkbox"
-                            checked={!!passoSel}
-                            onChange={() => alternarBatida(b)}
-                            className="mt-0.5 h-4 w-4 rounded border-amber-400 text-emerald-600 focus:ring-emerald-500"
-                            aria-label={`Usar a batida das ${horaComSegundos(b.quando)}`}
-                          />
-                        ) : (
-                          <span className="mt-0.5 h-4 w-4 flex-shrink-0" />
-                        )}
-                        <strong className={`text-sm tabular-nums ${b.elegivel ? 'text-amber-900 dark:text-amber-200' : 'text-zinc-500 line-through'}`}>
-                          {horaComSegundos(b.quando)}
-                        </strong>
+                  {/* Em colunas: uma rajada de retentativas rendia uma linha cada e empurrava o
+                      rodapé para fora da tela. Só uma coluna quando há seletor de passo, que não
+                      cabe ao lado da hora em meia largura. */}
+                  <div className={`grid gap-x-3 gap-y-1.5 ${
+                    batidasDoDia.length > 2 && passosDoEscopo.length === 1
+                      ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-1'}`}>
+                    {batidasDoDia.map(b => {
+                      const passoSel = passoDaBatida(b.id)
+                      return (
+                        <div key={`${b.fonte}-${b.id}`} className="flex items-start gap-2 flex-wrap">
+                          {b.elegivel ? (
+                            <input
+                              type="checkbox"
+                              checked={!!passoSel}
+                              onChange={() => alternarBatida(b)}
+                              className="mt-0.5 h-4 w-4 rounded border-amber-400 text-emerald-600 focus:ring-emerald-500"
+                              aria-label={`Usar a batida das ${horaComSegundos(b.quando)}`}
+                            />
+                          ) : (
+                            <span className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                          )}
+                          <strong className={`text-sm tabular-nums ${b.elegivel ? 'text-amber-900 dark:text-amber-200' : 'text-zinc-500 line-through'}`}>
+                            {horaComSegundos(b.quando)}
+                          </strong>
 
-                        {b.elegivel && passosDoEscopo.length > 1 && (
-                          <select
-                            value={passoSel || ''}
-                            onChange={(e) => alternarBatida(b, e.target.value as PassoPresenca)}
-                            disabled={!passoSel}
-                            className="text-[11px] rounded-md border border-amber-300 dark:border-amber-700 bg-white dark:bg-zinc-800 px-1.5 py-0.5 disabled:opacity-50"
-                          >
-                            <option value="" disabled>selecione o passo</option>
-                            {passosDoEscopo.map(p => (
-                              <option key={p} value={p}>{rotuloPasso(p)}</option>
-                            ))}
-                          </select>
-                        )}
+                          {b.elegivel && passosDoEscopo.length > 1 && (
+                            <select
+                              value={passoSel || ''}
+                              onChange={(e) => alternarBatida(b, e.target.value as PassoPresenca)}
+                              disabled={!passoSel}
+                              className="text-[11px] rounded-md border border-amber-300 dark:border-amber-700 bg-white dark:bg-zinc-800 px-1.5 py-0.5 disabled:opacity-50"
+                            >
+                              <option value="" disabled>selecione o passo</option>
+                              {passosDoEscopo.map(p => (
+                                <option key={p} value={p}>{rotuloPasso(p)}</option>
+                              ))}
+                            </select>
+                          )}
 
-                        {/* Inelegível continua VISÍVEL — nunca descartar batida. Só não pode
-                            virar horário de folha: PIN inválido não prova nem identidade. */}
-                        {!b.elegivel && (
-                          <span className="text-[11px] text-zinc-500 leading-snug">
-                            {b.motivo}
-                            {b.previstoNaEpoca ? ` (previsão vigente na época: ${b.previstoNaEpoca})` : ''}
-                            <span className="block italic">Não comprova presença — não pode ser usada como horário.</span>
-                          </span>
-                        )}
-                      </div>
-                    )
-                  })}
+                          {/* Inelegível continua VISÍVEL — nunca descartar batida. Só não pode
+                              virar horário de folha: PIN inválido não prova nem identidade. */}
+                          {!b.elegivel && (
+                            <span className="text-[11px] text-zinc-500 leading-snug">
+                              {!motivoComum && b.motivo}
+                              <span className="block italic">Não comprova presença.</span>
+                            </span>
+                          )}
+                          {b.elegivel && !motivoComum && b.motivo && (
+                            <span className="text-[10px] text-amber-700/80 dark:text-amber-400/80 leading-snug basis-full pl-6">
+                              {b.motivo}
+                              {b.previstoNaEpoca ? ` (previsão vigente na época: ${b.previstoNaEpoca})` : ''}
+                            </span>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  {/* O previsto da época NÃO é recalculado: divergir do previsto atual é o que
+                      denuncia recusa por bug. Ver 20260809000000. */}
+                  {motivoComum && (
+                    <p className="text-[10px] text-amber-700/80 dark:text-amber-400/80 leading-snug">
+                      Recusadas pelo terminal: {motivoComum.texto}
+                      {motivoComum.previsto ? ` (previsão vigente na época: ${motivoComum.previsto})` : ''}
+                    </p>
+                  )}
                   {batidasSelecionaveis.length > 0 && (
                     <p className="text-[10px] text-amber-700 dark:text-amber-400 leading-snug">
                       Marcar usa o <b>horário exato</b> em que o servidor registrou. Deixe desmarcado
@@ -5234,24 +5271,10 @@ export function ScaleGrid({
                 </div>
               )}
 
-              {/* Histórico da recusa. Fica separado da lista de batidas porque é outra coisa: ali
-                  o coordenador DECIDE, aqui ele só entende o que aconteceu. O horário previsto
-                  mostrado é o gravado no instante da recusa — pode divergir do previsto atual, e é
-                  exatamente essa divergência que denuncia recusa por bug. Nunca recalcular: o log
-                  é evidência. Ver 20260809000000 (plantão diurno em jornada noturna). */}
-              {cellDeniedAttempts.length > 0 && (
-                <div className="p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl space-y-1">
-                  <div className="flex items-center gap-1.5 text-red-700 dark:text-red-300 text-xs font-bold">
-                    <AlertTriangle className="h-4 w-4 flex-shrink-0" />
-                    <span>Histórico de recusas do terminal neste dia:</span>
-                  </div>
-                  {cellDeniedAttempts.map(t => (
-                    <p key={t.id} className="text-[11px] text-red-600 dark:text-red-400 pl-5">
-                      • <strong className="tabular-nums">{horaComSegundos(new Date(t.data_hora_tentativa))}</strong>: {t.mensagem_erro} {t.escala_prevista_inicio ? `(previsão vigente na época: ${t.escala_prevista_inicio})` : ''}
-                    </p>
-                  ))}
-                </div>
-              )}
+              {/* O bloco vermelho de "histórico de recusas" foi removido: repetia exatamente as
+                  mesmas batidas da lista acima, com os mesmos horários, em duas cores opostas —
+                  dobrando a altura do modal para não dizer nada de novo. O motivo da recusa agora
+                  aparece junto da batida a que pertence, e a previsão da época viaja com ele. */}
 
               {!manualPresenceModal.isReverting && (
                 <div className="space-y-1.5">

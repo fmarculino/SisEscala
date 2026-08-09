@@ -33,23 +33,27 @@ export function Modal({
 
   return (
     <div className={`fixed inset-0 ${zIndexClass} flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200`}>
-      <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-zinc-200 dark:border-zinc-800 animate-in zoom-in-95 duration-200">
-        <div className="px-6 py-4 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
+      {/* Altura limitada à viewport e só o corpo rola. Sem isto, conteúdo alto empurra o rodapé
+          para fora da tela: como o overlay é `fixed` e centraliza, a parte que transborda fica
+          INALCANÇÁVEL — nem a página nem o card rolam, e o botão de confirmar some. */}
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-md max-h-[calc(100vh-2rem)] flex flex-col overflow-hidden border border-zinc-200 dark:border-zinc-800 animate-in zoom-in-95 duration-200">
+        <div className="px-6 py-4 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between flex-shrink-0">
           <h3 className={`text-lg font-bold ${typeColors[type]}`}>{title}</h3>
-          <button 
+          <button
             onClick={onClose}
             className="p-1 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-500"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
-        
-        <div className="p-6">
+
+        {/* min-h-0: sem isso o filho flex não encolhe abaixo do conteúdo e o overflow não age. */}
+        <div className="p-6 overflow-y-auto flex-1 min-h-0">
           {children}
         </div>
 
         {footer && (
-          <div className="px-6 py-4 bg-zinc-50 dark:bg-zinc-800/50 border-t border-zinc-100 dark:border-zinc-800 flex gap-3">
+          <div className="px-6 py-4 bg-zinc-50 dark:bg-zinc-800/50 border-t border-zinc-100 dark:border-zinc-800 flex gap-3 flex-shrink-0">
             {footer}
           </div>
         )}

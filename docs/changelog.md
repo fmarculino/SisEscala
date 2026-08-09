@@ -2,6 +2,24 @@
 
 Todas as alterações notáveis deste projeto são registradas neste arquivo.
 
+## [1.26.1] - 2026-08-09
+
+### 🐛 Modal alto escondia o botão de confirmar
+
+- **`Modal` agora rola.** O card não tinha limite de altura e o corpo não tinha `overflow`: com
+  conteúdo alto ele crescia além da viewport e, como o overlay é `fixed` e centraliza, o rodapé
+  saía da tela **sem forma de alcançá-lo** — nem a página nem o card rolavam. Apareceu na
+  validação manual de um dia com 4 retentativas de batida, mas era latente nos **34 usos** do
+  componente. Altura travada em `calc(100vh-2rem)`, cabeçalho e rodapé fixos, só o corpo rola.
+- **O bloco vermelho de "histórico de recusas" foi removido.** Ele repetia exatamente as mesmas
+  batidas da lista de cima, com os mesmos horários, em duas cores opostas — dobrava a altura do
+  modal sem dizer nada de novo. O motivo da recusa passou a aparecer junto da batida a que
+  pertence, e a previsão da época viaja com ela quando a marcação absorve a tentativa na dedup.
+- **Rajada de retentativas deixa de repetir a mesma mensagem.** Quatro tentativas em 78 segundos
+  caem todas com o mesmo motivo; agora ele sai uma vez no rodapé do bloco.
+- **A lista de batidas vai a 2–3 colunas** quando há mais de duas e o escopo pede um passo só
+  (com seletor de passo continua em coluna única, que não cabe em meia largura).
+
 ## [1.26.0] - 2026-08-09
 
 ### ✨ Seleção da batida real na validação manual
