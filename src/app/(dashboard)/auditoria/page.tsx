@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/utils/supabase/client'
+import { TentativasNegadasDiagnostico } from './TentativasNegadasDiagnostico'
 import { ShieldCheck, Zap, Clock, MapPin, UserCheck, AlertCircle, Building2, Filter, FileDown, RotateCcw, ChevronLeft, ChevronRight, Search, LayoutList, CheckCircle2, XCircle, Calendar, ExternalLink, Loader2 } from 'lucide-react'
 import { applyAccessFilters, type UserProfile } from '@/utils/permissions'
 
@@ -71,6 +72,9 @@ export default function AuditoriaPage() {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'sobreaviso' | 'presenca' | 'sistema' | 'negadas'>('sobreaviso')
   const [navigatingEscalaId, setNavigatingEscalaId] = useState<string | null>(null)
+  // A aba de negadas tem duas leituras: o diagnostico agrupado (padrao, e o que se usa para
+  // corrigir escala) e a listagem crua, preservada para quem precisa da tentativa individual.
+  const [modoNegadas, setModoNegadas] = useState<'diagnostico' | 'detalhado'>('diagnostico')
 
   const handleNavigateToEscala = async (log: LogTentativaNegada) => {
     setNavigatingEscalaId(log.id)
@@ -898,13 +902,57 @@ export default function AuditoriaPage() {
                activeTab === 'negadas' ? 'Tentativas Negadas de Presença' :
                'Histórico de Ações do Sistema'}
             </h2>
-            <div className="text-xs text-zinc-500 font-medium">
-              Mostrando {logs.length} de {totalCount} registros
-            </div>
+            {activeTab === 'negadas' ? (
+              /* Diagnóstico é o padrão: é a leitura que serve para corrigir escala. A listagem
+                 crua continua disponível para quem precisa da tentativa individual. */
+              <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-800 rounded-lg p-1 print:hidden">
+                {([['diagnostico', 'Diagnóstico'], ['detalhado', 'Lista completa']] as const).map(([m, r]) => (
+                  <button
+                    key={m}
+                    onClick={() => setModoNegadas(m)}
+                    className={`px-3 py-1.5 rounded-md text-[11px] font-black uppercase tracking-wider transition-all ${
+                      modoNegadas === m
+                        ? 'bg-white dark:bg-zinc-700 text-blue-600 shadow-sm'
+                        : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'
+                    }`}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="text-xs text-zinc-500 font-medium">
+                Mostrando {logs.length} de {totalCount} registros
+              </div>
+            )}
           </div>
-          
+
           <div className="divide-y divide-zinc-200 dark:divide-zinc-800">
-            {loading ? (
+            {/* O diagnóstico busca os próprios dados pelas RPCs e ignora `logs`, que continua sendo
+                carregado pelo fetch da página para o modo "Lista completa". Por isso ele entra
+                ANTES de `loading` e de `logs.length === 0`: senão os estados daquele outro fetch
+                mascarariam a tela inteira. */}
+            {activeTab === 'negadas' && modoNegadas === 'diagnostico' ? (
+              <div className="p-6">
+                <TentativasNegadasDiagnostico
+                  dataInicio={filtros.dataInicio || undefined}
+                  dataFim={filtros.dataFim || undefined}
+                  busca={filtros.busca || undefined}
+                  navegandoId={navigatingEscalaId}
+                  // Reaproveita a navegação que já existe na página: ela resolve unidade e setor a
+                  // partir dos nomes gravados no log, com fallback em cascata. Reimplementar aqui
+                  // daria duas versões da mesma resolução.
+                  onIrParaEscala={(caso) => handleNavigateToEscala({
+                    id: `${caso.servidor_id}-${caso.dia}`,
+                    servidor_id: caso.servidor_id || undefined,
+                    data_hora_tentativa: caso.primeira_em,
+                    mensagem_erro: caso.mensagem || '',
+                    unidade_nome: caso.unidade_nome || undefined,
+                    setor_nome: caso.setor_nome || undefined,
+                  } as LogTentativaNegada)}
+                />
+              </div>
+            ) : loading ? (
               <div className="p-20 text-center space-y-4">
                 <Clock className="mx-auto h-12 w-12 text-zinc-300 animate-spin" />
                 <p className="text-zinc-500 font-medium">Carregando registros...</p>

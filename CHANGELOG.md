@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.33.0] - 2026-08-09
+
+### Added
+- **Trilha de auditoria estruturada** (migration `20260809180000`):
+  - `logs_sistema` ganha `entidade`, `entidade_id`, `origem` e `alteracoes`, mais três índices e `fn_trilha_auditoria` — a pergunta "tudo que aconteceu com este alvo" passa a ter **uma** definição. Nenhuma escrita existente quebra.
+  - `origem` resolve uma ambiguidade real: 403 das 2.995 linhas estão sem `user_id` e são rotina automática, mas sem esse campo *"rotina"* e *"falhou ao capturar o autor"* eram indistinguíveis — e auditoria não pode confiar na ausência de autor. As linhas históricas já foram marcadas.
+  - `alteracoes` guarda **apenas os campos que mudaram**. A linha inteira inflaria o log e esconderia a mudança no meio do que ficou igual.
+  - Helper único em `src/utils/auditoria.ts`, substituindo sete implementações soltas de `.insert()`. Campo sensível é registrado como *alterado* **sem o valor**: o log precisa provar que o PIN mudou e não pode conter o PIN.
+
+- **Diagnóstico de tentativas negadas** (migration `20260809190000` + nova tela):
+  - A aba era a mais usada pela coordenação, e para um fim operacional: achar por que a batida foi recusada e **corrigir a escala**. Mas das 981 tentativas de produção, **395 são erro de digitação** (`PIN inválido`) e **58 são comportamento correto** (`já registrou`) — 46% do que a tela mostrava não apontava problema, e afogava os 423 que apontavam. Como quem é recusado tenta 3 ou 4 vezes, um problema virava quatro linhas.
+  - `fn_classificar_tentativa_negada` (identidade · já_registrado · sem_escala · horário_divergente · erro_sistema), `fn_desvio_tentativa_minutos` e `fn_tentativas_negadas_diagnostico/_resumo`, agrupando **981 tentativas em 495 casos**.
+  - **A borda certa vem da mensagem**, e isso não é detalhe: medindo sempre pela borda mais próxima, FRANCISCA MACEDO AMORIM aparecia com 706 min de desvio contra um previsto `null–19:00` — quando o provável é que a jornada começasse às 07:00 e só o fim tenha sido gravado. **A pessoa estava certa e a tela ia acusá-la.** Agora `ENTRADA` mede contra o início, `SAÍDA` contra o fim, e a genérica marca `previsao_incompleta` (56 de 239 casos).
+  - Tela nova com cartões por causa, ordenação por gravidade do desvio e link direto para a grade — reaproveitando a navegação que já existia na página.
+
+### Notes
+- Todos os números foram **validados por simulação em JS sobre os dados reais antes de o SQL ser escrito** (`scratchpad/simula_tentativas_negadas.js`), e conferidos depois em produção: 423/395/99/58/6, 495 casos, desvio mín 6 · p50 67 · p90 502 · máx 714 min. Bateram exatamente.
+- O pior caso conhecido: VANESSA LEONCIO DA SILVA, 31/07, previsto 08:00–18:00, **714 min** — tentativa de saída por volta das 06:00 num turno que encerra às 18:00. Turno noturno cadastrado como diurno é a hipótese mais provável.
+- **Sobre espaço:** o sistema inteiro tem 18,3 MB e os logs crescem ~14 MB/ano. O que cresce é `marcacoes_ponto` (36 MB/ano), que é registro de ponto e **não pode ser apagado**. Não há problema de disco a resolver — havia lacuna de registro. Estudo em `docs/planos/2026-08-09-auditoria-logs-retencao.md`.
+
 ## [1.32.0] - 2026-08-09
 
 ### Added
