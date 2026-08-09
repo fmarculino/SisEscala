@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/utils/supabase/server'
 import { sendWhatsAppMessageAction } from '@/app/actions/communication'
+import { resolverCanalAvisoPonto } from '@/utils/avisoPontoCanal'
 
 /**
  * Worker do aviso de ponto por WhatsApp.
@@ -76,6 +77,10 @@ export async function GET(request: Request) {
     let enviados = 0
     let falhas = 0
 
+    // Canal dedicado ao aviso, quando configurado. Resolvido em @/utils/avisoPontoCanal para que
+    // o worker e o webhook usem exatamente a mesma caixa — ver o comentário lá.
+    const overrideCanal = await resolverCanalAvisoPonto()
+
     // Sequencial de propósito: disparo em paralelo é justamente o padrão que o WhatsApp
     // classifica como bulk. O lote é pequeno, então o tempo total não é problema.
     for (const aviso of fila) {
@@ -88,6 +93,8 @@ export async function GET(request: Request) {
           message: aviso.mensagem,
           // Resolve o canal próprio da unidade e cai no global quando não houver.
           unidadeId: aviso.unidade_id || undefined,
+          // Quando existe canal dedicado ao aviso, ele vence os dois — é o mais específico.
+          overrideConfigs: overrideCanal,
         })
         sucesso = !!res.success
         // `fallbackUrl` é ignorado: não há humano na frente para clicar no WhatsApp Web.

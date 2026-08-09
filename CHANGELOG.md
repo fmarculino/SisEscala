@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.32.0] - 2026-08-09
+
+### Added
+- **Caixa dedicada ao aviso de ponto** (`aviso_ponto_whatsapp_sid`, em Configurações → Comunicação):
+  - O primeiro teste de ponta a ponta falhou por um motivo estrutural: o envio usa a sessão **global** do AstraCalls, e a resposta do servidor cai na caixa do Chatwoot correspondente a **essa** sessão — que hoje é uma caixa de atendimento ao público (Central de Regulação Ambulatorial). A regra de automação apontava para outra caixa, então nunca disparou e a confirmação nunca chegou.
+  - Preenchendo a sessão dedicada, **só o aviso de ponto** passa a sair — e portanto a ser respondido — por uma caixa própria. PIN e sobreaviso continuam na sessão geral. Em branco, nada muda.
+  - Resolução em `src/utils/avisoPontoCanal.ts`, **fonte única** usada pelo worker (que envia) e pelo webhook (que responde a cortesia). Se cada um resolvesse por conta própria, o aviso sairia por uma caixa e a confirmação por outra — que é exatamente a falha que isto corrige.
+  - `url` e `key` são opcionais e herdam as globais: trocar de caixa dentro do mesmo provedor não muda endereço nem credencial.
+
+### Fixed
+- **Webhook guardava o conteúdo de mensagens que não têm nada a ver com o SisEscala**:
+  - `logs_webhook_whatsapp` gravava o payload bruto de **tudo** que chegasse pela caixa configurada. Como essa caixa atende o público, isso colocaria **mensagem de paciente dentro do banco do SisEscala** — dado de terceiro, em sistema que não é o dele, sem relação nenhuma com ponto.
+  - Agora o conteúdo só é guardado quando a mensagem é **de um servidor**. Nos demais casos a linha é gravada sem `payload`, sem telefone e sem texto — a contagem e o diagnóstico continuam existindo, o conteúdo não.
+  - O discriminador é o campo `acao`, que `fn_confirmar_aviso_ponto` só devolve nos caminhos em que o telefone casou com exatamente **um** servidor. Não exigiu migration.
+  - ⚠️ Ao acrescentar retorno novo àquela função, só inclua `acao` se um servidor tiver sido identificado — é isso que autoriza o armazenamento.
+
+### Notes
+- Diagnóstico do teste que falhou: opt-in registrado 21:47:09, mensagem enviada 21:48:06 (fila `enviado`), resposta **nunca chegou** ao webhook. A regra do Chatwoot filtrava `Caixa de Entrada = USF ENF ZEZINHA` enquanto a conversa estava em `CRA Central De Regulação AMBULATÓRIO`.
+- O texto enviado não aparece no Chatwoot porque o envio **não passa por ele**: sai pela API do AstraCalls. O Chatwoot só observa a mensagem de entrada — dois sistemas na mesma linha.
+
 ## [1.31.0] - 2026-08-09
 
 ### Fixed

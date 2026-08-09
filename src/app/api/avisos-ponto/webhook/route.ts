@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/utils/supabase/server'
 import { sendWhatsAppMessageAction } from '@/app/actions/communication'
+import { resolverCanalAvisoPonto } from '@/utils/avisoPontoCanal'
 
 /**
  * Webhook de resposta do WhatsApp — passo 2 do double opt-in.
@@ -158,31 +159,40 @@ export async function POST(request: Request) {
     const { telefone, texto } = extrairMensagem(body)
     const supabase = await createAdminClient()
 
-    // Grava o payload BRUTO antes de qualquer coisa. É o que permite descobrir o formato real do
-    // provedor com um SELECT, em vez de caçar em log de container — e um payload não reconhecido
-    // sumiria sem rastro. Depois da integração, continua valendo como evidência de que a resposta
-    // do servidor chegou, que é onde o consentimento do double opt-in se apoia.
-    const registrar = async (resultado: any) => {
+    /**
+     * Registra a passagem pelo webhook — mas **só guarda o conteúdo quando a mensagem é de um
+     * servidor**.
+     *
+     * A caixa do Chatwoot que recebe a resposta é, hoje, uma caixa de atendimento ao público
+     * (Central de Regulação). Guardar o payload de tudo que chega ali colocaria **mensagem de
+     * paciente dentro do banco do SisEscala** — dado de terceiro, em sistema que não é o dele,
+     * sem nenhuma relação com ponto.
+     *
+     * `guardarConteudo = false` grava a linha (para a contagem e o diagnóstico continuarem
+     * existindo) com `payload` vazio, telefone e texto nulos.
+     */
+    const registrar = async (resultado: any, guardarConteudo: boolean) => {
       const { error } = await supabase.from('logs_webhook_whatsapp').insert({
-        payload: body,
-        telefone,
-        texto,
-        reconhecido: !!(telefone && texto),
+        payload: guardarConteudo ? body : {},
+        telefone: guardarConteudo ? telefone : null,
+        texto: guardarConteudo ? texto : null,
+        reconhecido: guardarConteudo && !!(telefone && texto),
         resultado,
       })
-      if (error) console.error('Falha ao registrar payload do webhook:', error.message)
+      if (error) console.error('Falha ao registrar passagem pelo webhook:', error.message)
     }
 
-    // Eco da própria mensagem do sistema: registra (ajuda a entender o formato) e para aqui.
+    // Eco da própria mensagem do sistema. Não guarda conteúdo: é mensagem que nós mesmos mandamos.
     if (ehMensagemDoProprioSistema(body)) {
-      await registrar({ motivo: 'mensagem_do_proprio_sistema' })
+      await registrar({ motivo: 'mensagem_do_proprio_sistema' }, false)
       return NextResponse.json({ success: false, motivo: 'mensagem_do_proprio_sistema' })
     }
 
     // Devolver 200 mesmo sem reconhecer: um 4xx faria o provedor reenfileirar e reentregar em
-    // laço um payload que nunca vamos entender.
+    // laço um payload que nunca vamos entender. Não guarda conteúdo — sem telefone não há como
+    // saber de quem é, e o custo de errar aqui é armazenar mensagem de terceiro.
     if (!telefone || !texto) {
-      await registrar({ motivo: 'payload_nao_reconhecido' })
+      await registrar({ motivo: 'payload_nao_reconhecido' }, false)
       return NextResponse.json({ success: false, motivo: 'payload_nao_reconhecido' })
     }
 
@@ -194,18 +204,32 @@ export async function POST(request: Request) {
 
     if (error) {
       console.error('Webhook WhatsApp: falha na RPC', error.message)
-      await registrar({ erro: error.message })
+      await registrar({ erro: error.message }, false)
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
     const res: any = Array.isArray(data) ? data[0] : data
-    await registrar(res ?? null)
+
+    // `acao` é o discriminador: fn_confirmar_aviso_ponto só a devolve nos caminhos em que o
+    // telefone CASOU com exatamente um servidor (parou, confirmou, ignorado, expirado,
+    // nao_reconhecido). Telefone inválido, sem servidor ou ambíguo voltam sem `acao`.
+    //
+    // ⚠️ Ao acrescentar um retorno novo àquela função, só inclua `acao` se um servidor tiver sido
+    // identificado — é isto que decide se o conteúdo da mensagem pode ser armazenado aqui.
+    const ehDeServidor = typeof res?.acao === 'string'
+    await registrar(res ?? null, ehDeServidor)
 
     // Resposta de cortesia — só quando algo de fato mudou. Responder a toda mensagem transformaria
     // o número num bot tagarela, que é o oposto do que se quer aqui.
     if (res?.success && res?.resposta) {
       try {
-        await sendWhatsAppMessageAction({ phone: telefone, message: res.resposta })
+        // Mesmo canal do aviso. Responder por outra caixa deixaria a conversa partida — o servidor
+        // veria a confirmação vindo de um número diferente daquele que pediu o SIM.
+        await sendWhatsAppMessageAction({
+          phone: telefone,
+          message: res.resposta,
+          overrideConfigs: await resolverCanalAvisoPonto(),
+        })
       } catch (err) {
         console.warn('Não foi possível enviar a confirmação de retorno:', err)
       }

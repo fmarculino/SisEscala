@@ -426,6 +426,29 @@ export default function ConfigPage() {
                     </div>
                     <p className="text-[10px] text-zinc-400">Definida em <code className="font-mono bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">WACALLS_API_KEY</code> no servidor Astra. Se a autenticação estiver desligada no Astra, deixe em branco.</p>
                   </div>
+
+                  {/* Caixa dedicada ao aviso de ponto. Existe porque a resposta do servidor cai na
+                      caixa por onde a mensagem SAIU — usando a sessão geral, ela cai numa caixa de
+                      atendimento ao público, misturada a mensagem de paciente, e a regra de
+                      automação do Chatwoot precisa escutar justamente essa caixa. */}
+                  <div className="space-y-1 pt-4 border-t border-emerald-200/60 dark:border-emerald-900/40">
+                    <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">
+                      Sessão dedicada ao Aviso de Ponto (opcional)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Deixe em branco para usar a sessão acima"
+                      className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none font-bold"
+                      value={getConfig('aviso_ponto_whatsapp_sid')?.valor || ''}
+                      onChange={(e) => updateConfig('aviso_ponto_whatsapp_sid', e.target.value)}
+                    />
+                    <p className="text-[10px] text-zinc-400 leading-relaxed">
+                      Só o <b>aviso de ponto</b> sai por esta sessão — PIN e sobreaviso continuam na de cima.
+                      Use quando quiser que a <b>resposta do servidor</b> caia numa caixa própria do Chatwoot,
+                      em vez de uma caixa de atendimento ao público. A regra de automação do Chatwoot deve
+                      apontar para <b>esta mesma caixa</b>; apontar para outra faz a confirmação nunca chegar.
+                    </p>
+                  </div>
                 </div>
               </div>
             )}
