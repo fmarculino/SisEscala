@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.35.0] - 2026-08-09
+
+### Security
+- **Fase E — RLS alinhada ao que as telas restringem** (migration `20260809200000`):
+  - **Restringir só na tela não restringe.** O grupo *Auditoria & Gestão* é oculto para coordenadores desde a v1.2.1 e a aba de tentativas negadas é super_admin apenas — mas se a policy libera `SELECT`, um coordenador lê os mesmos dados pela API. É o mesmo raciocínio que fez o Portal do Servidor validar no servidor em vez de só desabilitar o input.
+  - As três tabelas do aviso de ponto (`logs_preferencia_aviso_ponto`, `avisos_ponto_fila`, `logs_webhook_whatsapp`) passam a ser **admin/super_admin**. Foram criadas liberando `SELECT` também a coordenador — excesso das migrations `20260809120000` e `20260809130000`. Guardam consentimento, telefone e o **texto das mensagens**, que inclui os horários de ponto da pessoa.
+  - `logs_sistema` deixa de expor as entradas de **perfil** a quem não é super_admin. Depois da Fase B a tabela carrega o diff de mudança de papel, de escopo de acesso e de redefinição de senha; a policy vigente libera por unidade, e um coordenador com `acesso_todas_unidades` passaria a enxergar **quem concedeu qual privilégio a quem** — governança, não operação.
+  - A policy existente teve de ser **recriada**, não complementada: policies permissivas se somam com `OR`, então adicionar uma segunda só ampliaria o acesso. As quatro vias originais foram preservadas na íntegra.
+
+### Notes
+- ⚠️ **`logs_tentativas_presenca` NÃO foi tocada, e isso é deliberado.** A grade lista as batidas recusadas no modal de validação manual através de `fn_tentativas_recusadas_mes`, que é **`SECURITY INVOKER`** — é a RLS da tabela que autoriza. Apertar ali quebraria a validação manual em produção, justamente o fluxo que recupera horário real de batida negada por bug. O mesmo vale para `logs_sobreaviso`, lida direto pela grade, pelos relatórios e pelo `NotificationListener`.
+- A **inserção** em `logs_sistema` segue liberada a qualquer autenticado: apertar a leitura não pode impedir ninguém de **produzir** trilha.
+- Verificação que importa depois de aplicar: abrir a grade **como coordenador** e conferir que o modal de validação manual continua listando as batidas recusadas.
+
 ## [1.34.0] - 2026-08-09
 
 ### Added
