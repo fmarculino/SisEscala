@@ -2,6 +2,43 @@
 
 Todas as alterações notáveis deste projeto são registradas neste arquivo.
 
+## [1.27.0] - 2026-08-09
+
+### ✨ O terminal de ponto se atualiza sozinho
+
+- **O terminal detecta que está rodando código velho e recarrega quando fica ocioso.** Ele fica
+  aberto por dias numa tela de portaria e nunca recarrega; um deploy o deixa para trás com o
+  bundle antigo. Foi o que aconteceu em 09/08/2026: um terminal continuou chamando a RPC anterior
+  à v1.22.0 depois dela ir ao ar — o servidor via **"recusado"** e batia de novo (4 tentativas em
+  78 s), e a batida não virava marcação pendente. Diagnóstico completo abaixo.
+- **Recarrega só com o terminal ocioso** — sem matrícula ou PIN digitados, sem requisição em voo
+  e sem mensagem na tela. Trocar a página embaixo de quem está digitando perderia a batida: seria
+  substituir uma falha silenciosa por outra. Na prática cai logo após uma batida concluída.
+- **Faixa azul avisa antes.** Sem ela a recarga parece defeito e alguém desliga o equipamento.
+- `NEXT_PUBLIC_APP_VERSION` (de `package.json`, via `next.config.js`) é inlinada no **mesmo
+  literal** no bundle do cliente e no do servidor, e `/api/version` apenas a devolve. Nada é
+  calculado em tempo de execução: valor recalculado no servidor poria o terminal em laço de
+  recarga.
+
+#### O que a investigação apurou
+
+Uma medição anterior falou em "44 de 49 batidas sumindo" e **estava com o denominador errado** —
+contava a manhã de 08/08, anterior ao deploy da v1.22.0 (push às 16:53). Com o corte certo:
+
+| janela | batidas | com marcação |
+|---|---|---|
+| antes de 08/08 ~17:00 (pré-deploy) | muitas | 0 — esperado |
+| 08/08 17:18 → 18:14 | 5 | **5** ✅ |
+| 09/08 07:00 → 07:06, um único terminal | 5 | 0 ❌ |
+
+As três camadas estavam íntegras: `SELECT prosrc LIKE '%fn_registrar_marcacao%'` em produção deu
+`true`, o bundle publicado chama `fn_registrar_ponto`, a página trata `tipo = 'alerta'` e não há
+trigger nem RLS bloqueando o INSERT. Os terminais que funcionaram foram os carregados **depois**
+do deploy — daí a correção ser no ciclo de vida da página, não no banco.
+
+⚠️ **Este deploy não conserta os terminais já defasados** — eles não têm o código que faz a
+conferência. Cada um precisa de um `Ctrl+Shift+R` uma última vez; da próxima em diante é sozinho.
+
 ## [1.26.2] - 2026-08-09
 
 ### 🐛 "Confirmar Validação" ficava desabilitado com batida selecionada

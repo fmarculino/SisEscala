@@ -142,6 +142,15 @@ Horário **fixo**, sem o offset aleatório antigo, origem `pre_assinalado`.
 O critério que separa um caso do outro: **o sistema só preenche onde o servidor não tem como
 registrar.** Onde ele tem meio, preencher é fabricar.
 
+⚠️ **O terminal fica aberto por dias e não recarrega sozinho** — um deploy o deixa com o bundle
+velho, chamando a RPC anterior. Aconteceu em 09/08/2026: um terminal continuou fora da v1.22.0
+depois dela ir ao ar, o servidor via "recusado" e batia de novo, e nada virava marcação pendente.
+A falha é **silenciosa dos dois lados**. Desde a v1.27.0 a página confere `/api/version` a cada
+5 min e recarrega **só quando ociosa** (sem matrícula/PIN digitados). `NEXT_PUBLIC_APP_VERSION`
+vem de `package.json` via `next.config.js` e é o **mesmo literal** no cliente e no servidor —
+valor recalculado em runtime poria o terminal em laço de recarga. Ao diagnosticar batida que
+"sumiu", **confira a versão do bundle daquele dispositivo antes de suspeitar do banco**.
+
 ⚠️ **Cor importa.** No terminal, âmbar = registrado fora do previsto (vai para revisão);
 vermelho = nada foi registrado. Pintar de vermelho o que foi aceito ensina o servidor a não
 insistir, produzindo na prática o efeito que a lei quer evitar.

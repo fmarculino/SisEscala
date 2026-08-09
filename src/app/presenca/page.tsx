@@ -23,6 +23,34 @@ export default function PresencaTerminalPage() {
   // faz o servidor tentar de novo ou desistir de registrar o horário real.
   const [status, setStatus] = useState<{ type: 'success' | 'alerta' | 'error' | 'idle', message: string }>({ type: 'idle', message: '' })
 
+  // Este terminal fica aberto por dias numa tela de portaria e não recarrega sozinho. Um deploy
+  // o deixa para trás: em 09/08/2026 um terminal continuou chamando a RPC antiga depois da
+  // v1.22.0 ir ao ar — o servidor via "recusado" e batia de novo, e a batida não virava marcação
+  // pendente. Como a falha é silenciosa dos dois lados, ninguém percebe até auditarem os dados.
+  const [atualizacaoPendente, setAtualizacaoPendente] = useState(false)
+
+  useEffect(() => {
+    const versaoCarregada = process.env.NEXT_PUBLIC_APP_VERSION
+    if (!versaoCarregada) return
+
+    let vivo = true
+    async function conferir() {
+      try {
+        const r = await fetch('/api/version', { cache: 'no-store' })
+        if (!r.ok) return
+        const { version } = await r.json()
+        if (vivo && version && version !== versaoCarregada) setAtualizacaoPendente(true)
+      } catch {
+        // Terminal de portaria costuma ter rede instável. Falhar a conferência não é evento:
+        // na próxima janela tenta de novo, e nada no fluxo de bater ponto depende disso.
+      }
+    }
+
+    conferir()
+    const id = setInterval(conferir, 5 * 60 * 1000)
+    return () => { vivo = false; clearInterval(id) }
+  }, [])
+
   // 1. Check for supervisor session on load
   useEffect(() => {
     async function checkSession() {
@@ -41,6 +69,16 @@ export default function PresencaTerminalPage() {
     }
     checkSession()
   }, [supabase])
+
+  // Recarrega só com o terminal OCIOSO. Trocar a página embaixo de quem está digitando a
+  // matrícula perde a batida — seria substituir uma falha silenciosa por outra. Na prática cai
+  // logo depois de uma batida concluída, quando os campos são limpos e a mensagem some.
+  useEffect(() => {
+    if (!atualizacaoPendente) return
+    if (loading || matricula || pin || status.type !== 'idle') return
+    const id = setTimeout(() => window.location.reload(), 1500)
+    return () => clearTimeout(id)
+  }, [atualizacaoPendente, loading, matricula, pin, status.type])
 
   // 2. Supervisor Login
   async function handleSupervisorLogin(e: React.FormEvent<HTMLFormElement>) {
@@ -265,6 +303,15 @@ export default function PresencaTerminalPage() {
           </button>
         </div>
       </header>
+
+      {/* Visível de propósito: quem opera o terminal precisa entender por que a tela vai piscar,
+          senão a recarga parece defeito e alguém desliga o equipamento. */}
+      {atualizacaoPendente && (
+        <div className="bg-blue-600 text-white text-center text-xs font-bold py-2 px-4">
+          Nova versão disponível — o terminal vai atualizar sozinho assim que ficar ocioso.
+          Pode continuar registrando normalmente.
+        </div>
+      )}
 
       {/* Main Terminal */}
       <main className="flex-1 flex items-center justify-center p-4">
