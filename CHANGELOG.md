@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.31.0] - 2026-08-09
+
+### Fixed
+- **Opt-in de lotação não habilitada disparava WhatsApp** (migration `20260809170000`) — 🔴 o mais grave dos três:
+  - `fn_solicitar_aviso_ponto` validava termo, servidor, telefone e pedido pendente, e **nunca consultava** `fn_aviso_ponto_habilitado`. Alguém de setor desabilitado clicava em *Ativar*, **o sistema enviava a mensagem de confirmação**, ele respondia `SIM` e ficava `ativo` — sem nunca receber aviso de ponto, porque o gatilho barra corretamente.
+  - O dano não era o passo final: era a mensagem enviada por uma lotação que a coordenação não liberou, **no mesmo número que serve o acionamento de sobreaviso**. Durante o piloto da TI, qualquer pessoa da CAF, DMAC ou ALMOXARIFADO que achasse a aba furava o portão de rollout.
+  - A checagem entra **antes** da do telefone: quem está fora do escopo está bloqueado de qualquer forma, e mandar corrigir o cadastro o faria consertar a coisa errada.
+  - No Portal, o botão **Ativar aviso** nasce desabilitado com a explicação, em vez de deixar clicar e falhar depois de a mensagem já ter saído.
+  - ⚠️ **Desativar continua sempre permitido** e **`PARAR` continua incondicional**: amarrar a saída à habilitação prenderia a pessoa numa preferência que ela não pode mudar, e ignorar `PARAR` é o caminho mais curto para denúncia e banimento.
+
+### Added
+- **`fn_aviso_ponto_efetivo(servidor_id)` — consentimento ≠ efetividade**:
+  - Transferência para lotação não habilitada **nunca** gerou envio indevido: o gatilho resolve a habilitação no instante da batida, pela lotação da própria marcação. O defeito era de **dado** — `SELECT count(*) WHERE aviso_ponto_status = 'ativo'` passava a contar quem não recebe nada, e essa é justamente a consulta de uma auditoria de consentimento.
+  - **Não se desativa o servidor na transferência.** Consentimento é sobre a pessoa e o canal; lotação é sobre disponibilidade. Transferir é ato administrativo — gravar como desativação atribuiria a ele uma decisão que não foi dele, no mesmo log que serve de prova. E voltando ao setor de origem ele refaria o double opt-in inteiro, incluindo mais **uma** mensagem no número que estamos protegendo.
+  - `aviso_ponto_status` continua sendo o que a pessoa decidiu; `fn_aviso_ponto_efetivo` é o que relatórios de "quem recebe" devem consultar.
+  - No Portal, o rótulo passa a **`Ativado — indisponível na sua lotação atual`** quando os dois divergem, em vez de um `Ativado` que não se cumpre.
+
+- **Tela da unidade lista os setores que a sobrepõem**:
+  - A precedência é `COALESCE(setor, unidade, false)` — é ela que viabiliza ligar a TI (6 servidores) sem ligar a SMS (78), e **não** foi alterada. O defeito era de visibilidade: quem desmarcava a unidade acreditava ter desligado tudo, enquanto um setor marcado como habilitado continuava enviando.
+  - A tela passa a exibir quais setores têm configuração própria e em que estado.
+
+### Notes
+- Migration é **arquivo gerado** por `scratchpad/gen_elegibilidade.js`, que copia o corpo vigente de `fn_solicitar_aviso_ponto` e insere a checagem, abortando em qualquer divergência (CLAUDE.md, armadilha 1). Conferido: fora dos dois trechos alterados, ficou **byte a byte idêntica**.
+- Análise dos três problemas em `docs/planos/2026-08-09-escopo-e-elegibilidade-do-aviso-de-ponto.md`.
+
 ## [1.30.0] - 2026-08-09
 
 ### Added

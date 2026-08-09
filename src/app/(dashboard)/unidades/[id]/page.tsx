@@ -34,6 +34,21 @@ export default async function EditUnidadePage({
   // existe em produção e o `select('*')` nunca a trouxe. Ver o comentário em unidades/actions.ts.
   const initialComunicacao = comConfig?.valor || null
 
+  // Setores que NÃO seguem a chave da unidade. Sem isto, quem desmarca a unidade acredita ter
+  // desligado tudo — e a precedência é `COALESCE(setor, unidade, false)`, então um setor marcado
+  // como habilitado continua enviando. A semântica de sobreposição é o que viabiliza o piloto por
+  // setor; o que faltava era torná-la visível de quem olha a unidade.
+  const { data: setoresSobrepondo } = await supabase
+    .from('setores')
+    .select('id, aviso_ponto_whatsapp, dicionario_setores(nome)')
+    .eq('unidade_id', id)
+    .not('aviso_ponto_whatsapp', 'is', null)
+
+  const sobreposicoes = (setoresSobrepondo || []).map((s: any) => ({
+    nome: (Array.isArray(s.dicionario_setores) ? s.dicionario_setores[0]?.nome : s.dicionario_setores?.nome) || 'Setor sem nome',
+    habilitado: s.aviso_ponto_whatsapp === true,
+  }))
+
   if (!unidade) {
     return <div>Unidade não encontrada</div>
   }
@@ -138,7 +153,10 @@ export default async function EditUnidadePage({
               initialToleranciaMinutos={unidade.tolerancia_intervalo_minutos}
             />
 
-            <UnidadeAvisoPontoSettings initialHabilitado={unidade.aviso_ponto_whatsapp} />
+            <UnidadeAvisoPontoSettings
+              initialHabilitado={unidade.aviso_ponto_whatsapp}
+              sobreposicoes={sobreposicoes}
+            />
 
             <UnidadeCommunicationSettings initialConfig={initialComunicacao} />
           </div>

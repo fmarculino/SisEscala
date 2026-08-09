@@ -2598,6 +2598,10 @@ export async function getPreferenciaAvisoPonto() {
     telefone: data.telefone,
     telefoneUtilizavel: !!telefoneOk,
     unidadeHabilitada,
+    // Consentimento e efetividade são coisas diferentes e podem divergir — depois de uma
+    // transferência para lotação não habilitada, `status` continua 'ativo' (a pessoa não retirou
+    // nada) mas nada é entregue. A tela mostra os dois, em vez de um "Ativado" que não se cumpre.
+    efetivo: (data.aviso_ponto_status === 'ativo') && unidadeHabilitada,
   }
 }
 

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { MessageSquare, ShieldCheck, AlertTriangle, Loader2, Check, X } from 'lucide-react'
+import { MessageSquare, ShieldCheck, AlertTriangle, Loader2, Check, X, Info } from 'lucide-react'
 import { getPreferenciaAvisoPonto, definirPreferenciaAvisoPonto, definirModoAvisoPonto } from './actions'
 import { TERMO_ATIVACAO, TERMO_DESATIVACAO } from '@/utils/avisoPonto'
 
@@ -67,10 +67,21 @@ export function AvisoPontoSection() {
     setSalvando(false)
   }
 
-  const ROTULO: Record<string, { texto: string; cor: string }> = {
-    ativo: { texto: 'Ativado', cor: 'text-emerald-600' },
-    pendente_confirmacao: { texto: 'Aguardando sua resposta no WhatsApp', cor: 'text-amber-600' },
-    inativo: { texto: 'Desativado', cor: 'text-zinc-500' },
+  /**
+   * O rótulo distingue consentimento de efetividade. Depois de uma transferência para lotação não
+   * habilitada, o status continua `ativo` — a pessoa não retirou nada — mas nada é entregue.
+   * Mostrar só "Ativado" ali seria o sistema afirmando algo que não cumpre.
+   */
+  const rotuloSituacao = (status: string, efetivo: boolean) => {
+    if (status === 'pendente_confirmacao') {
+      return { texto: 'Aguardando sua resposta no WhatsApp', cor: 'text-amber-600' }
+    }
+    if (status === 'ativo') {
+      return efetivo
+        ? { texto: 'Ativado', cor: 'text-emerald-600' }
+        : { texto: 'Ativado — indisponível na sua lotação atual', cor: 'text-amber-600' }
+    }
+    return { texto: 'Desativado', cor: 'text-zinc-500' }
   }
 
   if (carregando) {
@@ -124,7 +135,20 @@ export function AvisoPontoSection() {
         </p>
       </div>
 
-      {bloqueado && (
+      {/* Lotação fora do escopo: o botão nasce desabilitado, e não deixando clicar para falhar
+          depois. Antes da v1.31.0 o clique já disparava a mensagem de confirmação por WhatsApp —
+          furando o portão de rollout, no mesmo número que serve o acionamento de sobreaviso. */}
+      {!estado?.unidadeHabilitada && status === 'inativo' && (
+        <div className="flex items-start gap-3 p-4 bg-zinc-100 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 rounded-2xl">
+          <Info className="h-4 w-4 text-zinc-500 mt-0.5 shrink-0" />
+          <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+            O aviso de ponto <b>ainda não está disponível na sua lotação</b>. O recurso está sendo
+            liberado aos poucos, setor por setor. Fale com seu coordenador se quiser usá-lo.
+          </p>
+        </div>
+      )}
+
+      {bloqueado && estado?.unidadeHabilitada && (
         <div className="flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl">
           <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
           <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
@@ -158,8 +182,8 @@ export function AvisoPontoSection() {
       <div className="flex items-center justify-between gap-4 pt-2 border-t border-zinc-100 dark:border-zinc-800">
         <div>
           <p className="text-xs font-black uppercase tracking-wider text-zinc-400">Situação atual</p>
-          <p className={`text-sm font-black ${ROTULO[status]?.cor || 'text-zinc-500'}`}>
-            {ROTULO[status]?.texto || 'Desativado'}
+          <p className={`text-sm font-black ${rotuloSituacao(status, !!estado?.efetivo).cor}`}>
+            {rotuloSituacao(status, !!estado?.efetivo).texto}
           </p>
           {estado?.telefone && (
             <p className="text-[11px] text-zinc-400 mt-0.5">Telefone: {estado.telefone}</p>
@@ -168,9 +192,11 @@ export function AvisoPontoSection() {
 
         {/* Com pedido pendente o botão só oferece cancelar: reenviar a confirmação é exatamente
             a insistência que gera bloqueio, e o banco recusaria de qualquer forma. */}
+        {/* Desativar NUNCA é bloqueado, mesmo fora do escopo: amarrar a saída à habilitação
+            prenderia a pessoa numa preferência que ela não pode mudar. Só o ATIVAR é gateado. */}
         <button
           type="button"
-          disabled={salvando || (bloqueado && status === 'inativo')}
+          disabled={salvando || (status === 'inativo' && (bloqueado || !estado?.unidadeHabilitada))}
           onClick={() => setConfirmando(status === 'inativo')}
           className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all disabled:opacity-40 ${status !== 'inativo'
             ? 'bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-300 dark:hover:bg-zinc-700'

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { MessageSquare, Info } from 'lucide-react'
+import { MessageSquare, Info, AlertTriangle } from 'lucide-react'
 
 /**
  * Habilita (ou não) o aviso de ponto por WhatsApp na unidade.
@@ -22,9 +22,11 @@ import { MessageSquare, Info } from 'lucide-react'
 
 interface Props {
   initialHabilitado?: boolean | null
+  /** Setores desta unidade com configuração própria — não seguem esta chave. */
+  sobreposicoes?: { nome: string; habilitado: boolean }[]
 }
 
-export function UnidadeAvisoPontoSettings({ initialHabilitado }: Props) {
+export function UnidadeAvisoPontoSettings({ initialHabilitado, sobreposicoes = [] }: Props) {
   const [habilitado, setHabilitado] = useState<boolean>(!!initialHabilitado)
 
   return (
@@ -62,6 +64,37 @@ export function UnidadeAvisoPontoSettings({ initialHabilitado }: Props) {
           </p>
         </div>
       </label>
+
+      {/* Sem este bloco, quem desmarca a chave acima acredita ter desligado tudo — e um setor
+          marcado como habilitado continua enviando, porque a precedência é
+          COALESCE(setor, unidade, false). */}
+      {sobreposicoes.length > 0 && (
+        <div className="flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl">
+          <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+          <div className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
+            <p>
+              <b>
+                {sobreposicoes.length === 1
+                  ? '1 setor desta unidade tem'
+                  : `${sobreposicoes.length} setores desta unidade têm`}{' '}
+                configuração própria
+              </b>{' '}
+              e <b>não seguem</b> esta chave:
+            </p>
+            <ul className="mt-1.5 space-y-0.5">
+              {sobreposicoes.map(s => (
+                <li key={s.nome}>
+                  • {s.nome} — <b>{s.habilitado ? 'habilitado' : 'desabilitado'}</b>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-1.5">
+              Para alterá-los, use o campo <b>Aviso de ponto por WhatsApp</b> no cadastro de cada
+              setor.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="flex items-start gap-3 p-4 bg-blue-50/60 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900 rounded-2xl">
         <Info className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
