@@ -260,8 +260,8 @@ export function ScaleGrid({
   // o turno na grade — decisão de 08/08/2026: a hora é informada na hora de escalar.
   const [horaModal, setHoraModal] = useState<{
     isOpen: boolean, servidorId: string, servidorNome: string, categoria: RowCategory,
-    day: number, turnoCodigo: string, horasComputadas: number, valor: string
-  }>({ isOpen: false, servidorId: '', servidorNome: '', categoria: 'Plantão', day: 0, turnoCodigo: '', horasComputadas: 0, valor: '' })
+    day: number, turnoCodigo: string, horasComputadas: number, valor: string, ancorado: boolean
+  }>({ isOpen: false, servidorId: '', servidorNome: '', categoria: 'Plantão', day: 0, turnoCodigo: '', horasComputadas: 0, valor: '', ancorado: false })
 
   const [alertModal, setAlertModal] = useState<{ isOpen: boolean, title: string, message: string, type: 'default' | 'danger' | 'success' | 'warning' }>({
     isOpen: false,
@@ -706,12 +706,24 @@ export function ScaleGrid({
     return !!turnos.find(t => t.id === turnoId)?.horario_inicio
   }, [turnos])
 
+  // O turno EXIGE hora: o código não a determina, então sem informar ninguém sabe quando começa.
+  // É esse caso que abre o modal sozinho ao escalar.
   const precisaHoraInicio = useCallback((categoria: RowCategory, turnoId?: string | null) => {
     if (!turnoId) return false
     // Regular tem a hora no nome da jornada; Sobreaviso não marca presença (CLAUDE.md armadilha 6).
     if (categoria === 'Regular' || categoria === 'Sobreaviso') return false
     return !isTurnoAncorado(turnoId)
   }, [isTurnoAncorado])
+
+  // O turno ACEITA hora: o coordenador pode sobrepor até o que o código ancora. É o nível 1 da
+  // cadeia de precedência, que vence todos os outros — inclusive a âncora do dicionário e a
+  // âncora espelho da jornada noturna. Serve para a exceção que nenhuma regra prevê; o banco já
+  // aceitava (só chk_hora_prevista_nao_regular barra), era a grade que não deixava informar.
+  const permiteHoraInicio = useCallback((categoria: RowCategory, turnoId?: string | null) => {
+    if (!turnoId) return false
+    if (categoria === 'Regular' || categoria === 'Sobreaviso') return false
+    return true
+  }, [])
 
   // Sugestão por encadeamento: o turno de duração livre normalmente emenda no fim do que já
   // existe no dia, na ordem Regular -> Extra -> Plantão. É o caso relatado em 08/08/2026:
@@ -747,13 +759,19 @@ export function ScaleGrid({
   // Motor de Compliance: validação de interjornada e DSR
   const complianceViolations = useMemo(() => {
     if (!gridData || escalaMensal.length === 0) return [] as ComplianceViolation[]
+    // A jornada entra no motor porque quem tem jornada noturna ("18H ÀS 06H") tem o turno
+    // diurno ancorado no FIM dela, não no início — mesma regra do nível 2-A do banco.
+    const jornadaPorServidor = Object.fromEntries(
+      escalaMensal.map(em => [em.servidor_id, jornadas.find(j => j.id === em.jornada_id)?.nome])
+    )
     return runComplianceCheck(
       gridData,
       turnos,
       escalaMensal.map(em => em.servidor_id),
-      daysInMonth
+      daysInMonth,
+      jornadaPorServidor
     )
-  }, [gridData, turnos, escalaMensal, daysInMonth])
+  }, [gridData, turnos, escalaMensal, daysInMonth, jornadas])
 
   const complianceCount = complianceViolations.length
 
@@ -1384,6 +1402,7 @@ export function ScaleGrid({
         day,
         turnoCodigo: t?.codigo || '',
         horasComputadas: Number(t?.horas_computadas) || 0,
+        ancorado: false,
         valor: gridHoras[servidorId]?.[categoria]?.[day] || sugerirHoraInicio(servidorId, day, categoria)
       })
     } else {
@@ -2492,13 +2511,13 @@ export function ScaleGrid({
               }
             }
 
-            // Hora informada pelo coordenador, só para turno de duração livre. Precisa estar
-            // SEMPRE no payload (mesmo null): o upsert monta o SET a partir das chaves
-            // enviadas, então omitir a coluna faria a limpeza de uma hora nunca chegar ao banco.
-            // O banco recusa hora em categoria Regular (chk_hora_prevista_nao_regular), então
-            // a mesma condição de precisaHoraInicio vale aqui.
+            // Hora informada pelo coordenador. Vale para qualquer turno que a aceite — inclusive
+            // o ancorado, onde ela é a sobreposição manual do nível 1. Precisa estar SEMPRE no
+            // payload (mesmo null): o upsert monta o SET a partir das chaves enviadas, então
+            // omitir a coluna faria a limpeza de uma hora nunca chegar ao banco. O banco recusa
+            // hora em categoria Regular (chk_hora_prevista_nao_regular).
             const horaCel = gridHoras[em.servidor_id]?.[categoria as RowCategory]?.[day]
-            const horaPrevista = precisaHoraInicio(categoria as RowCategory, turnoId) && horaCel
+            const horaPrevista = permiteHoraInicio(categoria as RowCategory, turnoId) && horaCel
               ? `${horaCel.slice(0, 2)}:00:00`
               : null
 
@@ -3416,8 +3435,17 @@ export function ScaleGrid({
                                 {/* Turno de duração livre: mostra a hora definida, ou avisa que
                                     ainda falta. Sem isso o coordenador não teria como ver nem
                                     corrigir o que informou. Clicar reabre o modal. */}
-                                {precisaHoraInicio(cat, turno?.id) && (() => {
+                                {permiteHoraInicio(cat, turno?.id) && (() => {
                                   const hora = gridHoras[em.servidor_id]?.[cat]?.[day]
+                                  const exige = precisaHoraInicio(cat, turno?.id)
+                                  // No turno ancorado não há o que cobrar: mostra em cinza o que o
+                                  // BANCO prevê (fn_blocos_previstos_mes, a mesma fonte do terminal),
+                                  // que já inclui a âncora espelho da jornada noturna. Clicar sobrepõe.
+                                  const previsto = !hora && !exige
+                                    ? getShiftForecastTime(turno?.id || '', 'entrada', em.servidor_id, cat, day)
+                                    : null
+                                  const label = hora || (exige ? '?h' : previsto)
+                                  if (!label) return null
                                   return (
                                     <button
                                       type="button"
@@ -3429,18 +3457,23 @@ export function ScaleGrid({
                                         day,
                                         turnoCodigo: turno?.codigo || '',
                                         horasComputadas: Number(turno?.horas_computadas) || 0,
-                                        valor: hora || sugerirHoraInicio(em.servidor_id, day, cat)
+                                        ancorado: !exige,
+                                        valor: hora || (exige ? sugerirHoraInicio(em.servidor_id, day, cat) : '')
                                       })}
                                       title={hora
                                         ? `Início às ${hora} (informado pelo coordenador). Clique para alterar.`
-                                        : `O código ${turno?.codigo} não define a hora de início. Clique para informar.`}
+                                        : exige
+                                          ? `O código ${turno?.codigo} não define a hora de início. Clique para informar.`
+                                          : `Início previsto às ${previsto}, calculado pela escala do dia. Clique para informar outra hora.`}
                                       className={`absolute bottom-0 left-0 right-0 text-[7px] leading-none py-px font-bold ${
                                         hora
                                           ? 'text-blue-600 dark:text-blue-400'
-                                          : 'text-amber-600 dark:text-amber-400'
+                                          : exige
+                                            ? 'text-amber-600 dark:text-amber-400'
+                                            : 'text-zinc-400 dark:text-zinc-500 font-normal'
                                       }`}
                                     >
-                                      {hora || '?h'}
+                                      {label}
                                     </button>
                                   )
                                 })()}
@@ -4687,16 +4720,26 @@ export function ScaleGrid({
       >
         <div className="space-y-3">
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            <span className="font-bold">{horaModal.servidorNome}</span> — dia {horaModal.day}.
-            O código <span className="font-bold">{horaModal.turnoCodigo}</span> define a duração
-            ({horaModal.horasComputadas}h) e o período, mas não a hora de início. Informe quando começa.
+            <span className="font-bold">{horaModal.servidorNome}</span> — dia {horaModal.day}.{' '}
+            {horaModal.ancorado ? (
+              <>
+                O código <span className="font-bold">{horaModal.turnoCodigo}</span> já determina a hora
+                pela escala do dia. Informe aqui só para <span className="font-bold">sobrepor</span> esse
+                cálculo neste dia — a hora informada vence todas as demais regras.
+              </>
+            ) : (
+              <>
+                O código <span className="font-bold">{horaModal.turnoCodigo}</span> define a duração
+                ({horaModal.horasComputadas}h) e o período, mas não a hora de início. Informe quando começa.
+              </>
+            )}
           </p>
           <select
             value={horaModal.valor}
             onChange={(e) => setHoraModal(prev => ({ ...prev, valor: e.target.value }))}
             className="w-full px-3 py-2 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-transparent font-bold"
           >
-            <option value="">Não informar (o sistema estima)</option>
+            <option value="">{horaModal.ancorado ? 'Não sobrepor (usar o cálculo do sistema)' : 'Não informar (o sistema estima)'}</option>
             {Array.from({ length: 24 }, (_, h) => {
               const hh = `${String(h).padStart(2, '0')}:00`
               const fimH = (h + horaModal.horasComputadas) % 24
@@ -4709,8 +4752,9 @@ export function ScaleGrid({
             })}
           </select>
           <p className="text-xs text-zinc-500">
-            Sem informar, o sistema continua estimando pela escala do dia — que é justamente o que
-            deixou servidores sem conseguir bater o ponto. O horário aqui vale para este dia apenas.
+            {horaModal.ancorado
+              ? 'Use só quando o dia fugir da regra. O cálculo automático já considera a jornada do servidor, inclusive a noturna. O horário aqui vale para este dia apenas.'
+              : 'Sem informar, o sistema continua estimando pela escala do dia — que é justamente o que deixou servidores sem conseguir bater o ponto. O horário aqui vale para este dia apenas.'}
           </p>
         </div>
       </Modal>

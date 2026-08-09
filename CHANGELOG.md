@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.25.0] - 2026-08-09
+
+### Fixed
+- **Plantão Diurno em Jornada Noturna (dobra de 24h)**:
+  - Servidor com jornada Regular `18H ÀS 06H` escalado com **Plantão MT** no mesmo dia: a intenção é chegar às **06:00**, cumprir o plantão até as **18:00** e emendar o turno normal até as 06:00 do dia seguinte. O sistema calculava o plantão como **18:00 → 06:00**, sobreposto ao Regular.
+  - Causa: a cadeia de precedência de horário tratava plantão como **sequência do expediente**. O nível 2 (âncora do dicionário, `MT = 07:00`) só vale quando não há Regular no dia; havendo Regular, a cascata legada alinhava o plantão pelo **início** da jornada — 18:00 com jornada noturna.
+  - Efeito no terminal: a batida das **06:00** não casava com nenhum passo e virava pendência de revisão; a das **18:00** era gravada como **entrada** nos três registros do dia, apagando as 12h já trabalhadas; e a saída da manhã seguinte caía fora da janela.
+  - Novo **nível 2-A** da cadeia — *âncora espelho da jornada noturna*: quando o Regular do dia cruza a meia-noite (`end_hour < start_hour`) e o plantão declara período diurno (`slots[1] IN ('M','T')`), o plantão ancora no **fim** da jornada. A "manhã" de quem faz noite começa quando a noite dela terminaria. Fica acima do nível 2 (a âncora fixa do dicionário não conhece a jornada do servidor) e abaixo do nível 1 (o coordenador continua vencendo tudo).
+  - Efeito colateral corrigido de quebra: `ORDER BY start_hour` ficava **empatado** entre Regular e Plantão, deixando indefinido qual era o primeiro turno do bloco — e é isso que decide quais horários `fn_salvar_saida_bloco` fabrica no checkout.
+
+- **Fusão de Blocos Apagando o Intervalo da Segunda Jornada**:
+  - Um bloco carrega **um único intervalo** (`v_b1_int_ini := COALESCE(v_s1_int_ini_min, v_s2_int_ini_min)`). Plantão de 12h + Regular de 12h, cada um com 1h de intervalo, fundidos num bloco só resultariam em **12h seguidas sem repouso registrado** — em unidade com `permite_marca_intervalo = true`.
+  - Novo guard de **não-fusão** para o plantão diurno em dia de jornada noturna, com a mesma forma dos guards de Sobreaviso de `20260807000000`, cobrindo os **12 sítios de fusão** das três funções. `Regular + Extra` continuam fundindo: a extra *é* sequência do expediente.
+
+- **`fn_salvar_saida_bloco` Divergindo da Janela Cobrada pelo Terminal**:
+  - A função vigente era de 06/07/2026 e **nunca recebeu os níveis 1 e 2** da ancoragem de 08/08/2026. Como é ela quem fabrica os horários de transição de um bloco com vários turnos, dividia o bloco num horário que o terminal nunca cobrou.
+  - Passa a enxergar `escala_diaria.hora_inicio_prevista` (nível 1), a âncora do dicionário (nível 2) e a nova âncora espelho (2-A).
+
+### Added
+- **Batida de Transição**: fechado um bloco, se o bloco seguinte começa no mesmo instante em que este termina e ainda não tem entrada, a **mesma batida** abre o próximo, gravando a **hora real** — nunca a prevista. Sem isso o servidor teria de bater duas vezes no mesmo minuto, e quem esquecesse a segunda deixaria a jornada seguinte sem entrada.
+- **Hora de Início em Turno Ancorado (`ScaleGrid.tsx`)**: o coordenador passa a poder informar a hora **também em código ancorado**, como sobreposição manual do nível 1 — a válvula de escape para a exceção que nenhuma regra prevê. O banco já aceitava; era a grade que apagava o valor. Em código ancorado a célula exibe em cinza o horário que o **banco** prevê (`fn_blocos_previstos_mes`, mesma fonte do terminal) e clicar sobrepõe.
+- **Motor de Compliance ciente de jornada noturna** (`complianceEngine.ts`): nova `fimDeJornadaNoturna()`; `checkInterjornada` recebe a jornada por servidor e `getShiftStartHour`/`getShiftEndHour` espelham a âncora 2-A. Sem isso a grade calcularia interjornada sobre um horário que o terminal não cobra mais.
+
+### Notes
+- Alcance medido em produção antes de aplicar: **8 dias-servidor** (2 servidores, 1 unidade, 08/2026), **nenhum com presença gravada ou confirmada** — mudança inteiramente prospectiva, sem backfill. Simulação do motor de blocos sobre agosto inteiro: **8 alterados, 3.282 inalterados**.
+- Migration `20260809000000` é **arquivo gerado** por `scratchpad/gen_dobra.js`, que copia o corpo das funções vigentes e aborta se qualquer contagem de ocorrências ou conferência estrutural divergir (CLAUDE.md, armadilha 1).
+- Plano completo em `docs/planos/2026-08-09-plantao-diurno-em-jornada-noturna.md`.
+
 ## [1.21.0] - 2026-08-07
 
 ### Added

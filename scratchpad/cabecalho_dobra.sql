@@ -1,0 +1,126 @@
+-- Migration: Plantao diurno em jornada noturna - ancora espelho, nao-fusao e batida de transicao
+-- Data: 2026-08-09
+--
+-- ARQUIVO GERADO. Nao editar a mao. Regerar por scratchpad/gen_dobra.js, que copia o corpo
+-- das funcoes vigentes e aborta se qualquer contagem de ocorrencias divergir (armadilha 1).
+--
+--   fonte de fn_confirmar_presenca / _manual / fn_blocos_previstos_dia: 20260808110000
+--   fonte de fn_salvar_saida_bloco:                                     20260706115000
+--
+--
+-- O CASO
+--   Dois agentes de portaria da USF ENFERMEIRA ZEZINHA tem jornada Regular "18H AS 06H" e
+--   foram escalados com um Plantao MT (12h) no MESMO dia. A intencao do coordenador: o
+--   servidor chega as 06:00, cumpre o plantao ate as 18:00, e as 18:00 emenda o turno normal
+--   dele, que vai ate as 06:00 do dia seguinte. Uma dobra de 24h, duas jornadas de 12h.
+--
+--   O sistema nao se comportava assim.
+--
+--
+-- POR QUE QUEBRAVA
+--   A cadeia de precedencia de horario (CLAUDE.md armadilha 4) tratava plantao como
+--   SEQUENCIA do expediente. O nivel 2 (ancora do dicionario, MT = 07:00) so vale quando NAO
+--   ha Regular no dia; havendo Regular, a cascata legada alinhava o plantao pelo INICIO da
+--   jornada. Com jornada noturna isso da 18:00 - o plantao inteiro sobreposto ao Regular:
+--
+--     Regular N   jornada "18H AS 06H"  ->  18:00 -> 06:00 (+1)   correto
+--     Plantao MT  regex do nome da jornada ->  18:00 -> 06:00 (+1)   ERRADO (deveria ser 06:00 -> 18:00)
+--     Extra 1h    ancorada no fim do Regular ->  06:00 -> 07:00 (+1)
+--
+--   Como v_s2_inicio (1080) <= v_s1_fim (1800), os tres fundiam em UM bloco 18:00 -> 07:00.
+--   Consequencia no terminal, passo a passo:
+--
+--     06:00      nenhum passo casa (entrada cobra 17:30-18:30). fn_registrar_ponto grava a
+--                batida como marcacao pendente de revisao. Nada entra na folha.
+--     18:00      casa como ENTRADA e grava 18:00 nos TRES registros de uma vez. As 12h ja
+--                trabalhadas desaparecem.
+--     06:00 (+1) o bloco fecha as 07:00 por causa da extra: a batida de saida tambem cai fora.
+--
+--   Agravantes encontrados no mesmo diagnostico:
+--     - ORDER BY start_hour ficava EMPATADO (Regular e Plantao ambos em 18), entao qual dos
+--       dois era o "primeiro" do bloco era indefinido - e isso decide quais horarios a
+--       fn_salvar_saida_bloco fabrica no checkout.
+--     - fn_salvar_saida_bloco e de 06/07/2026 e nunca recebeu os niveis 1 e 2 da ancoragem de
+--       08/08/2026: para o MT ela devolvia slots[1]='M' -> 07:00, divergindo da janela que o
+--       proprio terminal tinha cobrado. As duas funcoes ja discordavam entre si.
+--
+--
+-- MEDIDO EM PRODUCAO EM 09/08/2026 (leitura, via PostgREST com paginacao)
+--   jornadas que cruzam a meia-noite: 2 de 17  ("18H AS 06H", "19H AS 07H")
+--   escala_mensal com jornada noturna: 8 de 319
+--   combinacoes que convivem com Regular de jornada noturna:
+--       105x  18H AS 06H | reg=N | Extra:1
+--         8x  18H AS 06H | reg=N | Extra:1 + Plantao:MT   <- os casos afetados
+--         1x  18H AS 06H | reg=N | (so Regular)
+--   Os 8 casos: 2 servidores, 1 unidade, todos em 08/2026, NENHUM com presenca gravada nem
+--   confirmada. Nao ha folha a corrigir - a mudanca e inteiramente prospectiva, sem backfill.
+--   Nao existe caso irmao com plantao noturno, entao nada mais e alcancado hoje.
+--
+--
+-- O QUE MUDA
+--
+--   1. NIVEL 2-A DA CADEIA: ANCORA ESPELHO DA JORNADA NOTURNA
+--      Quando o Regular do dia cruza a meia-noite (end_hour < start_hour) e o plantao declara
+--      periodo diurno (slots[1] em M, T), o plantao ancora no FIM da jornada, nao no inicio.
+--      A "manha" de quem faz noite comeca quando a noite dela terminaria: MT -> 06:00.
+--      Entra ACIMA do nivel 2 - a ancora fixa do dicionario (MT = 07:00) nao conhece a jornada
+--      do servidor e erraria por uma hora. Abaixo do nivel 1: o coordenador continua podendo
+--      informar a hora e vencer tudo.
+--      Efeito colateral desejado: acaba o empate do ORDER BY (6 < 18).
+--
+--   2. O PLANTAO DIURNO DE DOBRA NAO FUNDE COM NENHUM BLOCO
+--      A USF ENFERMEIRA ZEZINHA tem permite_marca_intervalo = true e tipo_intervalo = rigido,
+--      e a jornada de 12h tem intervalo_minutos = 60 - ou seja, cada uma das duas jornadas tem
+--      intervalo proprio. Um bloco carrega UM intervalo so
+--      (v_b1_int_ini := COALESCE(v_s1_int_ini_min, v_s2_int_ini_min)), entao fundir as duas
+--      apagaria o intervalo da segunda: 12h seguidas sem repouso registrado, em unidade que
+--      exige marcacao. O guard tem a mesma forma dos guards de Sobreaviso de 20260807000000 e
+--      cobre os 12 sitios de fusao das tres funcoes.
+--      Regular + Extra continuam fundindo normalmente: a extra E sequencia do expediente.
+--
+--   3. BATIDA DE TRANSICAO
+--      Fechado um bloco, se o bloco seguinte comeca no mesmo instante em que este termina e
+--      ainda nao tem entrada, a MESMA batida abre o proximo. O horario gravado e a batida
+--      real, nunca o previsto. Sem isso o servidor teria de bater duas vezes no mesmo minuto,
+--      e quem esquecesse a segunda deixaria a jornada seguinte sem entrada.
+--
+--   4. fn_salvar_saida_bloco PASSA A ENXERGAR OS NIVEIS 1 E 2
+--      E ela quem fabrica os horarios de transicao de um bloco com varios turnos. Enquanto
+--      derivar por conta propria, divide o bloco num horario que o terminal nunca cobrou.
+--
+--
+-- O QUE ESTA MIGRATION NAO FAZ
+--   - Nao remove a 1h de Extra dos dias de plantao. Ela e ancorada no FIM do Regular, ou seja,
+--     06:00-07:00 do dia SEGUINTE: no dia da dobra o servidor iria de 06:00 do dia D as 07:00
+--     do dia D+1, 25h seguidas, e e ela que mantem o fechamento do bloco as 07:00 em vez das
+--     06:00. Tirar a extra desses 8 dias e ajuste de escala na grade, decisao do coordenador.
+--   - Nao alinha o ramo do nivel 3 (regex do nome da jornada) dentro de fn_salvar_saida_bloco.
+--     Essa divergencia e anterior e alcanca dias ja validados; mexer nela sem medir mudaria
+--     folha fechada. Fica registrada como pendencia.
+--   - Nao toca em fn_confirmar_presenca nem em fn_confirmar_presenca_manual fora das insercoes
+--     listadas acima. Os guards de Sobreaviso, o COALESCE de horario sintetico, as flags
+--     presenca_*_manual e os ramos de intervalo flexivel foram copiados byte a byte.
+--
+--
+-- COMO CONFERIR DEPOIS DE APLICAR
+--
+--   -- 1. os 8 dias afetados passam a ter DOIS blocos, o primeiro comecando as 06:00
+--   SELECT ed.dia, b.bloco_ordem, b.inicio_previsto, b.fim_previsto,
+--          b.intervalo_inicio_previsto, b.intervalo_fim_previsto
+--     FROM public.escala_diaria ed
+--     JOIN public.escala_mensal em ON em.id = ed.escala_mensal_id
+--     CROSS JOIN LATERAL public.fn_blocos_previstos_dia(em.servidor_id, MAKE_DATE(em.ano, em.mes, ed.dia)) b
+--    WHERE em.mes = 8 AND em.ano = 2026
+--      AND ed.categoria = 'Plantão'
+--      AND EXISTS (SELECT 1 FROM public.escala_diaria r
+--                   WHERE r.escala_mensal_id = ed.escala_mensal_id AND r.dia = ed.dia
+--                     AND r.categoria = 'Regular')
+--    ORDER BY ed.dia, b.bloco_ordem;
+--
+--   -- esperado por dia: bloco 1 = 06:00 -> 18:00 (intervalo 10:00-11:00)
+--   --                   bloco 2 = 18:00 -> 07:00 (+1) (intervalo 22:00-23:00)
+--
+--   -- 2. nada mais mudou: rodar a conferencia sobre o mes inteiro
+--   SELECT * FROM public.fn_conferir_reconciliacao(2026, 8);
+
+

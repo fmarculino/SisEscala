@@ -256,6 +256,14 @@ de presença exige executar o caminho real.
    depois confira com `diff`. Não redigite o corpo à mão. Faça o script **abortar** se a contagem
    de ocorrências não for a esperada — foi isso que pegou uma indentação divergente em `20260807080000`.
 3. Confirme que os guards existentes continuam presentes no resultado.
+
+⚠️ **No script gerador, o segundo argumento de `String.replace` tem que ser uma função.** Com
+string, o JS interpreta os padrões de cifrão: `$$` vira `$` — quebrando o dollar-quoting do
+plpgsql — e `$'` (que existe dentro de `~ '^[0-9]+$'`) é substituído pelo **resto do arquivo**.
+Isso produziu um `syntax error at or near "$"` em `20260809000000` e enfiou o bloco de `GRANT` no
+meio de uma função. `gen_dobra.js` ganhou conferência estrutural do arquivo inteiro por causa
+disso: delimitadores `$$` em pares, `CREATE OR REPLACE` na contagem certa, `GRANT` uma vez só.
+
 4. Confira que **toda coluna escrita existe de fato** — a função não avisa. Compare a lista de
    colunas do `UPDATE` com o que o banco realmente tem (ver armadilha 3).
 
@@ -298,9 +306,19 @@ Não existe coluna `start_hour`. O horário é resolvido nesta ordem, e o primei
 | nível | fonte | quando |
 |---|---|---|
 | 1 | `escala_diaria.hora_inicio_prevista` | o coordenador informou ao escalar. **Não vale para `Regular`** (constraint `chk_hora_prevista_nao_regular`) |
+| **2-A** | **`end_hour` do Regular do dia** | **o Regular cruza a meia-noite e o plantão é diurno** (`slots[1] IN ('M','T')`) — ver abaixo |
 | 2 | `dicionario_turnos.horario_inicio` | o código determina a hora. **Só quando NÃO há turno `Regular` no dia** |
 | 3 | regex sobre `jornadas.nome` | categoria `Regular` |
 | 4 | cascata legada (`LIKE 'M%'`, `slots[1]`, alinhamento ao Regular) | último recurso, **nunca removida** |
+
+**Nível 2-A — o espelho da jornada noturna** (`20260809000000`, plano em
+[`docs/planos/2026-08-09-plantao-diurno-em-jornada-noturna.md`](docs/planos/2026-08-09-plantao-diurno-em-jornada-noturna.md)).
+A cascata inteira assume que **plantão é sequência do expediente**. Com jornada `18H ÀS 06H` isso
+se inverte: o plantão diurno vem **antes** do Regular. O nível 4 dava 18:00 ao `MT` e o sobrepunha
+inteiro ao turno da noite — o servidor não conseguia registrar a entrada das 06:00, e a batida das
+18:00 virava a *entrada* do dia, apagando 12h trabalhadas. A âncora correta é o **fim** da jornada:
+a manhã de quem faz noite começa quando a noite dela terminaria. Fica **acima** do nível 2 porque a
+âncora fixa do dicionário (`MT = 07:00`) não conhece a jornada do servidor.
 
 ```sql
 substring(j.nome from '^([0-9]+)')                    -- "08H ÀS 12H" → 8
@@ -360,6 +378,16 @@ e a janela de **saída** passa a ser o fim do último turno.
 
 Isso é **correto e desejado** para `Regular` + `Extra` + `Plantão` — ex.: 08h–18h + 2h extra +
 Plantão N 12h formam um bloco único, com saída esperada no fim do plantão.
+
+⚠️ **Um bloco carrega UM intervalo só** — `v_b1_int_ini := COALESCE(v_s1_int_ini_min, v_s2_int_ini_min)`.
+Então fundir dois turnos que **cada um** tem intervalo próprio apaga o da segunda jornada. Foi por
+isso que o plantão diurno em dia de jornada noturna ganhou guard de **não-fusão**
+(`20260809000000`, 12 sítios, mesma forma dos guards de Sobreaviso): `MT` 06:00–18:00 + `N`
+18:00–06:00 são duas jornadas de 12h com 1h de intervalo cada, não uma de 24h com uma pausa.
+Ao decidir se dois turnos fundem, **cheque `permite_marca_intervalo` da unidade** — em unidade que
+não marca intervalo a fusão é inofensiva, em unidade que marca ela é perda de dado.
+Quando dois blocos ficam encostados, a **batida de transição** fecha um e abre o outro com o
+horário real: nada de timestamp fabricado na fronteira.
 
 **Sobreaviso não entra nessa conta.** Não é trabalho presencial, não marca presença e tem ciclo
 próprio em `logs_sobreaviso`. Agrava o fato de que o `start_hour` do Sobreaviso é alinhado ao fim

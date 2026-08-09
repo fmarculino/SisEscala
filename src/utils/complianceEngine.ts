@@ -27,9 +27,35 @@ type RowCategory = 'Regular' | 'Extra' | 'Plantão' | 'Sobreaviso'
 type GridData = Record<string, Record<RowCategory, Record<number, string>>>
 
 /**
- * Mapeia um código de turno para o horário de INÍCIO mais cedo (em horas, 0-23).
+ * Fim da jornada Regular quando ela CRUZA A MEIA-NOITE ("18H ÀS 06H" → 6). Devolve null para
+ * jornada diurna ou nome que não casa. É o gatilho da âncora espelho — ver o nível 2-A da
+ * migration 20260809000000 e docs/planos/2026-08-09-plantao-diurno-em-jornada-noturna.md.
  */
-function getShiftStartHour(codigo: string): number {
+export function fimDeJornadaNoturna(jornadaNome?: string | null): number | null {
+  if (!jornadaNome) return null
+  const ini = /^([0-9]+)/.exec(jornadaNome)
+  const fim = /(?:ÀS|AS|as|às)\s*([0-9]+)/.exec(jornadaNome)
+  if (!ini || !fim) return null
+  return +fim[1] < +ini[1] ? +fim[1] : null
+}
+
+/** Turno de período diurno: o código declara manhã ou tarde. Espelha slots[1] IN ('M','T') do SQL. */
+function isTurnoDiurno(codigo: string, slots?: string[]): boolean {
+  const s = slots?.[0]
+  if (s) return s === 'M' || s === 'T'
+  const c = codigo.toUpperCase().trim()
+  return c.startsWith('M') || c.startsWith('T')
+}
+
+/**
+ * Mapeia um código de turno para o horário de INÍCIO mais cedo (em horas, 0-23).
+ *
+ * `fimJornadaNoturna` aplica a âncora espelho: num dia cuja jornada Regular cruza a meia-noite,
+ * o turno diurno começa quando a noite terminaria (18H ÀS 06H + MT → 06:00, não 07:00). Sem
+ * isso a grade calcularia interjornada sobre um horário que o terminal não cobra mais.
+ */
+function getShiftStartHour(codigo: string, fimJornadaNoturna?: number | null, slots?: string[]): number {
+  if (fimJornadaNoturna != null && isTurnoDiurno(codigo, slots)) return fimJornadaNoturna
   const c = codigo.toUpperCase().trim()
   // Prioridade: se contém M, começa às 07h
   if (c.startsWith('M') || c === 'MT' || c === 'MTN') return 7
@@ -46,9 +72,14 @@ function getShiftStartHour(codigo: string): number {
  * Mapeia um código de turno para o horário de FIM (em horas desde meia-noite do dia).
  * Valores > 24 indicam que o turno termina no dia seguinte.
  */
-function getShiftEndHour(codigo: string, horasComputadas?: number): number {
+function getShiftEndHour(codigo: string, horasComputadas?: number, fimJornadaNoturna?: number | null, slots?: string[]): number {
+  // Âncora espelho: o fim segue o início deslocado pela duração, e não a tabela fixa abaixo
+  // (que assume turno diurno em jornada diurna). MT em jornada 18H ÀS 06H: 06:00 + 12h = 18:00.
+  if (fimJornadaNoturna != null && isTurnoDiurno(codigo, slots) && horasComputadas) {
+    return fimJornadaNoturna + horasComputadas
+  }
   const c = codigo.toUpperCase().trim()
-  
+
   // Turnos compostos conhecidos
   if (c === 'MTN') return 31 // 07h + 24h = termina 07h do dia seguinte
   if (c === 'MT') return 19
@@ -79,11 +110,15 @@ export function checkInterjornada(
   gridData: GridData,
   turnos: TurnoInfo[],
   servidorId: string,
-  daysInMonth: number
+  daysInMonth: number,
+  jornadaNome?: string | null
 ): ComplianceViolation[] {
   const violations: ComplianceViolation[] = []
   const serverData = gridData[servidorId]
   if (!serverData) return violations
+
+  // Jornada do mês, não do dia: jornada temporária não é considerada aqui, como já era antes.
+  const fimNoturno = fimDeJornadaNoturna(jornadaNome)
 
   const categories: RowCategory[] = ['Regular', 'Extra', 'Plantão']
 
@@ -101,7 +136,12 @@ export function checkInterjornada(
       const turno = turnos.find(t => t.id === turnoId)
       if (!turno) continue
       
-      const endHour = getShiftEndHour(turno.codigo, turno.horas_computadas ? Number(turno.horas_computadas) : undefined)
+      const endHour = getShiftEndHour(
+        turno.codigo,
+        turno.horas_computadas ? Number(turno.horas_computadas) : undefined,
+        cat === 'Regular' ? null : fimNoturno,
+        turno.slots
+      )
       if (endHour > latestEndHour) latestEndHour = endHour
     }
 
@@ -112,7 +152,7 @@ export function checkInterjornada(
       const turno = turnos.find(t => t.id === turnoId)
       if (!turno) continue
       
-      const startHour = getShiftStartHour(turno.codigo)
+      const startHour = getShiftStartHour(turno.codigo, cat === 'Regular' ? null : fimNoturno, turno.slots)
       if (startHour < earliestStartNextDay) earliestStartNextDay = startHour
     }
 
@@ -223,14 +263,15 @@ export function runComplianceCheck(
   gridData: GridData,
   turnos: TurnoInfo[],
   servidorIds: string[],
-  daysInMonth: number
+  daysInMonth: number,
+  jornadaPorServidor?: Record<string, string | null | undefined>
 ): ComplianceViolation[] {
   if (!gridData || servidorIds.length === 0) return []
 
   const allViolations: ComplianceViolation[] = []
 
   for (const servidorId of servidorIds) {
-    allViolations.push(...checkInterjornada(gridData, turnos, servidorId, daysInMonth))
+    allViolations.push(...checkInterjornada(gridData, turnos, servidorId, daysInMonth, jornadaPorServidor?.[servidorId]))
     allViolations.push(...checkDSR(gridData, servidorId, daysInMonth))
     allViolations.push(...checkOrphanExtras(gridData, servidorId, daysInMonth))
   }
