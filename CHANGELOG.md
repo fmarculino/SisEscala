@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.37.0] - 2026-08-09
+
+### Added
+- **Fase F — retenção de logs configurável, e DESLIGADA por padrão** (migration `20260809210000`):
+  - `fn_expurgar_logs(p_simular)` **simula por padrão**: chamar sem argumento não apaga nada. Operação destrutiva em produção não deve ser o comportamento acidental.
+  - Só três categorias são expurgáveis, todas configuráveis por `configuracoes_globais`: `LOGIN`/`LOGOUT` de `logs_sistema`, `logs_webhook_whatsapp`, e `avisos_ponto_fila` **apenas com status `enviado`** — as **falhas ficam**, porque são elas que respondem "não recebi o aviso de ontem".
+  - **Chave ausente ou zero = nunca expurgar.** Zero é lido como *"guardar para sempre"*, não como *"apagar tudo"* — a convenção oposta já destruiu dado em sistema demais. Aplicar a migration não apaga nada.
+  - O expurgo real **deixa rastro na própria trilha** (`LOGS_EXPURGADOS`). Apagar log sem registrar que se apagou é o tipo de coisa que uma auditoria pergunta e ninguém sabe responder.
+  - `fn_expurgar_logs_se_devido()` tem controle próprio de 24 h, então o worker pode chamá-la a cada minuto sem pensar. O JSON de `/api/avisos-ponto/despachar` ganha `logsExpurgados`.
+  - Nenhuma tabela de **registro de ponto** entra: `rep_afd_registros`, `marcacoes_ponto`, `marcacoes_tratamentos`, `escala_diaria`, `escala_mensal`, `folha_ponto`, `logs_preferencia_aviso_ponto`, `logs_tentativas_presenca`, `logs_sobreaviso` e `historico_transferencias` são preservadas por 5 anos (prescrição trabalhista, CF Art. 7º XXIX), sem expurgo automático.
+
+### Documentation
+- **`docs/runbooks/2026-08-09-backup-dos-registros-legais.md`** — especificação do backup, que é a lacuna de maior consequência e a menos visível do estudo: **não existe backup próprio do SisEscala**, só o da VPS, se houver. E a aplicação e o banco moram no mesmo host, então um backup que viva ali não protege contra a perda que mais importa.
+  - Dump lógico diário fora da VPS (com `servidores`, `unidades` e `setores` junto — ponto sem identidade é ilegível), export assinado do AFD por competência, e **conferência de restauração semestral**: backup nunca testado não é backup.
+  - Registra por que réplica **não** é backup: ela copia o `DELETE` acidental junto.
+  - Fica como especificação, não implementação — é infraestrutura da VPS, e depende de quatro decisões que não são de código.
+
+### Notes
+- Em 09/08/2026 o expurgo não teria efeito mesmo se ligado: o log mais antigo é de 23/05/2026, então nem os `LOGIN`/`LOGOUT` de 12 meses venceram. A rotina só passa a agir em 2027.
+- Isto encerra as seis fases do estudo de auditoria (A a F).
+
 ## [1.36.0] - 2026-08-09
 
 ### Added

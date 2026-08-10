@@ -63,6 +63,14 @@ export async function GET(request: Request) {
       console.error('Falha ao gerar resumos de ponto:', resumoError.message)
     }
 
+    // Expurgo de logs. A função tem controle próprio de 24 h, então pode ser chamada a cada
+    // minuto sem pensar — e vem **desligada** por padrão: só expurga as categorias que tiverem
+    // chave configurada em `configuracoes_globais`. Registro de ponto nunca entra nela.
+    const { data: expurgados, error: expurgoError } = await supabase.rpc('fn_expurgar_logs_se_devido')
+    if (expurgoError) {
+      console.error('Falha no expurgo de logs:', expurgoError.message)
+    }
+
     // Reserva o lote e já incrementa a tentativa. FOR UPDATE SKIP LOCKED lá dentro garante que
     // duas execuções sobrepostas do cron não peguem o mesmo aviso.
     const { data: pendentes, error } = await supabase.rpc('fn_avisos_ponto_pendentes', {
@@ -125,6 +133,7 @@ export async function GET(request: Request) {
       falhas,
       optinsExpirados: typeof expirados === 'number' ? expirados : 0,
       resumosGerados: typeof resumos === 'number' ? resumos : 0,
+      logsExpurgados: typeof expurgados === 'number' ? expurgados : 0,
     })
   } catch (error: any) {
     console.error('Erro no worker de avisos de ponto:', error)
