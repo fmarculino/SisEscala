@@ -2,6 +2,42 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.40.0] - 2026-08-10
+
+### Added
+- **Divulgação do aviso de ponto por WhatsApp no terminal `/presenca`** — retoma a decisão de
+  09/08/2026 que tinha adiado o anúncio deliberadamente. Linha estática abaixo do aviso "pode
+  registrar a qualquer horário", informando que o aviso existe e onde ativá-lo ("Aviso de ponto
+  no WhatsApp", no Portal do Servidor). Não é link nem convite para ativar no próprio terminal —
+  ele é um quiosque compartilhado; ativar continua exigindo autenticação por PIN no Portal
+  (double opt-in, v1.28.0–v1.34.0). `fn_registrar_ponto` e o fluxo de gravação não foram tocados.
+
+### Notes
+- Plano em [`docs/planos/2026-08-09-comprovante-de-ponto-por-whatsapp.md`](docs/planos/2026-08-09-comprovante-de-ponto-por-whatsapp.md)
+  § "Divulgação no terminal". Com double opt-in, quem não sabe que a opção existe nunca ativa —
+  adesão baixa até aqui não era sinal contra a feature, só ausência de divulgação. Agora que está
+  visível, uma adesão ainda baixa passa a ser sinal real.
+
+## [1.39.0] - 2026-08-10
+
+### Added
+- **Fase 5 do plano de validação de documentos — tela "Pendências de Cadastro"** (`/servidores/pendencias`, admin/super_admin): reúne o que já existia em banco e ninguém consumia — `fn_documentos_invalidos()`, `fn_possiveis_duplicidades_servidor()` e os servidores sem CPF/PIS — em um diagnóstico só. Puramente informativo: nenhuma ação daqui altera dado, a correção continua sendo abrir a ficha do servidor.
+  - Cartões de resumo: documentos com dígito inválido, servidores sem CPF, duplicidades suspeitas, servidores sem PIS/PASEP.
+  - Duplicidades agrupadas por critério (CPF, nome, telefone, e-mail), expansíveis, com link direto para a ficha de cada servidor do grupo.
+  - Gate de acesso replicado de `/usuarios` (não a RLS de `servidores`): as duas funções são `SECURITY DEFINER` e enxergam a base inteira sem escopo de unidade/setor, de propósito — a tela precisa do mesmo gate.
+
+### Notes
+- Confirmado em produção antes desta tela: os 4 CPFs com dígito inválido da auditoria de 09/08 foram corrigidos e a migration `20260809230000` (o `CHECK`) foi aplicada — `fn_documentos_invalidos()` devolve 0 linhas e `scratchpad/confere_documentos.js` concorda em CPF, CNPJ e PIS.
+- Fecha o plano [`docs/planos/2026-08-09-validacao-de-documentos.md`](docs/planos/2026-08-09-validacao-de-documentos.md). O que fica de fora por decisão própria: CPF obrigatório (57 sem) e preenchimento de PIS (Fase 9 do módulo REP).
+
+## [1.38.0] - 2026-08-09
+
+### Added
+- **Validação de dígito verificador em CPF, CNPJ e PIS** (migrations `20260809220000`, `20260809230000`; plano [`docs/planos/2026-08-09-validacao-de-documentos.md`](docs/planos/2026-08-09-validacao-de-documentos.md)):
+  - Fonte única em [`src/utils/documentos.ts`](src/utils/documentos.ts), espelhada em SQL (`fn_cpf_digito_valido`, `fn_cnpj_digito_valido`, `fn_pis_digito_valido`), cruzadas por `scratchpad/confere_documentos.js`.
+  - Aviso âmbar em `CampoDocumento` (não bloqueia o submit) + recusa nas server actions + `CHECK` no banco — o `CHECK` só entra depois de corrigir os documentos já inválidos, e a migration aborta sozinha se sobrar algum.
+  - `pis_pasep` deixou de gravar o valor mascarado.
+
 ## [1.37.0] - 2026-08-09
 
 ### Added

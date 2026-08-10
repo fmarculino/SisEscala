@@ -2,8 +2,10 @@
 
 **Data:** 09/08/2026
 **Origem:** os 4 CPFs com dígito verificador inválido encontrados na auditoria de cadastro único.
-**Estado:** **Fases 1–3 implementadas (v1.38.0).** Fase 4 (o `CHECK`) escrita e **aguardando a
-correção dos 4 CPFs**. Fase 5 não iniciada.
+**Estado:** ✅ **Concluído (v1.39.0, 10/08/2026).** Fases 1–3 em v1.38.0. Os 4 CPFs foram
+corrigidos e a Fase 4 (`20260809230000`, o `CHECK`) foi aplicada em 10/08/2026 —
+`fn_documentos_invalidos()` devolve 0 linhas em produção. Fase 5 (tela de pendências de
+cadastro) entregue em `/servidores/pendencias`.
 
 Medido em produção em 09/08/2026.
 
@@ -192,9 +194,9 @@ duplicação que o índice único não fecha.
 | 1 | `src/utils/documentos.ts` + funções SQL + conferência cruzada | ✅ v1.38.0 · migration `20260809220000` |
 | 2 | validação no cliente (avisa) | ✅ v1.38.0 |
 | 3 | validação nas server actions (recusa) | ✅ v1.38.0 |
-| 4 | **você corrigir os 4 CPFs** na ficha | ⏳ você |
-| 5 | `CHECK` no banco | 📝 `20260809230000` escrita, aguarda o passo 4 |
-| 6 | tela de pendências de cadastro | ⬜ não iniciada |
+| 4 | corrigir os 4 CPFs na ficha | ✅ 10/08/2026 |
+| 5 | `CHECK` no banco | ✅ `20260809230000` aplicada em 10/08/2026 |
+| 6 | tela de pendências de cadastro | ✅ `/servidores/pendencias` — v1.39.0 |
 
 Os passos 1 a 3 já impedem que **novo** dado inválido entre — que era a pergunta central. O
 passo 5 fecha as portas que sobram, e ele espera por você.

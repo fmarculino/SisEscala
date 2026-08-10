@@ -544,7 +544,7 @@ tocada — armadilha 1 respeitada por construção.
 | 3 | eventos | **configurável por unidade**, padrão `entrada + saída + fora_janela` |
 | 4 | consentimento | **double opt-in**: aceite do termo no Portal **+** resposta confirmando no próprio WhatsApp (§ Fase 1-B) |
 | 5 | enquadramento | **aviso informativo**, nunca "Comprovante" — Fase 6 fica para depois |
-| 6 | divulgação no terminal | **não anunciar por enquanto** — adiada, ver § abaixo |
+| 6 | divulgação no terminal | ✅ **retomada em 10/08/2026** — aviso estático em `/presenca`, ver § abaixo |
 | 7 | frequência | **escolhida pelo servidor**, 4 opções, padrão `resumo_diario` — ver § abaixo |
 
 ### Frequência escolhida pelo servidor (09/08/2026) — migration `20260809140000`
@@ -591,28 +591,24 @@ do que cabe numa mensagem. O resumo semanal leva o **link** do Portal no rodapé
   confirmação forjada) e `CRON_SECRET`, se ainda não existir.
 - **Cron do worker** — `/api/avisos-ponto/despachar` a cada 1 min, e
   `fn_expirar_optin_aviso_ponto()` uma vez por dia.
-### 🔕 Divulgação no terminal — adiada deliberadamente (09/08/2026)
+### ✅ Divulgação no terminal — retomada em 10/08/2026
 
-**Decisão: não anunciar nada por enquanto.** Fica registrado para retomada futura, se for o caso.
+Havia sido **adiada deliberadamente em 09/08/2026** ("não anunciar nada por enquanto"). Revertido
+no dia seguinte: decisão do usuário de divulgar já, sem esperar o piloto do HMM terminar.
 
-Com double opt-in, quem não souber que a opção existe nunca ativa. O lugar natural de divulgar
-seria a tela do terminal logo após a batida — sobretudo no caso âmbar, que é onde a pessoa mais
-sente falta de levar algo consigo. **Nada disso foi implementado**, e não deve ser sem decisão
-nova.
+Com double opt-in, quem não souber que a opção existe nunca ativa — esse risco continua valendo, e
+é exatamente por isso que a divulgação foi religada.
+
+Implementado em [`presenca/page.tsx`](../../src/app/presenca/page.tsx): uma linha estática, abaixo
+do aviso de "pode registrar a qualquer horário", dizendo que o aviso por WhatsApp existe e onde
+ativar ("Aviso de ponto no WhatsApp", no Portal do Servidor). **Não é link nem convite para ativar
+ali** — o terminal é quiosque compartilhado (várias pessoas, sessão do supervisor), então ativar
+continua exigindo que o próprio servidor entre no Portal autenticado por PIN. `fn_registrar_ponto`
+e o fluxo de gravação **não foram tocados**.
 
 A consequência a manter em mente ao ler os números do piloto: **adesão baixa não significa que a
-feature não interessa.** Significa que ninguém foi avisado de que ela existe. Não é motivo para
-descontinuar; é motivo para, aí sim, divulgar e medir de novo.
-
-O que reabriria o assunto:
-- a reclamação sobre falta de comprovante voltar a aparecer depois de a feature estar no ar;
-- o piloto do HMM terminar sem sinal de degradação da sessão do WhatsApp, liberando volume;
-- a Fase 6 (PDF do Art. 79 no Portal) entrar — aí o anúncio passa a ter o que oferecer de verdade,
-  e o aviso deixa de ser a única coisa a divulgar.
-
-Se for retomado, o menor caminho é a própria [`presenca/page.tsx`](../../src/app/presenca/page.tsx),
-no bloco de status já existente — **sem** tocar em `fn_registrar_ponto` nem em nada do fluxo de
-gravação.
+feature não interessa.** Agora que o aviso está visível, uma adesão ainda baixa passa a ser sinal
+real sobre a feature — antes não era, porque ninguém sabia que ela existia.
 - **Fase 6 (PDF do Art. 79 no portal)** — entra no roadmap agora ou depois da Fase 5 do módulo REP?
 - **Número dedicado** — não foi descartado, foi **adiado**. O double opt-in reduz muito o risco,
   mas se o piloto do HMM mostrar qualquer degradação da sessão, ele vira pré-requisito da expansão

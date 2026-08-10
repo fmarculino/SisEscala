@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { CheckCircle, Loader2, UserCheck, ShieldCheck, XCircle, AlertTriangle, ArrowLeft, LogOut, CheckSquare, Eye, EyeOff } from 'lucide-react'
+import { CheckCircle, Loader2, UserCheck, ShieldCheck, XCircle, AlertTriangle, ArrowLeft, LogOut, CheckSquare, Eye, EyeOff, MessageCircle } from 'lucide-react'
 import Link from 'next/link'
 
 export default function PresencaTerminalPage() {
@@ -332,6 +332,14 @@ export default function PresencaTerminalPage() {
               <p className="mt-2 text-xs text-zinc-400 font-medium">
                 Você pode registrar <b>a qualquer horário</b>. Se estiver fora do previsto, o ponto é
                 registrado do mesmo jeito e seu coordenador revisa.
+              </p>
+              {/* Puramente informativo — o terminal é um quiosque compartilhado, então isto não é
+                  um link nem um convite para ativar ali. É só o servidor saber que a opção existe;
+                  ativar é feito por ele, autenticado, no Portal (double opt-in, v1.28-1.34.0). */}
+              <p className="mt-3 inline-flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400 font-semibold bg-blue-50 dark:bg-blue-900/20 px-3 py-1.5 rounded-full">
+                <MessageCircle className="h-3.5 w-3.5 shrink-0" />
+                Quer receber um aviso no WhatsApp a cada ponto registrado? Ative em
+                "Aviso de ponto no WhatsApp", no Portal do Servidor.
               </p>
             </div>
 

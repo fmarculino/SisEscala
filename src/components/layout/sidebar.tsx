@@ -9,7 +9,7 @@ import {
   Calendar, Layers, Shield, User, Briefcase, CalendarDays, 
   ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   Settings, Database, Lock, FileText, Activity, HelpCircle, BookOpen,
-  Palmtree, ClipboardCheck
+  Palmtree, ClipboardCheck, ShieldAlert
 } from 'lucide-react'
 import { LogoutButton } from './LogoutButton'
 import { ThemeToggle } from '../ThemeToggle'
@@ -52,6 +52,7 @@ const menuGroups: MenuGroup[] = [
       { name: 'Unidades', href: '/unidades', icon: Building2 },
       { name: 'Setores', href: '/setores', icon: Layers },
       { name: 'Servidores', href: '/servidores', icon: Users },
+      { name: 'Pendências de Cadastro', href: '/servidores/pendencias', icon: ShieldAlert },
       { name: 'Cargos', href: '/cargos', icon: Briefcase },
       { name: 'Feriados', href: '/feriados', icon: CalendarDays },
       { name: 'Jornadas', href: '/jornadas', icon: Clock },

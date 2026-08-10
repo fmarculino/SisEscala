@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
-import { Users, Plus, UserCircle, Building2, Search, Filter, Layers, UserX, UserCheck, FileDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
+import { Users, Plus, UserCircle, Building2, Search, Filter, Layers, UserX, UserCheck, FileDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ShieldAlert } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useDialog } from '@/components/ui/DialogProvider'
@@ -311,6 +311,13 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <Link
+            href="/servidores/pendencias"
+            className="inline-flex items-center rounded-lg bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 px-4 py-2.5 text-sm font-semibold text-zinc-900 dark:text-white shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-all"
+          >
+            <ShieldAlert className="mr-2 h-4 w-4" />
+            Pendências
+          </Link>
           <button
             onClick={handleGeneratePDF}
             disabled={isGeneratingPDF}

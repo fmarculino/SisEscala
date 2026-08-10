@@ -84,19 +84,14 @@ são de dígito e **convivem** com as de formato.
 
 ## Pendente
 
-1. **Corrigir os 4 CPFs** na ficha:
+Tudo abaixo foi concluído em 10/08/2026 — ver `CHANGELOG.md` (v1.39.0).
 
-   ```
-   HUGO MARCELO OSORIO                15473729253
-   MICHELLE RAIANNE MORAIS DA SILVA   00700922228
-   FRANCISCA ASSIS ALMEIDA SANTOS     66871107315
-   LUCILIA LIMA AZEVEDO               60230476268
-   ```
+1. ✅ **Corrigir os 4 CPFs** na ficha (HUGO MARCELO OSORIO, MICHELLE RAIANNE MORAIS DA SILVA,
+   FRANCISCA ASSIS ALMEIDA SANTOS, LUCILIA LIMA AZEVEDO).
 
-2. Aplicar `20260809230000` — ela **aborta sozinha** enquanto sobrar algum inválido, listando quem é.
+2. ✅ Aplicar `20260809230000` — confirmado em produção: `fn_documentos_invalidos()` devolve 0 linhas.
 
-3. Rodar `node scratchpad/confere_documentos.js` de novo: CNPJ e PIS ainda não foram cruzados.
+3. ✅ `node scratchpad/confere_documentos.js` rodado de novo em 10/08/2026: CPF 137/137, CNPJ 25/25,
+   PIS 11/11 concordaram.
 
-4. Tela de pendências de cadastro (Fase 5) — junta `fn_possiveis_duplicidades_servidor`,
-   `fn_documentos_invalidos` e os 57 sem CPF, que são a única porta de duplicação que o índice
-   único não fecha.
+4. ✅ Tela de pendências de cadastro (Fase 5) — `/servidores/pendencias`, v1.39.0.
