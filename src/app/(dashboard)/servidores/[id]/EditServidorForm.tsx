@@ -140,6 +140,23 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
       const checkbox = document.getElementById('ignora_janela_presenca') as HTMLInputElement
       formData.set('ignora_janela_presenca', checkbox?.checked ? 'true' : 'false')
     }
+    // A lotação vai pelo state, e não pelo que o DOM submeteria: o `<select>` é controlado e, quando
+    // o valor atual não está entre as opções carregadas (setor inativo, ou fora do acesso de quem
+    // abriu a ficha), nenhuma `<option>` casa e o navegador manda "" — apagando a lotação sem que
+    // ninguém tenha escolhido isso. `isLotaçãoChanged` não pega esse caso porque compara o state.
+    formData.set('unidade_id', selectedUnidade)
+    formData.set('setor_id', selectedSetor)
+
+    if (!selectedSetor) {
+      setError(
+        'Selecione o setor de lotação. Um servidor sem setor sai das escalas e da folha de ponto, e ' +
+        'deixa de ser editável por quem administra o setor de origem. Para afastar alguém da equipe, ' +
+        'transfira para o setor de destino ou inative o cadastro informando o motivo.'
+      )
+      setLoading(false)
+      return
+    }
+
     const result = await updateServidor(id, formData)
     if (result?.error) {
       setError(result.error)

@@ -65,6 +65,64 @@ async function verificarCpfDuplicado(
     `Cada servidor deve ter um cadastro único — se a pessoa mudou de lotação, transfira o cadastro existente em vez de criar outro.`
 }
 
+/**
+ * Recusa uma lotação que a RLS não deixaria gravar, com mensagem em vez de erro de Postgres.
+ *
+ * A policy "Scoped access for Admins and Coordinators" (20260618080000) foi criada `FOR ALL` sem
+ * `WITH CHECK` — nesse caso o Postgres reusa a expressão do `USING` como `WITH CHECK`. Para quem
+ * não tem `acesso_todas_unidades` nem `acesso_todos_setores` (20 dos 30 perfis de produção), a
+ * única via que autoriza é `setor_id IN profile_setores`. Logo:
+ *
+ *   - gravar setor NULL é sempre recusado, porque NULL não pertence a lista nenhuma;
+ *   - gravar setor de outro escopo é recusado do mesmo jeito.
+ *
+ * Em 10/08/2026 a Suemilly (admin, escopo = DMAC) tentou deixar a KETTELE "Disponibilizada para
+ * RH" mudando o setor para "Sem Setor" e recebeu na tela o texto cru
+ * `new row violates row-level security policy for table "servidores"`.
+ *
+ * POR QUE BLOQUEAR EM VEZ DE ABRIR A POLICY
+ *   Servidor sem setor sairia do escopo de quem o soltou: a linha passaria a reprovar também no
+ *   `USING`, e nem ela nem nenhum outro admin escopado conseguiria editar o cadastro de novo — só
+ *   super_admin. Não há um único servidor sem setor em produção hoje; a lotação é o que sustenta
+ *   escala e folha de ponto.
+ *
+ * Roda no servidor, e não só no formulário, porque a action é chamável direto — mesma razão de
+ * `validarDocumentosServidor`.
+ */
+async function validarLotacaoNoEscopo(
+  supabase: any,
+  setorId: string | null
+): Promise<string | null> {
+  if (!setorId) {
+    return 'Selecione o setor de lotação. Um servidor sem setor sai das escalas e da folha de ponto, ' +
+      'e deixa de ser editável por quem administra o setor de origem. Para afastar alguém da equipe, ' +
+      'transfira para o setor de destino ou inative o cadastro informando o motivo.'
+  }
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
+
+  const { data: profile, error } = await supabase
+    .from('profiles')
+    .select('role, acesso_todas_unidades, acesso_todos_setores, profile_setores(setor_id)')
+    .eq('id', user.id)
+    .single()
+
+  // Sem perfil legível não dá para concluir nada: deixa a RLS decidir, que é a garantia final.
+  if (error || !profile) return null
+
+  if (profile.role === 'super_admin' || profile.acesso_todas_unidades || profile.acesso_todos_setores) {
+    return null
+  }
+
+  const permitidos = (profile.profile_setores || []).map((ps: any) => ps.setor_id)
+  if (permitidos.includes(setorId)) return null
+
+  return 'Você não tem permissão para lotar um servidor neste setor. Só é possível gravar nos setores ' +
+    'vinculados ao seu perfil — peça a um administrador para vincular o setor de destino ao seu acesso ' +
+    'ou para realizar a transferência.'
+}
+
 function extractDadosComplementares(formData: FormData) {
   return {
     data_nascimento: (formData.get('data_nascimento') as string)?.trim() || null,
@@ -161,6 +219,11 @@ export async function createServidor(formData: FormData) {
     return { error: erroDoc }
   }
 
+  const erroLotacao = await validarLotacaoNoEscopo(supabase, setor_id || null)
+  if (erroLotacao) {
+    return { error: erroLotacao }
+  }
+
   const { error } = await supabase.from('servidores').insert({
     nome,
     matricula: matriculaFinal,
@@ -213,6 +276,13 @@ function traduzirErroCadastro(error: { message?: string; code?: string }): strin
   }
   if (error?.code === '23505' && /matricula/i.test(msg)) {
     return 'Esta matrícula já está cadastrada para outro servidor, possivelmente em uma unidade que você não visualiza. Confirme a matrícula ou deixe o campo em branco para gerar uma temporária.'
+  }
+  // Backstop da RLS. `validarLotacaoNoEscopo` pega o caso conhecido antes de chegar no banco, mas se
+  // a policy recusar por outra via a pessoa não pode receber o texto cru do Postgres na tela — foi o
+  // que a Suemilly viu em 10/08/2026.
+  if (error?.code === '42501' || /row-level security/i.test(msg)) {
+    return 'Seu perfil não tem permissão para gravar este cadastro com a lotação informada. Confira o setor selecionado: ' +
+      'só é possível gravar nos setores vinculados ao seu acesso, e um servidor não pode ficar sem setor.'
   }
   return msg
 }
@@ -638,14 +708,97 @@ export async function updateServidor(id: string, formData: FormData) {
 
   const isTransferred = currentServidor.unidade_id !== newUnidadeId || currentServidor.setor_id !== newSetorId
 
-  if (isTransferred) {
-    const dataTransferencia = formData.get('data_transferencia') as string
-    const motivoTransferencia = formData.get('motivo_transferencia') as string
+  // Data e motivo sao exigidos ANTES do UPDATE — nao adianta gravar a lotacao nova e so entao
+  // descobrir que falta a justificativa.
+  const dataTransferencia = formData.get('data_transferencia') as string
+  const motivoTransferencia = formData.get('motivo_transferencia') as string
 
-    if (!dataTransferencia || !motivoTransferencia) {
-      return { error: 'Para realizar uma transferência de setor ou unidade, a data e o motivo são obrigatórios.' }
+  if (isTransferred && (!dataTransferencia || !motivoTransferencia)) {
+    return { error: 'Para realizar uma transferência de setor ou unidade, a data e o motivo são obrigatórios.' }
+  }
+
+  const erroLotacao = await validarLotacaoNoEscopo(supabase, newSetorId)
+  if (erroLotacao) {
+    return { error: erroLotacao }
+  }
+
+  const dadosComplementares = extractDadosComplementares(formData)
+
+  const updateData: any = {
+    nome,
+    matricula: matriculaFinal,
+    // Somente digitos — ver o comentario equivalente em createServidor.
+    cpf: normalizarDoc(cpf),
+    cargo,
+    vinculo,
+    unidade_id: newUnidadeId,
+    setor_id: newSetorId,
+    email: email || null,
+    telefone: telefone || null,
+    preferenca_turno,
+    carga_horaria_semanal: isNaN(carga_horaria_semanal) ? 40 : carga_horaria_semanal,
+    intervalo_inicio_personalizado,
+    intervalo_fim_personalizado,
+    intervalo_flexivel: formData.get('intervalo_flexivel') === 'true',
+    ...dadosComplementares,
+  }
+
+  if (pin_acesso !== '****') {
+    updateData.pin_acesso = pin_acesso || null
+  }
+
+  if (formData.has('ignora_janela_presenca')) {
+    updateData.ignora_janela_presenca = formData.get('ignora_janela_presenca') === 'true'
+  }
+
+  // `.select('id')` não é enfeite: é ele que revela o UPDATE que não alcançou linha nenhuma.
+  let { data: linhasGravadas, error } = await supabase
+    .from('servidores')
+    .update(updateData)
+    .eq('id', id)
+    .select('id')
+
+  if (error && (error.message.includes('schema cache') || error.message.includes('column'))) {
+    // Caso a migração das colunas bancárias ainda não tenha sido executada no Supabase:
+    // Remove temporariamente as colunas bancárias e salva os demais dados do servidor com sucesso
+    const fallbackData = { ...updateData }
+    delete fallbackData.banco_nome
+    delete fallbackData.agencia_numero
+    delete fallbackData.conta_numero
+    delete fallbackData.conta_tipo
+    delete fallbackData.chave_pix
+
+    const fallbackRes = await supabase
+      .from('servidores')
+      .update(fallbackData)
+      .eq('id', id)
+      .select('id')
+
+    if (fallbackRes.error) {
+      return { error: traduzirErroCadastro(fallbackRes.error) }
     }
+    linhasGravadas = fallbackRes.data
+  } else if (error) {
+    return { error: traduzirErroCadastro(error) }
+  }
 
+  // UPDATE que não alcança linha nenhuma NÃO é erro no Postgres — a RLS simplesmente filtra a linha
+  // pelo `USING` e o comando devolve sucesso com zero linhas. A policy de leitura é mais larga que
+  // a de escrita (20260626225000 deixa ver quem está escalado na unidade), então dá para abrir a
+  // ficha de um servidor que não se pode gravar: sem esta checagem a tela redirecionava anunciando
+  // sucesso e nada tinha sido salvo.
+  if (!linhasGravadas || linhasGravadas.length === 0) {
+    return {
+      error: 'Nenhuma alteração foi gravada: este servidor está lotado em um setor fora do seu acesso. ' +
+        'Você consegue visualizar a ficha porque ele aparece nas escalas da sua unidade, mas a edição ' +
+        'é restrita a quem administra o setor de lotação.',
+    }
+  }
+
+  // A transferência só é EFETIVADA depois que o UPDATE passa. Gravar o histórico antes deixava
+  // registro de transferência que nunca aconteceu quando o UPDATE era recusado — foi o que sobrou
+  // em produção nas duas tentativas de 10/08/2026 com a KETTELE (SMS/DMAC -> setor nulo).
+  if (isTransferred) {
     const { data: { user } } = await supabase.auth.getUser()
     const criado_por_id = user?.id || null
 
@@ -787,62 +940,6 @@ export async function updateServidor(id: string, formData: FormData) {
     } catch (cleanError: any) {
       console.error('Erro ao limpar escalas na transferência:', cleanError)
     }
-  }
-
-  const dadosComplementares = extractDadosComplementares(formData)
-
-  const updateData: any = {
-    nome,
-    matricula: matriculaFinal,
-    // Somente digitos — ver o comentario equivalente em createServidor.
-    cpf: normalizarDoc(cpf),
-    cargo,
-    vinculo,
-    unidade_id: newUnidadeId,
-    setor_id: newSetorId,
-    email: email || null,
-    telefone: telefone || null,
-    preferenca_turno,
-    carga_horaria_semanal: isNaN(carga_horaria_semanal) ? 40 : carga_horaria_semanal,
-    intervalo_inicio_personalizado,
-    intervalo_fim_personalizado,
-    intervalo_flexivel: formData.get('intervalo_flexivel') === 'true',
-    ...dadosComplementares,
-  }
-
-  if (pin_acesso !== '****') {
-    updateData.pin_acesso = pin_acesso || null
-  }
-
-  if (formData.has('ignora_janela_presenca')) {
-    updateData.ignora_janela_presenca = formData.get('ignora_janela_presenca') === 'true'
-  }
-
-  let { error } = await supabase
-    .from('servidores')
-    .update(updateData)
-    .eq('id', id)
-
-  if (error && (error.message.includes('schema cache') || error.message.includes('column'))) {
-    // Caso a migração das colunas bancárias ainda não tenha sido executada no Supabase:
-    // Remove temporariamente as colunas bancárias e salva os demais dados do servidor com sucesso
-    const fallbackData = { ...updateData }
-    delete fallbackData.banco_nome
-    delete fallbackData.agencia_numero
-    delete fallbackData.conta_numero
-    delete fallbackData.conta_tipo
-    delete fallbackData.chave_pix
-
-    const fallbackRes = await supabase
-      .from('servidores')
-      .update(fallbackData)
-      .eq('id', id)
-
-    if (fallbackRes.error) {
-      return { error: traduzirErroCadastro(fallbackRes.error) }
-    }
-  } else if (error) {
-    return { error: traduzirErroCadastro(error) }
   }
 
   // `pin_acesso` é bcrypt e nunca deve entrar no log com valor. `foto_url` muda a cada upload e

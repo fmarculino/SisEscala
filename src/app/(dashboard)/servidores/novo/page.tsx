@@ -186,7 +186,15 @@ export default function NovoServidorPage() {
     formData.set('pin_acesso', currentPin)
     formData.set('telefone', currentTelefone)
     formData.set('cpf', currentCpf)
-    
+
+    // Setor é o que sustenta escala e folha, e é por ele que a RLS autoriza a gravação — sem ele o
+    // banco recusa com um texto cru de policy. Ver `validarLotacaoNoEscopo` na action.
+    if (!formData.get('setor_id')) {
+      setError('Selecione o setor de lotação. É por ele que o servidor entra na escala, na folha de ponto e no terminal de presença.')
+      setLoading(false)
+      return
+    }
+
     const result = await createServidor(formData)
     if (result?.error) {
       setError(result.error)

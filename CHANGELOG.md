@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.41.0] - 2026-08-10
+
+### Fixed
+- **Erro cru de RLS ao salvar a ficha do servidor** (`new row violates row-level security policy for
+  table "servidores"`). Acontecia ao deixar o campo Setor como "Sem Setor": a policy
+  `"Scoped access for Admins and Coordinators"` (`20260618080000`) é `FOR ALL` **sem `WITH CHECK`**,
+  e nesse caso o Postgres reusa a expressão do `USING` como `WITH CHECK`. Para quem não tem
+  `acesso_todas_unidades` nem `acesso_todos_setores` — 20 dos 30 perfis de produção — a única via
+  que autoriza é `setor_id IN profile_setores`, e `NULL` não pertence a lista nenhuma. Agora setor
+  vazio (ou fora do escopo de quem salva) é recusado com mensagem que diz o que fazer, no
+  formulário **e** na server action, que é chamável direto.
+  - A policy **não** foi alterada: servidor sem setor sairia do escopo de quem o soltou — a linha
+    passaria a reprovar também no `USING` e só super_admin conseguiria editá-la de novo.
+- **Histórico de transferência que nunca aconteceu.** O `INSERT` em `historico_transferencias`
+  vinha **antes** do `UPDATE` em `servidores`; recusado o `UPDATE`, o registro ficava. Passou para
+  depois, junto com a limpeza de escalas. Migration `20260810100000` remove os 5 órfãos de produção
+  (3 da THIELE em 29–30/07, 2 da KETTELE em 10/08 — as duas seguem lotadas em DMAC).
+- **Edição anunciada como salva sem ter salvo nada.** A policy de leitura é mais larga que a de
+  escrita (`20260626225000` deixa ver quem está escalado na unidade), então dá para abrir a ficha
+  de um servidor que não se pode gravar. `UPDATE` filtrado pelo `USING` devolve sucesso com zero
+  linhas — a tela redirecionava como se tivesse gravado. Agora o `.update()` pede `.select('id')` e
+  a ausência de linha vira erro explicado.
+- **Lotação apagada sozinha pelo formulário.** Os `<select>` de unidade/setor são controlados; quando
+  o valor atual não está entre as opções carregadas (setor inativo, ou fora do acesso de quem abriu
+  a ficha), nenhuma `<option>` casa e o navegador submete `""`. `isLotaçãoChanged` não detectava,
+  porque compara o *state*. A submissão passou a levar o state.
+
+### Notes
+- Diagnóstico a partir do banco de produção: os 5 registros com `setor_destino_id IS NULL` são a
+  impressão digital da falha — todos com o servidor ainda lotado no setor de origem. A repetição em
+  minutos ("Assumiu PSS" 3×, "Disponibilizada para RH" 2×) é a pessoa tentando de novo porque a
+  mensagem não dizia o que estava errado.
+
 ## [1.40.0] - 2026-08-10
 
 ### Added
