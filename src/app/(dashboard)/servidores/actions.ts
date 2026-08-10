@@ -4,8 +4,27 @@ import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { registrarLog, calcularAlteracoes } from '@/utils/auditoria'
+import { erroDocumento, normalizarDoc } from '@/utils/documentos'
 
 const normalizarCpf = (cpf?: string | null) => (cpf || '').replace(/\D/g, '')
+
+/**
+ * Recusa CPF e PIS com dígito verificador inválido.
+ *
+ * POR QUE AQUI, se o formulário já avisa e o banco vai ter `CHECK`
+ *   O aviso do formulário é só informativo — ele não bloqueia o submit de propósito. E a action é
+ *   chamável direto, sem passar por tela nenhuma: foi por essa porta que o Portal do Servidor
+ *   editava a folha de ponto mesmo com o input desabilitado (v1.23.0). A importação de CSV
+ *   também não passa por formulário algum.
+ *
+ * O `CHECK` do banco (20260809230000) é a garantia final, mas ele devolve erro de Postgres. Esta
+ * camada existe para a pessoa saber **qual campo** está errado.
+ *
+ * Campo vazio nunca é erro: 57 servidores estão sem CPF e nenhum destes documentos é obrigatório.
+ */
+function validarDocumentosServidor(cpf?: string | null, pis?: string | null): string | null {
+  return erroDocumento(cpf, 'cpf') || erroDocumento(pis, 'pis')
+}
 
 /**
  * Confere se o CPF já pertence a outro cadastro.
@@ -66,7 +85,9 @@ function extractDadosComplementares(formData: FormData) {
     rg_numero: (formData.get('rg_numero') as string)?.trim() || null,
     rg_orgao_emissor: (formData.get('rg_orgao_emissor') as string)?.trim() || null,
     rg_data_emissao: (formData.get('rg_data_emissao') as string)?.trim() || null,
-    pis_pasep: (formData.get('pis_pasep') as string)?.trim() || null,
+    // Somente digitos, pelo mesmo motivo do CPF: e por PIS/NIS que o auditor fiscal casa os
+    // registros, e o campo comeca a ser preenchido na Fase 9 do modulo REP.
+    pis_pasep: normalizarDoc(formData.get('pis_pasep') as string),
     registro_profissional: (formData.get('registro_profissional') as string)?.trim() || null,
     registro_profissional_orgao: (formData.get('registro_profissional_orgao') as string)?.trim() || null,
     data_admissao_hmm: (formData.get('data_admissao_hmm') as string)?.trim() || null,
@@ -135,10 +156,17 @@ export async function createServidor(formData: FormData) {
 
   const dadosComplementares = extractDadosComplementares(formData)
 
+  const erroDoc = validarDocumentosServidor(cpf, dadosComplementares.pis_pasep)
+  if (erroDoc) {
+    return { error: erroDoc }
+  }
+
   const { error } = await supabase.from('servidores').insert({
     nome,
     matricula: matriculaFinal,
-    cpf: cpf || null,
+    // Normaliza aqui, e nao so no formulario: a action e chamavel direto e a importacao de CSV
+    // entrega o que estiver na planilha. Mascara gravada quebra o casamento com o AFD.
+    cpf: normalizarDoc(cpf),
     cargo,
     vinculo,
     unidade_id: unidade_id || null,
@@ -484,15 +512,30 @@ export async function importServidores(csvText: string) {
   //   2. contra o banco — via RPC SECURITY DEFINER, porque a RLS esconderia um cadastro de
   //      outra unidade e a importação recriaria a pessoa (foi assim que nasceu a duplicata de
   //      VIVIAN MARTINS MACEDO).
+  //
+  // O dígito verificador entra na mesma varredura. Este caminho não passa por formulário nenhum,
+  // então é a ÚNICA camada de aplicação entre a planilha e o banco — e uma planilha é justamente
+  // onde CPF digitado errado entra em lote.
   // ---------------------------------------------------------------------------------------
   const problemas: string[] = []
   const vistosNoArquivo = new Map<string, number>()
 
   for (let idx = 0; idx < servers.length; idx++) {
-    const cpfLimpo = normalizarCpf(servers[idx].cpf)
-    if (!cpfLimpo) continue
-
     const linha = startRow + idx + 1
+
+    // A planilha pode trazer o documento mascarado. Grave só dígitos: mascara quebra o casamento
+    // com o identificador do AFD do relógio (armadilha 10 do CLAUDE.md).
+    servers[idx].cpf = normalizarDoc(servers[idx].cpf)
+    servers[idx].pis_pasep = normalizarDoc(servers[idx].pis_pasep)
+
+    const erroDoc = validarDocumentosServidor(servers[idx].cpf, servers[idx].pis_pasep)
+    if (erroDoc) {
+      problemas.push(`Linha ${linha} (${servers[idx].nome}): ${erroDoc}`)
+      continue
+    }
+
+    const cpfLimpo = servers[idx].cpf
+    if (!cpfLimpo) continue
 
     const anterior = vistosNoArquivo.get(cpfLimpo)
     if (anterior !== undefined) {
@@ -562,6 +605,11 @@ export async function updateServidor(id: string, formData: FormData) {
     if (existing) {
       return { error: 'Esta matrícula já está cadastrada para outro servidor.' }
     }
+  }
+
+  const erroDoc = validarDocumentosServidor(cpf, formData.get('pis_pasep') as string)
+  if (erroDoc) {
+    return { error: erroDoc }
   }
 
   // Preencher o CPF de um cadastro antigo é justamente quando a duplicata aparece: o registro
@@ -746,7 +794,8 @@ export async function updateServidor(id: string, formData: FormData) {
   const updateData: any = {
     nome,
     matricula: matriculaFinal,
-    cpf: cpf || null,
+    // Somente digitos — ver o comentario equivalente em createServidor.
+    cpf: normalizarDoc(cpf),
     cargo,
     vinculo,
     unidade_id: newUnidadeId,

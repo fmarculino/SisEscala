@@ -10,6 +10,7 @@ import { PhotoPreviewModal } from '@/components/servidores/PhotoPreviewModal'
 import { sendWhatsAppMessageAction } from '@/app/actions/communication'
 import { useDialog } from '@/components/ui/DialogProvider'
 import { IntervaloPersonalizadoFields } from '@/components/servidores/IntervaloPersonalizadoFields'
+import { CampoDocumento } from '@/components/CampoDocumento'
 
 interface EditServidorFormProps {
   id: string
@@ -294,30 +295,16 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
             />
           </div>
 
-          <div className="sm:col-span-2">
-            <label htmlFor="cpf" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              CPF
-            </label>
-            <input
-              id="cpf"
-              name="cpf"
-              type="text"
-              value={(() => {
-                let v = currentCpf.replace(/\D/g, "")
-                if (v.length > 9) return v.replace(/^(\d{3})(\d{3})(\d{3})(\d{0,2})/, "$1.$2.$3-$4")
-                if (v.length > 6) return v.replace(/^(\d{3})(\d{3})(\d{0,3})/, "$1.$2.$3")
-                if (v.length > 3) return v.replace(/^(\d{3})(\d{0,3})/, "$1.$2")
-                return v
-              })()}
-              placeholder="000.000.000-00"
-              onChange={(e) => {
-                let value = e.target.value.replace(/\D/g, "")
-                if (value.length > 11) value = value.slice(0, 11)
-                setCurrentCpf(value)
-              }}
-              className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white sm:text-sm font-mono"
-            />
-          </div>
+          {/* handleSubmit faz formData.set('cpf', currentCpf), entao aqui nao vai `name`. */}
+          <CampoDocumento
+            className="sm:col-span-2"
+            id="cpf"
+            label="CPF"
+            tipo="cpf"
+            value={currentCpf}
+            onChange={setCurrentCpf}
+            placeholder="000.000.000-00"
+          />
 
           <div className="sm:col-span-2">
             <label htmlFor="matricula" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">

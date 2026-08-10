@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { Building2, Info } from 'lucide-react'
+import { CampoDocumento } from '@/components/CampoDocumento'
 
 interface UnidadeDadosFiscaisProps {
   initialCnpj?: string | null
@@ -13,25 +14,6 @@ interface UnidadeDadosFiscaisProps {
 
 const soDigitos = (v: string) => v.replace(/\D/g, '')
 
-/** 18478187000107 -> 18.478.187/0001-07 (formata parcialmente enquanto o usuario digita) */
-function formatarCnpj(digitos: string) {
-  const d = digitos.slice(0, 14)
-  if (d.length <= 2) return d
-  if (d.length <= 5) return `${d.slice(0, 2)}.${d.slice(2)}`
-  if (d.length <= 8) return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5)}`
-  if (d.length <= 12) return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8)}`
-  return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`
-}
-
-/** 12345678910 -> 123.456.789-10 */
-function formatarCpf(digitos: string) {
-  const d = digitos.slice(0, 11)
-  if (d.length <= 3) return d
-  if (d.length <= 6) return `${d.slice(0, 3)}.${d.slice(3)}`
-  if (d.length <= 9) return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6)}`
-  return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`
-}
-
 const inputClass =
   'mt-1 block w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-zinc-900 focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white sm:text-sm'
 
@@ -42,9 +24,16 @@ const labelClass = 'block text-xs font-semibold text-zinc-700 dark:text-zinc-300
  *
  * CNPJ e CPF sao exibidos formatados mas enviados como SOMENTE DIGITOS, via input hidden —
  * as CHECK constraints do banco (chk_unidade_cnpj / chk_unidade_responsavel_cpf) exigem
- * exatamente 14 e 11 digitos. Guardar so digitos tambem evita o problema que existe em
- * servidores.cpf, que guarda o valor mascarado e por isso nao casa com o identificador que
- * vem do AFD do relogio de ponto.
+ * exatamente 14 e 11 digitos.
+ *
+ * A mascara e o aviso de digito verificador vivem em CampoDocumento, nao aqui: este arquivo
+ * tinha copia propria de formatarCpf/formatarCnpj, e havia mais duas copias nos formularios de
+ * servidor. Ver src/utils/documentos.ts.
+ *
+ * ℹ️ Uma nota anterior aqui dizia que `servidores.cpf` "guarda o valor mascarado". Conferido em
+ * producao em 09/08/2026: dos 126 CPFs preenchidos, ZERO tem mascara — os dois formularios de
+ * servidor tambem so guardam digitos. O problema real medido ali e outro: 4 CPFs com digito
+ * verificador invalido.
  *
  * Componente unico para os formularios de criacao e edicao: duplicar a mascara abriria espaco
  * para divergencia entre as duas telas.
@@ -58,9 +47,6 @@ export function UnidadeDadosFiscais({
 }: UnidadeDadosFiscaisProps) {
   const [cnpj, setCnpj] = useState(soDigitos(initialCnpj || ''))
   const [responsavelCpf, setResponsavelCpf] = useState(soDigitos(initialResponsavelCpf || ''))
-
-  const cnpjIncompleto = cnpj.length > 0 && cnpj.length < 14
-  const cpfIncompleto = responsavelCpf.length > 0 && responsavelCpf.length < 11
 
   return (
     <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/50 p-4 space-y-4">
@@ -79,27 +65,18 @@ export function UnidadeDadosFiscais({
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-6 pt-3 border-t border-zinc-200 dark:border-zinc-800">
-        <div className="sm:col-span-2">
-          <label htmlFor="cnpj_visivel" className={labelClass}>
-            CNPJ
-          </label>
-          <input
-            type="text"
-            id="cnpj_visivel"
-            inputMode="numeric"
-            autoComplete="off"
-            placeholder="00.000.000/0000-00"
-            value={formatarCnpj(cnpj)}
-            onChange={(e) => setCnpj(soDigitos(e.target.value).slice(0, 14))}
-            className={inputClass}
-          />
-          <input type="hidden" name="cnpj" value={cnpj} />
-          {cnpjIncompleto && (
-            <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-500">
-              CNPJ incompleto — informe os 14 dígitos ou deixe em branco.
-            </p>
-          )}
-        </div>
+        <CampoDocumento
+          className="sm:col-span-2"
+          id="cnpj_visivel"
+          name="cnpj"
+          label="CNPJ"
+          tipo="cnpj"
+          value={cnpj}
+          onChange={setCnpj}
+          placeholder="00.000.000/0000-00"
+          labelClassName={labelClass}
+          inputClassName={inputClass}
+        />
 
         <div className="sm:col-span-4">
           <label htmlFor="razao_social" className={labelClass}>
@@ -128,27 +105,18 @@ export function UnidadeDadosFiscais({
           />
         </div>
 
-        <div className="sm:col-span-1">
-          <label htmlFor="responsavel_cpf_visivel" className={labelClass}>
-            CPF do Responsável
-          </label>
-          <input
-            type="text"
-            id="responsavel_cpf_visivel"
-            inputMode="numeric"
-            autoComplete="off"
-            placeholder="000.000.000-00"
-            value={formatarCpf(responsavelCpf)}
-            onChange={(e) => setResponsavelCpf(soDigitos(e.target.value).slice(0, 11))}
-            className={inputClass}
-          />
-          <input type="hidden" name="responsavel_cpf" value={responsavelCpf} />
-          {cpfIncompleto && (
-            <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-500">
-              CPF incompleto — informe os 11 dígitos ou deixe em branco.
-            </p>
-          )}
-        </div>
+        <CampoDocumento
+          className="sm:col-span-1"
+          id="responsavel_cpf_visivel"
+          name="responsavel_cpf"
+          label="CPF do Responsável"
+          tipo="cpf"
+          value={responsavelCpf}
+          onChange={setResponsavelCpf}
+          placeholder="000.000.000-00"
+          labelClassName={labelClass}
+          inputClassName={inputClass}
+        />
 
         <div className="sm:col-span-2">
           <label htmlFor="responsavel_cargo" className={labelClass}>

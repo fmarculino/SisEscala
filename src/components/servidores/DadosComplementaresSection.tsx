@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { User, Home, FileText, Calendar, MapPin, Search, Loader2, CreditCard } from 'lucide-react'
+import { CampoDocumento } from '@/components/CampoDocumento'
 
 interface DadosComplementaresSectionProps {
   servidor?: any
@@ -14,7 +15,8 @@ export function DadosComplementaresSection({ servidor }: DadosComplementaresSect
   const [bairro, setBairro] = useState(servidor?.bairro || '')
   const [municipio, setMunicipio] = useState(servidor?.municipio_residencia || 'Marabá - PA')
   const [telefoneResidencial, setTelefoneResidencial] = useState(servidor?.telefone_residencial || '')
-  const [pisPasep, setPisPasep] = useState(servidor?.pis_pasep || '')
+  // Somente digitos — CampoDocumento aplica a mascara so na exibicao.
+  const [pisPasep, setPisPasep] = useState((servidor?.pis_pasep || '').replace(/\D/g, ''))
   const [estadoCivil, setEstadoCivil] = useState(servidor?.estado_civil || 'Solteiro(a)')
   const [loadingCep, setLoadingCep] = useState(false)
   const [cepError, setCepError] = useState<string | null>(null)
@@ -64,19 +66,6 @@ export function DadosComplementaresSection({ servidor }: DadosComplementaresSect
   }
 
   // Máscara PIS/PASEP 000.00000.00-0
-  const handlePisPasepChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let v = e.target.value.replace(/\D/g, '')
-    if (v.length > 11) v = v.slice(0, 11)
-    if (v.length > 10) {
-      v = v.replace(/^(\d{3})(\d{5})(\d{2})(\d{1})/, '$1.$2.$3-$4')
-    } else if (v.length > 8) {
-      v = v.replace(/^(\d{3})(\d{5})(\d{0,2})/, '$1.$2.$3')
-    } else if (v.length > 3) {
-      v = v.replace(/^(\d{3})(\d{0,5})/, '$1.$2')
-    }
-    setPisPasep(v)
-  }
-
   return (
     <div className="space-y-8 animate-in fade-in">
       {/* 1. Dados Pessoais & Filiação */}
@@ -392,20 +381,25 @@ export function DadosComplementaresSection({ servidor }: DadosComplementaresSect
             />
           </div>
 
-          <div className="sm:col-span-2">
-            <label htmlFor="pis_pasep" className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-              PIS / PASEP
-            </label>
-            <input
-              type="text"
-              id="pis_pasep"
-              name="pis_pasep"
-              value={pisPasep}
-              onChange={handlePisPasepChange}
-              placeholder="000.00000.00-0"
-              className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white sm:text-sm font-mono"
-            />
-          </div>
+          {/*
+            Grava SOMENTE DIGITOS, via o input hidden do CampoDocumento. O campo anterior mantinha
+            no state o valor JA MASCARADO e o enviava assim ao banco — diferente do CPF, que sempre
+            guardou so digitos. Nao houve estrago porque pis_pasep esta 0% preenchido, mas e
+            exatamente o campo que a Fase 9 do modulo REP vai popular para o casamento com o AFD,
+            onde o auditor fiscal procura por PIS/NIS. Mascara gravada quebraria esse casamento
+            do mesmo jeito que o zero a esquerda do CPF quebra (armadilha 10 do CLAUDE.md).
+          */}
+          <CampoDocumento
+            className="sm:col-span-2"
+            id="pis_pasep_visivel"
+            name="pis_pasep"
+            label="PIS / PASEP"
+            tipo="pis"
+            value={pisPasep}
+            onChange={setPisPasep}
+            placeholder="000.00000.00-0"
+            labelClassName="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+          />
 
           <div className="sm:col-span-2">
             <label htmlFor="registro_profissional" className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">

@@ -3,6 +3,7 @@
 import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
+import { erroDocumento } from '@/utils/documentos'
 
 /**
  * Le um campo de texto do formulario devolvendo null quando vazio, em vez de string vazia.
@@ -32,10 +33,34 @@ function lerDadosFiscais(formData: FormData) {
 }
 
 /**
+ * Recusa CNPJ e CPF com digito verificador invalido.
+ *
+ * As CHECK constraints que ja existem (`chk_unidade_cnpj`, `chk_unidade_responsavel_cpf`,
+ * criadas em 20260807120000) conferem so o FORMATO — `^[0-9]{14}$` e `^[0-9]{11}$`. Elas aceitam
+ * 14 digitos quaisquer, inclusive um CNPJ inexistente. A conferencia de digito e outra coisa, e
+ * ate hoje nao existia em camada nenhuma.
+ *
+ * O CNPJ da unidade vai para o registro tipo 2 do AFD — CNPJ errado ali contamina o arquivo
+ * oficial que o auditor le.
+ */
+function validarDocumentosUnidade(fiscais: ReturnType<typeof lerDadosFiscais>): string | null {
+  return erroDocumento(fiscais.cnpj, 'cnpj')
+    || (erroDocumento(fiscais.responsavel_cpf, 'cpf')
+        ? `Responsável: ${erroDocumento(fiscais.responsavel_cpf, 'cpf')}`
+        : null)
+}
+
+/**
  * As CHECK constraints do banco devolvem uma mensagem crua e incompreensivel para o usuario
- * final. Traduz as duas que este formulario pode disparar.
+ * final. Traduz as que este formulario pode disparar.
  */
 function traduzirErroUnidade(mensagem: string): string {
+  if (mensagem.includes('chk_unidade_cnpj_digito')) {
+    return 'CNPJ inválido: os dígitos verificadores não conferem. Confira o número no documento.'
+  }
+  if (mensagem.includes('chk_unidade_responsavel_cpf_digito')) {
+    return 'CPF do responsável inválido: os dígitos verificadores não conferem.'
+  }
   if (mensagem.includes('chk_unidade_cnpj')) {
     return 'CNPJ inválido: informe os 14 dígitos completos ou deixe o campo em branco.'
   }
@@ -84,6 +109,12 @@ export async function createUnidade(formData: FormData) {
     logo_url = publicUrl
   }
 
+  const fiscais = lerDadosFiscais(formData)
+  const erroDoc = validarDocumentosUnidade(fiscais)
+  if (erroDoc) {
+    return { error: erroDoc }
+  }
+
   const { error } = await supabase.from('unidades').insert({
     id,
     nome,
@@ -95,7 +126,7 @@ export async function createUnidade(formData: FormData) {
     permite_marca_intervalo,
     tipo_intervalo,
     tolerancia_intervalo_minutos,
-    ...lerDadosFiscais(formData)
+    ...fiscais
   })
 
   if (error) {
@@ -125,6 +156,12 @@ export async function updateUnidade(id: string, formData: FormData) {
     avisoPonto.aviso_ponto_whatsapp = formData.get('aviso_ponto_whatsapp') === 'true'
   }
 
+  const fiscais = lerDadosFiscais(formData)
+  const erroDoc = validarDocumentosUnidade(fiscais)
+  if (erroDoc) {
+    return { error: erroDoc }
+  }
+
   const updateData: any = {
     nome,
     endereco,
@@ -135,7 +172,7 @@ export async function updateUnidade(id: string, formData: FormData) {
     tipo_intervalo,
     tolerancia_intervalo_minutos,
     ...avisoPonto,
-    ...lerDadosFiscais(formData)
+    ...fiscais
   }
 
   const removeLogo = formData.get('remove_logo') === 'true'
