@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.36.0] - 2026-08-09
+
+### Added
+- **Fase D — aba "Avisos de Ponto" na Auditoria** (super_admin), reunindo três trilhas que existiam no banco sem nenhuma tela:
+  - **Consentimento** (`logs_preferencia_aviso_ponto`) — quem pediu, quando, que texto leu, por qual origem e com que telefone. É a evidência que sustenta o envio: se alguém questionar *"por que o sistema manda meu ponto pro WhatsApp?"*, a resposta está aqui. Até agora só existia via SQL.
+  - **Falhas de envio** (`avisos_ponto_fila`) — eram **invisíveis**. Quando um servidor dissesse "não recebi o aviso de ontem", ninguém respondia sem abrir o banco. Aparecem **no topo**, antes da trilha de consentimento: enterrá-las embaixo repetiria o erro da aba de tentativas negadas, onde o acionável ficava afogado.
+  - **Envios recentes** com status, horário de enfileiramento e de entrega.
+  - Cartões de resumo: consentiram · aguardando resposta · mensagens enviadas · falhas.
+
+### Notes
+- A tela explicita que **"consentiram" ≠ "quem recebe agora"**: depois de uma transferência para lotação não habilitada o consentimento continua válido (a pessoa não retirou nada) mas nada é entregue. Para contar quem recebe de fato, `fn_aviso_ponto_efetivo`.
+- Erro de carregamento é tratado como **provável RLS** e explicado na tela — as tabelas são restritas a administradores desde a v1.35.0, e uma lista vazia sem explicação levaria a diagnóstico errado.
+- Verificado que o ramo de renderização é o **primeiro da cadeia**, e portanto alcançável. Na v1.33.0 um guard colocado antes tornou o ramo do componente inalcançável, e `tsc` e `build` passaram — o JSX era válido e a tela simplesmente não renderizava.
+
 ## [1.35.0] - 2026-08-09
 
 ### Security

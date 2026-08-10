@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/utils/supabase/client'
 import { TentativasNegadasDiagnostico } from './TentativasNegadasDiagnostico'
-import { ShieldCheck, Zap, Clock, MapPin, UserCheck, AlertCircle, Building2, Filter, FileDown, RotateCcw, ChevronLeft, ChevronRight, Search, LayoutList, CheckCircle2, XCircle, Calendar, ExternalLink, Loader2 } from 'lucide-react'
+import { AvisosPontoAuditoria } from './AvisosPontoAuditoria'
+import { ShieldCheck, Zap, Clock, MapPin, UserCheck, AlertCircle, Building2, Filter, FileDown, RotateCcw, ChevronLeft, ChevronRight, Search, LayoutList, CheckCircle2, XCircle, Calendar, ExternalLink, Loader2, MessageSquare } from 'lucide-react'
 import { applyAccessFilters, type UserProfile } from '@/utils/permissions'
 
 interface LogSobreaviso {
@@ -70,7 +71,7 @@ export default function AuditoriaPage() {
   const router = useRouter()
   const [logs, setLogs] = useState<(LogSobreaviso | LogSistema | LogTentativaNegada)[]>([])
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'sobreaviso' | 'presenca' | 'sistema' | 'negadas'>('sobreaviso')
+  const [activeTab, setActiveTab] = useState<'sobreaviso' | 'presenca' | 'sistema' | 'negadas' | 'avisos'>('sobreaviso')
   const [navigatingEscalaId, setNavigatingEscalaId] = useState<string | null>(null)
   // A aba de negadas tem duas leituras: o diagnostico agrupado (padrao, e o que se usa para
   // corrigir escala) e a listagem crua, preservada para quem precisa da tentativa individual.
@@ -783,6 +784,21 @@ export default function AuditoriaPage() {
             Tentativas Negadas
           </button>
         )}
+        {/* Consentimento e falhas de envio do aviso de ponto. super_admin apenas, igual à aba
+            acima — as tabelas guardam telefone e o texto das mensagens, que inclui horários. */}
+        {userProfile?.role === 'super_admin' && (
+          <button
+            onClick={() => { setActiveTab('avisos'); setPage(1); }}
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${
+              activeTab === 'avisos'
+                ? 'bg-white dark:bg-zinc-700 text-blue-600 shadow-sm'
+                : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'
+            }`}
+          >
+            <MessageSquare className="h-4 w-4" />
+            Avisos de Ponto
+          </button>
+        )}
       </div>
 
       {/* Filtros */}
@@ -896,10 +912,12 @@ export default function AuditoriaPage() {
               {activeTab === 'sobreaviso' ? <Zap className="mr-2 h-5 w-5 text-orange-500 print:hidden" /> : 
                activeTab === 'presenca' ? <CheckCircle2 className="mr-2 h-5 w-5 text-emerald-500 print:hidden" /> : 
                activeTab === 'negadas' ? <XCircle className="mr-2 h-5 w-5 text-red-500 print:hidden" /> :
+               activeTab === 'avisos' ? <MessageSquare className="mr-2 h-5 w-5 text-emerald-600 print:hidden" /> :
                <ShieldCheck className="mr-2 h-5 w-5 text-blue-500 print:hidden" />}
               {activeTab === 'sobreaviso' ? 'Relatório de Acionamentos Sobreaviso' : 
                activeTab === 'presenca' ? 'Validações de Presença Regular' : 
                activeTab === 'negadas' ? 'Tentativas Negadas de Presença' :
+               activeTab === 'avisos' ? 'Aviso de Ponto — Consentimento e Envios' :
                'Histórico de Ações do Sistema'}
             </h2>
             {activeTab === 'negadas' ? (
@@ -932,7 +950,11 @@ export default function AuditoriaPage() {
                 carregado pelo fetch da página para o modo "Lista completa". Por isso ele entra
                 ANTES de `loading` e de `logs.length === 0`: senão os estados daquele outro fetch
                 mascarariam a tela inteira. */}
-            {activeTab === 'negadas' && modoNegadas === 'diagnostico' ? (
+            {activeTab === 'avisos' ? (
+              /* Busca os próprios dados. Entra antes de `loading` e de `logs.length === 0` pelo
+                 mesmo motivo do diagnóstico: os estados do fetch da página mascarariam a tela. */
+              <AvisosPontoAuditoria />
+            ) : activeTab === 'negadas' && modoNegadas === 'diagnostico' ? (
               <div className="p-6">
                 <TentativasNegadasDiagnostico
                   dataInicio={filtros.dataInicio || undefined}
