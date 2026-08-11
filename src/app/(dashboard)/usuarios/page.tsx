@@ -41,25 +41,6 @@ export default async function UsuariosPage() {
   // 3. Fetch auth users to get emails
   const { data: { users: authUsers } } = await supabaseAdmin.auth.admin.listUsers()
 
-  // 4. Merge profiles with auth data based on Auth Users (to catch orphaned accounts)
-  const profilesWithEmail = authUsers.map(u => {
-    const p = profiles?.find(profile => profile.id === u.id)
-    return {
-      id: u.id,
-      email: u.email || '',
-      full_name: p?.full_name || u.user_metadata?.full_name || 'Usuário Órfão (Sem Perfil)',
-      role: p?.role || 'comum',
-      acesso_todas_unidades: p?.acesso_todas_unidades || false,
-      acesso_todos_setores: p?.acesso_todos_setores || false,
-      permitted_unidades: p?.profile_unidades?.map((pu: any) => pu.unidade_id) || [],
-      permitted_setores: p?.profile_setores?.map((ps: any) => ps.setor_id) || [],
-      unidades_nomes: p?.profile_unidades?.map((pu: any) => pu.unidades?.nome).filter(Boolean) || [],
-      setores_nomes: p?.profile_setores?.map((ps: any) => (ps.setores as any)?.dicionario_setores?.nome).filter(Boolean) || [],
-      isOrphaned: !p,
-      ativo: p ? (p.ativo !== false) : false
-    }
-  }).sort((a, b) => a.full_name.localeCompare(b.full_name))
-
   // 5. Fetch units for dropdown
   const { data: unidades } = await supabase
     .from('unidades')
@@ -75,12 +56,61 @@ export default async function UsuariosPage() {
     nome: (s as any).dicionario_setores?.nome || 'SETOR SEM NOME'
   })) || []
 
-  // 6. Fetch active servers to link
-  const { data: servidores } = await supabase
+  // 6. Fetch active servers to link (with cargo and lotacao info)
+  const { data: servidoresRaw } = await supabase
     .from('servidores')
-    .select('id, nome, email, matricula, cpf')
+    .select(`
+      id, nome, email, matricula, cpf, cargo, vinculo, unidade_id, setor_id,
+      unidades(nome),
+      setores(dicionario_setores(nome))
+    `)
     .eq('status', 'Ativo')
     .order('nome')
+
+  const servidores = servidoresRaw?.map((s: any) => ({
+    id: s.id,
+    nome: s.nome,
+    email: s.email,
+    matricula: s.matricula,
+    cpf: s.cpf,
+    cargo: s.cargo,
+    vinculo: s.vinculo,
+    unidade_nome: s.unidades?.nome || null,
+    setor_nome: (s.setores as any)?.dicionario_setores?.nome || null,
+  })) || []
+
+  // 4. Merge profiles with auth data and link server details (cargo, vinculo, lotacao)
+  const profilesWithEmail = authUsers.map(u => {
+    const p = profiles?.find(profile => profile.id === u.id)
+    const emailStr = (u.email || '').toLowerCase().trim()
+    const nameStr = (p?.full_name || u.user_metadata?.full_name || '').toLowerCase().trim()
+    
+    const matchedServidor = servidores.find((s: any) => {
+      if (s.email && emailStr && s.email.toLowerCase().trim() === emailStr) return true
+      if (s.nome && nameStr && s.nome.toLowerCase().trim() === nameStr) return true
+      return false
+    })
+
+    return {
+      id: u.id,
+      email: u.email || '',
+      full_name: p?.full_name || u.user_metadata?.full_name || 'Usuário Órfão (Sem Perfil)',
+      role: p?.role || 'comum',
+      acesso_todas_unidades: p?.acesso_todas_unidades || false,
+      acesso_todos_setores: p?.acesso_todos_setores || false,
+      permitted_unidades: p?.profile_unidades?.map((pu: any) => pu.unidade_id) || [],
+      permitted_setores: p?.profile_setores?.map((ps: any) => ps.setor_id) || [],
+      unidades_nomes: p?.profile_unidades?.map((pu: any) => pu.unidades?.nome).filter(Boolean) || [],
+      setores_nomes: p?.profile_setores?.map((ps: any) => (ps.setores as any)?.dicionario_setores?.nome).filter(Boolean) || [],
+      isOrphaned: !p,
+      ativo: p ? (p.ativo !== false) : false,
+      cargo: matchedServidor?.cargo || null,
+      vinculo: matchedServidor?.vinculo || null,
+      lotacao_unidade: matchedServidor?.unidade_nome || null,
+      lotacao_setor: matchedServidor?.setor_nome || null,
+      servidor_id: matchedServidor?.id || null,
+    }
+  }).sort((a, b) => a.full_name.localeCompare(b.full_name))
 
   return (
     <div className="space-y-8">

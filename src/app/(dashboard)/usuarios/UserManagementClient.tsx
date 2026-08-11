@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { Users, Plus, Shield, Building2, Pencil, X, Mail, Key, Check, AlertCircle, Loader2, GitBranch, Trash2, Power, PowerOff, Search, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
+import { Users, Plus, Shield, Building2, Pencil, X, Mail, Key, Check, AlertCircle, Loader2, GitBranch, Trash2, Power, PowerOff, Search, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Briefcase, MapPin } from 'lucide-react'
 import { createUser, updateUser, resetPassword, deleteUser, toggleUserStatus } from './actions'
 import { useRouter } from 'next/navigation'
 import { Modal } from '@/components/ui/Modal'
@@ -227,7 +227,10 @@ export default function UserManagementClient({
       const cleanSearch = userSearchTerm.toLowerCase().trim()
       const matchesSearch = !cleanSearch || 
         p.full_name?.toLowerCase().includes(cleanSearch) || 
-        p.email?.toLowerCase().includes(cleanSearch)
+        p.email?.toLowerCase().includes(cleanSearch) ||
+        p.cargo?.toLowerCase().includes(cleanSearch) ||
+        p.lotacao_unidade?.toLowerCase().includes(cleanSearch) ||
+        p.lotacao_setor?.toLowerCase().includes(cleanSearch)
 
       const matchesRole = !filterRole || p.role === filterRole
 
@@ -923,14 +926,49 @@ export default function UserManagementClient({
                       <div className="h-10 w-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 font-bold shrink-0">
                         {p.full_name?.charAt(0).toUpperCase() || 'U'}
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center space-x-2">
-                          <div className={`h-2 w-2 rounded-full shrink-0 ${p.ativo ? 'bg-green-500' : 'bg-red-500'}`} />
-                          <h3 className={`text-sm font-medium text-zinc-900 dark:text-white truncate ${!p.ativo ? 'opacity-50' : ''}`}>{p.full_name || 'Sem nome'}</h3>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        {/* Nome + Badge de Cargo/Função */}
+                        <div className="flex items-center flex-wrap gap-2">
+                          <div className={`h-2.5 w-2.5 rounded-full shrink-0 ${p.ativo ? 'bg-emerald-500 shadow-sm shadow-emerald-500/50' : 'bg-red-500'}`} />
+                          <h3 className={`text-sm font-bold text-zinc-900 dark:text-white truncate ${!p.ativo ? 'opacity-50' : ''}`}>{p.full_name || 'Sem nome'}</h3>
+                          
+                          {p.cargo ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 shrink-0">
+                              <Briefcase className="h-3 w-3 text-blue-500" />
+                              {p.cargo}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-zinc-400 dark:text-zinc-500 bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200/60 dark:border-zinc-800 shrink-0 italic">
+                              Sem cargo vinculado
+                            </span>
+                          )}
                         </div>
-                        <div className="flex items-center flex-wrap gap-y-1 text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-                          <Shield className="mr-1 h-3 w-3 shrink-0" />
-                          <span className="uppercase shrink-0">{getRoleLabel(p.role)}</span>
+
+                        {/* Linha de Lotação (Unidade e Setor onde a pessoa trabalha) */}
+                        <div className="flex items-center flex-wrap gap-x-2 text-xs text-zinc-600 dark:text-zinc-300">
+                          <MapPin className="h-3.5 w-3.5 text-rose-500 shrink-0" />
+                          <span className="text-zinc-500 dark:text-zinc-400">Lotação:</span>
+                          {(p.lotacao_unidade || p.lotacao_setor) ? (
+                            <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+                              {p.lotacao_unidade || 'Sem unidade'}
+                              {p.lotacao_setor ? ` → ${p.lotacao_setor}` : ''}
+                            </span>
+                          ) : (
+                            <span className="italic text-zinc-400 dark:text-zinc-500">Não identificada em servidores</span>
+                          )}
+                          {p.vinculo && (
+                            <span className="text-[11px] font-normal text-zinc-400 dark:text-zinc-500">
+                              ({p.vinculo})
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Linha de Nível de Acesso & Permissões no SisEscala */}
+                        <div className="flex items-center flex-wrap gap-y-1 text-xs text-zinc-500 dark:text-zinc-400 pt-0.5">
+                          <span className="inline-flex items-center gap-1 font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded border border-blue-100 dark:border-blue-900/30">
+                            <Shield className="h-3 w-3 shrink-0" />
+                            {getRoleLabel(p.role)}
+                          </span>
                           
                           {p.isOrphaned && (
                             <span className="ml-2 bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-[10px] font-bold border border-red-200 animate-pulse shrink-0">
@@ -940,10 +978,10 @@ export default function UserManagementClient({
                           
                           {(p.acesso_todas_unidades || p.unidades_nomes?.length > 0) && (
                             <>
-                              <span className="mx-2">•</span>
-                              <Building2 className="mr-1 h-3 w-3 shrink-0" />
+                              <span className="mx-1.5 text-zinc-300 dark:text-zinc-700">•</span>
+                              <Building2 className="mr-1 h-3 w-3 shrink-0 text-zinc-400" />
                               {p.acesso_todas_unidades ? (
-                                <span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded text-[10px] font-bold border border-blue-100 shrink-0">TODAS UNIDADES</span>
+                                <span className="bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 px-1.5 py-0.5 rounded text-[10px] font-semibold border border-blue-100 dark:border-blue-800 shrink-0">TODAS UNIDADES</span>
                               ) : (
                                 <span className="truncate max-w-[150px]">{p.unidades_nomes.join(', ')}</span>
                               )}
@@ -952,19 +990,23 @@ export default function UserManagementClient({
                           
                           {(p.acesso_todos_setores || p.setores_nomes?.length > 0) && (
                             <>
-                              <span className="mx-2">•</span>
-                              <GitBranch className="mr-1 h-3 w-3 shrink-0" />
+                              <span className="mx-1.5 text-zinc-300 dark:text-zinc-700">•</span>
+                              <GitBranch className="mr-1 h-3 w-3 shrink-0 text-zinc-400" />
                               {p.acesso_todos_setores ? (
-                                <span className="bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded text-[10px] font-bold border border-purple-100 shrink-0">TODOS SETORES</span>
+                                <span className="bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 px-1.5 py-0.5 rounded text-[10px] font-semibold border border-purple-100 dark:border-purple-800 shrink-0">TODOS SETORES</span>
                               ) : (
                                 <span className="truncate max-w-[150px]">{p.setores_nomes.join(', ')}</span>
                               )}
                             </>
                           )}
 
-                          <span className="mx-2">•</span>
-                          <Mail className="mr-1 h-3 w-3 shrink-0" />
-                          <span className="truncate max-w-[150px] sm:max-w-none">{p.email}</span>
+                          {p.email && (
+                            <>
+                              <span className="mx-1.5 text-zinc-300 dark:text-zinc-700">•</span>
+                              <Mail className="mr-1 h-3 w-3 shrink-0 text-zinc-400" />
+                              <span className="truncate max-w-[150px] sm:max-w-none">{p.email}</span>
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>
