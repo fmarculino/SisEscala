@@ -138,6 +138,7 @@ export function Sidebar({ user }: { user?: any }) {
   // Role-based filtering
   const userRole = user?.role || ''
   const isSuperAdmin = userRole === 'super_admin'
+  const isRh = userRole === 'rh'
   const isAdmin = userRole === 'admin'
   const isCoord = userRole === 'coordenador'
 
@@ -147,16 +148,13 @@ export function Sidebar({ user }: { user?: any }) {
       if (item.name === 'Folha de Ponto' && !folhaPontoHabilitada) return false
 
       if (isSuperAdmin) return true
-      
-      if (isAdmin) {
-        // Administrador não vê Sistema
+
+      if (isRh || isAdmin) {
+        // Recursos Humanos e Diretor possuem acesso aos módulos operacionais e cadastrais, mas NÃO veem o menu SISTEMA
         if (group.title === 'SISTEMA') return false
-        // Administrador não vê itens de configuração estrutural (apenas Super Admin)
-        const superAdminOnlyItems = ['Unidades', 'Cargos', 'Jornadas', 'Dicionário de Turnos', 'Feriados', 'Tipos de Afastamento']
-        if (superAdminOnlyItems.includes(item.name)) return false
         return true
       }
-      
+
       if (isCoord) {
         // Coordenador não vê Cadastros, Sistema nem Auditoria & Gestão
         if (group.title === 'CADASTROS' || group.title === 'SISTEMA' || group.title === 'AUDITORIA & GESTÃO') return false

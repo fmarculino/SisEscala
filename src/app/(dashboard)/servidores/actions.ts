@@ -888,12 +888,13 @@ export async function updateServidor(id: string, formData: FormData) {
     return { error: `Erro ao obter servidor atual: ${fetchError.message}` }
   }
 
-  // Destino que o formulário pediu — nem sempre é o que vai ser gravado nesta chamada. Ver
-  // transferenciaPendente abaixo.
-  const destinoUnidadeId = unidade_id || null
-  const destinoSetorId = setor_id || null
+  const disponibilizarRh = formData.get('disponibilizar_rh') === 'true'
 
-  const isTransferred = currentServidor.unidade_id !== destinoUnidadeId || currentServidor.setor_id !== destinoSetorId
+  // Destino que o formulário pediu — se disponibilizarRh for true, o destino é null (a definir pelo RH).
+  const destinoUnidadeId = disponibilizarRh ? null : (unidade_id || null)
+  const destinoSetorId = disponibilizarRh ? null : (setor_id || null)
+
+  const isTransferred = disponibilizarRh || currentServidor.unidade_id !== destinoUnidadeId || currentServidor.setor_id !== destinoSetorId
 
   // Data e motivo sao exigidos ANTES do UPDATE — nao adianta gravar a lotacao nova e so entao
   // descobrir que falta a justificativa. Vale tanto pra transferência direta quanto pra pedido.
@@ -1230,9 +1231,11 @@ export async function promoverPendenciaRh(
 export async function avaliarSolicitacaoTransferencia(params: {
   solicitacaoId: string
   acao: 'aprovar' | 'rejeitar'
+  unidadeDestinoId?: string
+  setorDestinoId?: string
   parecer?: string
 }) {
-  const { solicitacaoId, acao, parecer } = params
+  const { solicitacaoId, acao, unidadeDestinoId: paramUnidadeDestinoId, setorDestinoId: paramSetorDestinoId, parecer } = params
   const supabase = await createClient()
 
   const { data: { user: avaliador } } = await supabase.auth.getUser()
@@ -1273,10 +1276,18 @@ export async function avaliarSolicitacaoTransferencia(params: {
     return { success: true }
   }
 
+  // Destino final: se foi passado pelo RH na aprovação, usa o informado; senão usa o sugerido no pedido.
+  const finalUnidadeDestinoId = paramUnidadeDestinoId || solicitacao.unidade_destino_id
+  const finalSetorDestinoId = paramSetorDestinoId || solicitacao.setor_destino_id
+
+  if (!finalUnidadeDestinoId || !finalSetorDestinoId) {
+    return { error: 'Para aprovar a transferência, por favor selecione a unidade e o setor de destino do servidor.' }
+  }
+
   // Aprovar: efetiva a transferência de verdade — mesmo caminho da transferência direta.
   const { data: linhasGravadas, error: updateError } = await supabase
     .from('servidores')
-    .update({ unidade_id: solicitacao.unidade_destino_id, setor_id: solicitacao.setor_destino_id })
+    .update({ unidade_id: finalUnidadeDestinoId, setor_id: finalSetorDestinoId })
     .eq('id', solicitacao.servidor_id)
     .select('id')
 
@@ -1291,8 +1302,8 @@ export async function avaliarSolicitacaoTransferencia(params: {
     servidorId: solicitacao.servidor_id,
     unidadeOrigemId: solicitacao.unidade_origem_id,
     setorOrigemId: solicitacao.setor_origem_id,
-    unidadeDestinoId: solicitacao.unidade_destino_id,
-    setorDestinoId: solicitacao.setor_destino_id,
+    unidadeDestinoId: finalUnidadeDestinoId,
+    setorDestinoId: finalSetorDestinoId,
     dataTransferencia: solicitacao.data_transferencia_sugerida,
     motivo: solicitacao.motivo,
     criadoPorId: avaliador?.id || null,
@@ -1304,6 +1315,8 @@ export async function avaliarSolicitacaoTransferencia(params: {
   const { error: solicitacaoUpdateError } = await supabase
     .from('solicitacoes_transferencia_servidor')
     .update({
+      unidade_destino_id: finalUnidadeDestinoId,
+      setor_destino_id: finalSetorDestinoId,
       status: 'aprovada',
       avaliado_por_id: avaliador?.id,
       avaliado_em: new Date().toISOString(),

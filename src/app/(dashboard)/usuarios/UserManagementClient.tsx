@@ -700,6 +700,7 @@ export default function UserManagementClient({
                 >
                   <option value="coordenador">{ROLE_LABELS.coordenador}</option>
                   <option value="admin">{ROLE_LABELS.admin}</option>
+                  <option value="rh">{ROLE_LABELS.rh}</option>
                   {currentUserRole === 'super_admin' && <option value="super_admin">{ROLE_LABELS.super_admin}</option>}
                 </select>
               </div>
@@ -857,6 +858,7 @@ export default function UserManagementClient({
                 <option value="">Todos os Níveis de Acesso</option>
                 <option value="coordenador">{ROLE_LABELS.coordenador}</option>
                 <option value="admin">{ROLE_LABELS.admin}</option>
+                <option value="rh">{ROLE_LABELS.rh}</option>
                 <option value="super_admin">{ROLE_LABELS.super_admin}</option>
               </select>
 

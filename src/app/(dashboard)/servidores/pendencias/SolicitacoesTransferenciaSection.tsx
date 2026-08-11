@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { ArrowRightLeft, Info, CheckCircle2, XCircle, Loader2, User, Calendar } from 'lucide-react'
+import { ArrowRightLeft, Info, CheckCircle2, XCircle, Loader2, User, Calendar, MapPin } from 'lucide-react'
 import { avaliarSolicitacaoTransferencia } from '../actions'
 
 interface SolicitacaoTransferencia {
@@ -9,6 +9,10 @@ interface SolicitacaoTransferencia {
   servidorId: string
   servidorNome: string
   servidorMatricula: string | null
+  unidadeOrigemId: string | null
+  setorOrigemId: string | null
+  unidadeDestinoId: string | null
+  setorDestinoId: string | null
   unidadeOrigemNome: string
   setorOrigemNome: string
   unidadeDestinoNome: string
@@ -23,9 +27,17 @@ interface SolicitacoesTransferenciaSectionProps {
   solicitacoes: SolicitacaoTransferencia[]
   erro: string | null
   isSuperAdmin: boolean
+  unidades: { id: string; nome: string }[]
+  setores: { id: string; unidade_id: string; nome: string }[]
 }
 
-export function SolicitacoesTransferenciaSection({ solicitacoes, erro, isSuperAdmin }: SolicitacoesTransferenciaSectionProps) {
+export function SolicitacoesTransferenciaSection({
+  solicitacoes,
+  erro,
+  isSuperAdmin,
+  unidades,
+  setores,
+}: SolicitacoesTransferenciaSectionProps) {
   const [resolvidas, setResolvidas] = useState<Set<string>>(new Set())
   const visiveis = solicitacoes.filter(s => !resolvidas.has(s.id))
 
@@ -33,11 +45,11 @@ export function SolicitacoesTransferenciaSection({ solicitacoes, erro, isSuperAd
     <section className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
       <div className="px-5 py-4 border-b border-zinc-200 dark:border-zinc-800">
         <h2 className="font-semibold text-zinc-900 dark:text-white flex items-center gap-2">
-          <ArrowRightLeft className="h-4 w-4 text-blue-500" /> Solicitações de Transferência
+          <ArrowRightLeft className="h-4 w-4 text-blue-500" /> Solicitações de Transferência / Disponibilização ao RH
         </h2>
         <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
           {isSuperAdmin
-            ? 'Só o administrador geral efetiva transferência de unidade/setor. Aprovar aqui aplica de verdade; rejeitar não muda nada.'
+            ? 'Só o administrador geral efetiva transferência de unidade/setor. Quando o pedido vier sem destino ("A definir pelo RH"), escolha a unidade e setor de destino ao aprovar.'
             : 'Pedidos de transferência aguardando avaliação do Administrador Geral. Você vê aqui os que estão no seu escopo.'}
         </p>
       </div>
@@ -59,6 +71,8 @@ export function SolicitacoesTransferenciaSection({ solicitacoes, erro, isSuperAd
                 key={s.id}
                 solicitacao={s}
                 isSuperAdmin={isSuperAdmin}
+                unidades={unidades}
+                setores={setores}
                 onResolvida={() => setResolvidas(prev => new Set(prev).add(s.id))}
               />
             ))}
@@ -69,20 +83,49 @@ export function SolicitacoesTransferenciaSection({ solicitacoes, erro, isSuperAd
   )
 }
 
-function LinhaSolicitacao({ solicitacao, isSuperAdmin, onResolvida }: {
+function LinhaSolicitacao({
+  solicitacao,
+  isSuperAdmin,
+  unidades,
+  setores,
+  onResolvida,
+}: {
   solicitacao: SolicitacaoTransferencia
   isSuperAdmin: boolean
+  unidades: { id: string; nome: string }[]
+  setores: { id: string; unidade_id: string; nome: string }[]
   onResolvida: () => void
 }) {
+  const isDestinoIndefinido = !solicitacao.unidadeDestinoId
+
   const [mostrarRejeicao, setMostrarRejeicao] = useState(false)
+  const [mostrarSelecaoDestino, setMostrarSelecaoDestino] = useState(isDestinoIndefinido)
+  const [selectedUnidade, setSelectedUnidade] = useState(solicitacao.unidadeDestinoId || '')
+  const [selectedSetor, setSelectedSetor] = useState(solicitacao.setorDestinoId || '')
   const [parecer, setParecer] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
 
+  const filteredSetores = selectedUnidade
+    ? setores.filter(s => s.unidade_id === selectedUnidade)
+    : setores
+
   async function aprovar() {
+    if (mostrarSelecaoDestino || isDestinoIndefinido) {
+      if (!selectedUnidade || !selectedSetor) {
+        setErro('Por favor, selecione a unidade e o setor de destino antes de aprovar.')
+        return
+      }
+    }
+
     setSalvando(true)
     setErro(null)
-    const res = await avaliarSolicitacaoTransferencia({ solicitacaoId: solicitacao.id, acao: 'aprovar' })
+    const res = await avaliarSolicitacaoTransferencia({
+      solicitacaoId: solicitacao.id,
+      acao: 'aprovar',
+      unidadeDestinoId: selectedUnidade || undefined,
+      setorDestinoId: selectedSetor || undefined,
+    })
     setSalvando(false)
     if (res?.error) { setErro(res.error); return }
     onResolvida()
@@ -105,14 +148,23 @@ function LinhaSolicitacao({ solicitacao, isSuperAdmin, onResolvida }: {
     <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg p-4 space-y-3">
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-zinc-900 dark:text-white">
-            {solicitacao.servidorNome}
-            {solicitacao.servidorMatricula && <span className="text-zinc-400 font-normal"> · matrícula {solicitacao.servidorMatricula}</span>}
-          </p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-semibold text-zinc-900 dark:text-white">
+              {solicitacao.servidorNome}
+              {solicitacao.servidorMatricula && <span className="text-zinc-400 font-normal"> · matrícula {solicitacao.servidorMatricula}</span>}
+            </p>
+            {isDestinoIndefinido && (
+              <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 rounded">
+                Disponibilizado para o RH
+              </span>
+            )}
+          </div>
           <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1">
             <span className="text-zinc-500">{solicitacao.unidadeOrigemNome} / {solicitacao.setorOrigemNome}</span>
             {' → '}
-            <span className="font-semibold text-blue-600 dark:text-blue-400">{solicitacao.unidadeDestinoNome} / {solicitacao.setorDestinoNome}</span>
+            <span className={`font-semibold ${isDestinoIndefinido ? 'text-amber-600 dark:text-amber-400 italic' : 'text-blue-600 dark:text-blue-400'}`}>
+              {solicitacao.unidadeDestinoNome} / {solicitacao.setorDestinoNome}
+            </span>
           </p>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">{solicitacao.motivo}</p>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-[11px] text-zinc-400">
@@ -123,14 +175,16 @@ function LinhaSolicitacao({ solicitacao, isSuperAdmin, onResolvida }: {
 
         {isSuperAdmin && (
           <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={aprovar}
-              disabled={salvando}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
-            >
-              {salvando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-              Aprovar
-            </button>
+            {!mostrarSelecaoDestino && !isDestinoIndefinido && (
+              <button
+                onClick={aprovar}
+                disabled={salvando}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {salvando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                Aprovar
+              </button>
+            )}
             <button
               onClick={() => setMostrarRejeicao(v => !v)}
               disabled={salvando}
@@ -142,6 +196,60 @@ function LinhaSolicitacao({ solicitacao, isSuperAdmin, onResolvida }: {
           </div>
         )}
       </div>
+
+      {isSuperAdmin && (mostrarSelecaoDestino || isDestinoIndefinido) && (
+        <div className="p-3 bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-900/40 rounded-lg space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
+              <MapPin className="h-3.5 w-3.5 text-amber-500" />
+              {isDestinoIndefinido ? 'Defina a nova lotação do servidor para aprovar:' : 'Confirmar/Alterar lotação de destino:'}
+            </p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] font-semibold text-zinc-500 uppercase">Unidade de Destino *</label>
+              <select
+                value={selectedUnidade}
+                onChange={(e) => {
+                  const unit = e.target.value
+                  setSelectedUnidade(unit)
+                  const belongs = setores.some(s => s.id === selectedSetor && s.unidade_id === unit)
+                  if (!belongs) setSelectedSetor('')
+                }}
+                className="mt-1 block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-900 dark:text-white"
+              >
+                <option value="">Selecione a Unidade...</option>
+                {unidades.map(u => (
+                  <option key={u.id} value={u.id}>{u.nome}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[11px] font-semibold text-zinc-500 uppercase">Setor de Destino *</label>
+              <select
+                value={selectedSetor}
+                onChange={(e) => setSelectedSetor(e.target.value)}
+                className="mt-1 block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-900 dark:text-white"
+              >
+                <option value="">Selecione o Setor...</option>
+                {filteredSetores.map(s => (
+                  <option key={s.id} value={s.id}>{s.nome}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              onClick={aprovar}
+              disabled={salvando || !selectedUnidade || !selectedSetor}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 shadow-sm"
+            >
+              {salvando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+              Confirmar e Efetivar Transferência
+            </button>
+          </div>
+        </div>
+      )}
 
       {mostrarRejeicao && (
         <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800 space-y-2">
@@ -164,7 +272,7 @@ function LinhaSolicitacao({ solicitacao, isSuperAdmin, onResolvida }: {
         </div>
       )}
 
-      {erro && <p className="text-xs text-red-600 dark:text-red-400">{erro}</p>}
+      {erro && <p className="text-xs text-red-600 dark:text-red-400 font-medium">{erro}</p>}
     </div>
   )
 }

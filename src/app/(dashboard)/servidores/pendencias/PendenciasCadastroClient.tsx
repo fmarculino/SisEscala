@@ -75,6 +75,10 @@ interface PendenciasCadastroClientProps {
     servidorId: string
     servidorNome: string
     servidorMatricula: string | null
+    unidadeOrigemId: string | null
+    setorOrigemId: string | null
+    unidadeDestinoId: string | null
+    setorDestinoId: string | null
     unidadeOrigemNome: string
     setorOrigemNome: string
     unidadeDestinoNome: string
@@ -190,6 +194,8 @@ export function PendenciasCadastroClient({
         solicitacoes={solicitacoesTransferencia}
         erro={erroSolicitacoesTransferencia}
         isSuperAdmin={isSuperAdmin}
+        unidades={unidades}
+        setores={setores}
       />
 
       <ImportacaoRhSection

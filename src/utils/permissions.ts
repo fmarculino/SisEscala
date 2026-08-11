@@ -2,7 +2,7 @@ import { PostgrestFilterBuilder } from '@supabase/postgrest-js'
 
 export interface UserProfile {
   id: string
-  role: 'super_admin' | 'admin' | 'coordenador' | 'servidor' | 'comum'
+  role: 'super_admin' | 'rh' | 'admin' | 'coordenador' | 'servidor' | 'comum'
   acesso_todas_unidades: boolean
   acesso_todos_setores: boolean
   permitted_unidades: string[]
@@ -46,14 +46,14 @@ export function applyAccessFilters(
     bypassSuperAdmin = true 
   } = options
 
-  // Super Admin tem acesso irrestrito
-  if (bypassSuperAdmin && profile.role === 'super_admin') {
+  // Super Admin e RH têm acesso irrestrito a dados
+  if (bypassSuperAdmin && (profile.role === 'super_admin' || profile.role === 'rh')) {
     return query
   }
 
   // Se setorField não estiver definido ou for nulo (ex: consultas na tabela de unidades)
   if (!setorField) {
-    if (profile.role === 'super_admin' || profile.acesso_todas_unidades) {
+    if (profile.role === 'super_admin' || profile.role === 'rh' || profile.acesso_todas_unidades) {
       return query
     }
     if (profile.permitted_unidades.length > 0) {
@@ -62,7 +62,7 @@ export function applyAccessFilters(
     return query.eq('id', '00000000-0000-0000-0000-000000000000')
   }
 
-  // 1. Caso: Acesso a todas as unidades (Admin/SuperAdmin geralmente)
+  // 1. Caso: Acesso a todas as unidades (Admin/SuperAdmin/RH geralmente)
   if (profile.acesso_todas_unidades) {
     if (profile.acesso_todos_setores) return query
     
@@ -110,7 +110,7 @@ export function applyAccessFilters(
  */
 export function hasUnitAccess(profile: UserProfile | null, unidadeId: string) {
   if (!profile) return false
-  if (profile.role === 'super_admin' || profile.acesso_todas_unidades) return true
+  if (profile.role === 'super_admin' || profile.role === 'rh' || profile.acesso_todas_unidades) return true
   return profile.permitted_unidades.includes(unidadeId)
 }
 
@@ -119,7 +119,7 @@ export function hasUnitAccess(profile: UserProfile | null, unidadeId: string) {
  */
 export function hasSectorAccess(profile: UserProfile | null, setorId: string, unidadeId?: string) {
   if (!profile) return false
-  if (profile.role === 'super_admin') return true
+  if (profile.role === 'super_admin' || profile.role === 'rh') return true
   
   // Se tem acesso a todos os setores globalmente (todas as unidades)
   if (profile.acesso_todos_setores && profile.acesso_todas_unidades) return true

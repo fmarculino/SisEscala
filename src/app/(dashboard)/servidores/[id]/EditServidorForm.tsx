@@ -34,7 +34,8 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
   const [showWebcamModal, setShowWebcamModal] = useState(false)
   const [showPhotoPreviewModal, setShowPhotoPreviewModal] = useState(false)
 
-  const isLotaçãoChanged = selectedUnidade !== (servidor.unidade_id || '') || selectedSetor !== (servidor.setor_id || '')
+  const [disponibilizarRh, setDisponibilizarRh] = useState(false)
+  const isLotaçãoChanged = disponibilizarRh || selectedUnidade !== (servidor.unidade_id || '') || selectedSetor !== (servidor.setor_id || '')
 
   const isTemporary = servidor.matricula ? /^T\d{7}$/.test(servidor.matricula) : false
 
@@ -534,18 +535,35 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
             <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
               A escala será gerada com base no setor selecionado aqui.
             </p>
+            <div className="mt-3 flex items-center gap-2 p-2.5 bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-900/40 rounded-lg">
+              <input
+                type="checkbox"
+                id="disponibilizar_rh_check"
+                checked={disponibilizarRh}
+                onChange={(e) => setDisponibilizarRh(e.target.checked)}
+                className="h-4 w-4 rounded border-zinc-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+              />
+              <label htmlFor="disponibilizar_rh_check" className="text-xs font-semibold text-amber-800 dark:text-amber-300 cursor-pointer select-none">
+                Disponibilizar este servidor para o RH (sem indicar destino)
+              </label>
+            </div>
           </div>
 
           {isLotaçãoChanged && (
             <div className="sm:col-span-6 p-5 bg-amber-50 dark:bg-amber-950/25 border border-amber-200 dark:border-amber-900/40 rounded-xl space-y-4 animate-in fade-in slide-in-from-top-2">
+              <input type="hidden" name="disponibilizar_rh" value={disponibilizarRh ? 'true' : 'false'} />
               <div className="flex items-center gap-2 text-sm font-bold text-amber-800 dark:text-amber-300">
                 <Info className="h-5 w-5 text-amber-500" />
-                {isSuperAdmin ? 'Registrar Transferência de Servidor' : 'Solicitar Transferência de Servidor'}
+                {disponibilizarRh
+                  ? (isSuperAdmin ? 'Disponibilizar Servidor para o RH' : 'Solicitar Disponibilização para o RH')
+                  : (isSuperAdmin ? 'Registrar Transferência de Servidor' : 'Solicitar Transferência de Servidor')}
               </div>
               <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
-                {isSuperAdmin
-                  ? 'Você alterou a lotação deste servidor. Para salvar essa transferência, por favor informe a data de efetivação e o motivo da mudança para registro no histórico.'
-                  : 'Você alterou a lotação deste servidor. Transferência não é aplicada direto — informe a data pretendida e o motivo, e o pedido vai para aprovação do Administrador Geral. Os demais campos deste formulário salvam normalmente.'}
+                {disponibilizarRh
+                  ? 'Você optou por disponibilizar este servidor para o RH. O destino não precisa ser selecionado agora — o pedido vai para o Administrador Geral / RH verificar e definir a nova unidade e setor do servidor.'
+                  : isSuperAdmin
+                    ? 'Você alterou a lotação deste servidor. Para salvar essa transferência, por favor informe a data de efetivação e o motivo da mudança para registro no histórico.'
+                    : 'Você alterou a lotação deste servidor. Transferência não é aplicada direto — informe a data pretendida e o motivo, e o pedido vai para aprovação do Administrador Geral. Os demais campos deste formulário salvam normalmente.'}
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>

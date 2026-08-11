@@ -14,7 +14,7 @@ export default async function UsuariosPage() {
     .eq('id', user?.id)
     .single()
 
-  const isAuthorized = profile?.role === 'super_admin' || profile?.role === 'admin'
+  const isAuthorized = profile?.role === 'super_admin'
 
   if (!isAuthorized) {
     return (
