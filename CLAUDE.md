@@ -41,7 +41,12 @@ docs/                    planos, evolução por versão, diagnósticos
 ## Módulo de marcações (integração com relógio de ponto) — em construção
 
 Iniciado em 08/08/2026. Plano em [`docs/planos/2026-08-08-integracao-relogio-de-ponto-rep.md`](docs/planos/2026-08-08-integracao-relogio-de-ponto-rep.md),
-faseado de 0 a 9. **Fases 0–3 aplicadas em produção; a 4 está pela metade.**
+faseado de 0 a 9. **Fases 0–3 aplicadas em produção.** A 4 ganhou o resto do código em
+11/08/2026 (rotas `/api/rep/v1/*`, módulo `/marcacoes`, coletor em Go) — ver
+[`docs/evolucao/2026-08-11-terminal-local-e-fechamento-fase4-rep.md`](docs/evolucao/2026-08-11-terminal-local-e-fechamento-fase4-rep.md).
+**Ainda não é "fechada"**: o coletor não foi compilado nem testado contra o relógio real nesta
+rodada (sem Go instalado nem acesso ao device na sessão que o escreveu), e o critério de saída
+da Fase 4 (coleta contínua por N dias, ver seção "Piloto" abaixo) continua sem começar a contar.
 
 O relógio é um **REP-C certificado** (Control iD iDClass, AFD assinado, memória inviolável) e o
 SisEscala passa a ser o **PTRP** da Portaria 671/2021: pode complementar e tratar, **nunca**
@@ -95,6 +100,26 @@ Duas lacunas conhecidas, registradas no plano:
 - Nenhum turno do grupo cruza a meia-noite → o cursor de "ontem" fica sem teste. Escalar um
   `Plantão N` no mês resolve.
 
+### Coletor Go (`tools/coletor-rep/`) — escrito em 11/08/2026, não verificado
+
+Implementa `sync` (AFD → `/api/rep/v1/marcacoes`), `heartbeat`, `diagnostico`, `terminal abrir`
+(ver seção do terminal local) e `install/start/stop` como serviço Windows
+(`kardianos/service`). README no próprio diretório documenta o que falta confirmar:
+
+- `go build` nunca rodou — a máquina onde foi escrito não tinha o Go instalado.
+- `login.fcgi` e `get_afd.fcgi?mode=671` **já foram validados** contra o relógio real em
+  08/08/2026 (ver acima). O resto da API (`get_system_information.fcgi`, usada só para a
+  deriva de relógio no heartbeat) é aproximação — `rep/client.go` tenta os campos
+  `device_time`/`system_time`/`datetime` nessa ordem, e segue sem deriva se nenhum bater, mas
+  os nomes reais **não foram conferidos** contra o device.
+- `sync` sempre pede o AFD a partir do NSR 1 (não lê `dispositivos_rep.ultimo_nsr` antes) e
+  confia na idempotência de `fn_ingerir_afd` para descartar o que já foi ingerido — funciona,
+  mas reenvia o arquivo inteiro do relógio a cada ciclo. Antes de ligar em relógio de alto
+  volume, trocar por uma leitura prévia do `ultimo_nsr`.
+
+Confirme cada ponto com `curl.exe -sk` a partir do PowerShell antes de instalar em campo —
+`Invoke-RestMethod` falha contra o TLS não-padrão do device (já registrado acima).
+
 ### Pendências que bloqueiam a Fase 5
 
 1. 103 marcações de intervalo existem em unidades com `permite_marca_intervalo = false`
@@ -115,6 +140,55 @@ fechada por `20260807130000`. O plano do REP ainda a listava como aberta.
 equipamento não supervisionado, e PIN ali reintroduz o "bater ponto pelo colega" — agora
 respaldado por AFD assinado, o que torna o registro falso *mais* difícil de contestar. Some-se
 que `servidores.pin_acesso` é bcrypt e não é recuperável para envio ao device.
+
+## Terminal local sem sessão de coordenador (11/08/2026)
+
+O terminal `/presenca` ativa com `supabase.auth.signInWithPassword()` **rodando no navegador da
+máquina do terminal**. O fluxo real sempre foi "coordenador ativa e vai embora" — e isso tinha
+que continuar exatamente assim — então aquele navegador ficava com uma sessão Supabase Auth
+completa de coordenador/admin por dias a fio. Servidor com acesso físico à máquina abria outra
+aba e navegava para a retaguarda autenticado como aquele coordenador. Era a causa relatada de
+alterações indevidas no sistema — sem relação com o relógio de ponto, mas surgiu no meio do
+trabalho da Fase 4 porque o mesmo app local (`coletor-rep`) que fala com o REP passou também a
+poder abrir essa tela.
+
+**A correção não revoga a persistência da sessão** (quebraria o fluxo desejado) — troca o
+mecanismo inteiro: o navegador do terminal **nunca mais chama `supabase.auth`**. Nova tabela
+`terminais_locais` (`20260811180000`), token por dispositivo no mesmo esquema sha256 de
+`dispositivos_rep`/`fn_autenticar_dispositivo_rep`. `fn_registrar_ponto_terminal_local` confere
+escopo — a matrícula tem que pertencer à `unidade_id`/`setor_id` do terminal, checado contra
+`servidores.unidade_id/setor_id` (a mesma fonte que `fn_registrar_ponto` já usa para gravar o
+contexto da marcação) — e **recusa antes de checar o PIN**, para uma matrícula de outro setor
+não aprender se o PIN estaria certo. Só então delega para `fn_registrar_ponto`, sem tocar nela
+(armadilha 1).
+
+| peça | onde |
+|---|---|
+| sessão assinada por HMAC — nunca o token cru vira cookie | `src/utils/terminalLocalSession.ts` |
+| ativação (token → cookie httpOnly) | `POST /api/presenca-local/ativar` |
+| marcação (lê o cookie; nunca uma sessão Supabase) | `POST /api/presenca-local/registrar` |
+| tela sem formulário de login | `src/app/presenca-local/page.tsx` |
+| gestão (criar terminal, gerar token, ver responsável) | `/marcacoes`, aba "Terminais Locais" |
+| abrir a tela pelo app local | `coletor-rep terminal abrir` (`tools/coletor-rep/terminal/`) |
+
+⚠️ **`/presenca` clássico não foi alterado** — continua existindo, com o login de coordenador
+de hoje, para as unidades que ainda não têm o app local instalado. A migração é unidade a
+unidade, nunca um corte único.
+
+⚠️ **Cookie de sessão dura 180 dias.** Revogação real é `terminais_locais.ativo`, conferido a
+cada marcação por `fn_registrar_ponto_terminal_local` — desativar o terminal na tela de gestão
+derruba qualquer sessão de navegador já aberta, já na marcação seguinte, sem esperar o cookie
+expirar.
+
+⚠️ **`TERMINAL_LOCAL_SESSION_SECRET` é obrigatória em runtime** (Coolify, além de `.env.local`
+para quem rodar localmente). Sem ela, `/api/presenca-local/ativar` falha com 500 explícito —
+nunca cai para um segredo fixo no código, que é exatamente o padrão que o `CRON_SECRET` com
+fallback hardcoded já provou ser ruim (ver rota `/api/cron`).
+
+⚠️ **Escopo é pela lotação do servidor (`servidores.unidade_id/setor_id`), não pela escala do
+dia.** Um servidor temporariamente escalado em outra unidade fica bloqueado no terminal local
+dessa unidade até a lotação dele ser atualizada. Decisão deliberada por simplicidade — trocar a
+fonte da checagem é ajuste pequeno se isso virar problema prático frequente.
 
 ## Conformidade da marcação de ponto (v1.22.0) — não regredir
 

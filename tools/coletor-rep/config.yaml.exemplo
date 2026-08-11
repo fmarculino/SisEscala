@@ -1,0 +1,26 @@
+sisescala:
+  url: https://sisescala.maraba.pa.gov.br
+
+# Presente se esta maquina TAMBEM coleta AFD de um relogio REP fisico. Remova a secao
+# inteira (ou deixe comentada) para desativar `sync`/`heartbeat` nesta maquina.
+# id e token vem de Marcacoes > Dispositivos REP > (dispositivo) > Gerar token.
+dispositivo_rep:
+  id: "00000000-0000-0000-0000-000000000000"
+  token: "cole-aqui-o-token-gerado-em-marcacoes-dispositivos-rep"
+  endereco: "10.110.2.89"
+  porta: 443
+  usa_https: true
+  usuario_rep: admin
+  senha_rep: "senha-de-administrador-do-relogio"
+  cert_fingerprint: ""   # opcional: sha256 hex do certificado do relogio, para pinning de TLS
+
+# Presente se esta maquina TAMBEM abre a tela de presenca local (terminal). Remova a secao
+# para desativar `terminal abrir`.
+# id e token vem de Marcacoes > Terminais Locais > (terminal) > Gerar token.
+terminal_local:
+  id: "00000000-0000-0000-0000-000000000000"
+  token: "cole-aqui-o-token-gerado-em-marcacoes-terminais-locais"
+
+# Opcional - default e %PROGRAMDATA%\SisEscala\fila
+fila:
+  diretorio: ""

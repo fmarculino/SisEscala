@@ -9,7 +9,7 @@ import {
   Calendar, Layers, Shield, User, Briefcase, CalendarDays, 
   ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   Settings, Database, Lock, FileText, Activity, HelpCircle, BookOpen,
-  Palmtree, ClipboardCheck, ShieldAlert
+  Palmtree, ClipboardCheck, ShieldAlert, Radio
 } from 'lucide-react'
 import { LogoutButton } from './LogoutButton'
 import { ThemeToggle } from '../ThemeToggle'
@@ -43,6 +43,7 @@ const menuGroups: MenuGroup[] = [
       { name: 'Férias e Licenças', href: '/ferias-licencas', icon: Palmtree },
       { name: 'Folha de Ponto', href: '/folha-ponto', icon: FileText },
       { name: 'Justificativas', href: '/justificativas', icon: ClipboardCheck },
+      { name: 'Marcações', href: '/marcacoes', icon: Radio },
     ]
   },
   {
