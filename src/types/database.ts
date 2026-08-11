@@ -13,7 +13,7 @@ export interface Database {
         Row: {
           id: string
           full_name: string | null
-          role: 'super_admin' | 'rh' | 'admin' | 'coordenador' | 'servidor' | 'comum'
+          role: 'super_admin' | 'rh' | 'admin' | 'coordenador' | 'ass_adm' | 'servidor' | 'comum'
           unidade_id: string | null
           setor_id: string | null
           acesso_todas_unidades: boolean
@@ -24,7 +24,7 @@ export interface Database {
         Insert: {
           id: string
           full_name?: string | null
-          role?: 'super_admin' | 'rh' | 'admin' | 'coordenador' | 'servidor' | 'comum'
+          role?: 'super_admin' | 'rh' | 'admin' | 'coordenador' | 'ass_adm' | 'servidor' | 'comum'
           unidade_id?: string | null
           setor_id?: string | null
           acesso_todas_unidades?: boolean
@@ -35,7 +35,7 @@ export interface Database {
         Update: {
           id?: string
           full_name?: string | null
-          role?: 'super_admin' | 'rh' | 'admin' | 'coordenador' | 'servidor' | 'comum'
+          role?: 'super_admin' | 'rh' | 'admin' | 'coordenador' | 'ass_adm' | 'servidor' | 'comum'
           unidade_id?: string | null
           setor_id?: string | null
           acesso_todas_unidades?: boolean

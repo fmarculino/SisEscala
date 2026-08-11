@@ -140,7 +140,7 @@ export function Sidebar({ user }: { user?: any }) {
   const isSuperAdmin = userRole === 'super_admin'
   const isRh = userRole === 'rh'
   const isAdmin = userRole === 'admin'
-  const isCoord = userRole === 'coordenador'
+  const isCoord = userRole === 'coordenador' || userRole === 'ass_adm'
 
   const filteredGroups = menuGroups.map(group => {
     // Filter items within group

@@ -18,7 +18,7 @@ export function PlanningDeadlineAlert({ userRole }: PlanningDeadlineAlertProps) 
 
   useEffect(() => {
     // Only show for coordinators
-    if (userRole !== 'coordenador') return
+    if (userRole !== 'coordenador' && userRole !== 'ass_adm') return
 
     async function checkDeadline() {
       try {

@@ -2,7 +2,7 @@ import { PostgrestFilterBuilder } from '@supabase/postgrest-js'
 
 export interface UserProfile {
   id: string
-  role: 'super_admin' | 'rh' | 'admin' | 'coordenador' | 'servidor' | 'comum'
+  role: 'super_admin' | 'rh' | 'admin' | 'coordenador' | 'ass_adm' | 'servidor' | 'comum'
   acesso_todas_unidades: boolean
   acesso_todos_setores: boolean
   permitted_unidades: string[]

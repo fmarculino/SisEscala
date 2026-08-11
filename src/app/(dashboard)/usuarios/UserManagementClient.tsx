@@ -698,6 +698,7 @@ export default function UserManagementClient({
                   key={editingUser?.id + '-role'}
                   className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 py-2 px-3 text-sm focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
                 >
+                  <option value="ass_adm">{ROLE_LABELS.ass_adm}</option>
                   <option value="coordenador">{ROLE_LABELS.coordenador}</option>
                   <option value="admin">{ROLE_LABELS.admin}</option>
                   <option value="rh">{ROLE_LABELS.rh}</option>
@@ -856,6 +857,7 @@ export default function UserManagementClient({
                 className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
               >
                 <option value="">Todos os Níveis de Acesso</option>
+                <option value="ass_adm">{ROLE_LABELS.ass_adm}</option>
                 <option value="coordenador">{ROLE_LABELS.coordenador}</option>
                 <option value="admin">{ROLE_LABELS.admin}</option>
                 <option value="rh">{ROLE_LABELS.rh}</option>

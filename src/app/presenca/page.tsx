@@ -62,7 +62,7 @@ export default function PresencaTerminalPage() {
           .eq('id', user.id)
           .single()
         
-        if (profile && (profile.role === 'admin' || profile.role === 'super_admin' || profile.role === 'coordenador')) {
+        if (profile && (profile.role === 'admin' || profile.role === 'super_admin' || profile.role === 'coordenador' || profile.role === 'ass_adm')) {
           setSupervisor(profile)
         }
       }
@@ -104,7 +104,7 @@ export default function PresencaTerminalPage() {
       .eq('id', data.user.id)
       .single()
 
-    if (profile && (profile.role === 'admin' || profile.role === 'super_admin' || profile.role === 'coordenador')) {
+    if (profile && (profile.role === 'admin' || profile.role === 'super_admin' || profile.role === 'coordenador' || profile.role === 'ass_adm')) {
       setSupervisor(profile)
     } else {
       setAuthError('Acesso negado: Apenas supervisores podem ativar este terminal.')

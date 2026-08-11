@@ -84,7 +84,7 @@ export async function getDestinosSobreaviso(): Promise<DestinoUnidade[]> {
   const { data: profile } = await supabase
     .from('profiles').select('role').eq('id', user.id).single()
 
-  if (!profile || !['super_admin', 'admin', 'coordenador'].includes(profile.role)) return []
+  if (!profile || !['super_admin', 'admin', 'coordenador', 'ass_adm'].includes(profile.role)) return []
 
   const admin = await createAdminClient()
   const [{ data: unidades }, { data: setores }] = await Promise.all([

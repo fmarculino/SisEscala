@@ -262,7 +262,7 @@ export default function FeriasLicencasPage() {
     )
   }
 
-  if (!profile || !['super_admin', 'admin', 'coordenador'].includes(profile.role)) {
+  if (!profile || !['super_admin', 'admin', 'coordenador', 'ass_adm'].includes(profile.role)) {
     return (
       <div className="text-center py-16">
         <AlertTriangle className="h-12 w-12 text-amber-500 mx-auto mb-4" />
