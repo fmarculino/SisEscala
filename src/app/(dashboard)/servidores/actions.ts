@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { registrarLog, calcularAlteracoes } from '@/utils/auditoria'
 import { erroDocumento, normalizarDoc } from '@/utils/documentos'
+import { validarDataTransferencia } from '@/utils/transferValidation'
 
 const normalizarCpf = (cpf?: string | null) => (cpf || '').replace(/\D/g, '')
 
@@ -901,8 +902,31 @@ export async function updateServidor(id: string, formData: FormData) {
   const dataTransferencia = formData.get('data_transferencia') as string
   const motivoTransferencia = formData.get('motivo_transferencia') as string
 
-  if (isTransferred && (!dataTransferencia || !motivoTransferencia)) {
-    return { error: 'Para transferir (ou solicitar a transferência de) um setor ou unidade, a data e o motivo são obrigatórios.' }
+  if (isTransferred) {
+    if (!dataTransferencia || !motivoTransferencia) {
+      return { error: 'Para transferir (ou solicitar a transferência de) um setor ou unidade, a data e o motivo são obrigatórios.' }
+    }
+
+    // Buscar configuração de dias úteis de antecedência
+    const { data: configDias } = await supabase
+      .from('configuracoes_globais')
+      .select('valor')
+      .eq('chave', 'dias_uteis_transferencia_servidor')
+      .maybeSingle()
+
+    const diasUteisMin = Number(configDias?.valor) || 1
+
+    // Buscar feriados cadastrados para considerar na contagem
+    const { data: feriadosData } = await supabase
+      .from('feriados')
+      .select('data')
+
+    const feriadosList = (feriadosData || []).map((f: any) => f.data)
+
+    const validacaoDate = validarDataTransferencia(dataTransferencia, diasUteisMin, feriadosList)
+    if (!validacaoDate.valido) {
+      return { error: validacaoDate.erro }
+    }
   }
 
   // Só o super_admin efetiva a transferência na hora. Os demais SOLICITAM — decisão do RH depois

@@ -11,6 +11,8 @@ import { sendWhatsAppMessageAction } from '@/app/actions/communication'
 import { useDialog } from '@/components/ui/DialogProvider'
 import { IntervaloPersonalizadoFields } from '@/components/servidores/IntervaloPersonalizadoFields'
 import { CampoDocumento } from '@/components/CampoDocumento'
+import { createClient } from '@/utils/supabase/client'
+import { calcularDataMinimaTransferencia } from '@/utils/transferValidation'
 
 interface EditServidorFormProps {
   id: string
@@ -36,6 +38,33 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
 
   const [disponibilizarRh, setDisponibilizarRh] = useState(false)
   const isLotaçãoChanged = disponibilizarRh || selectedUnidade !== (servidor.unidade_id || '') || selectedSetor !== (servidor.setor_id || '')
+
+  const [minDataTransferenciaInfo, setMinDataTransferenciaInfo] = useState<{ minStr: string; minFormatada: string; diasUteis: number }>({
+    minStr: new Date(Date.now() + 86400000).toISOString().split('T')[0],
+    minFormatada: new Date(Date.now() + 86400000).toLocaleDateString('pt-BR'),
+    diasUteis: 1
+  })
+
+  useEffect(() => {
+    async function loadTransferConfig() {
+      const supabase = createClient()
+      const [{ data: configRes }, { data: feriadosRes }] = await Promise.all([
+        supabase.from('configuracoes_globais').select('valor').eq('chave', 'dias_uteis_transferencia_servidor').maybeSingle(),
+        supabase.from('feriados').select('data')
+      ])
+
+      const diasUteis = Number(configRes?.valor) || 1
+      const feriadosList = (feriadosRes || []).map((f: any) => f.data)
+      const { dataMinimaStr, dataMinimaFormatada } = calcularDataMinimaTransferencia(diasUteis, feriadosList)
+
+      setMinDataTransferenciaInfo({
+        minStr: dataMinimaStr,
+        minFormatada: dataMinimaFormatada,
+        diasUteis
+      })
+    }
+    loadTransferConfig()
+  }, [])
 
   const isTemporary = servidor.matricula ? /^T\d{7}$/.test(servidor.matricula) : false
 
@@ -575,10 +604,13 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
                     id="data_transferencia"
                     name="data_transferencia"
                     required={isLotaçãoChanged}
-                    max={new Date().toISOString().split('T')[0]}
-                    defaultValue={new Date().toISOString().split('T')[0]}
+                    min={minDataTransferenciaInfo.minStr}
+                    defaultValue={minDataTransferenciaInfo.minStr}
                     className="mt-1 block w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white focus:ring-blue-500"
                   />
+                  <p className="mt-1 text-[10px] font-semibold text-amber-700 dark:text-amber-400 leading-tight">
+                    Antecedência mínima: {minDataTransferenciaInfo.diasUteis} dia(s) útil(eis). Data mínima: {minDataTransferenciaInfo.minFormatada}. Não é permitido pedidos retroativos nem na data vigente.
+                  </p>
                 </div>
                 <div>
                   <label htmlFor="motivo_transferencia" className="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase">
