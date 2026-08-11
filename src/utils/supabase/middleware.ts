@@ -49,6 +49,8 @@ export async function updateSession(request: NextRequest) {
     '/api/version',        // auto-atualização do terminal de ponto — pública por natureza
     '/api/cron',           // protegida por CRON_SECRET
     '/api/avisos-ponto',   // despachar (CRON_SECRET) e webhook (WHATSAPP_WEBHOOK_SECRET)
+    '/api/rep',            // chamada pelo coletor-rep — token de dispositivo + assinatura HMAC
+    '/api/presenca-local', // chamada pelo terminal local — token de dispositivo ou cookie assinado
   ]
 
   if (

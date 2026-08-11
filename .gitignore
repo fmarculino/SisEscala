@@ -47,3 +47,8 @@ scratchpad/prod_*.json
 # RLS); duplicar em texto puro no git remove essa camada de controle de acesso e fica no
 # historico para sempre. Ver docs/planos/2026-08-10-estudo-importacao-dados-cadastrais-rh.md
 docs/Dados Cadastrais*.csv
+
+# coletor-rep: config.yaml carrega tokens de dispositivo em texto claro (a credencial real,
+# nao um hash) - nunca deve ir para o repositorio. O binario compilado tambem nao.
+tools/coletor-rep/config.yaml
+tools/coletor-rep/*.exe

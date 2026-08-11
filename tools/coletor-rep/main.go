@@ -93,6 +93,16 @@ func caminhoConfig() string {
 			return os.Args[i+1]
 		}
 	}
+
+	// Prioriza o diretorio de trabalho atual: e como o binario roda na pratica (cd na pasta e
+	// executa), e e o unico jeito de funcionar sob `go run`, que compila para um diretorio
+	// temporario - os.Executable() ali aponta para dentro do Temp, nunca para o projeto.
+	if _, err := os.Stat("config.yaml"); err == nil {
+		return "config.yaml"
+	}
+
+	// Fallback para o lado do executavel - cobre o caso de duplo-clique/atalho com working
+	// directory diferente (ex.: agendado pelo Windows a partir de outra pasta).
 	exePath, err := os.Executable()
 	if err != nil {
 		return "config.yaml"
