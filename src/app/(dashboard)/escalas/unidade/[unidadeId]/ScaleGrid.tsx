@@ -5,7 +5,7 @@ import { createClient } from '@/utils/supabase/client'
 import { 
   Save, Loader2, Info, Zap, Lock, Unlock, FileText, Plus, UserPlus, Users, 
   CheckCircle, Trash2, Globe, X, Copy, Check, Clock, Navigation2, Send, CheckSquare,
-  ShieldCheck, ShieldAlert, AlertTriangle, LayoutTemplate,
+  Shield, ShieldCheck, ShieldAlert, AlertTriangle, LayoutTemplate,
   ChevronLeft, ChevronRight, Sparkles
 } from 'lucide-react'
 import { ScalePrintView } from '@/components/ScalePrintView'
@@ -18,6 +18,7 @@ import { generateIntelligentScale } from '@/utils/intelligentScaleGenerator'
 import { SwapRequestPanel } from '@/components/SwapRequestPanel'
 import { sendWhatsAppMessageAction } from '@/app/actions/communication'
 import { AcionarSobreavisoModal } from '@/components/sobreaviso/AcionarSobreavisoModal'
+import { AutorizacaoExcecaoModal } from '@/components/escalas/AutorizacaoExcecaoModal'
 
 interface ScaleGridProps {
   unidadeId: string
@@ -153,11 +154,34 @@ export function ScaleGrid({
   }, [supabase, escalaMensalInicial, mes, ano])
 
   const [unidadedata, setUnidadedata] = useState<any>(null)
+  const [excecoesEscala, setExcecoesEscala] = useState<any[]>([])
+  const [autorizacaoModalState, setAutorizacaoModalState] = useState<{
+    isOpen: boolean
+    servidorId: string
+    servidorNome: string
+    horasAtuais: number
+    sobreavisosAtuais: number
+  } | null>(null)
+
+  const fetchExcecoesEscala = useCallback(async () => {
+    if (!unidadeId || !mes || !ano) return
+    const { data, error } = await supabase
+      .from('excecoes_escala_servidor')
+      .select('*')
+      .eq('unidade_id', unidadeId)
+      .eq('mes', mes)
+      .eq('ano', ano)
+
+    if (!error && data) {
+      setExcecoesEscala(data)
+    }
+  }, [supabase, unidadeId, mes, ano])
 
   useEffect(() => {
     fetchServidoresEventos()
     fetchJornadasTemporarias()
     fetchLogsTentativas()
+    fetchExcecoesEscala()
 
     async function fetchUnidadeConfig() {
       if (!unidadeId) return
@@ -169,7 +193,7 @@ export function ScaleGrid({
       if (data) setUnidadedata(data)
     }
     fetchUnidadeConfig()
-  }, [escalaMensalInicial, fetchServidoresEventos, fetchJornadasTemporarias, fetchLogsTentativas, supabase, unidadeId])
+  }, [escalaMensalInicial, fetchServidoresEventos, fetchJornadasTemporarias, fetchLogsTentativas, fetchExcecoesEscala, supabase, unidadeId])
 
   const getActiveEventForDay = useCallback((servidorId: string, day: number) => {
     const dateStr = `${ano}-${mes.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`
@@ -1410,6 +1434,65 @@ export function ScaleGrid({
       }
     }
 
+    // Validação de Limites Globais de Horas e Sobreavisos por Servidor
+    if (turnoId) {
+      const globalMaxHoras = Number(configs['max_horas_escala_servidor']) || 300
+      const globalMaxSobreavisos = Number(configs['max_sobreavisos_escala_servidor']) || 10
+      const excecao = excecoesEscala.find(e => e.servidor_id === servidorId)
+      const maxHorasEfetivo = globalMaxHoras + (Number(excecao?.horas_adicionais_autorizadas) || 0)
+      const maxSobreavisosEfetivo = globalMaxSobreavisos + (Number(excecao?.sobreavisos_adicionais_autorizados) || 0)
+
+      const totals = calculateTotals(servidorId)
+      let simulatedHoras = totals.totalPlanejado
+      let simulatedSobreavisos = totals.p_soQtd
+
+      const currentTurnoId = gridData[servidorId]?.[categoria]?.[day]
+      if (categoria === 'Sobreaviso') {
+        if (!currentTurnoId) simulatedSobreavisos += 1
+      } else {
+        const newTurno = turnos.find(t => t.id === turnoId)
+        const currTurno = turnos.find(t => t.id === currentTurnoId)
+        const newH = newTurno ? Number(newTurno.horas_computadas) || 0 : 0
+        const currH = currTurno ? Number(currTurno.horas_computadas) || 0 : 0
+        simulatedHoras = simulatedHoras - currH + newH
+      }
+
+      const exceedsHoras = simulatedHoras > maxHorasEfetivo
+      const exceedsSob = simulatedSobreavisos > maxSobreavisosEfetivo
+
+      if (exceedsHoras || exceedsSob) {
+        const servidor = todosServidoresSetor.find(s => s.id === servidorId)
+        const servidorNome = servidor?.nome || 'Servidor'
+        const isAdmin = userProfile?.role === 'super_admin' || userProfile?.role === 'admin'
+
+        if (isAdmin) {
+          setConfirmModal({
+            isOpen: true,
+            title: '⚠️ Limite Máximo Excedido (Bloqueio de Escala)',
+            message: `Esta ação elevaria ${exceedsHoras ? `as horas de ${servidorNome} para ${simulatedHoras}h (teto atual: ${maxHorasEfetivo}h)` : ''} ${exceedsSob ? `os sobreavisos de ${servidorNome} para ${simulatedSobreavisos} un (teto atual: ${maxSobreavisosEfetivo} un)` : ''}.\n\nComo Administrador, você pode autorizar uma Exceção Extraordinária para este servidor neste mês. Deseja abrir a tela de autorização?`,
+            type: 'warning',
+            onConfirm: () => {
+              setAutorizacaoModalState({
+                isOpen: true,
+                servidorId,
+                servidorNome,
+                horasAtuais: totals.totalPlanejado,
+                sobreavisosAtuais: totals.p_soQtd
+              })
+            }
+          })
+        } else {
+          setAlertModal({
+            isOpen: true,
+            title: '⚠️ Limite Máximo Excedido',
+            message: `A inclusão deste turno faria o servidor ${servidorNome} ultrapassar ${exceedsHoras ? `o limite de horas (${simulatedHoras}h > teto ${maxHorasEfetivo}h)` : `o limite de sobreavisos (${simulatedSobreavisos} un > teto ${maxSobreavisosEfetivo} un)`}.\n\nSolicite a um Administrador a concessão de uma Autorização Extraordinária.`,
+            type: 'warning'
+          })
+        }
+        return
+      }
+    }
+
     // Turno de duração livre: o código não determina a hora, então pergunta ao coordenador.
     // A sugestão vem do encadeamento com o que já existe no dia; ele pode alterar.
     if (precisaHoraInicio(categoria, turnoId)) {
@@ -1563,8 +1646,13 @@ export function ScaleGrid({
       }
     })
 
-    // Sum Sobreavisos
+    // Sum Sobreavisos (Computado em Unidades com detalhamento por tipo/código)
     const overData = (serverData as any)['Sobreaviso'] || (serverData as any)['sobreaviso'] || {}
+    const p_sobreaviso_breakdown: Record<string, { codigo: string; descricao: string; count: number }> = {}
+    const v_sobreaviso_breakdown: Record<string, { codigo: string; descricao: string; count: number }> = {}
+    let p_so_qtd = 0
+    let v_so_qtd = 0
+
     Object.entries(overData).forEach(([day, turnoId]) => {
       const d = parseInt(day)
       const t = turnos.find(x => x.id === turnoId)
@@ -1574,27 +1662,38 @@ export function ScaleGrid({
       const pServ = presenceData[servidorId] as any
       const presence = (pServ?.['Sobreaviso'] || pServ?.['sobreaviso'])?.[d]
 
-      const code = t.codigo?.toUpperCase().trim() || ''
-      let horas = Number(t.horas_computadas) || 0
-      if (horas === 0) {
-        horas = (code === 'MTN') ? 24 : (code === 'MT' || code === 'N' ? 12 : 0)
+      const code = t.codigo?.toUpperCase().trim() || 'SOB'
+      const desc = t.descricao || code
+
+      // Incrementa a contagem de unidades
+      p_so_qtd += 1
+      if (!p_sobreaviso_breakdown[code]) {
+        p_sobreaviso_breakdown[code] = { codigo: code, descricao: desc, count: 0 }
       }
-      const periods = horas / 12
-      
-      p_so12 += periods
-      // Para Sobreaviso, se for passado, validamos automaticamente a menos que haja glosa expressa
-      // ou se houver presença confirmada
+      p_sobreaviso_breakdown[code].count += 1
+
       if (isPast || presence?.entrada) {
-        v_so12 += periods
+        v_so_qtd += 1
+        if (!v_sobreaviso_breakdown[code]) {
+          v_sobreaviso_breakdown[code] = { codigo: code, descricao: desc, count: 0 }
+        }
+        v_sobreaviso_breakdown[code].count += 1
       }
     })
 
-    const totalValidado = v_ch + v_he100 + v_he50 + (v_pl12 * 12) + (v_pl6 * 6) + (v_pl4 * 4) + (v_so12 * 12)
-    const totalPlanejado = p_ch + p_he100 + p_he50 + (p_pl12 * 12) + (p_pl6 * 6) + (p_pl4 * 4) + (p_so12 * 12)
+    // O Sobreaviso NÃO entra no cálculo do total de horas (totalValidado e totalPlanejado)
+    const totalValidado = v_ch + v_he100 + v_he50 + (v_pl12 * 12) + (v_pl6 * 6) + (v_pl4 * 4)
+    const totalPlanejado = p_ch + p_he100 + p_he50 + (p_pl12 * 12) + (p_pl6 * 6) + (p_pl4 * 4)
 
     return { 
-      chTotal: v_ch, he100: v_he100, he50: v_he50, pl12: v_pl12, pl6: v_pl6, pl4: v_pl4, so12: v_so12, 
-      p_ch, p_he100, p_he50, p_pl12, p_pl6, p_pl4, p_so12,
+      chTotal: v_ch, he100: v_he100, he50: v_he50, pl12: v_pl12, pl6: v_pl6, pl4: v_pl4, 
+      so12: v_so_qtd,
+      p_so12: p_so_qtd,
+      soQtd: v_so_qtd,
+      p_soQtd: p_so_qtd,
+      p_sobreaviso_breakdown,
+      v_sobreaviso_breakdown,
+      p_ch, p_he100, p_he50, p_pl12, p_pl6, p_pl4,
       totalGeral: totalValidado,
       totalPlanejado
     }
@@ -3156,7 +3255,7 @@ export function ScaleGrid({
                   <th className="sticky right-[182px] z-30 p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-orange-50 dark:bg-orange-900 text-orange-900 dark:text-orange-100">PL12</th>
                   <th className="sticky right-[144px] z-30 p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-orange-50 dark:bg-orange-900 text-orange-900 dark:text-orange-100">PL6</th>
                   <th className="sticky right-[106px] z-30 p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-orange-50 dark:bg-orange-900 text-orange-900 dark:text-orange-100">PL4</th>
-                  <th className="sticky right-[68px] z-30 p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-emerald-50 dark:bg-emerald-900 text-emerald-900 dark:text-blue-100">SO12</th>
+                  <th className="sticky right-[68px] z-30 p-1 border border-zinc-200 dark:border-zinc-700 w-[38px] bg-emerald-50 dark:bg-emerald-900 text-emerald-900 dark:text-blue-100" title="Sobreaviso (Quantidade de Unidades)">SOB (Qtd)</th>
                 </>
               )}
               <th className="sticky right-0 z-30 p-1 border border-zinc-200 dark:border-zinc-700 w-[68px] bg-amber-400 text-black font-black uppercase leading-tight text-[8px] whitespace-nowrap relative select-none">
@@ -3245,6 +3344,33 @@ export function ScaleGrid({
                                   <Globe className="h-3.5 w-3.5 text-blue-500" />
                                 </span>
                               )}
+                              {(() => {
+                                const excecao = excecoesEscala.find(e => e.servidor_id === em.servidor_id)
+                                const isAdmin = userProfile?.role === 'super_admin' || userProfile?.role === 'admin'
+                                if (excecao) {
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (isAdmin) {
+                                          setAutorizacaoModalState({
+                                            isOpen: true,
+                                            servidorId: em.servidor_id,
+                                            servidorNome: em.servidores?.nome || 'Servidor',
+                                            horasAtuais: totals.totalPlanejado,
+                                            sobreavisosAtuais: totals.p_soQtd
+                                          })
+                                        }
+                                      }}
+                                      className="p-1 text-amber-700 dark:text-amber-300 bg-amber-100/80 dark:bg-amber-950/70 hover:bg-amber-200 dark:hover:bg-amber-900 rounded border border-amber-300 dark:border-amber-800 transition-colors shadow-xs"
+                                      title={`Autorização Extraordinária Vigente:\n+${excecao.horas_adicionais_autorizadas}h adicionais\n+${excecao.sobreavisos_adicionais_autorizados} sobreavisos adicionais\nMotivo: ${excecao.motivo_justificativa}`}
+                                    >
+                                      <Shield className="h-3.5 w-3.5 fill-amber-500/20" />
+                                    </button>
+                                  )
+                                }
+                                return null
+                              })()}
                             </div>
                           </div>
                           <div className="text-[8px] font-normal text-zinc-600 dark:text-zinc-400 uppercase">{em.servidores?.cargo}</div>
@@ -3859,19 +3985,35 @@ export function ScaleGrid({
                                   </div>
                                 </div>
                               </td>
-                              {/* SO12 */}
-                              <td rowSpan={4} className="sticky right-[68px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-emerald-50 dark:bg-emerald-900 text-emerald-900 dark:text-emerald-100">
-                                <div className="flex flex-col h-full divide-y divide-emerald-200 dark:divide-emerald-800">
-                                  <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
-                                    <span className="text-[6px] uppercase leading-none">Prev</span>
-                                    <span className="text-[10px] leading-tight">{totals.p_so12}</span>
-                                  </div>
-                                  <div className="flex-1 flex flex-col justify-center p-1 bg-emerald-100/50 dark:bg-emerald-800/30">
-                                    <span className="text-[6px] uppercase leading-none">Val</span>
-                                    <span className="text-[10px] leading-tight">{totals.so12}</span>
-                                  </div>
-                                </div>
-                              </td>
+                              {/* SOBREAVISO (Qtd em Unidades com Tooltip dos 5 Tipos) */}
+                              {(() => {
+                                const pBreakdownText = Object.values(totals.p_sobreaviso_breakdown || {})
+                                  .map((b: any) => `${b.codigo}: ${b.count} un`)
+                                  .join('\n• ')
+                                const vBreakdownText = Object.values(totals.v_sobreaviso_breakdown || {})
+                                  .map((b: any) => `${b.codigo}: ${b.count} un`)
+                                  .join('\n• ')
+                                const sobTooltip = `Detalhamento de Sobreavisos (${totals.p_soQtd} Unidades):\n\nPREVISTOS (${totals.p_soQtd} un):\n${pBreakdownText ? '• ' + pBreakdownText : 'Nenhum'}\n\nVALIDADOS (${totals.soQtd} un):\n${vBreakdownText ? '• ' + vBreakdownText : 'Nenhum'}`
+                                
+                                return (
+                                  <td 
+                                    rowSpan={4} 
+                                    title={sobTooltip}
+                                    className="sticky right-[68px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-emerald-50 dark:bg-emerald-900 text-emerald-900 dark:text-emerald-100 cursor-help"
+                                  >
+                                    <div className="flex flex-col h-full divide-y divide-emerald-200 dark:divide-emerald-800">
+                                      <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
+                                        <span className="text-[6px] uppercase leading-none">Prev</span>
+                                        <span className="text-[10px] leading-tight">{totals.p_soQtd} un</span>
+                                      </div>
+                                      <div className="flex-1 flex flex-col justify-center p-1 bg-emerald-100/50 dark:bg-emerald-800/30">
+                                        <span className="text-[6px] uppercase leading-none">Val</span>
+                                        <span className="text-[10px] leading-tight">{totals.soQtd} un</span>
+                                      </div>
+                                    </div>
+                                  </td>
+                                )
+                              })()}
                             </>
                           )}
 
@@ -5611,6 +5753,26 @@ export function ScaleGrid({
             </div>
           </div>
         </Modal>
+      )}
+      {autorizacaoModalState?.isOpen && (
+        <AutorizacaoExcecaoModal
+          isOpen={autorizacaoModalState.isOpen}
+          onClose={() => setAutorizacaoModalState(null)}
+          onSaved={() => {
+            fetchExcecoesEscala()
+          }}
+          servidorId={autorizacaoModalState.servidorId}
+          servidorNome={autorizacaoModalState.servidorNome}
+          unidadeId={unidadeId}
+          unidadeNome={allUnidades.find(u => u.id === unidadeId)?.nome}
+          mes={mes}
+          ano={ano}
+          limiteGlobalHoras={Number(configs['max_horas_escala_servidor']) || 300}
+          limiteGlobalSobreavisos={Number(configs['max_sobreavisos_escala_servidor']) || 10}
+          horasAtuais={autorizacaoModalState.horasAtuais}
+          sobreavisosAtuais={autorizacaoModalState.sobreavisosAtuais}
+          excecaoExistente={excecoesEscala.find(e => e.servidor_id === autorizacaoModalState.servidorId)}
+        />
       )}
     </>
   )

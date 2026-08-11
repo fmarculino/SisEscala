@@ -793,6 +793,59 @@ export default function ConfigPage() {
           </div>
         </div>
 
+        {/* Limites Globais de Horas e Sobreavisos por Servidor */}
+        <div className="bg-white dark:bg-zinc-900 rounded-[2rem] border border-amber-200 dark:border-amber-900/40 p-8 shadow-sm hover:shadow-md transition-shadow">
+          <div className="space-y-8">
+            <div className="flex items-center gap-4">
+              <div className="p-4 bg-amber-100 dark:bg-amber-900/30 rounded-2xl text-amber-600">
+                <Shield className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-zinc-900 dark:text-white uppercase tracking-tight">Limites Teto por Servidor (Mensal)</h3>
+                <p className="text-sm text-zinc-500 leading-relaxed">
+                  Define a quantidade máxima de horas trabalhadas e a quantidade máxima de sobreavisos (unidades) que um servidor pode ter em sua escala mensal. O sistema bloqueia a grade ao atingir o teto, exigindo autorização extraordinária de um Administrador.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="space-y-2">
+                <label className="text-xs font-black text-zinc-400 uppercase tracking-widest block">Limite Máximo de Horas (H/Mês)</label>
+                <div className="relative">
+                  <input 
+                    type="number" 
+                    min="1" max="720"
+                    className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-amber-500 outline-none font-bold transition-all pr-12"
+                    value={getConfig('max_horas_escala_servidor')?.valor !== undefined ? String(getConfig('max_horas_escala_servidor')?.valor) : '300'}
+                    onChange={(e) => updateConfig('max_horas_escala_servidor', e.target.value)}
+                  />
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-zinc-400 uppercase">Horas</div>
+                </div>
+                <p className="text-[11px] text-zinc-400 leading-normal mt-1">
+                  Soma de carga horária Regular + Extra + Plantões. O sobreaviso é excluído deste cálculo.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-black text-zinc-400 uppercase tracking-widest block">Limite Máximo de Sobreavisos (Unidades)</label>
+                <div className="relative">
+                  <input 
+                    type="number" 
+                    min="0" max="60"
+                    className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-amber-500 outline-none font-bold transition-all pr-14"
+                    value={getConfig('max_sobreavisos_escala_servidor')?.valor !== undefined ? String(getConfig('max_sobreavisos_escala_servidor')?.valor) : '10'}
+                    onChange={(e) => updateConfig('max_sobreavisos_escala_servidor', e.target.value)}
+                  />
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-zinc-400 uppercase">Unidades</div>
+                </div>
+                <p className="text-[11px] text-zinc-400 leading-normal mt-1">
+                  Soma total de unidades de sobreaviso (dos 5 tipos existentes).
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Detalhamento de Horários nos Indicadores da Grade (Hover) */}
         <div className="bg-white dark:bg-zinc-900 rounded-[2rem] border border-zinc-200 dark:border-zinc-800 p-8 shadow-sm hover:shadow-md transition-shadow">
           <div className="flex flex-col md:flex-row md:items-center gap-8">

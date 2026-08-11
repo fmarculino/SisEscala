@@ -168,7 +168,7 @@ export default async function RelatorioRHPage({ searchParams }: Props) {
               }
             })
 
-            const totalGeral = chTotal + plTotal + he50 + he100 + (sobCount * 12)
+            const totalGeral = chTotal + plTotal + he50 + he100
 
             return {
               servidor: item.servidores?.nome,
@@ -262,7 +262,7 @@ export default async function RelatorioRHPage({ searchParams }: Props) {
                   }
                 })
 
-                const totalGeral = chTotal + plTotal + he50 + he100 + (sobCount * 12)
+                const totalGeral = chTotal + plTotal + he50 + he100
 
                 return (
                   <tr key={item.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
