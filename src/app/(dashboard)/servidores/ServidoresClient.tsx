@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
-import { Users, Plus, UserCircle, Building2, Search, Filter, Layers, UserX, UserCheck, FileDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ShieldAlert } from 'lucide-react'
+import { Users, Plus, UserCircle, Building2, Search, Filter, Layers, UserX, UserCheck, FileDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ShieldAlert, Clock } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useDialog } from '@/components/ui/DialogProvider'
@@ -14,7 +14,7 @@ interface Servidor {
   vinculo: string
   unidade_id: string
   setor_id: string
-  status: 'Ativo' | 'Inativo'
+  status: 'Ativo' | 'Afastado' | 'Inativo'
   cpf?: string
   unidades?: { nome: string }
   setores?: { nome: string }
@@ -180,7 +180,9 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
           </td>
           <td class="py-3 px-3 text-center">
             <span class="inline-block px-2 py-0.5 rounded text-[8px] font-bold ${
-              servidor.status === 'Ativo' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-red-100 text-red-800 border border-red-200'
+              servidor.status === 'Ativo' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                : servidor.status === 'Afastado' ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                : 'bg-red-100 text-red-800 border border-red-200'
             }">
               ${servidor.status.toUpperCase()}
             </span>
@@ -408,6 +410,7 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
           className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none"
         >
           <option value="Ativo">Apenas Ativos</option>
+          <option value="Afastado">Apenas Afastados</option>
           <option value="Inativo">Apenas Inativos</option>
           <option value="">Todos os Status</option>
         </select>
@@ -455,7 +458,7 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
                 <tr 
                   key={servidor.id} 
                   onClick={() => router.push(`/servidores/${servidor.id}`)}
-                  className={`cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors group ${servidor.status === 'Inativo' ? 'opacity-60 grayscale-[0.5]' : ''}`}
+                  className={`cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors group ${servidor.status !== 'Ativo' ? 'opacity-60 grayscale-[0.5]' : ''}`}
                 >
                   <td className="px-6 py-4 whitespace-nowrap w-10" onClick={(e) => e.stopPropagation()}>
                     <input
@@ -469,14 +472,14 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
                       <div className={`h-9 w-9 flex-shrink-0 rounded-full flex items-center justify-center transition-colors ${
-                        servidor.status === 'Inativo' 
-                        ? 'bg-zinc-100 text-zinc-400 dark:bg-zinc-800' 
+                        servidor.status !== 'Ativo'
+                        ? 'bg-zinc-100 text-zinc-400 dark:bg-zinc-800'
                         : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 group-hover:bg-blue-50 dark:group-hover:bg-blue-900/20 group-hover:text-blue-600'
                       }`}>
                         <UserCircle className="h-7 w-7" />
                       </div>
                       <div className="ml-4">
-                        <div className={`text-sm font-bold ${servidor.status === 'Inativo' ? 'text-zinc-500 line-through' : 'text-zinc-900 dark:text-white'}`}>
+                        <div className={`text-sm font-bold ${servidor.status === 'Inativo' ? 'text-zinc-500 line-through' : servidor.status === 'Afastado' ? 'text-zinc-500' : 'text-zinc-900 dark:text-white'}`}>
                           {servidor.nome}
                         </div>
                       </div>
@@ -500,6 +503,11 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
                       <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-bold text-red-700 dark:bg-red-900/20 dark:text-red-400">
                         <UserX className="h-3 w-3" />
                         Inativo
+                      </span>
+                    ) : servidor.status === 'Afastado' ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-bold text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
+                        <Clock className="h-3 w-3" />
+                        Afastado
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-bold text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400">

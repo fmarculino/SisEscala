@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.43.0] - 2026-08-11
+
+### Added
+- **Situação "Afastado" alcançável na UI.** A migration `20260810150000` (v1.42.0) já tinha dado
+  ao `status` do servidor um terceiro valor real, mas nenhuma tela sabia gravá-lo — `StatusToggle`
+  só alternava Ativo↔Inativo. Virou um seletor de 3 estados; sair de Ativo (pra Afastado ou
+  Inativo) continua exigindo motivo, voltar pra Ativo continua sem exigir nada. Lista de
+  servidores ganhou o filtro e o badge (âmbar) correspondentes.
+- **Transferência de unidade/setor passa a exigir aprovação do Administrador Geral**
+  (`solicitacoes_transferencia_servidor`, migration `20260811110000`). Pedido do RH depois do
+  incidente da THIELE e da KETTELE (v1.41.0 — duas transferências recusadas pela RLS sem
+  mensagem clara, histórico chegou a registrar transferência que não aconteceu): só `super_admin`
+  efetiva transferência na hora; coordenador/admin passam a **solicitar**, com os demais campos do
+  formulário continuando a salvar normalmente na mesma submissão — só a lotação fica presa no
+  valor atual até alguém decidir.
+  - Modelo espelha `solicitacoes_ferias_licencas` (a mais madura das solicitações já existentes no
+    projeto): `status` sob `CHECK`, colunas de aprovação/rejeição dedicadas, RLS granular por
+    role. Não substitui `historico_transferencias` — continua sendo o log do que realmente
+    aconteceu; a tabela nova é só a fila do que foi pedido.
+  - `registrarTransferenciaEfetivada` (histórico + limpeza de escala conflitante) virou função
+    compartilhada entre a transferência direta e a aprovação de pedido — uma cópia só, não duas
+    divergindo com o tempo.
+  - Nova seção "Solicitações de Transferência" em `/servidores/pendencias`: todo mundo vê os
+    pedidos no seu escopo; só `super_admin` vê os botões Aprovar/Rejeitar.
+
 ## [1.42.0] - 2026-08-10
 
 ### Added

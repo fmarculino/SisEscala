@@ -4,9 +4,10 @@ import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
   AlertTriangle, UserX, Copy, Hash, CheckCircle2, Search,
-  ChevronDown, ChevronUp, ExternalLink, Info, UserPlus,
+  ChevronDown, ChevronUp, ExternalLink, Info, UserPlus, ArrowRightLeft,
 } from 'lucide-react'
 import { ImportacaoRhSection } from './ImportacaoRhSection'
+import { SolicitacoesTransferenciaSection } from './SolicitacoesTransferenciaSection'
 
 interface DocumentoInvalido {
   tabela: string
@@ -69,6 +70,22 @@ interface PendenciasCadastroClientProps {
   unidades: { id: string; nome: string }[]
   setores: { id: string; unidade_id: string; nome: string }[]
   cargos: { id: string; nome: string }[]
+  solicitacoesTransferencia: {
+    id: string
+    servidorId: string
+    servidorNome: string
+    servidorMatricula: string | null
+    unidadeOrigemNome: string
+    setorOrigemNome: string
+    unidadeDestinoNome: string
+    setorDestinoNome: string
+    dataTransferenciaSugerida: string
+    motivo: string
+    solicitadoPorNome: string
+    solicitadoEm: string
+  }[]
+  erroSolicitacoesTransferencia: string | null
+  isSuperAdmin: boolean
 }
 
 const CRITERIO_LABEL: Record<Duplicidade['criterio'], string> = {
@@ -127,6 +144,7 @@ export function PendenciasCadastroClient({
   documentosInvalidos, duplicidades, semCpf, totalServidores, semPisCount,
   erroDocumentos, erroDuplicidades,
   pendentesRh, erroPendentesRh, unidades, setores, cargos,
+  solicitacoesTransferencia, erroSolicitacoesTransferencia, isSuperAdmin,
 }: PendenciasCadastroClientProps) {
   const [buscaSemCpf, setBuscaSemCpf] = useState('')
   const [gruposAbertos, setGruposAbertos] = useState<Set<string>>(new Set())
@@ -159,13 +177,20 @@ export function PendenciasCadastroClient({
         </p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
         <StatCard icon={UserPlus} label="Importados aguardando cadastro" value={pendentesRh.length} tone={pendentesRh.length ? 'amber' : 'green'} note="importação de RH, v1.42.0" />
+        <StatCard icon={ArrowRightLeft} label="Transferências pendentes" value={solicitacoesTransferencia.length} tone={solicitacoesTransferencia.length ? 'amber' : 'green'} note={isSuperAdmin ? 'aguardando sua avaliação' : 'aguardando Administrador Geral'} />
         <StatCard icon={AlertTriangle} label="Documentos com dígito inválido" value={documentosInvalidos.length} tone={documentosInvalidos.length ? 'red' : 'green'} />
         <StatCard icon={UserX} label="Servidores sem CPF" value={semCpf.length} tone={semCpf.length ? 'amber' : 'green'} note={totalServidores ? `${Math.round((semCpf.length / totalServidores) * 100)}% do quadro` : undefined} />
         <StatCard icon={Copy} label="Possíveis duplicidades" value={duplicidades.length} tone={duplicidades.length ? 'amber' : 'green'} note="grupos suspeitos" />
         <StatCard icon={Hash} label="Servidores sem PIS/PASEP" value={semPisCount} tone="zinc" note="projeto da Fase 9 do REP — não é anomalia" />
       </div>
+
+      <SolicitacoesTransferenciaSection
+        solicitacoes={solicitacoesTransferencia}
+        erro={erroSolicitacoesTransferencia}
+        isSuperAdmin={isSuperAdmin}
+      />
 
       <ImportacaoRhSection
         pendentesRh={pendentesRh}

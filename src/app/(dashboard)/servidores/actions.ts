@@ -141,6 +141,167 @@ async function validarLotacaoNoEscopo(
     'ou para realizar a transferência.'
 }
 
+/**
+ * Registra uma transferência já EFETIVADA (o `UPDATE` de `unidade_id`/`setor_id` em `servidores`
+ * já rodou antes de chamar isto): grava `historico_transferencias` e limpa escala conflitante nos
+ * dois lados. Compartilhado por dois chamadores — `updateServidor` (transferência direta do
+ * super_admin) e `avaliarSolicitacaoTransferencia` (aprovação de um pedido) — pra não ter duas
+ * cópias da limpeza de escala divergindo com o tempo (armadilha 1 do CLAUDE.md, mesmo raciocínio
+ * de "uma função, um lugar", só que em TS em vez de SQL).
+ */
+async function registrarTransferenciaEfetivada(supabase: any, params: {
+  servidorId: string
+  unidadeOrigemId: string | null
+  setorOrigemId: string | null
+  unidadeDestinoId: string | null
+  setorDestinoId: string | null
+  dataTransferencia: string
+  motivo: string
+  criadoPorId: string | null
+}): Promise<{ error?: string; historicoId?: string }> {
+  const { servidorId, unidadeOrigemId, setorOrigemId, unidadeDestinoId, setorDestinoId, dataTransferencia, motivo, criadoPorId } = params
+
+  const { data: histRow, error: histError } = await supabase
+    .from('historico_transferencias')
+    .insert({
+      servidor_id: servidorId,
+      unidade_origem_id: unidadeOrigemId,
+      setor_origem_id: setorOrigemId,
+      unidade_destino_id: unidadeDestinoId,
+      setor_destino_id: setorDestinoId,
+      data_transferencia: dataTransferencia,
+      motivo,
+      criado_por_id: criadoPorId,
+    })
+    .select('id')
+    .single()
+
+  if (histError) {
+    return { error: `Erro ao salvar histórico de transferência: ${histError.message}` }
+  }
+
+  // Limpa turnos concorrentes nos dois setores para o mês/ano da transferência e períodos
+  // subsequentes/precedentes. Best-effort: falha aqui não desfaz a transferência, só loga.
+  try {
+    const dateParts = dataTransferencia.split('-')
+    const transferYear = parseInt(dateParts[0], 10)
+    const transferMonth = parseInt(dateParts[1], 10)
+    const transferDay = parseInt(dateParts[2], 10)
+
+    if (!isNaN(transferYear) && !isNaN(transferMonth) && !isNaN(transferDay)) {
+      // A. Origin Scale (Transfer Month): Clear shifts on and after the transfer day (without presence)
+      if (unidadeOrigemId && setorOrigemId) {
+        const { data: originScale } = await supabase
+          .from('escala_mensal')
+          .select('id')
+          .eq('servidor_id', servidorId)
+          .eq('unidade_id', unidadeOrigemId)
+          .eq('setor_id', setorOrigemId)
+          .eq('mes', transferMonth)
+          .eq('ano', transferYear)
+          .maybeSingle()
+
+        if (originScale) {
+          await supabase
+            .from('escala_diaria')
+            .delete()
+            .eq('escala_mensal_id', originScale.id)
+            .gte('dia', transferDay)
+            .is('presenca_entrada_em', null)
+            .is('presenca_saida_em', null)
+        }
+      }
+
+      // B. Destination Scale (Transfer Month): Clear shifts before the transfer day (without presence)
+      if (unidadeDestinoId && setorDestinoId) {
+        const { data: destScale } = await supabase
+          .from('escala_mensal')
+          .select('id')
+          .eq('servidor_id', servidorId)
+          .eq('unidade_id', unidadeDestinoId)
+          .eq('setor_id', setorDestinoId)
+          .eq('mes', transferMonth)
+          .eq('ano', transferYear)
+          .maybeSingle()
+
+        if (destScale) {
+          await supabase
+            .from('escala_diaria')
+            .delete()
+            .eq('escala_mensal_id', destScale.id)
+            .lt('dia', transferDay)
+            .is('presenca_entrada_em', null)
+            .is('presenca_saida_em', null)
+        }
+      }
+
+      // C. Subsequent Months (Origin Sector): Delete all monthly scales and daily shifts without presence
+      if (unidadeOrigemId && setorOrigemId) {
+        const { data: futureOriginScales } = await supabase
+          .from('escala_mensal')
+          .select('id, mes, ano')
+          .eq('servidor_id', servidorId)
+          .eq('unidade_id', unidadeOrigemId)
+          .eq('setor_id', setorOrigemId)
+
+        if (futureOriginScales) {
+          const futureScaleIds = futureOriginScales
+            .filter((em: any) => em.ano > transferYear || (em.ano === transferYear && em.mes > transferMonth))
+            .map((em: any) => em.id)
+
+          if (futureScaleIds.length > 0) {
+            await supabase
+              .from('escala_diaria')
+              .delete()
+              .in('escala_mensal_id', futureScaleIds)
+              .is('presenca_entrada_em', null)
+              .is('presenca_saida_em', null)
+
+            await supabase
+              .from('escala_mensal')
+              .delete()
+              .in('id', futureScaleIds)
+          }
+        }
+      }
+
+      // D. Preceding Months (Destination Sector): Delete any monthly scales and daily shifts without presence
+      if (unidadeDestinoId && setorDestinoId) {
+        const { data: pastDestScales } = await supabase
+          .from('escala_mensal')
+          .select('id, mes, ano')
+          .eq('servidor_id', servidorId)
+          .eq('unidade_id', unidadeDestinoId)
+          .eq('setor_id', setorDestinoId)
+
+        if (pastDestScales) {
+          const pastScaleIds = pastDestScales
+            .filter((em: any) => em.ano < transferYear || (em.ano === transferYear && em.mes < transferMonth))
+            .map((em: any) => em.id)
+
+          if (pastScaleIds.length > 0) {
+            await supabase
+              .from('escala_diaria')
+              .delete()
+              .in('escala_mensal_id', pastScaleIds)
+              .is('presenca_entrada_em', null)
+              .is('presenca_saida_em', null)
+
+            await supabase
+              .from('escala_mensal')
+              .delete()
+              .in('id', pastScaleIds)
+          }
+        }
+      }
+    }
+  } catch (cleanError: any) {
+    console.error('Erro ao limpar escalas na transferência:', cleanError)
+  }
+
+  return { historicoId: histRow?.id }
+}
+
 function extractDadosComplementares(formData: FormData) {
   return {
     data_nascimento: (formData.get('data_nascimento') as string)?.trim() || null,
@@ -727,21 +888,56 @@ export async function updateServidor(id: string, formData: FormData) {
     return { error: `Erro ao obter servidor atual: ${fetchError.message}` }
   }
 
-  const newUnidadeId = unidade_id || null
-  const newSetorId = setor_id || null
+  // Destino que o formulário pediu — nem sempre é o que vai ser gravado nesta chamada. Ver
+  // transferenciaPendente abaixo.
+  const destinoUnidadeId = unidade_id || null
+  const destinoSetorId = setor_id || null
 
-  const isTransferred = currentServidor.unidade_id !== newUnidadeId || currentServidor.setor_id !== newSetorId
+  const isTransferred = currentServidor.unidade_id !== destinoUnidadeId || currentServidor.setor_id !== destinoSetorId
 
   // Data e motivo sao exigidos ANTES do UPDATE — nao adianta gravar a lotacao nova e so entao
-  // descobrir que falta a justificativa.
+  // descobrir que falta a justificativa. Vale tanto pra transferência direta quanto pra pedido.
   const dataTransferencia = formData.get('data_transferencia') as string
   const motivoTransferencia = formData.get('motivo_transferencia') as string
 
   if (isTransferred && (!dataTransferencia || !motivoTransferencia)) {
-    return { error: 'Para realizar uma transferência de setor ou unidade, a data e o motivo são obrigatórios.' }
+    return { error: 'Para transferir (ou solicitar a transferência de) um setor ou unidade, a data e o motivo são obrigatórios.' }
   }
 
-  const erroLotacao = await validarLotacaoNoEscopo(supabase, newSetorId)
+  // Só o super_admin efetiva a transferência na hora. Os demais SOLICITAM — decisão do RH depois
+  // do incidente de 10/08/2026 (THIELE e KETTELE: duas transferências recusadas pela RLS sem
+  // mensagem clara). Ver 20260811110000_add_solicitacoes_transferencia_servidor.sql.
+  const { data: { user: usuarioEditor } } = await supabase.auth.getUser()
+  const { data: perfilEditor } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', usuarioEditor?.id)
+    .single()
+  const isSuperAdminEditor = perfilEditor?.role === 'super_admin'
+
+  const transferenciaDireta = isTransferred && isSuperAdminEditor
+  const transferenciaPendente = isTransferred && !isSuperAdminEditor
+
+  if (transferenciaPendente) {
+    const { data: pendenteExistente } = await supabase
+      .from('solicitacoes_transferencia_servidor')
+      .select('id')
+      .eq('servidor_id', id)
+      .eq('status', 'pendente')
+      .maybeSingle()
+
+    if (pendenteExistente) {
+      return { error: 'Já existe uma solicitação de transferência pendente para este servidor. Aguarde a avaliação do administrador geral antes de pedir outra.' }
+    }
+  }
+
+  // O que de fato é gravado em `servidores` nesta chamada: o destino pedido, se for transferência
+  // direta; o valor ATUAL (sem mudança nenhuma), se for só um pedido — a mudança real só acontece
+  // quando o super_admin aprovar (avaliarSolicitacaoTransferencia).
+  const unidadeIdGravar = transferenciaPendente ? currentServidor.unidade_id : destinoUnidadeId
+  const setorIdGravar = transferenciaPendente ? currentServidor.setor_id : destinoSetorId
+
+  const erroLotacao = await validarLotacaoNoEscopo(supabase, setorIdGravar)
   if (erroLotacao) {
     return { error: erroLotacao }
   }
@@ -755,8 +951,8 @@ export async function updateServidor(id: string, formData: FormData) {
     cpf: normalizarDoc(cpf),
     cargo,
     vinculo,
-    unidade_id: newUnidadeId,
-    setor_id: newSetorId,
+    unidade_id: unidadeIdGravar,
+    setor_id: setorIdGravar,
     email: email || null,
     telefone: telefone || null,
     preferenca_turno,
@@ -828,147 +1024,42 @@ export async function updateServidor(id: string, formData: FormData) {
   // A transferência só é EFETIVADA depois que o UPDATE passa. Gravar o histórico antes deixava
   // registro de transferência que nunca aconteceu quando o UPDATE era recusado — foi o que sobrou
   // em produção nas duas tentativas de 10/08/2026 com a KETTELE (SMS/DMAC -> setor nulo).
-  if (isTransferred) {
-    const { data: { user } } = await supabase.auth.getUser()
-    const criado_por_id = user?.id || null
-
-    const { error: histError } = await supabase
-      .from('historico_transferencias')
+  //
+  // Só entra aqui na transferência DIRETA (super_admin). Pedido de quem não é super_admin
+  // (transferenciaPendente) não mexe em historico_transferencias nem limpa escala nenhuma —
+  // nada aconteceu de verdade ainda, só foi proposto. Ver o `else if` logo abaixo.
+  if (transferenciaDireta) {
+    const resultadoTransferencia = await registrarTransferenciaEfetivada(supabase, {
+      servidorId: id,
+      unidadeOrigemId: currentServidor.unidade_id,
+      setorOrigemId: currentServidor.setor_id,
+      unidadeDestinoId: destinoUnidadeId,
+      setorDestinoId: destinoSetorId,
+      dataTransferencia,
+      motivo: motivoTransferencia,
+      criadoPorId: usuarioEditor?.id || null,
+    })
+    if (resultadoTransferencia.error) {
+      return { error: resultadoTransferencia.error }
+    }
+  } else if (transferenciaPendente) {
+    // Nada muda em servidores nem em escala — só registra o pedido. `unidadeIdGravar`/
+    // `setorIdGravar` (o que o UPDATE acima gravou de verdade) continuam iguais ao atual.
+    const { error: solicitacaoError } = await supabase
+      .from('solicitacoes_transferencia_servidor')
       .insert({
         servidor_id: id,
         unidade_origem_id: currentServidor.unidade_id,
         setor_origem_id: currentServidor.setor_id,
-        unidade_destino_id: newUnidadeId,
-        setor_destino_id: newSetorId,
-        data_transferencia: dataTransferencia,
+        unidade_destino_id: destinoUnidadeId,
+        setor_destino_id: destinoSetorId,
+        data_transferencia_sugerida: dataTransferencia,
         motivo: motivoTransferencia,
-        criado_por_id
+        solicitado_por_id: usuarioEditor?.id || null,
       })
 
-    if (histError) {
-      return { error: `Erro ao salvar histórico de transferência: ${histError.message}` }
-    }
-
-    // Clear concurrent scale shifts in both sectors for the transfer month/year and subsequent/preceding periods
-    try {
-      const dateParts = dataTransferencia.split('-')
-      const transferYear = parseInt(dateParts[0], 10)
-      const transferMonth = parseInt(dateParts[1], 10)
-      const transferDay = parseInt(dateParts[2], 10)
-
-      if (!isNaN(transferYear) && !isNaN(transferMonth) && !isNaN(transferDay)) {
-        // A. Origin Scale (Transfer Month): Clear shifts on and after the transfer day (without presence)
-        if (currentServidor.unidade_id && currentServidor.setor_id) {
-          const { data: originScale } = await supabase
-            .from('escala_mensal')
-            .select('id')
-            .eq('servidor_id', id)
-            .eq('unidade_id', currentServidor.unidade_id)
-            .eq('setor_id', currentServidor.setor_id)
-            .eq('mes', transferMonth)
-            .eq('ano', transferYear)
-            .maybeSingle()
-
-          if (originScale) {
-            await supabase
-              .from('escala_diaria')
-              .delete()
-              .eq('escala_mensal_id', originScale.id)
-              .gte('dia', transferDay)
-              .is('presenca_entrada_em', null)
-              .is('presenca_saida_em', null)
-          }
-        }
-
-        // B. Destination Scale (Transfer Month): Clear shifts before the transfer day (without presence)
-        if (newUnidadeId && newSetorId) {
-          const { data: destScale } = await supabase
-            .from('escala_mensal')
-            .select('id')
-            .eq('servidor_id', id)
-            .eq('unidade_id', newUnidadeId)
-            .eq('setor_id', newSetorId)
-            .eq('mes', transferMonth)
-            .eq('ano', transferYear)
-            .maybeSingle()
-
-          if (destScale) {
-            await supabase
-              .from('escala_diaria')
-              .delete()
-              .eq('escala_mensal_id', destScale.id)
-              .lt('dia', transferDay)
-              .is('presenca_entrada_em', null)
-              .is('presenca_saida_em', null)
-          }
-        }
-
-        // C. Subsequent Months (Origin Sector): Delete all monthly scales and daily shifts without presence
-        if (currentServidor.unidade_id && currentServidor.setor_id) {
-          const { data: futureOriginScales } = await supabase
-            .from('escala_mensal')
-            .select('id, mes, ano')
-            .eq('servidor_id', id)
-            .eq('unidade_id', currentServidor.unidade_id)
-            .eq('setor_id', currentServidor.setor_id)
-
-          if (futureOriginScales) {
-            const futureScaleIds = futureOriginScales
-              .filter(em => em.ano > transferYear || (em.ano === transferYear && em.mes > transferMonth))
-              .map(em => em.id)
-
-            if (futureScaleIds.length > 0) {
-              // Deletar turnos diários sem presença
-              await supabase
-                .from('escala_diaria')
-                .delete()
-                .in('escala_mensal_id', futureScaleIds)
-                .is('presenca_entrada_em', null)
-                .is('presenca_saida_em', null)
-
-              // Tentar deletar as escalas mensais correspondentes
-              await supabase
-                .from('escala_mensal')
-                .delete()
-                .in('id', futureScaleIds)
-            }
-          }
-        }
-
-        // D. Preceding Months (Destination Sector): Delete any monthly scales and daily shifts without presence
-        if (newUnidadeId && newSetorId) {
-          const { data: pastDestScales } = await supabase
-            .from('escala_mensal')
-            .select('id, mes, ano')
-            .eq('servidor_id', id)
-            .eq('unidade_id', newUnidadeId)
-            .eq('setor_id', newSetorId)
-
-          if (pastDestScales) {
-            const pastScaleIds = pastDestScales
-              .filter(em => em.ano < transferYear || (em.ano === transferYear && em.mes < transferMonth))
-              .map(em => em.id)
-
-            if (pastScaleIds.length > 0) {
-              // Deletar turnos diários sem presença
-              await supabase
-                .from('escala_diaria')
-                .delete()
-                .in('escala_mensal_id', pastScaleIds)
-                .is('presenca_entrada_em', null)
-                .is('presenca_saida_em', null)
-
-              // Tentar deletar as escalas mensais correspondentes
-              await supabase
-                .from('escala_mensal')
-                .delete()
-                .in('id', pastScaleIds)
-            }
-          }
-        }
-      }
-    } catch (cleanError: any) {
-      console.error('Erro ao limpar escalas na transferência:', cleanError)
+    if (solicitacaoError) {
+      return { error: `Erro ao registrar a solicitação de transferência: ${solicitacaoError.message}` }
     }
   }
 
@@ -987,24 +1078,31 @@ export async function updateServidor(id: string, formData: FormData) {
       entidadeId: id,
       userId: autor?.id || null,
       alteracoes: alteracoesServidor,
-      detalhes: { nome: nome || currentServidor.nome, transferido: isTransferred },
-      unidadeId: newUnidadeId,
-      setorId: newSetorId,
+      detalhes: { nome: nome || currentServidor.nome, transferido: transferenciaDireta, transferenciaSolicitada: transferenciaPendente },
+      unidadeId: unidadeIdGravar,
+      setorId: setorIdGravar,
     })
   }
 
   revalidatePath('/servidores')
+  if (transferenciaPendente) {
+    revalidatePath('/servidores/pendencias')
+  }
   redirect('/servidores')
 }
 
-export async function toggleServidorStatus(id: string, status: 'Ativo' | 'Inativo', motivo?: string) {
+export async function toggleServidorStatus(id: string, status: 'Ativo' | 'Afastado' | 'Inativo', motivo?: string) {
   const supabase = await createClient()
+
+  const { data: antes } = await supabase.from('servidores').select('status').eq('id', id).single()
 
   const { error } = await supabase
     .from('servidores')
     .update({
       status,
-      motivo_inativacao: status === 'Inativo' ? motivo : null
+      // Genérico o bastante pra servir de "motivo da situação" — Afastado precisa de motivo
+      // tanto quanto Inativo (licença médica, cedência etc.), não só desligamento.
+      motivo_inativacao: status !== 'Ativo' ? (motivo || null) : null
     })
     .eq('id', id)
 
@@ -1012,15 +1110,16 @@ export async function toggleServidorStatus(id: string, status: 'Ativo' | 'Inativ
     return { error: error.message }
   }
 
-  // Inativar um servidor tira ele das escalas futuras e do terminal. O motivo importa tanto
-  // quanto o ato — sem ele, "por que fulano parou de aparecer?" não tem resposta.
+  // Mudar a situação tira o servidor das escalas futuras e do terminal (Afastado e Inativo, os
+  // dois). O motivo importa tanto quanto o ato — sem ele, "por que fulano parou de aparecer?"
+  // não tem resposta.
   const { data: { user: autorStatus } } = await supabase.auth.getUser()
   await registrarLog({
     acao: 'SERVIDOR_STATUS_ALTERADO',
     entidade: 'servidor',
     entidadeId: id,
     userId: autorStatus?.id || null,
-    alteracoes: { status: { de: status === 'Ativo' ? 'Inativo' : 'Ativo', para: status } },
+    alteracoes: { status: { de: antes?.status || null, para: status } },
     detalhes: motivo ? { motivo } : {},
   })
 
@@ -1118,5 +1217,108 @@ export async function promoverPendenciaRh(
   revalidatePath('/servidores/pendencias')
   revalidatePath('/servidores')
   return { success: true, servidorId: data as string }
+}
+
+/**
+ * Aprova ou rejeita um pedido de transferência de unidade/setor (v1.43.0). Só `super_admin` —
+ * a RLS de `solicitacoes_transferencia_servidor` (20260811110000) já recusaria o `UPDATE` de
+ * qualquer outro papel, mas a checagem aqui dá mensagem legível em vez do erro cru da policy.
+ *
+ * Aprovar reaproveita `registrarTransferenciaEfetivada` — a mesma função que `updateServidor`
+ * usa pra transferência direta do super_admin — pra não ter duas cópias da limpeza de escala.
+ */
+export async function avaliarSolicitacaoTransferencia(params: {
+  solicitacaoId: string
+  acao: 'aprovar' | 'rejeitar'
+  parecer?: string
+}) {
+  const { solicitacaoId, acao, parecer } = params
+  const supabase = await createClient()
+
+  const { data: { user: avaliador } } = await supabase.auth.getUser()
+  const { data: perfilAvaliador } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', avaliador?.id)
+    .single()
+
+  if (perfilAvaliador?.role !== 'super_admin') {
+    return { error: 'Só o administrador geral pode avaliar solicitações de transferência.' }
+  }
+
+  const { data: solicitacao, error: fetchError } = await supabase
+    .from('solicitacoes_transferencia_servidor')
+    .select('*, servidores(nome)')
+    .eq('id', solicitacaoId)
+    .eq('status', 'pendente')
+    .single()
+
+  if (fetchError || !solicitacao) {
+    return { error: 'Solicitação não encontrada, ou já foi avaliada.' }
+  }
+
+  if (acao === 'rejeitar') {
+    if (!parecer || parecer.trim().length < 5) {
+      return { error: 'Informe o motivo da rejeição (mínimo 5 caracteres).' }
+    }
+
+    const { error } = await supabase
+      .from('solicitacoes_transferencia_servidor')
+      .update({ status: 'rejeitada', avaliado_por_id: avaliador?.id, avaliado_em: new Date().toISOString(), parecer: parecer.trim() })
+      .eq('id', solicitacaoId)
+
+    if (error) return { error: error.message }
+
+    revalidatePath('/servidores/pendencias')
+    return { success: true }
+  }
+
+  // Aprovar: efetiva a transferência de verdade — mesmo caminho da transferência direta.
+  const { data: linhasGravadas, error: updateError } = await supabase
+    .from('servidores')
+    .update({ unidade_id: solicitacao.unidade_destino_id, setor_id: solicitacao.setor_destino_id })
+    .eq('id', solicitacao.servidor_id)
+    .select('id')
+
+  if (updateError) {
+    return { error: `Erro ao efetivar a transferência: ${updateError.message}` }
+  }
+  if (!linhasGravadas || linhasGravadas.length === 0) {
+    return { error: 'Nenhuma alteração foi gravada — o servidor pode estar fora do seu escopo de edição.' }
+  }
+
+  const resultadoTransferencia = await registrarTransferenciaEfetivada(supabase, {
+    servidorId: solicitacao.servidor_id,
+    unidadeOrigemId: solicitacao.unidade_origem_id,
+    setorOrigemId: solicitacao.setor_origem_id,
+    unidadeDestinoId: solicitacao.unidade_destino_id,
+    setorDestinoId: solicitacao.setor_destino_id,
+    dataTransferencia: solicitacao.data_transferencia_sugerida,
+    motivo: solicitacao.motivo,
+    criadoPorId: avaliador?.id || null,
+  })
+  if (resultadoTransferencia.error) {
+    return { error: resultadoTransferencia.error }
+  }
+
+  const { error: solicitacaoUpdateError } = await supabase
+    .from('solicitacoes_transferencia_servidor')
+    .update({
+      status: 'aprovada',
+      avaliado_por_id: avaliador?.id,
+      avaliado_em: new Date().toISOString(),
+      parecer: parecer?.trim() || null,
+      historico_transferencia_id: resultadoTransferencia.historicoId || null,
+    })
+    .eq('id', solicitacaoId)
+
+  if (solicitacaoUpdateError) {
+    return { error: `Transferência efetivada, mas houve erro ao marcar a solicitação como aprovada: ${solicitacaoUpdateError.message}` }
+  }
+
+  revalidatePath('/servidores/pendencias')
+  revalidatePath(`/servidores/${solicitacao.servidor_id}`)
+  revalidatePath('/servidores')
+  return { success: true }
 }
 

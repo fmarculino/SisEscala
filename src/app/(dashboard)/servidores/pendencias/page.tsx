@@ -50,9 +50,12 @@ export default async function PendenciasCadastroPage() {
     return { data: linhas, error: null }
   }
 
+  const isSuperAdmin = profile?.role === 'super_admin'
+
   const [
     documentosInvalidosRes, duplicidadesRes, semCpfRes, totaisRes, semPisRes,
     pendentesRhRes, unidadesRes, setoresRes, cargosRes,
+    solicitacoesTransferenciaRes, profilesRes,
   ] = await Promise.all([
     supabase.rpc('fn_documentos_invalidos'),
     supabase.rpc('fn_possiveis_duplicidades_servidor'),
@@ -67,6 +70,16 @@ export default async function PendenciasCadastroPage() {
     supabase.from('unidades').select('id, nome').order('nome'),
     supabase.from('setores').select('id, unidade_id, dicionario_setores(nome)').order('id'),
     supabase.from('cargos').select('id, nome').eq('ativo', true).order('nome'),
+    // servidores(nome, matricula) é FK simples (sem ambiguidade); unidade/setor de
+    // origem/destino são DUAS FKs pra mesma tabela (armadilha 8b do CLAUDE.md) - resolvidas por
+    // lookup manual embaixo em vez de embed com dica de constraint, pra não depender do nome
+    // exato que o Postgres gerou pra cada FK.
+    supabase
+      .from('solicitacoes_transferencia_servidor')
+      .select('id, servidor_id, unidade_origem_id, setor_origem_id, unidade_destino_id, setor_destino_id, data_transferencia_sugerida, motivo, solicitado_por_id, solicitado_em, servidores(nome, matricula)')
+      .eq('status', 'pendente')
+      .order('solicitado_em'),
+    supabase.from('profiles').select('id, full_name'),
   ])
 
   const { count: totalServidores } = totaisRes
@@ -108,6 +121,28 @@ export default async function PendenciasCadastroPage() {
     return { id: s.id, unidade_id: s.unidade_id, nome: dictData?.nome || 'SETOR SEM NOME' }
   })
 
+  const nomeUnidadePorId = new Map((unidadesRes.data || []).map((u: any) => [u.id, u.nome]))
+  const nomeSetorPorId = new Map(setoresRh.map((s) => [s.id, s.nome]))
+  const nomePerfilPorId = new Map((profilesRes.data || []).map((p: any) => [p.id, p.full_name]))
+
+  const solicitacoesTransferencia = (solicitacoesTransferenciaRes.data || []).map((s: any) => {
+    const servidorData = Array.isArray(s.servidores) ? s.servidores[0] : s.servidores
+    return {
+      id: s.id,
+      servidorId: s.servidor_id,
+      servidorNome: servidorData?.nome || '(servidor não encontrado)',
+      servidorMatricula: servidorData?.matricula || null,
+      unidadeOrigemNome: nomeUnidadePorId.get(s.unidade_origem_id) || '—',
+      setorOrigemNome: nomeSetorPorId.get(s.setor_origem_id) || '—',
+      unidadeDestinoNome: nomeUnidadePorId.get(s.unidade_destino_id) || '—',
+      setorDestinoNome: nomeSetorPorId.get(s.setor_destino_id) || '—',
+      dataTransferenciaSugerida: s.data_transferencia_sugerida,
+      motivo: s.motivo,
+      solicitadoPorNome: nomePerfilPorId.get(s.solicitado_por_id) || '—',
+      solicitadoEm: s.solicitado_em,
+    }
+  })
+
   return (
     <PendenciasCadastroClient
       documentosInvalidos={documentosInvalidosRes.data || []}
@@ -122,6 +157,9 @@ export default async function PendenciasCadastroPage() {
       unidades={unidadesRes.data || []}
       setores={setoresRh}
       cargos={cargosRes.data || []}
+      solicitacoesTransferencia={solicitacoesTransferencia}
+      erroSolicitacoesTransferencia={solicitacoesTransferenciaRes.error?.message || null}
+      isSuperAdmin={isSuperAdmin}
     />
   )
 }
