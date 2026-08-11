@@ -1,6 +1,5 @@
 import { createClient } from '@/utils/supabase/server'
 import { ServidorDetalhesClient } from './ServidorDetalhesClient'
-import { applyAccessFilters } from '@/utils/permissions'
 import { formatSectorsHierarchy } from '@/utils/sectors'
 
 export default async function EditServidorPage({
@@ -12,18 +11,14 @@ export default async function EditServidorPage({
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   
-  // Fetch profile with permissions
+  // Só o papel importa aqui agora — unidades/setores deixaram de ser filtrados por escopo
+  // (ver comentário abaixo), então o resto do perfil (profile_unidades/profile_setores) não tem
+  // mais uso nesta página.
   const { data: profile } = await supabase
     .from('profiles')
-    .select('*, profile_unidades(unidade_id), profile_setores(setor_id)')
+    .select('role')
     .eq('id', user?.id)
     .single()
-
-  const userProfile = profile ? {
-    ...profile,
-    permitted_unidades: profile.profile_unidades?.map((pu: any) => pu.unidade_id) || [],
-    permitted_setores: profile.profile_setores?.map((ps: any) => ps.setor_id) || []
-  } : null
 
   const { data: servidor } = await supabase
     .from('servidores')
@@ -31,26 +26,26 @@ export default async function EditServidorPage({
     .eq('id', id)
     .single()
 
-  // Fetch Units with access filter
+  // Unidades/setores SEM filtro de escopo (v1.43.0) — de propósito. Estas duas listas alimentam
+  // o seletor de lotação, que agora é também o formulário de SOLICITAR transferência
+  // (updateServidor, `transferenciaPendente`): um coordenador precisa conseguir PROPOR um destino
+  // fora do que ele administra — é o próprio ponto de existir a aprovação do super_admin depois.
+  // Restringir aqui pelo escopo de quem edita tornaria essas transferências inatingíveis, porque
+  // a opção nem apareceria no <select>. A escrita continua protegida: RLS de `servidores` recusa
+  // o UPDATE direto fora do escopo, e `updateServidor` só efetiva na hora se for super_admin.
+  //
   // permite_marca_intervalo/tipo_intervalo definem se os campos de intervalo do servidor
   // têm efeito — ver IntervaloPersonalizadoFields.
-  let unitsQuery = supabase
+  const { data: unidades } = await supabase
     .from('unidades')
     .select('id, nome, permite_marca_intervalo, tipo_intervalo')
     .eq('ativo', true)
     .order('nome')
-  
-  unitsQuery = applyAccessFilters(unitsQuery, userProfile, { unidadeField: 'id' })
-  const { data: unidades } = await unitsQuery
 
-  // Fetch Sectors with access filter
-  let sectorsQuery = supabase
+  const { data: sectorsRaw } = await supabase
     .from('setores')
     .select('id, unidade_id, parent_id, dicionario_setores(nome)')
     .eq('ativo', true)
-
-  sectorsQuery = applyAccessFilters(sectorsQuery, userProfile)
-  const { data: sectorsRaw } = await sectorsQuery
   const sectorsMapped = (sectorsRaw as any[])?.map(s => {
     const dictData = Array.isArray(s.dicionario_setores) 
       ? s.dicionario_setores[0] 
@@ -140,7 +135,7 @@ export default async function EditServidorPage({
       unidades={unidades || []}
       setores={setores || []}
       cargos={cargos || []}
-      isSuperAdmin={userProfile?.role === 'super_admin'}
+      isSuperAdmin={profile?.role === 'super_admin'}
       historico={historico}
       escalas={escalas}
       folhas={folhas || []}

@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.44.0] - 2026-08-11
+
+### Fixed
+- **Resumo de ponto por WhatsApp nunca disparava.** `fn_gerar_resumos_aviso_ponto()` devolvia `0`
+  sempre, sem erro visível — a seção diária agrupava por uma expressão repetida no `HAVING` e
+  numa subquery correlacionada, um padrão frágil no Postgres. Reescrita com CTE (`dia` vira
+  coluna material antes de agrupar), eliminando a ambiguidade. `EXCEPTION WHEN OTHERS` passa a
+  gravar em `logs_sistema` antes de devolver 0, em vez de só `RAISE WARNING` — próxima falha, se
+  houver, fica consultável em vez de silenciosa. Migration `20260811120000`. Confirmado gerando
+  e despachando em produção após aplicar. Ver
+  [`docs/evolucao/2026-08-11-resumo-whatsapp-e-escopo-transferencia-v1.44.0.md`](docs/evolucao/2026-08-11-resumo-whatsapp-e-escopo-transferencia-v1.44.0.md).
+- **Seletor de lotação da solicitação de transferência (v1.43.0) estava filtrado pelo escopo de
+  quem edita** — um coordenador só via unidades/setores já dentro do próprio escopo, tornando
+  impossível propor o destino real (fora do que administra), que é o próprio motivo de existir a
+  aprovação do `super_admin`. `servidores/[id]/page.tsx` deixou de aplicar `applyAccessFilters`
+  nas listas de unidades/setores; a escrita continua protegida por RLS + pela checagem de role em
+  `updateServidor`.
+
 ## [1.43.0] - 2026-08-11
 
 ### Added
