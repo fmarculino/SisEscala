@@ -1,0 +1,887 @@
+[
+  {
+    "departamento": "HOSPITAL MUNICIPAL",
+    "qtd": 1025,
+    "acao": "MATCH_PROVAVEL",
+    "unidade_id": "f248c6d1-952b-42de-b53b-11738625deff",
+    "unidade_nome": "HMM - Hospital Municipal de Marabá",
+    "score": 0.5,
+    "candidatos": [
+      {
+        "unidade_id": "f248c6d1-952b-42de-b53b-11738625deff",
+        "unidade_nome": "HMM - Hospital Municipal de Marabá",
+        "score": 0.5
+      },
+      {
+        "unidade_id": "c38a5df5-21fb-4d4e-8c97-e9770debe437",
+        "unidade_nome": "HMI - Hospital Materno Infantil",
+        "score": 0.25
+      }
+    ]
+  },
+  {
+    "departamento": "MATERNO INFANTIL",
+    "qtd": 440,
+    "acao": "MATCH_PROVAVEL",
+    "unidade_id": "c38a5df5-21fb-4d4e-8c97-e9770debe437",
+    "unidade_nome": "HMI - Hospital Materno Infantil",
+    "score": 0.5,
+    "candidatos": [
+      {
+        "unidade_id": "c38a5df5-21fb-4d4e-8c97-e9770debe437",
+        "unidade_nome": "HMI - Hospital Materno Infantil",
+        "score": 0.5
+      }
+    ]
+  },
+  {
+    "departamento": "CS PEDRO CAVALCANTE",
+    "qtd": 89,
+    "acao": "MATCH_EXATO",
+    "unidade_id": "c79c4d6f-f833-46f2-a132-edd20a38bdf5",
+    "unidade_nome": "USF Pedro Cavalcante",
+    "score": 1,
+    "candidatos": [
+      {
+        "unidade_id": "c79c4d6f-f833-46f2-a132-edd20a38bdf5",
+        "unidade_nome": "USF Pedro Cavalcante",
+        "score": 1
+      }
+    ]
+  },
+  {
+    "departamento": "CS ENF. ZEZINHA",
+    "qtd": 78,
+    "acao": "MATCH_PROVAVEL",
+    "unidade_id": "0dbf8475-73cb-47e6-8833-e1e6ffc35bdc",
+    "unidade_nome": "USF ENFERMEIRA ZEZINHA",
+    "score": 0.33,
+    "candidatos": [
+      {
+        "unidade_id": "0dbf8475-73cb-47e6-8833-e1e6ffc35bdc",
+        "unidade_nome": "USF ENFERMEIRA ZEZINHA",
+        "score": 0.3333333333333333
+      }
+    ]
+  },
+  {
+    "departamento": "CS HIROSHI MATSUDA",
+    "qtd": 77,
+    "acao": "MATCH_EXATO",
+    "unidade_id": "36abf7d9-6b28-4890-8c4c-676bbcd048c0",
+    "unidade_nome": "USF HIROSHI MATSUDA",
+    "score": 1,
+    "candidatos": [
+      {
+        "unidade_id": "36abf7d9-6b28-4890-8c4c-676bbcd048c0",
+        "unidade_nome": "USF HIROSHI MATSUDA",
+        "score": 1
+      }
+    ]
+  },
+  {
+    "departamento": "CS CARLOS BARRETO",
+    "qtd": 73,
+    "acao": "MATCH_EXATO",
+    "unidade_id": "7e7e9d59-fcf2-4dcc-8d48-fa7dd7e5916c",
+    "unidade_nome": "USF Carlos Barreto",
+    "score": 1,
+    "candidatos": [
+      {
+        "unidade_id": "7e7e9d59-fcf2-4dcc-8d48-fa7dd7e5916c",
+        "unidade_nome": "USF Carlos Barreto",
+        "score": 1
+      }
+    ]
+  },
+  {
+    "departamento": "CENT. CONT. DE ZOONOSES",
+    "qtd": 73,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CS AMADEU VIVACQUA",
+    "qtd": 73,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CS MARIANA MORAES",
+    "qtd": 72,
+    "acao": "MATCH_EXATO",
+    "unidade_id": "fd5c7a1e-3852-482d-8abf-e80a5c1db7e8",
+    "unidade_nome": "USF Mariana Alves de Moraes",
+    "score": 0.67,
+    "candidatos": [
+      {
+        "unidade_id": "fd5c7a1e-3852-482d-8abf-e80a5c1db7e8",
+        "unidade_nome": "USF Mariana Alves de Moraes",
+        "score": 0.6666666666666666
+      }
+    ]
+  },
+  {
+    "departamento": "CS JAIME PINTO",
+    "qtd": 72,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "SAMU",
+    "qtd": 71,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CS LARANJEIRAS",
+    "qtd": 71,
+    "acao": "MATCH_EXATO",
+    "unidade_id": "bd47e269-7041-4763-aa5f-c4fc1efe407c",
+    "unidade_nome": "USF Laranjeiras",
+    "score": 1,
+    "candidatos": [
+      {
+        "unidade_id": "bd47e269-7041-4763-aa5f-c4fc1efe407c",
+        "unidade_nome": "USF Laranjeiras",
+        "score": 1
+      }
+    ]
+  },
+  {
+    "departamento": "CENTRO DE ESPECIALIDADE",
+    "qtd": 60,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CS LIBERDADE",
+    "qtd": 54,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "VIGILANCIA SANITARIA",
+    "qtd": 53,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CTA",
+    "qtd": 51,
+    "acao": "MATCH_PROVAVEL",
+    "unidade_id": "3a9f7c6f-292b-4c14-876c-d79559ac3c56",
+    "unidade_nome": "CTA - CENTRO DE TESTAGEM E ACONSELHAMENTO",
+    "score": 0.33,
+    "candidatos": [
+      {
+        "unidade_id": "3a9f7c6f-292b-4c14-876c-d79559ac3c56",
+        "unidade_nome": "CTA - CENTRO DE TESTAGEM E ACONSELHAMENTO",
+        "score": 0.3333333333333333
+      }
+    ]
+  },
+  {
+    "departamento": "CS MARIA BICO DOCE",
+    "qtd": 49,
+    "acao": "MATCH_EXATO",
+    "unidade_id": "ea6fff28-3ae5-479c-9eae-9dadf7814f93",
+    "unidade_nome": "USF Parteira Maria Bico Doce",
+    "score": 0.75,
+    "candidatos": [
+      {
+        "unidade_id": "ea6fff28-3ae5-479c-9eae-9dadf7814f93",
+        "unidade_nome": "USF Parteira Maria Bico Doce",
+        "score": 0.75
+      }
+    ]
+  },
+  {
+    "departamento": "CRISMU",
+    "qtd": 45,
+    "acao": "CRIAR_NOVA",
+    "candidatos": [
+      {
+        "unidade_id": "9c173a51-a206-4562-a403-6c37ea9a0f0e",
+        "unidade_nome": "CRISMU - Centro De Referência Integrada À Saude Da Mulher",
+        "score": 0.25
+      }
+    ]
+  },
+  {
+    "departamento": "DIRETOR DE AT. PRIMARIA",
+    "qtd": 44,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "SEDE",
+    "qtd": 42,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "DIRETORIA ADMINISTRATIVA",
+    "qtd": 39,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "GABINETE/SAUDE",
+    "qtd": 39,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CAPS II",
+    "qtd": 37,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CS DEMOSTHENES AZEVEDO",
+    "qtd": 37,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "LABORATORIO MUNICIPAL",
+    "qtd": 36,
+    "acao": "MATCH_PROVAVEL",
+    "unidade_id": "111628b6-28ab-4ce7-ae46-890f377ddcdd",
+    "unidade_nome": "LACEM - LABORATORIO CENTRAL DE MARABA",
+    "score": 0.5,
+    "candidatos": [
+      {
+        "unidade_id": "111628b6-28ab-4ce7-ae46-890f377ddcdd",
+        "unidade_nome": "LACEM - LABORATORIO CENTRAL DE MARABA",
+        "score": 0.5
+      }
+    ]
+  },
+  {
+    "departamento": "CAPS III",
+    "qtd": 33,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CS Dr EMERSON CASELLI",
+    "qtd": 32,
+    "acao": "MATCH_EXATO",
+    "unidade_id": "b3663bca-b628-4f13-b1bc-259817030387",
+    "unidade_nome": "USF EMERSON CASELLI",
+    "score": 1,
+    "candidatos": [
+      {
+        "unidade_id": "b3663bca-b628-4f13-b1bc-259817030387",
+        "unidade_nome": "USF EMERSON CASELLI",
+        "score": 1
+      }
+    ]
+  },
+  {
+    "departamento": "CS JOAO BATISTA BEZERRA",
+    "qtd": 31,
+    "acao": "MATCH_EXATO",
+    "unidade_id": "f19e05bb-5a3e-474f-83a1-45dc28c806e8",
+    "unidade_nome": "USF João Batista Bezerra",
+    "score": 1,
+    "candidatos": [
+      {
+        "unidade_id": "f19e05bb-5a3e-474f-83a1-45dc28c806e8",
+        "unidade_nome": "USF João Batista Bezerra",
+        "score": 1
+      }
+    ]
+  },
+  {
+    "departamento": "CS JOSE PEREIRA DE ARAUJO-BP",
+    "qtd": 31,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CS EDIVAN XAVIER",
+    "qtd": 27,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "Atualizar",
+    "qtd": 26,
+    "acao": "DESCARTAR",
+    "motivo": "placeholder de dado incompleto na fonte, nao e nome de unidade",
+    "candidatos": []
+  },
+  {
+    "departamento": "CENTRAL DE REGULACAO",
+    "qtd": 24,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CS VILA CAPIST DE ABREU (ZR)",
+    "qtd": 21,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "D.A.B. SEDE",
+    "qtd": 20,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CS MURUMURU (ZR)",
+    "qtd": 20,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "DIR. ALTA E MEDIA COMPLEXIDADE",
+    "qtd": 18,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "ALMOXARIFADO - SAUDE",
+    "qtd": 17,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CS MANOEL DA ANUNCIACAO",
+    "qtd": 15,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CS VILA SANTA FE (ZR)",
+    "qtd": 15,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CS VILA ESPIRITO SANTO (ZR)",
+    "qtd": 14,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CEREST",
+    "qtd": 14,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "T.F.D-SAUDE",
+    "qtd": 14,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "DEP. ACOES BASICAS",
+    "qtd": 13,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "SEC. DE SAUDE",
+    "qtd": 12,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CS VILA ITAINOPOLIS (ZR)",
+    "qtd": 12,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "DIV. RECURSOS HUMANOS -SAUDE",
+    "qtd": 12,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CS VILA SORORO (ZR)",
+    "qtd": 11,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "ALMOXARIFADO CENTRAL",
+    "qtd": 11,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CS VILA UNIAO (ZR)",
+    "qtd": 10,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "DIV. VIGILANCIA SANITARIA",
+    "qtd": 9,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "DEP. ADM. FINANCEIRO",
+    "qtd": 9,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "DMAC",
+    "qtd": 9,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "DAF/APOIO",
+    "qtd": 9,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "FARMACIA POPULAR",
+    "qtd": 9,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "DIV. DE APOIO - SAUDE",
+    "qtd": 8,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "VIG. EPIDEMIOLOGICA",
+    "qtd": 8,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CS VILA TRES PODERES",
+    "qtd": 8,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "DEP TRANSPORTE",
+    "qtd": 8,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CS JOSE D'JALMA DE AZEVEDO",
+    "qtd": 8,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "IMUNIZACAO SAUDE",
+    "qtd": 7,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "SESPA",
+    "qtd": 7,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "UNID. S.FAM. JOAO B. BEZERRA",
+    "qtd": 7,
+    "acao": "MATCH_EXATO",
+    "unidade_id": "f19e05bb-5a3e-474f-83a1-45dc28c806e8",
+    "unidade_nome": "USF João Batista Bezerra",
+    "score": 0.67,
+    "candidatos": [
+      {
+        "unidade_id": "f19e05bb-5a3e-474f-83a1-45dc28c806e8",
+        "unidade_nome": "USF João Batista Bezerra",
+        "score": 0.6666666666666666
+      }
+    ]
+  },
+  {
+    "departamento": "DIV. DE VIG.EM SAUDE",
+    "qtd": 7,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CS BREJO DO MEIO",
+    "qtd": 7,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "SEASP",
+    "qtd": 6,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "COORD. DE APOIO",
+    "qtd": 6,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CS LUIZA PEREIRA DA SILVA (ZR)",
+    "qtd": 4,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CRAMA",
+    "qtd": 4,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "ZONA RURAL",
+    "qtd": 4,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "JUSTICA FEDERAL",
+    "qtd": 4,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CTMM - CENTRO DE TRIAGEM MASC. DE MARABA",
+    "qtd": 4,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "DEP. IMUNOBIOLOGICO",
+    "qtd": 4,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "VIGILANCIA AMBIENTAL",
+    "qtd": 4,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CS GETULIO DE SOUZA",
+    "qtd": 4,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CS VILA CRISTALANDIA (ZR)",
+    "qtd": 4,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CS JOSE M. DA ANUNCIAÇÃO (ZR)",
+    "qtd": 4,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "COORD. DE VIG. SAUDE",
+    "qtd": 3,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CENTRO DE REF A ASS. A MULHER",
+    "qtd": 3,
+    "acao": "CRIAR_NOVA",
+    "candidatos": [
+      {
+        "unidade_id": "9c173a51-a206-4562-a403-6c37ea9a0f0e",
+        "unidade_nome": "CRISMU - Centro De Referência Integrada À Saude Da Mulher",
+        "score": 0.16666666666666666
+      }
+    ]
+  },
+  {
+    "departamento": "DIRETORIA FINANCEIRA",
+    "qtd": 3,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CS ELISA MONTEIRO CHAVITO",
+    "qtd": 3,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "VILA TRES PODERES",
+    "qtd": 2,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "VILA ITAINOPOLIS",
+    "qtd": 2,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "REGULACAO-SMS",
+    "qtd": 2,
+    "acao": "MATCH_PROVAVEL",
+    "unidade_id": "9f5ba3d4-44db-452d-a0e5-614e86437807",
+    "unidade_nome": "SMS - Secretaria Municipal de Saúde",
+    "score": 0.33,
+    "candidatos": [
+      {
+        "unidade_id": "9f5ba3d4-44db-452d-a0e5-614e86437807",
+        "unidade_nome": "SMS - Secretaria Municipal de Saúde",
+        "score": 0.3333333333333333
+      }
+    ]
+  },
+  {
+    "departamento": "TRIBUNAL DE JUSTICA",
+    "qtd": 2,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CONTABILIDADE",
+    "qtd": 2,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "DIV. CONTABILIDADE-SAUDE",
+    "qtd": 2,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "APAE",
+    "qtd": 2,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "ASS.EDUCADORA SAO FRANCISCO DE ASSIS",
+    "qtd": 2,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "VILA CAPRISTANO DE ABREU",
+    "qtd": 2,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CS VILA CARIMA (ZR)",
+    "qtd": 2,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CS PASTOR JHONATAS",
+    "qtd": 2,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CONSELHO M. SAUDE",
+    "qtd": 2,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "LAR SAO VICENTE",
+    "qtd": 2,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "VILA CARIMA",
+    "qtd": 2,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "SEMED/DILOG",
+    "qtd": 1,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "VILA BREJO DO MEIO",
+    "qtd": 1,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "PA LIBERDADE",
+    "qtd": 1,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "NAETEA - SEMED",
+    "qtd": 1,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "SINDMEPA",
+    "qtd": 1,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "AABB Comunidade",
+    "qtd": 1,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "EMEF PAULO FREIRE",
+    "qtd": 1,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "DEP. DE CONTROLE E AVALIACÃO",
+    "qtd": 1,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "SICOM",
+    "qtd": 1,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "IPASEMAR",
+    "qtd": 1,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "VILA SORORO",
+    "qtd": 1,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "EMEF TEREZINHA DE SOUZA RAMOS",
+    "qtd": 1,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "DEP. COMPRAS SAUDE",
+    "qtd": 1,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "FORUM",
+    "qtd": 1,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CAMARA MUNICIPAL DE MARABÁ",
+    "qtd": 1,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "ASS.TECNICA",
+    "qtd": 1,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "SEC OBRAS",
+    "qtd": 1,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "ADM.MORADA NOVA",
+    "qtd": 1,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CS ROMARIO BARBOSA-Vila Uniao",
+    "qtd": 1,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "OUVIDORIA",
+    "qtd": 1,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "EMEF ARTUR GUERRA",
+    "qtd": 1,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "SINTESP",
+    "qtd": 1,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "DIR. DE INFRAESTRUTURA",
+    "qtd": 1,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "CS VILA SAO RAIMUNDO",
+    "qtd": 1,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "N.E.I. MARLUSE FERREIRA DA SILVA",
+    "qtd": 1,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "PATRIMONIO PUBLICO",
+    "qtd": 1,
+    "acao": "CRIAR_NOVA",
+    "candidatos": []
+  },
+  {
+    "departamento": "SAO JOAO DO ARAGUAIA",
+    "qtd": 1,
+    "acao": "CRIAR_NOVA",
+    "candidatos": [
+      {
+        "unidade_id": "f19e05bb-5a3e-474f-83a1-45dc28c806e8",
+        "unidade_nome": "USF João Batista Bezerra",
+        "score": 0.2
+      }
+    ]
+  }
+]

@@ -25,6 +25,9 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
   const [formTab, setFormTab] = useState<'principal' | 'complementar'>('principal')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Só aparece depois que a action recusa por CPF já cadastrado em outra matrícula — ver
+  // verificarCpfDuplicado em servidores/actions.ts (20260810140000).
+  const [confirmaVinculoAdicional, setConfirmaVinculoAdicional] = useState(false)
   const [selectedUnidade, setSelectedUnidade] = useState(servidor.unidade_id || '')
   const [selectedSetor, setSelectedSetor] = useState(servidor.setor_id || '')
   const [fotoUrl, setFotoUrl] = useState<string>(servidor.foto_url || '')
@@ -136,6 +139,7 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
     formData.set('pin_acesso', currentPin)
     formData.set('cpf', currentCpf)
     formData.set('foto_url', fotoUrl)
+    formData.set('confirma_vinculo_adicional', confirmaVinculoAdicional ? 'true' : 'false')
     if (isSuperAdmin) {
       const checkbox = document.getElementById('ignora_janela_presenca') as HTMLInputElement
       formData.set('ignora_janela_presenca', checkbox?.checked ? 'true' : 'false')
@@ -695,8 +699,20 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
         </div>
 
         {error && (
-          <div className="rounded-md bg-red-50 p-4 dark:bg-red-900/20">
+          <div className="rounded-md bg-red-50 p-4 dark:bg-red-900/20 space-y-3">
             <p className="text-sm text-red-700 dark:text-red-400">{error}</p>
+            {error.includes('SEGUNDO vínculo') && (
+              <label className="flex items-start gap-2 text-sm text-red-800 dark:text-red-300">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={confirmaVinculoAdicional}
+                  onChange={(e) => setConfirmaVinculoAdicional(e.target.checked)}
+                />
+                Confirmo: é a mesma pessoa, com um segundo vínculo de verdade (outro cargo, outra
+                matrícula) — não é cadastro duplicado por engano. Envie o formulário de novo.
+              </label>
+            )}
           </div>
         )}
 

@@ -1,0 +1,716 @@
+{
+  "fusoes": [
+    {
+      "nomeBase": "AG.DE ZOONOSES",
+      "cargos": [
+        {
+          "id": "9cbb6dbe-52ad-4097-92ff-d4bd1bfdbff9",
+          "nome": "AG.DE ZOONOSES",
+          "codigo": "3413"
+        },
+        {
+          "id": "7bc5fab5-7e73-43d7-ab16-de7a0df3fc1c",
+          "nome": "AG.DE ZOONOSES_CONTRATADO",
+          "codigo": "3805"
+        }
+      ],
+      "canonicoSugerido": {
+        "id": "9cbb6dbe-52ad-4097-92ff-d4bd1bfdbff9",
+        "nome": "AG.DE ZOONOSES",
+        "codigo": "3413",
+        "ativo": true
+      },
+      "ambiguo": false
+    },
+    {
+      "nomeBase": "ALMOXARIFE",
+      "cargos": [
+        {
+          "id": "e18079fb-bd3b-4a37-b217-1ff37955f997",
+          "nome": "Almoxarife",
+          "codigo": "0091"
+        },
+        {
+          "id": "01ebbb4a-e02e-4e1a-912b-75863c68b432",
+          "nome": "ALMOXARIFE_CONTRATADO",
+          "codigo": "3795"
+        }
+      ],
+      "canonicoSugerido": {
+        "id": "e18079fb-bd3b-4a37-b217-1ff37955f997",
+        "nome": "Almoxarife",
+        "codigo": "0091",
+        "ativo": true
+      },
+      "ambiguo": false
+    },
+    {
+      "nomeBase": "ARTESAO",
+      "cargos": [
+        {
+          "id": "1e49e55b-0374-4be8-8937-28a91f25e5e0",
+          "nome": "ARTESAO",
+          "codigo": "3411"
+        },
+        {
+          "id": "a3ac8093-fa22-450f-809e-35c55f596a7f",
+          "nome": "ARTESAO_CONTRATADO",
+          "codigo": "3759"
+        }
+      ],
+      "canonicoSugerido": {
+        "id": "1e49e55b-0374-4be8-8937-28a91f25e5e0",
+        "nome": "ARTESAO",
+        "codigo": "3411",
+        "ativo": true
+      },
+      "ambiguo": false
+    },
+    {
+      "nomeBase": "ASS.ADMINISTRATIVO",
+      "cargos": [
+        {
+          "id": "ce57ae16-a7bd-4165-a244-eeba6de83e9d",
+          "nome": "ASS.ADMINISTRATIVO",
+          "codigo": "3342"
+        },
+        {
+          "id": "d820a8af-a148-4fbb-87a2-10ee62816a10",
+          "nome": "ASS.ADMINISTRATIVO_CONTRATADO",
+          "codigo": "3737"
+        }
+      ],
+      "canonicoSugerido": {
+        "id": "ce57ae16-a7bd-4165-a244-eeba6de83e9d",
+        "nome": "ASS.ADMINISTRATIVO",
+        "codigo": "3342",
+        "ativo": true
+      },
+      "ambiguo": false
+    },
+    {
+      "nomeBase": "AUXILIAR EM SAUDE BUCAL",
+      "cargos": [
+        {
+          "id": "2bc25ad7-a9b3-44fa-8465-633c59d014fd",
+          "nome": "AUXILIAR EM SAUDE BUCAL",
+          "codigo": "3621"
+        },
+        {
+          "id": "e579d3c4-568d-440f-a675-9415b8224030",
+          "nome": "AUXILIAR EM SAUDE BUCAL_CONTRATADO",
+          "codigo": "3727"
+        }
+      ],
+      "canonicoSugerido": {
+        "id": "2bc25ad7-a9b3-44fa-8465-633c59d014fd",
+        "nome": "AUXILIAR EM SAUDE BUCAL",
+        "codigo": "3621",
+        "ativo": true
+      },
+      "ambiguo": false
+    },
+    {
+      "nomeBase": "EDUCADOR FISICO",
+      "cargos": [
+        {
+          "id": "cefc4bb5-d831-44db-9474-263a536beb24",
+          "nome": "EDUCADOR FISICO",
+          "codigo": "3623"
+        },
+        {
+          "id": "f75e7bd1-ce97-4d0d-95fe-d68bce6f4502",
+          "nome": "EDUCADOR FISICO_contratado",
+          "codigo": "3762"
+        }
+      ],
+      "canonicoSugerido": {
+        "id": "cefc4bb5-d831-44db-9474-263a536beb24",
+        "nome": "EDUCADOR FISICO",
+        "codigo": "3623",
+        "ativo": true
+      },
+      "ambiguo": false
+    },
+    {
+      "nomeBase": "ENFERMEIRO(A)",
+      "cargos": [
+        {
+          "id": "e5e027ca-3365-4108-9ed7-7bc003a9f0dd",
+          "nome": "ENFERMEIRO(A)",
+          "codigo": "0037"
+        },
+        {
+          "id": "83888987-1c7c-443c-8928-ef57f859f7e3",
+          "nome": "ENFERMEIRO(A)_CONTRATADO",
+          "codigo": "3718"
+        }
+      ],
+      "canonicoSugerido": {
+        "id": "e5e027ca-3365-4108-9ed7-7bc003a9f0dd",
+        "nome": "ENFERMEIRO(A)",
+        "codigo": "0037",
+        "ativo": true
+      },
+      "ambiguo": false
+    },
+    {
+      "nomeBase": "ENFERMEIRO(A) DO TRABALHO",
+      "cargos": [
+        {
+          "id": "d5d7abb9-c8f1-4ca7-9787-b9c5b375daa5",
+          "nome": "ENFERMEIRO(A) DO TRABALHO",
+          "codigo": "3673"
+        },
+        {
+          "id": "444b422a-d2fe-4e60-b28b-d58130ba606f",
+          "nome": "ENFERMEIRO(A) DO TRABALHO_CONTRATADO",
+          "codigo": "3774"
+        }
+      ],
+      "canonicoSugerido": {
+        "id": "d5d7abb9-c8f1-4ca7-9787-b9c5b375daa5",
+        "nome": "ENFERMEIRO(A) DO TRABALHO",
+        "codigo": "3673",
+        "ativo": true
+      },
+      "ambiguo": false
+    },
+    {
+      "nomeBase": "ENFERMEIRO(A) OBSTETRA",
+      "cargos": [
+        {
+          "id": "9f0a4815-d121-4c53-a2d0-bc4efea3c4b6",
+          "nome": "ENFERMEIRO(A) OBSTETRA",
+          "codigo": "3674"
+        },
+        {
+          "id": "6d653b2b-71a8-40c8-8109-777b506db348",
+          "nome": "ENFERMEIRO(A) OBSTETRA_CONTRATADO",
+          "codigo": "3763"
+        }
+      ],
+      "canonicoSugerido": {
+        "id": "9f0a4815-d121-4c53-a2d0-bc4efea3c4b6",
+        "nome": "ENFERMEIRO(A) OBSTETRA",
+        "codigo": "3674",
+        "ativo": true
+      },
+      "ambiguo": false
+    },
+    {
+      "nomeBase": "ENGENHEIRO CIVIL",
+      "cargos": [
+        {
+          "id": "78f6a4fd-6883-4da6-858b-45e9576377d2",
+          "nome": "ENGENHEIRO CIVIL",
+          "codigo": "0012"
+        },
+        {
+          "id": "0cfc65ff-26da-4de9-a76d-a82c2570cf72",
+          "nome": "ENGENHEIRO CIVIL-CONTRATADO",
+          "codigo": "3809"
+        }
+      ],
+      "canonicoSugerido": {
+        "id": "78f6a4fd-6883-4da6-858b-45e9576377d2",
+        "nome": "ENGENHEIRO CIVIL",
+        "codigo": "0012",
+        "ativo": true
+      },
+      "ambiguo": false
+    },
+    {
+      "nomeBase": "ENG.SANITARISTA",
+      "cargos": [
+        {
+          "id": "12db3917-130d-4684-802d-f38088535513",
+          "nome": "ENG.SANITARISTA",
+          "codigo": "3416"
+        },
+        {
+          "id": "9e91e783-be7c-4e6e-9daf-29323ee2410a",
+          "nome": "ENG.SANITARISTA_CONTRATADO",
+          "codigo": "3806"
+        }
+      ],
+      "canonicoSugerido": {
+        "id": "12db3917-130d-4684-802d-f38088535513",
+        "nome": "ENG.SANITARISTA",
+        "codigo": "3416",
+        "ativo": true
+      },
+      "ambiguo": false
+    },
+    {
+      "nomeBase": "FISIOTERAPEUTA",
+      "cargos": [
+        {
+          "id": "f237dbae-524b-41a6-a9fb-a2ddb062c3b3",
+          "nome": "FISIOTERAPEUTA",
+          "codigo": "0163"
+        },
+        {
+          "id": "9a61d30e-8dc3-42ef-98bf-e4bee0959dec",
+          "nome": "FISIOTERAPEUTA_CONTRATADO",
+          "codigo": "3757"
+        }
+      ],
+      "canonicoSugerido": {
+        "id": "f237dbae-524b-41a6-a9fb-a2ddb062c3b3",
+        "nome": "FISIOTERAPEUTA",
+        "codigo": "0163",
+        "ativo": true
+      },
+      "ambiguo": false
+    },
+    {
+      "nomeBase": "FONOAUDIOLOGO(A)",
+      "cargos": [
+        {
+          "id": "eaa476f5-0f2c-4cd4-a49e-5947816387ac",
+          "nome": "FONOAUDIOLOGO(A)",
+          "codigo": "0084"
+        },
+        {
+          "id": "953d83bf-87cf-478d-86e2-09f02a829542",
+          "nome": "FONOAUDIOLOGO(A)_CONTRATADO",
+          "codigo": "3814"
+        }
+      ],
+      "canonicoSugerido": {
+        "id": "eaa476f5-0f2c-4cd4-a49e-5947816387ac",
+        "nome": "FONOAUDIOLOGO(A)",
+        "codigo": "0084",
+        "ativo": true
+      },
+      "ambiguo": false
+    },
+    {
+      "nomeBase": "MAQUEIRO",
+      "cargos": [
+        {
+          "id": "6c627763-e2c9-4a0b-a474-ed6f5b71db6e",
+          "nome": "MAQUEIRO",
+          "codigo": "3758"
+        },
+        {
+          "id": "5011b903-1918-4975-907f-7c0f936eb951",
+          "nome": "MAQUEIRO_contratado",
+          "codigo": "3403"
+        }
+      ],
+      "canonicoSugerido": {
+        "id": "6c627763-e2c9-4a0b-a474-ed6f5b71db6e",
+        "nome": "MAQUEIRO",
+        "codigo": "3758",
+        "ativo": true
+      },
+      "ambiguo": false
+    },
+    {
+      "nomeBase": "MEDICO CIRUGIAO",
+      "cargos": [
+        {
+          "id": "bd638c6f-1279-4009-bc1d-a68ba66defc2",
+          "nome": "MEDICO CIRUGIAO",
+          "codigo": "3420"
+        },
+        {
+          "id": "4ec2ea13-fde7-4cf8-a7c2-308f8d56bbf4",
+          "nome": "MEDICO CIRUGIAO_CONTRATADO",
+          "codigo": "3719"
+        }
+      ],
+      "canonicoSugerido": {
+        "id": "bd638c6f-1279-4009-bc1d-a68ba66defc2",
+        "nome": "MEDICO CIRUGIAO",
+        "codigo": "3420",
+        "ativo": true
+      },
+      "ambiguo": false
+    },
+    {
+      "nomeBase": "MEDICO CLINICO",
+      "cargos": [
+        {
+          "id": "ed89f101-fa72-404c-bc15-54cba769dac8",
+          "nome": "MEDICO CLINICO",
+          "codigo": "3418"
+        },
+        {
+          "id": "d65a8c3a-5fec-42fb-9393-69fdb7d50284",
+          "nome": "MEDICO CLINICO_CONTRATADO",
+          "codigo": "3720"
+        }
+      ],
+      "canonicoSugerido": {
+        "id": "ed89f101-fa72-404c-bc15-54cba769dac8",
+        "nome": "MEDICO CLINICO",
+        "codigo": "3418",
+        "ativo": true
+      },
+      "ambiguo": false
+    },
+    {
+      "nomeBase": "MEDICO DO TRABALHO",
+      "cargos": [
+        {
+          "id": "8abe6c33-2487-4ebf-b827-7fe452ba432f",
+          "nome": "MEDICO DO TRABALHO",
+          "codigo": "3672"
+        },
+        {
+          "id": "bca22402-6c8b-44d3-853f-542620aa8c7e",
+          "nome": "MEDICO DO TRABALHO _CONTRATADO",
+          "codigo": "3804"
+        }
+      ],
+      "canonicoSugerido": {
+        "id": "8abe6c33-2487-4ebf-b827-7fe452ba432f",
+        "nome": "MEDICO DO TRABALHO",
+        "codigo": "3672",
+        "ativo": true
+      },
+      "ambiguo": false
+    },
+    {
+      "nomeBase": "MEDICO PEDIATRA",
+      "cargos": [
+        {
+          "id": "d4bc862b-d168-4b00-9411-44f271047c46",
+          "nome": "MEDICO PEDIATRA",
+          "codigo": "0174"
+        },
+        {
+          "id": "25db3b2f-b1ca-41ce-a700-b0dcd1ccebee",
+          "nome": "MEDICO PEDIATRA_CONTRATADO",
+          "codigo": "3739"
+        }
+      ],
+      "canonicoSugerido": {
+        "id": "d4bc862b-d168-4b00-9411-44f271047c46",
+        "nome": "MEDICO PEDIATRA",
+        "codigo": "0174",
+        "ativo": true
+      },
+      "ambiguo": false
+    },
+    {
+      "nomeBase": "MEDICO RADIOLOGISTA",
+      "cargos": [
+        {
+          "id": "1ed60269-aabe-42e5-a32c-6a94310a9fed",
+          "nome": "MEDICO RADIOLOGISTA",
+          "codigo": "3423"
+        },
+        {
+          "id": "c37815f0-a847-4e2a-b579-66f9d48eb357",
+          "nome": "MEDICO RADIOLOGISTA_contratado",
+          "codigo": "3761"
+        }
+      ],
+      "canonicoSugerido": {
+        "id": "1ed60269-aabe-42e5-a32c-6a94310a9fed",
+        "nome": "MEDICO RADIOLOGISTA",
+        "codigo": "3423",
+        "ativo": true
+      },
+      "ambiguo": false
+    },
+    {
+      "nomeBase": "MEDICO UROLOGISTA",
+      "cargos": [
+        {
+          "id": "25e3ab47-7406-4cbc-966d-d4f8f32e0344",
+          "nome": "MEDICO UROLOGISTA",
+          "codigo": "3422"
+        },
+        {
+          "id": "6ba258c7-49bf-4a76-8989-0be579760682",
+          "nome": "MEDICO UROLOGISTA_CONTRATADO",
+          "codigo": "3729"
+        }
+      ],
+      "canonicoSugerido": {
+        "id": "25e3ab47-7406-4cbc-966d-d4f8f32e0344",
+        "nome": "MEDICO UROLOGISTA",
+        "codigo": "3422",
+        "ativo": true
+      },
+      "ambiguo": false
+    },
+    {
+      "nomeBase": "MOTORISTA",
+      "cargos": [
+        {
+          "id": "f0081f4b-89f2-446f-b6ea-9ce7ae66df56",
+          "nome": "MOTORISTA",
+          "codigo": "0033"
+        },
+        {
+          "id": "730f0642-8948-4b4c-8170-67158dc82c1b",
+          "nome": "MOTORISTA_CONTRATADO",
+          "codigo": "3714"
+        }
+      ],
+      "canonicoSugerido": {
+        "id": "f0081f4b-89f2-446f-b6ea-9ce7ae66df56",
+        "nome": "MOTORISTA",
+        "codigo": "0033",
+        "ativo": true
+      },
+      "ambiguo": false
+    },
+    {
+      "nomeBase": "MOTORISTA - D",
+      "cargos": [
+        {
+          "id": "802db59f-e7c3-42a1-babb-7702d506305d",
+          "nome": "MOTORISTA - D",
+          "codigo": "3676"
+        },
+        {
+          "id": "0585a11a-0f15-440a-af4e-2a56fe7b0ad7",
+          "nome": "MOTORISTA - D_CONTRATADO",
+          "codigo": "3726"
+        }
+      ],
+      "canonicoSugerido": {
+        "id": "802db59f-e7c3-42a1-babb-7702d506305d",
+        "nome": "MOTORISTA - D",
+        "codigo": "3676",
+        "ativo": true
+      },
+      "ambiguo": false
+    },
+    {
+      "nomeBase": "NUTRICIONISTA",
+      "cargos": [
+        {
+          "id": "86608d8f-e1b4-464f-927a-6539837eb70e",
+          "nome": "NUTRICIONISTA",
+          "codigo": "0136"
+        },
+        {
+          "id": "64b92bed-a12e-48a9-aec9-70f8bf79bc37",
+          "nome": "NUTRICIONISTA_CONTRATADO",
+          "codigo": "3717"
+        }
+      ],
+      "canonicoSugerido": {
+        "id": "86608d8f-e1b4-464f-927a-6539837eb70e",
+        "nome": "NUTRICIONISTA",
+        "codigo": "0136",
+        "ativo": true
+      },
+      "ambiguo": false
+    },
+    {
+      "nomeBase": "ODONTOLOGO(A)",
+      "cargos": [
+        {
+          "id": "2c59600d-ed0f-4af3-b4af-d78584aaf64b",
+          "nome": "ODONTOLOGO(A)",
+          "codigo": "0105"
+        },
+        {
+          "id": "06b3d8b5-84e7-45fe-bc85-692216f88111",
+          "nome": "ODONTOLOGO(A)_CONTRATADO",
+          "codigo": "3721"
+        }
+      ],
+      "canonicoSugerido": {
+        "id": "2c59600d-ed0f-4af3-b4af-d78584aaf64b",
+        "nome": "ODONTOLOGO(A)",
+        "codigo": "0105",
+        "ativo": true
+      },
+      "ambiguo": false
+    },
+    {
+      "nomeBase": "PSICOLOGO(A)",
+      "cargos": [
+        {
+          "id": "af18dd58-32c5-4c48-b69c-0e6d8d07b881",
+          "nome": "PSICOLOGO(A)",
+          "codigo": "0074"
+        },
+        {
+          "id": "aa67fdfe-efce-4a57-99ac-d3583116342c",
+          "nome": "PSICOLOGO(A)_CONTRATADO",
+          "codigo": "3722"
+        }
+      ],
+      "canonicoSugerido": {
+        "id": "af18dd58-32c5-4c48-b69c-0e6d8d07b881",
+        "nome": "PSICOLOGO(A)",
+        "codigo": "0074",
+        "ativo": true
+      },
+      "ambiguo": false
+    },
+    {
+      "nomeBase": "RADIO OPERADOR",
+      "cargos": [
+        {
+          "id": "48527f22-e7b7-4746-9ffe-0bdfe9ccdd68",
+          "nome": "RADIO OPERADOR",
+          "codigo": "3359"
+        },
+        {
+          "id": "b16e8c20-38c7-40c2-94a9-c0d01eed26bb",
+          "nome": "RADIO OPERADOR_CONTRATADO",
+          "codigo": "3808"
+        }
+      ],
+      "canonicoSugerido": {
+        "id": "48527f22-e7b7-4746-9ffe-0bdfe9ccdd68",
+        "nome": "RADIO OPERADOR",
+        "codigo": "3359",
+        "ativo": true
+      },
+      "ambiguo": false
+    },
+    {
+      "nomeBase": "TEC.EM NUTRICAO",
+      "cargos": [
+        {
+          "id": "d3cc7931-41f2-4f1f-b064-2a9eb0b1e6f1",
+          "nome": "TEC.EM NUTRICAO",
+          "codigo": "3412"
+        },
+        {
+          "id": "992431ba-982c-45ea-bd06-da3b9252ceaf",
+          "nome": "TEC.EM NUTRICAO_contratado",
+          "codigo": "3760"
+        }
+      ],
+      "canonicoSugerido": {
+        "id": "d3cc7931-41f2-4f1f-b064-2a9eb0b1e6f1",
+        "nome": "TEC.EM NUTRICAO",
+        "codigo": "3412",
+        "ativo": true
+      },
+      "ambiguo": false
+    },
+    {
+      "nomeBase": "TEC. ENFERM. INSTRUMENTADOR CIRURGICO",
+      "cargos": [
+        {
+          "id": "d0a7baf5-4dfd-4153-9b32-658fecc82a33",
+          "nome": "TEC. ENFERM. INSTRUMENTADOR CIRURGICO",
+          "codigo": "3679"
+        },
+        {
+          "id": "6f3c2de7-625d-4482-88f7-89acf25aa79a",
+          "nome": "TEC. ENFERM. INSTRUMENTADOR CIRURGICO_CONTRATRADO",
+          "codigo": "3801"
+        }
+      ],
+      "canonicoSugerido": {
+        "id": "d0a7baf5-4dfd-4153-9b32-658fecc82a33",
+        "nome": "TEC. ENFERM. INSTRUMENTADOR CIRURGICO",
+        "codigo": "3679",
+        "ativo": true
+      },
+      "ambiguo": false
+    },
+    {
+      "nomeBase": "TERAPEUTA OCUPACIONAL",
+      "cargos": [
+        {
+          "id": "e7cdfc74-68a2-4c76-9659-f2485293627e",
+          "nome": "TERAPEUTA OCUPACIONAL",
+          "codigo": "3348"
+        },
+        {
+          "id": "4abb7228-af6b-4a19-979b-3f98322a8764",
+          "nome": "TERAPEUTA OCUPACIONAL_CONTRATADO",
+          "codigo": "3730"
+        }
+      ],
+      "canonicoSugerido": {
+        "id": "e7cdfc74-68a2-4c76-9659-f2485293627e",
+        "nome": "TERAPEUTA OCUPACIONAL",
+        "codigo": "3348",
+        "ativo": true
+      },
+      "ambiguo": false
+    }
+  ],
+  "faltantes": [
+    {
+      "codigo": "0007",
+      "nomeCompleto": "AG.SERV.GER.",
+      "qtd": 435,
+      "acao": "CRIAR_NOVO"
+    },
+    {
+      "codigo": "0001",
+      "nomeCompleto": "AG.PORT.",
+      "qtd": 205,
+      "acao": "CRIAR_NOVO"
+    },
+    {
+      "codigo": "3369",
+      "nomeCompleto": "COORDENADOR III",
+      "qtd": 10,
+      "acao": "CRIAR_NOVO"
+    },
+    {
+      "codigo": "0010",
+      "nomeCompleto": "COORDENADOR I",
+      "qtd": 6,
+      "acao": "CRIAR_NOVO"
+    },
+    {
+      "codigo": "3794",
+      "nomeCompleto": "TEC.INFORM_CONTRATADO",
+      "qtd": 2,
+      "acao": "CRIAR_NOVO"
+    },
+    {
+      "codigo": "3834",
+      "nomeCompleto": "MEDICO PSIQUIATRA_CONTRATADO",
+      "qtd": 2,
+      "acao": "CRIAR_NOVO"
+    },
+    {
+      "codigo": "3835",
+      "nomeCompleto": "MEDICO INFECTOLOGISTA_CONTRATADO",
+      "qtd": 2,
+      "acao": "CRIAR_NOVO"
+    },
+    {
+      "codigo": "3825",
+      "nomeCompleto": "MEDICO CARDIOLOGISTA _ CONTRATADO",
+      "qtd": 2,
+      "acao": "CRIAR_NOVO"
+    },
+    {
+      "codigo": "3836",
+      "nomeCompleto": "BIOMEDICO-CONTRATADO",
+      "qtd": 1,
+      "acao": "CRIAR_NOVO"
+    },
+    {
+      "codigo": "3678",
+      "nomeCompleto": "COORD. DE INFORMATICA",
+      "qtd": 1,
+      "acao": "CRIAR_NOVO"
+    },
+    {
+      "codigo": "3706",
+      "nomeCompleto": "COORD. DE MATERIAS, INSUMOS E SERVIÇOS",
+      "qtd": 1,
+      "acao": "CRIAR_NOVO"
+    },
+    {
+      "codigo": "3838",
+      "nomeCompleto": "MEDICO REUMATOLOGISTA_CONTRATADO",
+      "qtd": 1,
+      "acao": "CRIAR_NOVO"
+    }
+  ]
+}

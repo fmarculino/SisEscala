@@ -2,6 +2,42 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.42.0] - 2026-08-10
+
+### Added
+- **Importação dos dados cadastrais de RH (SFPRC01M)** — estudo, plano e execução completos em
+  [`docs/planos/2026-08-10-estudo-importacao-dados-cadastrais-rh.md`](docs/planos/2026-08-10-estudo-importacao-dados-cadastrais-rh.md)
+  e [`2026-08-10-plano-de-importacao-de-dados-cadastrais-rh.md`](docs/planos/2026-08-10-plano-de-importacao-de-dados-cadastrais-rh.md).
+  O SisEscala cobria 191 das ~3.382 pessoas (5,6%) que aparecem como vínculo ativo no relatório de
+  RH da SMS.
+  - Schema novo: `financiamento_saude_blocos` (bloco de custeio do SUS, não é unidade física),
+    `cargos_codigos_origem` (código do RH → cargo, sem fusão por regime — decisão do usuário: o
+    RH separa concursado de contratado de propósito), `servidores_historico_vinculo` (carreira,
+    ancorada por CPF, não por `servidor_id` — a matrícula muda, o CPF não), `importacao_rh_pendentes`
+    + `fn_promover_pendencia_rh` (staging — nenhum vínculo novo entra em `servidores` sem setor
+    confirmado por um humano).
+  - `servidores_cpf_unico` (índice único de CPF) foi derrubado: o relatório mostrou 110 CPFs com
+    dois vínculos ativos simultâneos de verdade. Vira gate de confirmação explícita
+    (`vinculo_multiplo_confirmado`) em `createServidor`/`updateServidor`, não bloqueio de banco —
+    trade-off documentado na migration `20260810140000`.
+  - `status` ganha `Afastado` como valor real, com `CHECK`.
+  - Resultado da carga: 117 servidores existentes ganharam PIS/PASEP (era 0% preenchido), 3.362
+    vínculos novos na fila de pendências (2.077 com unidade já resolvida, 1.285 aguardando —
+    **nenhuma unidade foi criada automaticamente**, decisão do usuário), 4.942 linhas de histórico
+    de carreira, 6 casos ambíguos deixados para decisão manual.
+  - Tela `/servidores/pendencias` ganhou a seção "Importados aguardando cadastro": busca, filtro
+    por unidade resolvida/vínculo adicional, e formulário de conclusão (unidade/setor/cargo) que
+    chama `fn_promover_pendencia_rh`.
+
+### Fixed
+- **Mojibake no CSV de origem** (UTF-8 relido com página de código errada, inconsistente campo a
+  campo — `Bairro` tinha 4.360 ocorrências, `Nome` só 1, mas incluindo um nome de servidor real).
+  `scratchpad/rh_csv_utils.js` corrige por valor (nunca o arquivo inteiro de uma vez, que
+  introduzia caractere de substituição em campo que já estava certo).
+- **PIS/PASEP inválido quase gravado**: o script de backfill não validava dígito verificador do
+  PIS antes de tentar gravar — pego pelo `CHECK` do banco (`chk_servidores_pis_digito`, já
+  existente desde v1.38.0) antes de qualquer corrupção, mas corrigido na fonte (script) também.
+
 ## [1.41.0] - 2026-08-10
 
 ### Fixed

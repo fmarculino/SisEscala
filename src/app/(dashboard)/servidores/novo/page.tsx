@@ -25,6 +25,10 @@ export default function NovoServidorPage() {
   const [formTab, setFormTab] = useState<'principal' | 'complementar'>('principal')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Só aparece depois que a action recusa por CPF já cadastrado — a maioria dos cadastros nunca
+  // vê isto. Ver verificarCpfDuplicado em servidores/actions.ts (20260810140000): sem índice
+  // único de CPF no banco, isto é o portão real contra duplicata, não só mensagem amigável.
+  const [confirmaVinculoAdicional, setConfirmaVinculoAdicional] = useState(false)
   const [unidades, setUnidades] = useState<any[]>([])
   const [setores, setSetores] = useState<any[]>([])
   const [cargos, setCargos] = useState<Cargo[]>([])
@@ -186,6 +190,7 @@ export default function NovoServidorPage() {
     formData.set('pin_acesso', currentPin)
     formData.set('telefone', currentTelefone)
     formData.set('cpf', currentCpf)
+    formData.set('confirma_vinculo_adicional', confirmaVinculoAdicional ? 'true' : 'false')
 
     // Setor é o que sustenta escala e folha, e é por ele que a RLS autoriza a gravação — sem ele o
     // banco recusa com um texto cru de policy. Ver `validarLotacaoNoEscopo` na action.
@@ -553,8 +558,20 @@ export default function NovoServidorPage() {
         </div>
 
         {error && (
-          <div className="rounded-md bg-red-50 p-4 dark:bg-red-900/20">
+          <div className="rounded-md bg-red-50 p-4 dark:bg-red-900/20 space-y-3">
             <p className="text-sm text-red-700 dark:text-red-400">{error}</p>
+            {error.includes('SEGUNDO vínculo') && (
+              <label className="flex items-start gap-2 text-sm text-red-800 dark:text-red-300">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={confirmaVinculoAdicional}
+                  onChange={(e) => setConfirmaVinculoAdicional(e.target.checked)}
+                />
+                Confirmo: é a mesma pessoa, com um segundo vínculo de verdade (outro cargo, outra
+                matrícula) — não é cadastro duplicado por engano. Envie o formulário de novo.
+              </label>
+            )}
           </div>
         )}
 

@@ -4,8 +4,9 @@ import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
   AlertTriangle, UserX, Copy, Hash, CheckCircle2, Search,
-  ChevronDown, ChevronUp, ExternalLink, Info,
+  ChevronDown, ChevronUp, ExternalLink, Info, UserPlus,
 } from 'lucide-react'
+import { ImportacaoRhSection } from './ImportacaoRhSection'
 
 interface DocumentoInvalido {
   tabela: string
@@ -43,6 +44,18 @@ interface SemCpf {
   setor_nome: string | null
 }
 
+interface PendenteRh {
+  id: string
+  nome: string
+  matricula: string
+  classificacao: string | null
+  cargo_sugerido: string | null
+  unidade_id: string | null
+  unidade_nome: string | null
+  departamento_origem: string
+  vinculo_adicional_de_cpf: boolean
+}
+
 interface PendenciasCadastroClientProps {
   documentosInvalidos: DocumentoInvalido[]
   duplicidades: Duplicidade[]
@@ -51,6 +64,11 @@ interface PendenciasCadastroClientProps {
   semPisCount: number
   erroDocumentos: string | null
   erroDuplicidades: string | null
+  pendentesRh: PendenteRh[]
+  erroPendentesRh: string | null
+  unidades: { id: string; nome: string }[]
+  setores: { id: string; unidade_id: string; nome: string }[]
+  cargos: { id: string; nome: string }[]
 }
 
 const CRITERIO_LABEL: Record<Duplicidade['criterio'], string> = {
@@ -108,6 +126,7 @@ function EmptyState({ text }: { text: string }) {
 export function PendenciasCadastroClient({
   documentosInvalidos, duplicidades, semCpf, totalServidores, semPisCount,
   erroDocumentos, erroDuplicidades,
+  pendentesRh, erroPendentesRh, unidades, setores, cargos,
 }: PendenciasCadastroClientProps) {
   const [buscaSemCpf, setBuscaSemCpf] = useState('')
   const [gruposAbertos, setGruposAbertos] = useState<Set<string>>(new Set())
@@ -140,12 +159,21 @@ export function PendenciasCadastroClient({
         </p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <StatCard icon={UserPlus} label="Importados aguardando cadastro" value={pendentesRh.length} tone={pendentesRh.length ? 'amber' : 'green'} note="importação de RH, v1.42.0" />
         <StatCard icon={AlertTriangle} label="Documentos com dígito inválido" value={documentosInvalidos.length} tone={documentosInvalidos.length ? 'red' : 'green'} />
         <StatCard icon={UserX} label="Servidores sem CPF" value={semCpf.length} tone={semCpf.length ? 'amber' : 'green'} note={totalServidores ? `${Math.round((semCpf.length / totalServidores) * 100)}% do quadro` : undefined} />
         <StatCard icon={Copy} label="Possíveis duplicidades" value={duplicidades.length} tone={duplicidades.length ? 'amber' : 'green'} note="grupos suspeitos" />
         <StatCard icon={Hash} label="Servidores sem PIS/PASEP" value={semPisCount} tone="zinc" note="projeto da Fase 9 do REP — não é anomalia" />
       </div>
+
+      <ImportacaoRhSection
+        pendentesRh={pendentesRh}
+        erroPendentesRh={erroPendentesRh}
+        unidades={unidades}
+        setores={setores}
+        cargos={cargos}
+      />
 
       {/* Documentos inválidos */}
       <section className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">

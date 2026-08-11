@@ -42,3 +42,8 @@ next-env.d.ts
 scratchpad/d2_*.sql
 scratchpad/diff_*.sql
 scratchpad/prod_*.json
+
+# dados brutos de RH com PII real (CPF, salario, endereco, nome da mae) - ja estao no banco (com
+# RLS); duplicar em texto puro no git remove essa camada de controle de acesso e fica no
+# historico para sempre. Ver docs/planos/2026-08-10-estudo-importacao-dados-cadastrais-rh.md
+docs/Dados Cadastrais*.csv

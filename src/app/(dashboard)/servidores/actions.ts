@@ -27,7 +27,8 @@ function validarDocumentosServidor(cpf?: string | null, pis?: string | null): st
 }
 
 /**
- * Confere se o CPF já pertence a outro cadastro.
+ * Confere se o CPF já pertence a outro cadastro — e, desde 20260810140000, permite que seja
+ * um vínculo adicional legítimo (a mesma pessoa com dois cargos/matrículas), não erro.
  *
  * Passa pela RPC de propósito. Um `.from('servidores').eq('cpf', ...)` daqui usaria o cliente do
  * usuário logado e cairia na policy "Users can view relevant servers", que escopa por
@@ -35,34 +36,51 @@ function validarDocumentosServidor(cpf?: string | null, pis?: string | null): st
  * É a mesma causa raiz da colisão de matrícula corrigida em 20260807110000, e foi assim que
  * VIVIAN MARTINS MACEDO acabou com dois cadastros (T2600019 e T2600014) em produção.
  *
- * `fn_cpf_ja_cadastrado` é SECURITY DEFINER e enxerga a tabela inteira. O índice único
- * `servidores_cpf_unico` continua sendo o backstop — esta checagem existe para a mensagem.
+ * `fn_cpf_ja_cadastrado` é SECURITY DEFINER e enxerga a tabela inteira.
+ *
+ * ⚠️ Não há mais índice único de banco atrás disto (20260810140000 derrubou
+ * `servidores_cpf_unico`): o relatório de RH de 09/2026 mostrou 110 CPFs com dois vínculos ativos
+ * simultâneos de verdade (mesma pessoa, matrícula e cargo diferentes) — um índice único bloquearia
+ * esses casos legítimos. A troca foi consciente (ver cabeçalho da migration): esta checagem deixou
+ * de ser só mensagem amigável e passou a ser o único portão. Sem `confirmaVinculoAdicional`, o
+ * comportamento continua o mesmo de antes (recusa); só muda quando o chamador confirma
+ * explicitamente.
  */
 async function verificarCpfDuplicado(
   supabase: any,
   cpf: string | null | undefined,
-  ignorarId?: string
-): Promise<string | null> {
+  ignorarId?: string,
+  confirmaVinculoAdicional: boolean = false
+): Promise<{ erro: string | null; vinculoMultiplo: boolean }> {
   const limpo = normalizarCpf(cpf)
-  if (!limpo) return null
+  if (!limpo) return { erro: null, vinculoMultiplo: false }
 
   const { data, error } = await supabase.rpc('fn_cpf_ja_cadastrado', {
     p_cpf: limpo,
     p_ignorar_id: ignorarId || null,
   })
 
-  // Falha de rede/RPC não pode travar o cadastro: o índice único ainda segura a duplicata.
+  // Falha de rede/RPC: sem índice único de banco atrás, uma duplicata pode passar. Prefere isto a
+  // travar o cadastro por instabilidade de rede — o diagnóstico (/servidores/pendencias) pega depois.
   if (error) {
-    console.warn('Falha ao verificar CPF duplicado (o índice único ainda protege):', error.message)
-    return null
+    console.warn('Falha ao verificar CPF duplicado (sem backstop de banco — ver 20260810140000):', error.message)
+    return { erro: null, vinculoMultiplo: false }
   }
 
   const encontrado = Array.isArray(data) ? data[0] : data
-  if (!encontrado) return null
+  if (!encontrado) return { erro: null, vinculoMultiplo: false }
+
+  if (confirmaVinculoAdicional) {
+    return { erro: null, vinculoMultiplo: true }
+  }
 
   const onde = encontrado.unidade_nome ? ` na unidade ${encontrado.unidade_nome}` : ''
-  return `Este CPF já está cadastrado para ${encontrado.nome} (matrícula ${encontrado.matricula})${onde}. ` +
-    `Cada servidor deve ter um cadastro único — se a pessoa mudou de lotação, transfira o cadastro existente em vez de criar outro.`
+  return {
+    erro: `Este CPF já está cadastrado para ${encontrado.nome} (matrícula ${encontrado.matricula})${onde}. ` +
+      `Se for a mesma pessoa com um cadastro por engano, transfira o cadastro existente em vez de criar outro. ` +
+      `Se for a mesma pessoa com um SEGUNDO vínculo de verdade (outro cargo, outra escala), marque a confirmação de vínculo adicional.`,
+    vinculoMultiplo: false,
+  }
 }
 
 /**
@@ -204,7 +222,8 @@ export async function createServidor(formData: FormData) {
   // A matrícula sozinha nunca protegeu a unicidade do cadastro: deixada em branco, a trigger
   // trg_atribuir_matricula_temporaria gera uma NOVA, então cadastrar a mesma pessoa duas vezes
   // não colide com nada. O CPF é a chave de identidade real.
-  const erroCpf = await verificarCpfDuplicado(supabase, cpf)
+  const confirmaVinculoAdicional = formData.get('confirma_vinculo_adicional') === 'true'
+  const { erro: erroCpf, vinculoMultiplo } = await verificarCpfDuplicado(supabase, cpf, undefined, confirmaVinculoAdicional)
   if (erroCpf) {
     return { error: erroCpf }
   }
@@ -243,6 +262,7 @@ export async function createServidor(formData: FormData) {
     intervalo_inicio_personalizado,
     intervalo_fim_personalizado,
     intervalo_flexivel,
+    vinculo_multiplo_confirmado: vinculoMultiplo,
     ...dadosComplementares,
   })
 
@@ -614,7 +634,10 @@ export async function importServidores(csvText: string) {
     }
     vistosNoArquivo.set(cpfLimpo, linha)
 
-    const erroCpf = await verificarCpfDuplicado(supabase, cpfLimpo)
+    // Import de CSV via UI não tem como coletar confirmação por linha — continua recusando CPF
+    // duplicado (comportamento inalterado). Vínculo duplo em massa é o caminho da importação de
+    // RH (fn_promover_pendencia_rh), não deste importador manual.
+    const { erro: erroCpf } = await verificarCpfDuplicado(supabase, cpfLimpo)
     if (erroCpf) {
       problemas.push(`Linha ${linha} (${servers[idx].nome}): ${erroCpf}`)
     }
@@ -684,7 +707,8 @@ export async function updateServidor(id: string, formData: FormData) {
 
   // Preencher o CPF de um cadastro antigo é justamente quando a duplicata aparece: o registro
   // existia sem CPF e, ao ganhar um, colide com outro cadastro da mesma pessoa.
-  const erroCpf = await verificarCpfDuplicado(supabase, cpf, id)
+  const confirmaVinculoAdicionalUpdate = formData.get('confirma_vinculo_adicional') === 'true'
+  const { erro: erroCpf, vinculoMultiplo: vinculoMultiploUpdate } = await verificarCpfDuplicado(supabase, cpf, id, confirmaVinculoAdicionalUpdate)
   if (erroCpf) {
     return { error: erroCpf }
   }
@@ -749,6 +773,12 @@ export async function updateServidor(id: string, formData: FormData) {
 
   if (formData.has('ignora_janela_presenca')) {
     updateData.ignora_janela_presenca = formData.get('ignora_janela_presenca') === 'true'
+  }
+
+  // Só grava true — nunca desliga uma confirmação já dada por omissão do checkbox num submit
+  // seguinte que não mexeu no CPF.
+  if (vinculoMultiploUpdate) {
+    updateData.vinculo_multiplo_confirmado = true
   }
 
   // `.select('id')` não é enfeite: é ele que revela o UPDATE que não alcançou linha nenhuma.
@@ -1041,5 +1071,52 @@ export async function deleteJornadaTemporaria(id: string, servidorId: string) {
 
   revalidatePath(`/servidores/${servidorId}`)
   return { success: true }
+}
+
+/**
+ * Promove um vínculo pendente da importação de RH (v1.42.0) para `servidores` de verdade.
+ *
+ * A escrita real acontece em `fn_promover_pendencia_rh` (20260810160000, SECURITY DEFINER) — esta
+ * action só traduz o erro do banco pra mensagem legível, mesmo padrão do resto do arquivo. O gate
+ * de vínculo múltiplo (CPF já cadastrado noutra matrícula) é o mesmo de `createServidor`: a RPC
+ * recusa sem `confirmaVinculoAdicional`, com mensagem que diz quem já está cadastrado.
+ */
+export async function promoverPendenciaRh(
+  pendenciaId: string,
+  unidadeId: string,
+  setorId: string,
+  cargo: string,
+  confirmaVinculoAdicional: boolean = false
+) {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase.rpc('fn_promover_pendencia_rh', {
+    p_pendencia_id: pendenciaId,
+    p_unidade_id: unidadeId,
+    p_setor_id: setorId,
+    p_cargo: cargo,
+    p_confirma_vinculo_adicional: confirmaVinculoAdicional,
+  })
+
+  if (error) {
+    // RAISE EXCEPTION dentro da função já devolve mensagem em português e acionável (unidade/setor
+    // faltando, CPF já cadastrado com nome+matrícula) — repassa direto, sem traduzir de novo.
+    return { error: error.message }
+  }
+
+  const { data: { user: autor } } = await supabase.auth.getUser()
+  await registrarLog({
+    acao: 'SERVIDOR_CRIADO',
+    entidade: 'servidor',
+    entidadeId: data,
+    userId: autor?.id || null,
+    detalhes: { origem: 'importacao_rh_2026_07', pendenciaId },
+    unidadeId,
+    setorId,
+  })
+
+  revalidatePath('/servidores/pendencias')
+  revalidatePath('/servidores')
+  return { success: true, servidorId: data as string }
 }
 
