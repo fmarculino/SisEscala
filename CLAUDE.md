@@ -222,6 +222,14 @@ ensinou a não presumir. Por isso:
   a resposta antes de habilitar em produção. Erro nele já imprime a resposta crua do
   equipamento (útil para corrigir os nomes de campo se estiverem errados).
 
+⚠️ **Não existe (nem pode existir) botão "Testar conexão" na tela do SisEscala.** O relógio fica
+na rede interna da unidade (`10.x.x.x`); o servidor do SisEscala roda na VPS do Coolify, sem
+nenhum caminho até essa rede. Um teste server-side falharia sempre, com qualquer credencial —
+por isso o teste (`diagnostico`, `cadastros-testar`) só existe na CLI, que precisa rodar numa
+máquina física dentro da rede da unidade. `GET /api/coletor-rep/download-cli` (12/08/2026,
+admin/super_admin) baixa `coletor-rep-cli.exe` avulso — não vem no `.zip` do app de bandeja, que
+é só para uso contínuo — para colocar ao lado do `config.yaml` já instalado nessa máquina.
+
 ## Terminal local sem sessão de coordenador (11/08/2026)
 
 O terminal `/presenca` ativa com `supabase.auth.signInWithPassword()` **rodando no navegador da

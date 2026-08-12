@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.50.1] - 2026-08-12
+
+### Fixed
+- **`coletor-rep cadastros-testar` era orientado sem existir em lugar nenhum baixável.** A CLI
+  (`cmd/cli`) nunca foi distribuída — só o app de bandeja (`cmd/tray`, no `.zip` de "Baixar
+  aplicativo") — então a máquina que precisava validar o push de identidade contra hardware real
+  só tinha `coletor-rep-tray.exe`, que ignora argumentos de linha de comando (é um app de
+  bandeja, sem console). Nova rota `GET /api/coletor-rep/download-cli` (admin/super_admin) serve
+  `coletor-rep-cli.exe` avulso, sem zip — lê o `config.yaml` que já está instalado ao lado do
+  app de bandeja na mesma máquina. Link adicionado no aviso da tela de Dispositivo REP.
+
+### Added
+- **Aviso explicando por que não existe (nem pode existir) botão "Testar conexão" na tela do
+  SisEscala**: o relógio fica na rede interna da unidade, e o servidor do SisEscala (Coolify, na
+  internet) não tem caminho até lá — um teste do lado do servidor falharia sempre, mesmo com
+  IP/usuário/senha corretos. O teste real (`coletor-rep-cli diagnostico`, já existente) só pode
+  rodar numa máquina dentro da rede da unidade.
+
 ## [1.50.0] - 2026-08-12
 
 ### Added

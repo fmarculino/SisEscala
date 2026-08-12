@@ -20,6 +20,7 @@ const nextConfig = {
   // standalone empacotou. Estavel desde o Next 15 (nao e mais `experimental`).
   outputFileTracingIncludes: {
     '/api/coletor-rep/download': ['./tools/coletor-rep/dist/**/*'],
+    '/api/coletor-rep/download-cli': ['./tools/coletor-rep/dist/**/*'],
   },
 };
 

@@ -265,6 +265,16 @@ export function DispositivoRepModal({
               Ficam gravadas aqui e embutidas automaticamente no config.yaml a cada "Baixar
               aplicativo" — ninguém mais precisa editar o arquivo à mão.
             </p>
+            <p className="text-[11px] text-zinc-400 mt-2">
+              💡 <b>Não dá para testar IP/usuário/senha por aqui.</b> O relógio fica na rede
+              interna da unidade (ex.: <code>10.x.x.x</code>) — o servidor do SisEscala não
+              alcança esse endereço de jeito nenhum, então um botão "Testar" nesta tela sempre
+              falharia, mesmo com tudo certo. O teste real precisa rodar numa máquina que esteja
+              na mesma rede do relógio: baixe{' '}
+              <a href="/api/coletor-rep/download-cli" className="underline font-semibold">coletor-rep-cli.exe</a>{' '}
+              nessa máquina e rode <code>coletor-rep-cli diagnostico</code> num Prompt de
+              Comando — testa login no relógio e comunicação com o SisEscala, sem gravar nada.
+            </p>
           </div>
 
           {dispositivo && (
@@ -333,6 +343,15 @@ export function DispositivoRepModal({
               Prepara matrícula/nome/CPF no relógio para os servidores ativos desta unidade/setor
               que ainda não têm vínculo aqui. A biometria (digital) continua exigindo alguém
               presencial no aparelho — isso só evita digitar tudo na telinha dele.
+            </p>
+            <p className="text-[11px] text-amber-600 dark:text-amber-400">
+              ⚠️ Nunca testado contra relógio real. Antes de usar numa unidade nova, baixe{' '}
+              <a href="/api/coletor-rep/download-cli" className="underline font-semibold">
+                coletor-rep-cli.exe
+              </a>{' '}
+              para dentro da mesma pasta onde o app de bandeja já está instalado nessa máquina
+              (ao lado do config.yaml existente) e rode <code>coletor-rep-cli cadastros-testar</code> num
+              Prompt de Comando — ele cria um usuário de teste isolado e mostra se funcionou.
             </p>
             <button
               type="button"

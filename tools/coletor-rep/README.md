@@ -42,7 +42,26 @@ Envia matrícula/nome/CPF (nunca biometria — isso sempre exige alguém presenc
 dos servidores enfileirados em **Marcações → Dispositivos REP → editar → Sincronizar cadastros**.
 ⚠️ **Diferente do resto deste app, essa função nunca foi validada contra hardware real** — ver
 aviso extenso em `rep/client.go`. Antes de confiar nela numa unidade nova, rode
-`coletor-rep cadastros-testar` (abaixo) contra o relógio dessa unidade.
+`coletor-rep-cli cadastros-testar` (abaixo) contra o relógio dessa unidade.
+
+### Não dá para "testar IP/usuário/senha" pela tela do SisEscala
+
+O relógio vive na rede interna da unidade (ex.: `10.x.x.x`); o servidor do SisEscala (Coolify,
+numa VPS na internet) não alcança esse endereço — um botão de teste ali sempre falharia, com
+qualquer credencial. O teste real só pode rodar numa máquina que esteja na mesma rede do
+relógio, que é justamente onde o coletor roda. Duas ferramentas cobrem isso, ambas sem gravar
+nada no equipamento:
+
+- `coletor-rep-cli diagnostico` — login no relógio + comunicação com o SisEscala. É o mais
+  rápido, use primeiro.
+- `coletor-rep-cli cadastros-testar` — específico do push de identidade (Fase 7), grava um
+  usuário de teste isolado.
+
+`coletor-rep-cli.exe` **não** vem no `.zip` do "Baixar aplicativo" (esse é só o app de bandeja) —
+baixe separadamente pelo link "coletor-rep-cli.exe" que aparece no aviso da tela de Dispositivo
+REP (rota `GET /api/coletor-rep/download-cli`, admin/super_admin), e coloque o `.exe` na mesma
+pasta onde o app de bandeja já está instalado (`%LOCALAPPDATA%\SisEscala\coletor-rep\`) — ele lê
+o `config.yaml` que já está lá.
 
 ### Máquina que precisa das duas modalidades (relógio + terminal)
 
