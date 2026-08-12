@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.50.2] - 2026-08-12
+
+### Fixed
+- **Push de identidade usava a API errada da Control iD.** Primeiro teste real de
+  `coletor-rep-cli cadastros-testar` contra o relógio de 10.110.2.89: `create_objects.fcgi` e
+  `load_objects.fcgi` voltaram HTTP 400 "Invalid command" — esse padrão genérico "objects" é da
+  Linha de Acesso (iDAccess/iDFlex/iDBlock) da Control iD, não da linha REP/iDClass deste
+  equipamento. Reescrito para `add_users.fcgi` (criar) e `load_users.fcgi` (listar, com
+  `templates: true` para saber quem tem biometria), confirmados na documentação oficial da
+  Control iD. Usa `mode=671`/campo `cpf`, já que `get_afd.fcgi` deste device já roda em modo
+  671. **Ainda não confirmado contra hardware** — só o comando errado foi eliminado; o próximo
+  `cadastros-testar` dirá se o formato de campo/resposta bate desta vez.
+
 ## [1.50.1] - 2026-08-12
 
 ### Fixed

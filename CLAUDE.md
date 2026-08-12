@@ -206,12 +206,17 @@ da armadilha 10, na direção inversa (`right(ident, 11)` recupera o CPF; aqui �
 identificador).
 
 ⚠️⚠️ **`rep.CriarUsuario`/`rep.ListarUsuariosComBiometria` (`tools/coletor-rep/rep/client.go`)
-NUNCA foram testadas contra hardware real.** Implementam a API genérica "objects" da Control iD
-(`create_objects.fcgi`/`load_objects.fcgi`, object `users`/`templates`, campos
-`name`/`registration`/`pis`) — os nomes `registration`/`pis` não são chute, já foram confirmados
-por leitura de AFD tipo 5 real, mas **gravar** nesses campos e o formato da resposta nunca foram
-confirmados, exatamente a mesma classe de erro que a armadilha 11 (formato de data do AFD)
-ensinou a não presumir. Por isso:
+já foram testadas contra hardware real uma vez — e a primeira versão estava errada.** A tentativa
+original usava a API genérica "objects" da Control iD (`create_objects.fcgi`/`load_objects.fcgi`)
+e o relógio de teste (10.110.2.89) recusou as duas com HTTP 400 "Invalid command": esse padrão
+pertence à **outra** linha de produto da Control iD (Linha de Acesso — iDAccess/iDFlex/iDBlock),
+não à linha REP/iDClass que `login.fcgi`/`get_afd.fcgi` já confirmaram real neste device.
+Reescrita em 12/08/2026 para `add_users.fcgi`/`load_users.fcgi` (a API real da linha iDClass,
+confirmada pela documentação oficial via busca — `controlid.com.br/suporte/api_idclass_latest.html`)
+com `mode=671`/campo `cpf`, já que `get_afd.fcgi` deste device já usa `mode=671`. **Essa segunda
+versão ainda não foi confirmada contra hardware** — os nomes `registration`/`cpf` batem com o que
+a documentação descreve, mas o formato exato da resposta de `add_users.fcgi` continua incerto
+(`CriarUsuario` tenta três formatos plausíveis antes de falhar). Por isso:
 
 - **Nunca entram no ciclo automático** de `cmd/tray` (o ticker de 5 min só roda `Sync`/`Heartbeat`).
   Só rodam por clique manual no menu "Sincronizar cadastros agora" ou pelo subcomando
