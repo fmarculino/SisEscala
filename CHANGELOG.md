@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.55.1] - 2026-08-12
+
+### Fixed
+- **A v1.55.0 tirou 3 telas do menu de RH da Unidade por engano, junto das 5 que deveriam sair
+  de verdade** — o pedido original era: Férias e Licenças, Marcações e Pendências de Cadastro
+  deveriam continuar visíveis pra RH da Unidade (só estavam bloqueadas indevidamente até pra RH
+  Geral, e é isso que devia ser corrigido); só Cargos, Feriados, Jornadas, Dicionário de Turnos
+  e Tipos de Afastamento (catálogo global, sem escopo por unidade) deveriam virar exclusivos de
+  RH Geral. `itensSoRhGeral` (`sidebar.tsx`) ficou só com os 5 corretos; os gates de página de
+  `/ferias-licencas`, `/marcacoes` e `/servidores/pendencias` voltaram a reconhecer
+  `role === 'rh_unidade'` — em `/servidores/pendencias`, RH da Unidade entra pela mesma visão
+  escopada por unidade que coordenador já usa (não pela visão irrestrita de RH Geral).
+- **RH Geral (`role = 'rh'`) e RH da Unidade nunca tiveram acesso de fato às pendências de
+  importação do RH nem às solicitações de transferência**, mesmo depois do gate de página da
+  v1.55.0 — lacuna em duas camadas abaixo do gate, mesmo padrão "guard de papel escrito antes do
+  papel existir" já visto 3 vezes nesta sessão:
+  - RLS de `importacao_rh_pendentes` só tinha policy pra `super_admin`/`admin` (leitura geral) e
+    `coordenador` (escopada) — um `rh` passando pelo gate de página caía numa consulta que a RLS
+    zera em silêncio, a tela abrindo "funcionando" e mostrando zero pendências.
+  - `fn_promover_pendencia_rh`, `fn_atualizar_cadastro_via_pendencia_rh` e
+    `fn_buscar_pendencia_rh_por_termo` tinham checagem de papel restrita a
+    `super_admin`/`admin`/`coordenador` — um `rh` clicando em "Concluir cadastro" recebia erro
+    explícito de permissão insuficiente.
+  - RLS de `solicitacoes_transferencia_servidor` (SELECT/INSERT) tinha a mesma lacuna.
+  - Migration `20260812100000`: `rh` entra nas mesmas policies/checagens de `admin` (escopo por
+    unidade já aceita `acesso_todas_unidades` como bypass, que é o que RH Geral tipicamente tem
+    marcado); `rh_unidade` entra no mesmo escopo por unidade que `coordenador` já usa
+    (`profile_unidades`/`profile_setores`, sem exigir `acesso_todos_setores`). UPDATE de
+    solicitação de transferência (aprovar/rejeitar) continua `super_admin` apenas — não alterado.
+
 ## [1.55.0] - 2026-08-12
 
 ### Added

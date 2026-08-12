@@ -4,7 +4,7 @@ import { Radio } from 'lucide-react'
 import { MarcacoesClient } from './MarcacoesClient'
 import { listarOpcoesFormulario } from './actions'
 
-const ROLES_COM_ACESSO = ['admin', 'super_admin', 'coordenador', 'ass_adm', 'rh']
+const ROLES_COM_ACESSO = ['admin', 'super_admin', 'coordenador', 'ass_adm', 'rh', 'rh_unidade']
 const ROLES_ADMIN = ['admin', 'super_admin']
 
 export default async function MarcacoesPage() {

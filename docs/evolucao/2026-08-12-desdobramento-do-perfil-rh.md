@@ -113,11 +113,39 @@ não cobriu:
    `cargos`/`jornadas` ganhou `'rh'::user_role` (sem isso a tela abriria mas salvar seria
    recusado pela RLS).
 
+## Correção da correção (mesmo dia, v1.55.1)
+
+O item 2 da seção anterior ("Correções feitas testando em produção") foi implementado errado: o
+pedido do usuário era que **Férias e Licenças, Marcações e Pendências de Cadastro continuassem
+visíveis pra RH da Unidade** (só estavam bloqueadas indevidamente até pra RH Geral, e era isso
+que precisava ser corrigido) — só **Cargos, Feriados, Jornadas, Dicionário de Turnos e Tipos de
+Afastamento** (catálogo global, sem escopo por unidade) deveriam virar exclusivos de RH Geral. A
+v1.55.0 tirou as 8 do menu de RH da Unidade, incluindo as 3 que deveriam ter ficado.
+
+Corrigido em v1.55.1:
+
+- `itensSoRhGeral` (`sidebar.tsx`) voltou a ter só os 5 itens de catálogo.
+- Gates de página de `/ferias-licencas`, `/marcacoes` e `/servidores/pendencias` voltaram a
+  reconhecer `role === 'rh_unidade'` — em `/servidores/pendencias`, RH da Unidade entra pela
+  mesma visão **escopada por unidade** que coordenador já usa, não pela visão irrestrita de RH
+  Geral (`isFullAdmin`).
+- Investigando isso, apareceu uma lacuna mais funda: mesmo `rh` (RH Geral) passando pelo gate de
+  página desde a v1.55.0, a RLS de `importacao_rh_pendentes` e de
+  `solicitacoes_transferencia_servidor`, e o guard de papel de `fn_promover_pendencia_rh`/
+  `fn_atualizar_cadastro_via_pendencia_rh`/`fn_buscar_pendencia_rh_por_termo`, nunca tinham sido
+  atualizados pra incluir `rh`/`rh_unidade` — mesmo padrão "guard de papel escrito antes do papel
+  existir" já visto 3 vezes nesta sessão (RLS de escala/folha, guard de sobreaviso, gate de
+  página), só que numa camada mais funda que o gate de página não alcança. Corrigido na migration
+  `20260812100000`: `rh` entra nas mesmas policies/checagens de `admin`; `rh_unidade` entra no
+  mesmo escopo por unidade que `coordenador` já usa.
+
 ## Verificação
 
 - `npx tsc --noEmit` / `npm run build`.
 - Migration aplicada pelo usuário primeiro em homologação, depois produção.
 - Pendente validar em produção: criar um usuário de teste `rh_unidade` vinculado a uma única
-  unidade e confirmar que `/servidores`, `/escalas`, `/folha-ponto`, `/relatorios/rh` mostram só
-  essa unidade, com todos os setores dela; confirmar que um `rh` (Geral) já existente passa a ver
-  escala e folha de ponto (que antes vinham vazias pra esse papel).
+  unidade e confirmar que `/servidores`, `/escalas`, `/folha-ponto`, `/relatorios/rh`,
+  `/ferias-licencas`, `/marcacoes` e `/servidores/pendencias` mostram só essa unidade, com todos
+  os setores dela; confirmar que um `rh` (Geral) já existente passa a ver escala, folha de ponto,
+  pendências de importação do RH e solicitações de transferência (que antes vinham vazias ou
+  recusadas pra esse papel).

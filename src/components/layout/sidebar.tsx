@@ -151,13 +151,13 @@ export function Sidebar({ user }: { user?: any }) {
   // continua fora do alcance dele.
   const itensCadastrosParaCoord = ['Servidores', 'Pendências de Cadastro']
 
-  // RH da Unidade (12/08/2026) não gerencia nada que seja catálogo global (Cargos, Feriados,
-  // Jornadas, Dicionário de Turnos, Tipos de Afastamento — não são por unidade) nem coisa
-  // administrativa cross-unidade (Marcações = dispositivos REP/terminais; Férias e Licenças e
-  // Pendências de Cadastro decidido explicitamente como RH Geral apenas) — essas telas
-  // continuam exclusivas de RH Geral/Diretor/Administrador Geral.
+  // RH da Unidade (12/08/2026) não gerencia catálogo global (Cargos, Feriados, Jornadas,
+  // Dicionário de Turnos, Tipos de Afastamento — não são por unidade, são regra da secretaria
+  // inteira) — essas telas continuam exclusivas de RH Geral/Diretor/Administrador Geral.
+  // Férias e Licenças, Marcações e Pendências de Cadastro NÃO entram aqui: são por unidade e
+  // RH da Unidade deve continuar vendo (12/08/2026 — correção de escopo que tinha tirado essas
+  // três por engano junto das cinco de catálogo).
   const itensSoRhGeral = [
-    'Férias e Licenças', 'Marcações', 'Pendências de Cadastro',
     'Cargos', 'Feriados', 'Jornadas', 'Dicionário de Turnos', 'Tipos de Afastamento',
   ]
 
