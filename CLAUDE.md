@@ -227,6 +227,10 @@ quatro rodadas de teste real em 12/08/2026, a última confirmando dados de verda
    cedo em vez de mandar dado quebrado. `CriarUsuario` (criar de fato) ainda não confirmou
    sucesso end-to-end — só a leitura (`load_users.fcgi`) foi validada contra dados reais até
    aqui.
+5. Matrícula temporária alfanumérica (`T26xxxxx`) tem o `T` removido antes de virar número —
+   **confirmado pelo usuário** (não achado em busca no repositório) como a convenção que já
+   estava em uso manual para os servidores temporários já cadastrados neste mesmo relógio.
+   `CriarUsuario` replica isso (`strings.TrimPrefix(..., "T")`) em vez de inventar uma nova regra.
 
 Por isso:
 

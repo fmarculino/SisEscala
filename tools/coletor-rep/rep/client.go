@@ -31,6 +31,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -190,9 +191,11 @@ func (c *Client) InformacoesSistema() (map[string]interface{}, error) {
 // a identidade de referencia passa a ser sempre `pis`/`registration`, nao um `device_user_id`
 // sintetico — ListarUsuariosComBiometria casa por `pis`, nao por id.
 //
-// ⚠️ `registration` e' numero no device (visto real: `2.600005e+06` = matricula 2600005) — uma
-// matricula temporaria alfanumerica (formato `T26xxxxx`, ver CLAUDE.md) **nao pode** ser
-// representada nesse campo. CriarUsuario recusa cedo nesse caso, em vez de mandar dado quebrado.
+// ⚠️ `registration` e' numero no device (visto real: `2.600005e+06` = matricula 2600005) —
+// matricula temporaria alfanumerica (formato `T26xxxxx`, ver CLAUDE.md) tem o "T" removido
+// antes de virar numero, replicando a convencao que ja estava em uso manualmente neste mesmo
+// rele (confirmado pelo usuario, nao documentado em lugar nenhum do codigo). CriarUsuario ainda
+// recusa cedo se sobrar algo nao-numerico depois de tirar o prefixo.
 
 // CriarUsuario cadastra uma identidade "vazia" no rele (sem biometria - isso so acontece
 // presencialmente no equipamento). identificadorAfd vem no formato de 12 digitos do AFD (CPF
@@ -206,10 +209,15 @@ func (c *Client) CriarUsuario(matricula, nome, identificadorAfd string) error {
 		}
 	}
 
-	matriculaNum, err := strconv.ParseInt(matricula, 10, 64)
+	// Matricula temporaria (formato TYYNNNNN, CLAUDE.md) tem o "T" removido antes de virar
+	// numero - NAO documentado em lugar nenhum do codigo/planos, confirmado pelo usuario
+	// (12/08/2026) como o que ja foi feito na mao para os servidores ja cadastrados neste
+	// mesmo rele. Replica a convencao ja em uso, nao inventa uma nova.
+	matriculaLimpa := strings.TrimPrefix(strings.ToUpper(matricula), "T")
+	matriculaNum, err := strconv.ParseInt(matriculaLimpa, 10, 64)
 	if err != nil {
-		return fmt.Errorf("matricula %q nao e numerica - este rele so aceita 'registration' numerico, "+
-			"matriculas temporarias alfanumericas (T26xxxxx) nao podem ser enviadas: %w", matricula, err)
+		return fmt.Errorf("matricula %q (sem prefixo: %q) nao e numerica - este rele so aceita "+
+			"'registration' numerico: %w", matricula, matriculaLimpa, err)
 	}
 
 	cpfStr := identificadorAfd

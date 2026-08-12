@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.50.5] - 2026-08-12
+
+### Fixed
+- **Matrícula temporária alfanumérica (`T26xxxxx`) agora é aceita no push de identidade** —
+  `CriarUsuario` remove o prefixo `T` antes de converter para número. Não é invenção: o usuário
+  confirmou que é exatamente o que já foi feito manualmente para os servidores com matrícula
+  temporária já cadastrados neste relógio (achado ao revisar por que o teste rejeitava matrícula
+  não-numérica) — busca no repositório inteiro não achou essa convenção documentada em lugar
+  nenhum antes disso.
+
 ## [1.50.4] - 2026-08-12
 
 ### Fixed
