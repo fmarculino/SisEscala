@@ -227,7 +227,11 @@ func rodarCadastrosTestar(cfg *config.Config) {
 	}
 	fmt.Println("login no REP: OK")
 
-	deviceUserID, err := rc.CriarUsuario("TESTE000", "SISESCALA TESTE - PODE APAGAR", "000000000000")
+	// CPF de teste valido (passa no digito verificador) - "00000000000" foi recusado pelo rele
+	// com "'cpf' em formato incorreto": o equipamento valida o digito verificador de verdade,
+	// nao so a forma. 011144477735 -> right(11) = 11144477735, um CPF de teste sintaticamente
+	// valido e amplamente usado em QA de sistemas brasileiros (nunca emitido de verdade).
+	deviceUserID, err := rc.CriarUsuario("TESTE000", "SISESCALA TESTE - PODE APAGAR", "011144477735")
 	if err != nil {
 		fmt.Printf("CriarUsuario: FALHOU — %v\n", err)
 		fmt.Println("\nA mensagem acima, se tiver a resposta crua do rele, e o que decide o proximo passo:")

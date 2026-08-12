@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.50.3] - 2026-08-12
+
+### Fixed
+- **Segundo teste real revelou mais dois problemas, ambos de dado enviado, não mais de
+  comando errado.** `add_users.fcgi`/`load_users.fcgi` já são reconhecidos pelo relógio (a
+  correção da v1.50.2 funcionou) — o que faltava:
+  - `CriarUsuario`: o CPF de teste usado era `"000000000000"` (12 zeros) — o relógio **valida
+    o dígito verificador de verdade** e recusou com `'cpf' em formato incorreto`. Trocado para
+    `011144477735`, um CPF de teste sintaticamente válido (nunca emitido de verdade, usado em
+    QA de sistemas brasileiros).
+  - `ListarUsuariosComBiometria`: `load_users.fcgi` documentado com `limit` **máximo 100** por
+    chamada — o código pedia `1000` de uma vez, causando `deves ser do tipo booleano` (mensagem
+    de erro do firmware não nomeia o campo certo). Agora pagina em blocos de 100. Também passou
+    a falhar alto (em vez de devolver lista vazia em silêncio) se nenhum usuário tiver o campo
+    `id` esperado — a documentação consultada não confirmou esse nome de campo na resposta.
+
 ## [1.50.2] - 2026-08-12
 
 ### Fixed

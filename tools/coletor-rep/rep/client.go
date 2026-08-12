@@ -245,32 +245,62 @@ func (c *Client) ListarUsuariosComBiometria() ([]int64, error) {
 		}
 	}
 
-	resultado, err := c.chamar(fmt.Sprintf("load_users.fcgi?session=%s", c.sessao), map[string]interface{}{
-		"limit": 1000, "offset": 0, "templates": true,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	usuarios, ok := resultado["users"].([]interface{})
-	if !ok {
-		return nil, fmt.Errorf("load_users.fcgi resposta inesperada: %v", resultado)
-	}
-
+	// Documentado: limit maximo 100 por chamada - "1000" de uma vez foi o que provavelmente
+	// causou o HTTP 400 anterior (a mensagem de erro do rele nao nomeia o campo). Pagina ate a
+	// pagina voltar com menos que o limite.
+	const tamanhoPagina = 100
 	var ids []int64
-	for _, item := range usuarios {
-		m, ok := item.(map[string]interface{})
+	var totalUsuarios int
+	var semIDReconhecivel int
+	var amostra interface{}
+
+	for offset := 0; ; offset += tamanhoPagina {
+		resultado, err := c.chamar(fmt.Sprintf("load_users.fcgi?session=%s", c.sessao), map[string]interface{}{
+			"limit": tamanhoPagina, "offset": offset, "templates": true,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		usuarios, ok := resultado["users"].([]interface{})
 		if !ok {
-			continue
+			return nil, fmt.Errorf("load_users.fcgi resposta inesperada: %v", resultado)
 		}
-		userID, ok := m["id"].(float64)
-		if !ok {
-			continue
+
+		for _, item := range usuarios {
+			totalUsuarios++
+			if amostra == nil {
+				amostra = item
+			}
+			m, ok := item.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			userID, ok := m["id"].(float64)
+			if !ok {
+				semIDReconhecivel++
+				continue
+			}
+			templates, ok := m["templates"].([]interface{})
+			if ok && len(templates) > 0 {
+				ids = append(ids, int64(userID))
+			}
 		}
-		templates, ok := m["templates"].([]interface{})
-		if ok && len(templates) > 0 {
-			ids = append(ids, int64(userID))
+
+		if len(usuarios) < tamanhoPagina {
+			break
 		}
+	}
+
+	// Campo "id" nao confirmado contra hardware real (a documentacao consultada nao mostrou
+	// exemplo com ele) - se NENHUM usuario teve "id" reconhecivel apesar de existirem usuarios,
+	// e mais provavel que o nome do campo esteja errado do que que o rele nao tenha ninguem
+	// cadastrado. Falhar alto em vez de devolver lista vazia em silencio.
+	if totalUsuarios > 0 && semIDReconhecivel == totalUsuarios {
+		return nil, fmt.Errorf(
+			"load_users.fcgi devolveu %d usuario(s) mas nenhum com campo 'id' reconhecivel - "+
+				"o nome do campo de identificador pode ser outro. Exemplo cru de um usuario: %v",
+			totalUsuarios, amostra)
 	}
 	return ids, nil
 }
