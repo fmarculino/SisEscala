@@ -120,3 +120,67 @@ O que faltava, confirmado por exploração do repositório antes de começar (n�
 `<Suspense>` em `/presenca-local/ativar`, corrigido antes do commit). Sem framework de testes
 — verificação de `fn_registrar_ponto_terminal_local` e das rotas fica para depois do deploy,
 com um terminal de teste provisionado pela própria tela de gestão.
+
+---
+
+## Continuação, mesmo dia: testado contra hardware real (v1.46.0, v1.47.0)
+
+Com Go instalado na máquina do usuário (setor de TI), testou-se o coletor de ponta a ponta
+contra o relógio real (10.110.2.89) e o terminal local em produção. Três bugs apareceram e
+foram corrigidos na hora, cada um só descoberto porque havia hardware/ambiente real por trás —
+nenhum apareceria em `tsc`/`build`.
+
+### 1. Middleware redirecionava as rotas novas para `/login` (v1.46.0)
+
+`/api/rep/v1/*` e `/api/presenca-local/*` são chamadas por máquina (token de dispositivo ou
+cookie assinado), nunca com sessão Supabase Auth. O middleware só deixa passar sem sessão as
+rotas listadas em `rotasApiPublicas` — as duas novas não tinham sido adicionadas. Sintoma
+enganoso: toda chamada devolvia `405 Method Not Allowed` em vez de um redirect visível (o
+middleware redireciona com 307, preservando o método; o cliente segue o redirect; `/login` é
+página, só aceita GET; POST numa página GET-only é isto que gera 405). O comentário do próprio
+arquivo já avisava desse padrão exato — já tinha acontecido com `/api/version`
+(09/08/2026) — e caiu de novo. Corrigido acrescentando `/api/rep` e `/api/presenca-local` à
+lista.
+
+### 2. Windows Smart App Control bloqueia o `.exe` recém-compilado
+
+Sem assinatura/reputação, o Smart App Control (ativo por padrão em instalação nova do Windows
+11) recusa executar o binário. `go run .` contorna isso para desenvolvimento — o binário
+temporário que o Go gera na hora passa. Desligar o Smart App Control de vez é irreversível sem
+reinstalar o Windows, então não foi feito; ficou registrado como decisão para quando o terminal
+for de fato instalado em produção (assinatura de código, ou aceitar rodar via `go run`/serviço
+com outro mecanismo).
+
+### 3. `cmd /c start` corta a URL de ativação no `&`
+
+`terminal abrir` abria o navegador só com `?terminal_id=...`, sem `&token=...` — o `cmd.exe`
+trata `&` como separador de comando. Trocado por `rundll32 url.dll,FileProtocolHandler`, que
+não reinterpreta a URL. Confirmado funcionando: o terminal ativou e mostrou a tela de presença
+sem pedir login nenhum.
+
+### 4. O campo de data/hora do AFD não é o do exemplo do plano (v1.47.0)
+
+Achado mais sério: `sync` trouxe 17.448 registros do histórico completo do relógio (ele ainda
+pede sempre a partir do NSR 1) e **zero marcações**. Investigando com um subcomando novo,
+`afd-raw` (só busca e imprime os bytes crus, não grava nada), ficou claro que o campo de
+data/hora real tem 12 dígitos (`DDMMYYYYHHMM`), não os 24 caracteres ISO 8601
+(`2023-11-08T08:46:00-0300`) do exemplo ilustrativo do plano — o exemplo era uma reformatação
+para leitura humana na documentação, não os bytes reais. Confirmado cruzando NSR, identificador
+e CRC: é literalmente o mesmo evento do exemplo do plano, só sem os separadores.
+
+**Sem dado corrompido** — `linha_bruta` sempre esteve certa; o bug era só na extração das
+colunas derivadas, e por isso é recuperável via `parse_versao` sem tocar no artefato legal.
+Migration `20260811190000` corrige `fn_parse_linha_afd` e roda `fn_reparse_afd_dispositivo`
+para todo dispositivo existente. Resultado em produção: 21 marcações resolvidas para servidor
+(as batidas reais do piloto — Lucia, Daiane, Victor confirmados na amostra, com horários batendo
+com o esperado) e mais de mil órfãs (o histórico de 2023 do relógio, configuração/teste do
+equipamento com identificador fake — comportamento correto, não sujeira).
+
+Detalhe técnico: `to_timestamp(v_dt_txt, 'DDMMYYYYHH24MI')::timestamp AT TIME ZONE
+'America/Sao_Paulo'` substitui o cast direto — o mesmo padrão que `fn_confirmar_presenca` usa
+na direção inversa. Ver armadilha 11 do `CLAUDE.md`.
+
+### Pendências atualizadas
+
+Item 1 e 2 da tabela original resolvidos (compilado, testado, `login`/`heartbeat`/`sync`
+funcionando). Item 2 (`get_system_information.fcgi`) continua em aberto — não testado ainda.

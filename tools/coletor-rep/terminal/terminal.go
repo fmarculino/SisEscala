@@ -30,7 +30,11 @@ func Abrir(baseURL, terminalID, token string) error {
 func abrirNoNavegador(destino string) error {
 	switch runtime.GOOS {
 	case "windows":
-		return exec.Command("cmd", "/c", "start", "", destino).Start()
+		// NAO usar `cmd /c start` aqui: cmd.exe trata `&` como separador de comando, e a URL
+		// de ativacao tem `?terminal_id=...&token=...` - o token inteiro era cortado antes de
+		// chegar no navegador. rundll32 passa a URL direto para o handler de protocolo do
+		// Windows sem reinterpretar o `&`.
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", destino).Start()
 	case "darwin":
 		return exec.Command("open", destino).Start()
 	default:

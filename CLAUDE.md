@@ -100,22 +100,31 @@ Duas lacunas conhecidas, registradas no plano:
 - Nenhum turno do grupo cruza a meia-noite → o cursor de "ontem" fica sem teste. Escalar um
   `Plantão N` no mês resolve.
 
-### Coletor Go (`tools/coletor-rep/`) — escrito em 11/08/2026, não verificado
+### Coletor Go (`tools/coletor-rep/`) — compilado e testado contra hardware real em 11/08/2026
 
-Implementa `sync` (AFD → `/api/rep/v1/marcacoes`), `heartbeat`, `diagnostico`, `terminal abrir`
-(ver seção do terminal local) e `install/start/stop` como serviço Windows
-(`kardianos/service`). README no próprio diretório documenta o que falta confirmar:
+Implementa `sync` (AFD → `/api/rep/v1/marcacoes`), `heartbeat`, `diagnostico`, `afd-raw`
+(diagnóstico puro, não grava nada — buscar o AFD e imprimir cru, útil para conferir o formato
+real de um relógio antes de confiar no parser), `terminal abrir` (ver seção do terminal local)
+e `install/start/stop` como serviço Windows (`kardianos/service`).
 
-- `go build` nunca rodou — a máquina onde foi escrito não tinha o Go instalado.
-- `login.fcgi` e `get_afd.fcgi?mode=671` **já foram validados** contra o relógio real em
-  08/08/2026 (ver acima). O resto da API (`get_system_information.fcgi`, usada só para a
-  deriva de relógio no heartbeat) é aproximação — `rep/client.go` tenta os campos
-  `device_time`/`system_time`/`datetime` nessa ordem, e segue sem deriva se nenhum bater, mas
-  os nomes reais **não foram conferidos** contra o device.
+- `login.fcgi` e `get_afd.fcgi?mode=671` **validados contra o relógio real** (10.110.2.89),
+  login e busca do AFD completo funcionando.
+- **Windows Smart App Control bloqueia o `.exe` recém-compilado** (sem assinatura/reputação —
+  `Code Integrity determined that a process ... did not meet the Enterprise signing level
+  requirements`, evento 3077/3089 em `Microsoft-Windows-CodeIntegrity/Operational`). `go run .`
+  contorna isso para desenvolvimento/teste. Desligar o Smart App Control é **irreversível sem
+  reinstalar o Windows** — não é decisão para tomar de passagem.
+- `get_system_information.fcgi` (deriva de relógio no heartbeat) continua aproximação —
+  `rep/client.go` tenta `device_time`/`system_time`/`datetime` nessa ordem e segue sem deriva
+  se nenhum bater. Não confirmado ainda.
 - `sync` sempre pede o AFD a partir do NSR 1 (não lê `dispositivos_rep.ultimo_nsr` antes) e
   confia na idempotência de `fn_ingerir_afd` para descartar o que já foi ingerido — funciona,
   mas reenvia o arquivo inteiro do relógio a cada ciclo. Antes de ligar em relógio de alto
   volume, trocar por uma leitura prévia do `ultimo_nsr`.
+- No Windows, abrir URL com `cmd /c start` **corta tudo depois de um `&`** (separador de
+  comando do `cmd.exe`) — quebrava a URL de ativação do terminal local, que tem
+  `?terminal_id=...&token=...`. `terminal/terminal.go` usa
+  `rundll32 url.dll,FileProtocolHandler` em vez disso.
 
 Confirme cada ponto com `curl.exe -sk` a partir do PowerShell antes de instalar em campo —
 `Invoke-RestMethod` falha contra o TLS não-padrão do device (já registrado acima).
@@ -676,6 +685,38 @@ em `20260808090000`.
 
 Agrava: quem usa relógio tende a ter `cpf` nulo no SisEscala, e `pis_pasep` está vazio em 100%
 dos registros. Auditor fiscal casa por PIS/NIS — é projeto de qualidade de dados da Fase 9.
+
+### 11. O campo de data/hora do AFD tem 12 dígitos, não 24 (não é ISO 8601)
+
+`fn_parse_linha_afd` (`20260808080000`) nasceu assumindo que o campo de data/hora de uma
+marcação (tipo 3) era `2023-11-08T08:46:00-0300` — 24 caracteres, igual ao exemplo ilustrativo
+do próprio plano. **O exemplo era uma reformatação para leitura humana na documentação, não os
+bytes reais.** O campo de verdade é `DDMMYYYYHHMM`, 12 dígitos, sem hífen, dois-pontos, `T` ou
+offset — confirmado em 11/08/2026 buscando o AFD de verdade do relógio (10.110.2.89) pelo
+`coletor-rep`.
+
+**Sintoma:** o cast direto `v_dt_txt::timestamptz` falhava (capturado pelo `EXCEPTION` que já
+existia) para **toda** linha tipo 3, `ocorrido_em` ficava `NULL`, e `fn_ingerir_afd` nunca
+criava marcação nenhuma — mesmo com a linha certa gravada no banco. Uma sincronização de teste
+trouxe 17.448 registros do histórico completo do equipamento (o coletor ainda pede sempre a
+partir do NSR 1, ver acima) e **zero marcações**.
+
+**Por que isso não corrompeu nada:** `rep_afd_registros.linha_bruta` é o artefato legal, gravado
+exatamente como veio do equipamento — estava certo o tempo todo. O bug era só na extração das
+colunas *derivadas*, e `parse_versao` existe exatamente para isto: permitir reprocessar sem
+jamais tocar em `linha_bruta`. O modo de falha era "não extrai nada", nunca "extrai errado".
+
+**Correção em `20260811190000`:** desloca os offsets em 12 posições (identificador tipo 3:
+35→23; tipo 5: 36→24) e troca o cast direto por
+`to_timestamp(v_dt_txt, 'DDMMYYYYHH24MI')::timestamp AT TIME ZONE 'America/Sao_Paulo'` — o
+mesmo padrão que `fn_confirmar_presenca` usa na direção inversa para `v_now_local`. A migration
+também roda `fn_reparse_afd_dispositivo` para todo `dispositivos_rep` existente, recuperando
+retroativamente as marcações que deveriam ter sido criadas desde o início.
+
+⚠️ **Se outro relógio/modelo entrar no ar, confira o formato antes de confiar no parser** — use
+`coletor-rep afd-raw` (diagnóstico puro, não grava nada) para ver os bytes crus antes de rodar
+`sync` de verdade. Um exemplo ilustrativo em markdown não é evidência do formato real; só o
+byte cru é.
 
 ## Convenções
 

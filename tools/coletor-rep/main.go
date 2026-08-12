@@ -48,6 +48,8 @@ func main() {
 		}
 	case "diagnostico":
 		rodarDiagnostico(cfg)
+	case "afd-raw":
+		rodarAfdRaw(cfg)
 	case "terminal":
 		if len(os.Args) < 3 || os.Args[2] != "abrir" {
 			fmt.Fprintln(os.Stderr, "Uso: coletor-rep terminal abrir")
@@ -79,6 +81,7 @@ Uso:
   coletor-rep sync                            sincroniza AFD do relogio REP configurado
   coletor-rep heartbeat                       reporta versao e deriva de relogio ao SisEscala
   coletor-rep diagnostico                     testa conexao com o REP e com o SisEscala
+  coletor-rep afd-raw                         so imprime a resposta crua do relogio (diagnostico, nao grava nada)
   coletor-rep terminal abrir                  abre a tela de presenca local no navegador
   coletor-rep install|start|stop|uninstall    gerencia o servico do Windows
   coletor-rep run                             roda o ciclo continuo em primeiro plano (usado pelo servico)
@@ -273,5 +276,61 @@ func rodarDiagnostico(cfg *config.Config) {
 		fmt.Println("terminal_local: nao configurado nesta maquina")
 	} else {
 		fmt.Printf("terminal_local: %s (rode `coletor-rep terminal abrir` para testar)\n", cfg.TerminalLocal.ID)
+	}
+}
+
+// rodarAfdRaw so busca e imprime a resposta do relogio - nunca chama sisescala.EnviarLote.
+// Existe para diagnosticar o formato real de get_afd.fcgi sem risco de gravar nada em
+// producao. %q escapa bytes nao imprimiveis, entao chaves/aspas/newlines ficam visiveis em
+// vez de baguncar o terminal.
+func rodarAfdRaw(cfg *config.Config) {
+	if cfg.DispositivoRep == nil {
+		fmt.Fprintln(os.Stderr, "Secao dispositivo_rep ausente no config.yaml.")
+		os.Exit(1)
+	}
+	d := cfg.DispositivoRep
+	rc := rep.NovoClient(d.Endereco, d.Porta, d.UsaHTTPS, d.UsuarioRep, d.SenhaRep, d.CertFingerprint)
+
+	if err := rc.Login(); err != nil {
+		fmt.Fprintf(os.Stderr, "Falha no login: %v\n", err)
+		os.Exit(1)
+	}
+
+	bruto, err := rc.GetAFD(1)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Falha ao buscar AFD: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Total de bytes recebidos: %d\n\n", len(bruto))
+
+	limite := 500
+	if len(bruto) < limite {
+		limite = len(bruto)
+	}
+	fmt.Println("--- Primeiros bytes CRUS (antes de qualquer decode), escapados ---")
+	fmt.Printf("%q\n\n", bruto[:limite])
+
+	afdUTF8, err := rep.DecodificarLatin1(bruto)
+	if err != nil {
+		fmt.Printf("Falha ao decodificar latin1: %v\n", err)
+		return
+	}
+
+	limite2 := 500
+	if len(afdUTF8) < limite2 {
+		limite2 = len(afdUTF8)
+	}
+	fmt.Println("--- Apos decodificar latin1, escapados ---")
+	fmt.Printf("%q\n\n", afdUTF8[:limite2])
+
+	linhas := rep.DividirLinhas(afdUTF8)
+	fmt.Printf("--- DividirLinhas encontrou %d linhas ---\n", len(linhas))
+	for i, l := range linhas {
+		if i >= 10 {
+			fmt.Println("...")
+			break
+		}
+		fmt.Printf("linha %d (%d chars): %q\n", i+1, len(l), l)
 	}
 }
