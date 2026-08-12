@@ -28,6 +28,25 @@ function validarDocumentosServidor(cpf?: string | null, pis?: string | null): st
 }
 
 /**
+ * CPF obrigatório no cadastro do servidor (12/08/2026, pedido do usuário) — `erroDocumento`
+ * deliberadamente trata campo vazio como válido (compartilhado com PIS e o CNPJ de unidade, que
+ * continuam opcionais), então a obrigatoriedade entra aqui, específica de CPF de servidor.
+ *
+ * NÃO retroativo: servidor legado sem CPF (57 em produção em 08/2026) só é bloqueado na PRÓXIMA
+ * edição, não travado de imediato — mesmo padrão já usado para o `CHECK` de dígito verificador
+ * (20260809230000): forçar o campo age como incentivo pra completar o cadastro, não como punição
+ * por dado histórico incompleto.
+ *
+ * Vínculo duplo (dois cadastros ativos, mesmo CPF, matrículas diferentes — v1.42.0) não conflita
+ * com isto: o segundo vínculo tem exatamente o MESMO CPF do primeiro, só muda a confirmação em
+ * `confirma_vinculo_adicional`. CPF obrigatório na verdade FORTALECE essa checagem — antes dela,
+ * um segundo vínculo cadastrado sem CPF nenhum escapava por completo de `verificarCpfDuplicado`.
+ */
+function validarCpfObrigatorio(cpf?: string | null): string | null {
+  return normalizarCpf(cpf) ? null : 'CPF é obrigatório.'
+}
+
+/**
  * Confere se o CPF já pertence a outro cadastro — e, desde 20260810140000, permite que seja
  * um vínculo adicional legítimo (a mesma pessoa com dois cargos/matrículas), não erro.
  *
@@ -398,6 +417,11 @@ export async function createServidor(formData: FormData) {
   const erroDoc = validarDocumentosServidor(cpf, dadosComplementares.pis_pasep)
   if (erroDoc) {
     return { error: erroDoc }
+  }
+
+  const erroCpfObrigatorio = validarCpfObrigatorio(cpf)
+  if (erroCpfObrigatorio) {
+    return { error: erroCpfObrigatorio }
   }
 
   const erroLotacao = await validarLotacaoNoEscopo(supabase, setor_id || null)
@@ -799,7 +823,12 @@ export async function importServidores(csvText: string) {
     }
 
     const cpfLimpo = servers[idx].cpf
-    if (!cpfLimpo) continue
+    if (!cpfLimpo) {
+      // CPF obrigatório (12/08/2026) — a importação em massa é uma das três portas de escrita de
+      // `servidores` (junto de createServidor/updateServidor), então também passa a exigir.
+      problemas.push(`Linha ${linha} (${servers[idx].nome}): CPF é obrigatório.`)
+      continue
+    }
 
     const anterior = vistosNoArquivo.get(cpfLimpo)
     if (anterior !== undefined) {
@@ -877,6 +906,11 @@ export async function updateServidor(id: string, formData: FormData) {
   const erroDoc = validarDocumentosServidor(cpf, formData.get('pis_pasep') as string)
   if (erroDoc) {
     return { error: erroDoc }
+  }
+
+  const erroCpfObrigatorio = validarCpfObrigatorio(cpf)
+  if (erroCpfObrigatorio) {
+    return { error: erroCpfObrigatorio }
   }
 
   // Preencher o CPF de um cadastro antigo é justamente quando a duplicata aparece: o registro
@@ -1216,13 +1250,19 @@ export async function deleteJornadaTemporaria(id: string, servidorId: string) {
  * action só traduz o erro do banco pra mensagem legível, mesmo padrão do resto do arquivo. O gate
  * de vínculo múltiplo (CPF já cadastrado noutra matrícula) é o mesmo de `createServidor`: a RPC
  * recusa sem `confirmaVinculoAdicional`, com mensagem que diz quem já está cadastrado.
+ *
+ * `cpf` (12/08/2026) é o que a tela coletou nesta linha quando a pendência não trouxe nenhum do
+ * relatório do RH — CPF passou a ser obrigatório também aqui, mesma regra de
+ * `createServidor`/`updateServidor`. Quando a pendência já tem CPF, este parâmetro é ignorado
+ * pela RPC (o CPF da pendência sempre vence).
  */
 export async function promoverPendenciaRh(
   pendenciaId: string,
   unidadeId: string,
   setorId: string,
   cargo: string,
-  confirmaVinculoAdicional: boolean = false
+  confirmaVinculoAdicional: boolean = false,
+  cpf?: string
 ) {
   const supabase = await createClient()
 
@@ -1232,6 +1272,7 @@ export async function promoverPendenciaRh(
     p_setor_id: setorId,
     p_cargo: cargo,
     p_confirma_vinculo_adicional: confirmaVinculoAdicional,
+    p_cpf: cpf || null,
   })
 
   if (error) {
@@ -1257,27 +1298,51 @@ export async function promoverPendenciaRh(
 }
 
 /**
- * Resolve o conflito de CPF de uma pendência de importação de RH — quem já está cadastrado com
- * esse CPF, se houver. Chamada uma vez, ao abrir a linha na tela (não N+1 na lista inteira).
- * `fn_cpf_ja_cadastrado` é `SECURITY DEFINER` (enxerga a base inteira, de propósito — a mesma
- * razão de `20260809110000`), então isso funciona mesmo pra coordenador vendo só sua unidade na
- * lista: se o CPF colidir com alguém de outra unidade, ele ainda vê que existe conflito (só não
- * consegue promover/atualizar pra fora do próprio escopo — isso é bloqueado nas RPCs).
+ * Resolve o conflito de uma pendência de importação de RH — quem já está cadastrado com a mesma
+ * MATRÍCULA ou o mesmo CPF, se houver. Chamada uma vez, ao abrir a linha na tela (não N+1 na
+ * lista inteira). As duas RPCs são `SECURITY DEFINER` (enxergam a base inteira, de propósito — a
+ * mesma razão de `20260809110000`), então isso funciona mesmo pra coordenador vendo só sua
+ * unidade na lista: se colidir com alguém de outra unidade, ele ainda vê que existe conflito (só
+ * não consegue promover/atualizar pra fora do próprio escopo — isso é bloqueado nas RPCs).
+ *
+ * MATRÍCULA TEM PRIORIDADE SOBRE CPF (12/08/2026): colisão por matrícula nunca é um vínculo
+ * adicional válido — é sempre o MESMO registro (foi assim que a promoção de FLAVIA BARROS
+ * CAVALCANTE estourou `duplicate key value violates unique constraint "servidores_matricula_key"`
+ * cru na tela: a pendência dela não tinha CPF pra casar por `fn_cpf_ja_cadastrado`, e a colisão
+ * só aparecia no INSERT). Por isso `tipo: 'matricula'` no retorno nunca deve oferecer a opção de
+ * cadastro novo na tela — só `tipo: 'cpf'` oferece.
+ *
+ * `cpfNormalizado` devolve o CPF que a própria pendência já traz (ou `null`) — a tela usa isso pra
+ * decidir se precisa pedir o CPF ao coordenador antes de promover como cadastro novo (agora
+ * obrigatório, mesma regra de `createServidor`/`updateServidor`).
  */
-export async function buscarConflitoCpf(pendenciaId: string) {
+export async function buscarConflitoPendencia(pendenciaId: string) {
   const supabase = await createClient()
 
   const { data: pend, error: erroPend } = await supabase
     .from('importacao_rh_pendentes')
-    .select('cpf_normalizado')
+    .select('cpf_normalizado, matricula')
     .eq('id', pendenciaId)
     .single()
   if (erroPend || !pend) return { error: 'Pendência não encontrada.' }
 
-  const { data, error } = await supabase.rpc('fn_cpf_ja_cadastrado', { p_cpf: pend.cpf_normalizado })
-  if (error) return { error: error.message }
+  const { data: porMatricula, error: erroMat } = await supabase.rpc('fn_servidor_por_matricula', {
+    p_matricula: pend.matricula,
+  })
+  if (erroMat) return { error: erroMat.message }
+  const conflitoMatricula = (porMatricula && porMatricula[0]) || null
+  if (conflitoMatricula) {
+    return { conflito: { ...conflitoMatricula, tipo: 'matricula' as const }, cpfNormalizado: pend.cpf_normalizado }
+  }
 
-  return { conflito: (data && data[0]) || null }
+  const { data: porCpf, error: erroCpf } = await supabase.rpc('fn_cpf_ja_cadastrado', { p_cpf: pend.cpf_normalizado })
+  if (erroCpf) return { error: erroCpf.message }
+  const conflitoCpf = (porCpf && porCpf[0]) || null
+
+  return {
+    conflito: conflitoCpf ? { ...conflitoCpf, tipo: 'cpf' as const } : null,
+    cpfNormalizado: pend.cpf_normalizado,
+  }
 }
 
 /**
@@ -1288,7 +1353,7 @@ export async function buscarConflitoCpf(pendenciaId: string) {
  * — mudar lotação continua exigindo o fluxo de solicitação com aprovação do super_admin
  * (v1.43.0). O diff pro log de auditoria é calculado aqui, comparando antes/depois.
  */
-export async function atualizarCadastroViaPendenciaRh(pendenciaId: string, servidorId: string) {
+export async function atualizarCadastroViaPendenciaRh(pendenciaId: string, servidorId: string, cpf?: string) {
   const supabase = await createClient()
 
   const { data: antes } = await supabase.from('servidores').select('*').eq('id', servidorId).single()
@@ -1296,6 +1361,7 @@ export async function atualizarCadastroViaPendenciaRh(pendenciaId: string, servi
   const { data, error } = await supabase.rpc('fn_atualizar_cadastro_via_pendencia_rh', {
     p_pendencia_id: pendenciaId,
     p_servidor_id: servidorId,
+    p_cpf: cpf || null,
   })
   if (error) return { error: error.message }
 

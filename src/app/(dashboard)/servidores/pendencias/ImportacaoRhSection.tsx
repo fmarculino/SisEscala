@@ -3,16 +3,20 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
-  UserPlus, Search, ChevronLeft, ChevronRight, CheckCircle2, Info, Users2, X, Loader2,
+  UserPlus, Search, ChevronLeft, ChevronRight, CheckCircle2, Info, Users2, X, Loader2, AlertTriangle,
 } from 'lucide-react'
-import { promoverPendenciaRh, buscarConflitoCpf, atualizarCadastroViaPendenciaRh, buscarPendenciaRhPorTermo } from '../actions'
+import { promoverPendenciaRh, buscarConflitoPendencia, atualizarCadastroViaPendenciaRh, buscarPendenciaRhPorTermo } from '../actions'
+import { CampoDocumento } from '@/components/CampoDocumento'
+import { formatarDoc } from '@/utils/documentos'
 
-interface ConflitoCpf {
+interface ConflitoPendencia {
   servidor_id: string
   nome: string
   matricula: string | null
   unidade_nome: string | null
   status: string
+  /** matricula = nunca é vínculo válido, é sempre o mesmo registro. cpf = pode ser vínculo adicional de verdade. */
+  tipo: 'matricula' | 'cpf'
 }
 
 interface PendenteRh {
@@ -299,20 +303,34 @@ function LinhaPendente({ pendente, aberta, onToggle, onPromovido, unidades, seto
   const [erro, setErro] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
 
-  // Conflito de CPF é checado proativamente ao abrir a linha — não mais reativo a um erro de
-  // "confirme de novo". undefined = ainda não checou; null = checou, sem conflito.
-  const [conflito, setConflito] = useState<ConflitoCpf | null | undefined>(undefined)
+  // Conflito (por matrícula OU CPF) é checado proativamente ao abrir a linha — não mais reativo
+  // a um erro de "confirme de novo". undefined = ainda não checou; null = checou, sem conflito.
+  const [conflito, setConflito] = useState<ConflitoPendencia | null | undefined>(undefined)
+  // CPF que a própria pendência já traz do relatório do RH — quando ausente, a tela precisa
+  // coletar do coordenador antes de promover (CPF obrigatório desde 12/08/2026).
+  const [cpfPendencia, setCpfPendencia] = useState<string | null>(null)
+  const [cpfDigitado, setCpfDigitado] = useState('')
   const [checandoConflito, setChecandoConflito] = useState(false)
   const [escolha, setEscolha] = useState<'duplo' | 'atualizar' | null>(null)
 
   useEffect(() => {
     if (!aberta || conflito !== undefined) return
     setChecandoConflito(true)
-    buscarConflitoCpf(pendente.id).then(res => {
-      setConflito((res as any)?.conflito ?? null)
+    buscarConflitoPendencia(pendente.id).then(res => {
+      const encontrado = (res as any)?.conflito ?? null
+      setConflito(encontrado)
+      setCpfPendencia((res as any)?.cpfNormalizado ?? null)
+      // Colisão por matrícula tem uma única resposta válida — pula direto pra "atualizar", sem
+      // oferecer radio (ver comentário de emConflitoMatricula abaixo).
+      if (encontrado?.tipo === 'matricula') setEscolha('atualizar')
       setChecandoConflito(false)
     })
   }, [aberta, conflito, pendente.id])
+
+  // Colisão por matrícula nunca é vínculo válido — é sempre o mesmo registro (ver comentário em
+  // buscarConflitoPendencia). Trata como "atualizar" direto, sem oferecer a escolha de radio.
+  const emConflitoMatricula = conflito?.tipo === 'matricula'
+  const cpfFaltando = !cpfPendencia && !cpfDigitado.trim()
 
   const setoresDaUnidade = useMemo(() => setores.filter(s => s.unidade_id === unidadeId), [setores, unidadeId])
 
@@ -322,9 +340,13 @@ function LinhaPendente({ pendente, aberta, onToggle, onPromovido, unidades, seto
       setErro('Unidade, setor e cargo são obrigatórios.')
       return
     }
+    if (cpfFaltando) {
+      setErro('CPF é obrigatório para concluir o cadastro.')
+      return
+    }
     setSalvando(true)
     setErro(null)
-    const res = await promoverPendenciaRh(pendente.id, unidadeId, setorId, cargoNome, true)
+    const res = await promoverPendenciaRh(pendente.id, unidadeId, setorId, cargoNome, true, cpfDigitado)
     setSalvando(false)
     if (res?.error) {
       setErro(res.error)
@@ -337,7 +359,7 @@ function LinhaPendente({ pendente, aberta, onToggle, onPromovido, unidades, seto
     if (!conflito) return
     setSalvando(true)
     setErro(null)
-    const res = await atualizarCadastroViaPendenciaRh(pendente.id, conflito.servidor_id)
+    const res = await atualizarCadastroViaPendenciaRh(pendente.id, conflito.servidor_id, cpfDigitado)
     setSalvando(false)
     if (res?.error) {
       setErro(res.error)
@@ -352,9 +374,13 @@ function LinhaPendente({ pendente, aberta, onToggle, onPromovido, unidades, seto
       setErro('Unidade, setor e cargo são obrigatórios.')
       return
     }
+    if (cpfFaltando) {
+      setErro('CPF é obrigatório para concluir o cadastro.')
+      return
+    }
     setSalvando(true)
     setErro(null)
-    const res = await promoverPendenciaRh(pendente.id, unidadeId, setorId, cargoNome, false)
+    const res = await promoverPendenciaRh(pendente.id, unidadeId, setorId, cargoNome, false, cpfDigitado)
     setSalvando(false)
     if (res?.error) {
       setErro(res.error)
@@ -390,11 +416,38 @@ function LinhaPendente({ pendente, aberta, onToggle, onPromovido, unidades, seto
         <div className="p-4 space-y-4 border-t border-zinc-200 dark:border-zinc-800">
           {checandoConflito && (
             <p className="flex items-center gap-2 text-xs text-zinc-400">
-              <Loader2 className="h-3 w-3 animate-spin" /> Conferindo se este CPF já está cadastrado...
+              <Loader2 className="h-3 w-3 animate-spin" /> Conferindo se esta matrícula ou CPF já está cadastrado...
             </p>
           )}
 
-          {conflito && (
+          {emConflitoMatricula && (
+            <div className="rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-500/10 p-4 space-y-3">
+              <p className="text-sm text-red-900 dark:text-red-200 flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                <span>
+                  Já existe um cadastro <b>ativo</b> com esta matrícula: <b>{conflito!.nome}</b>
+                  {conflito!.unidade_nome ? ` (${conflito!.unidade_nome})` : ''}. Matrícula é única
+                  por pessoa — isto não pode ser um vínculo adicional, é sempre o mesmo registro.
+                  Confirmar aqui só completa, no cadastro de {conflito!.nome}, o que estiver vazio —
+                  nunca sobrescreve o que já está preenchido, e não mexe em matrícula, unidade,
+                  setor nem status.
+                </span>
+              </p>
+              {!cpfPendencia && (
+                <CampoDocumento
+                  className="max-w-xs"
+                  id={`cpf-matricula-${pendente.id}`}
+                  label="CPF (opcional — preenche o cadastro se ele ainda não tiver)"
+                  tipo="cpf"
+                  value={cpfDigitado}
+                  onChange={setCpfDigitado}
+                  placeholder="000.000.000-00"
+                />
+              )}
+            </div>
+          )}
+
+          {conflito?.tipo === 'cpf' && (
             <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-500/10 p-4 space-y-3">
               <p className="text-sm text-amber-900 dark:text-amber-200 flex items-start gap-2">
                 <Info className="h-4 w-4 mt-0.5 shrink-0" />
@@ -444,48 +497,71 @@ function LinhaPendente({ pendente, aberta, onToggle, onPromovido, unidades, seto
             </div>
           )}
 
-          {(conflito === null || escolha === 'duplo') && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <label className="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-1">Unidade</label>
-                <select
-                  value={unidadeId}
-                  onChange={e => { setUnidadeId(e.target.value); setSetorId('') }}
-                  className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-white"
-                >
-                  <option value="">Selecione...</option>
-                  {unidades.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
-                </select>
-                {!pendente.unidade_id && (
-                  <p className="mt-1 text-[10px] text-zinc-400">
-                    Sem match automático. Se a unidade certa não existe, <Link href="/unidades/nova" target="_blank" className="text-blue-600 dark:text-blue-400 underline">crie-a</Link> e volte aqui.
+          {(conflito === null || (conflito?.tipo === 'cpf' && escolha === 'duplo')) && (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-1">Unidade</label>
+                  <select
+                    value={unidadeId}
+                    onChange={e => { setUnidadeId(e.target.value); setSetorId('') }}
+                    className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-white"
+                  >
+                    <option value="">Selecione...</option>
+                    {unidades.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
+                  </select>
+                  {!pendente.unidade_id && (
+                    <p className="mt-1 text-[10px] text-zinc-400">
+                      Sem match automático. Se a unidade certa não existe, <Link href="/unidades/nova" target="_blank" className="text-blue-600 dark:text-blue-400 underline">crie-a</Link> e volte aqui.
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-1">Setor</label>
+                  <select
+                    value={setorId}
+                    onChange={e => setSetorId(e.target.value)}
+                    disabled={!unidadeId}
+                    className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-white disabled:opacity-50"
+                  >
+                    <option value="">{unidadeId ? 'Selecione...' : 'Escolha a unidade primeiro'}</option>
+                    {setoresDaUnidade.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-1">Cargo</label>
+                  <select
+                    value={cargoId}
+                    onChange={e => setCargoId(e.target.value)}
+                    className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-white"
+                  >
+                    <option value="">Selecione...</option>
+                    {cargos.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* CPF obrigatório pra criar cadastro novo (12/08/2026) — a pendência pode já
+                  trazer do relatório do RH; quando não traz, coleta aqui antes de confirmar. */}
+              <div className="max-w-xs">
+                {cpfPendencia ? (
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    CPF do relatório do RH: <span className="font-mono">{formatarDoc(cpfPendencia, 'cpf')}</span>
                   </p>
+                ) : (
+                  <CampoDocumento
+                    id={`cpf-novo-${pendente.id}`}
+                    label="CPF *"
+                    tipo="cpf"
+                    value={cpfDigitado}
+                    onChange={setCpfDigitado}
+                    placeholder="000.000.000-00"
+                    required
+                    ajuda="Obrigatório — a importação do RH não trouxe CPF para este vínculo."
+                  />
                 )}
               </div>
-              <div>
-                <label className="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-1">Setor</label>
-                <select
-                  value={setorId}
-                  onChange={e => setSetorId(e.target.value)}
-                  disabled={!unidadeId}
-                  className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-white disabled:opacity-50"
-                >
-                  <option value="">{unidadeId ? 'Selecione...' : 'Escolha a unidade primeiro'}</option>
-                  {setoresDaUnidade.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-1">Cargo</label>
-                <select
-                  value={cargoId}
-                  onChange={e => setCargoId(e.target.value)}
-                  className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-white"
-                >
-                  <option value="">Selecione...</option>
-                  {cargos.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-                </select>
-              </div>
-            </div>
+            </>
           )}
 
           {erro && (

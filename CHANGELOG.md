@@ -2,6 +2,48 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.56.0] - 2026-08-12
+
+### Added
+- **CPF obrigatório no cadastro do servidor** (`createServidor`, `updateServidor`, importação em
+  massa por CSV) — pedido do usuário, considerando explicitamente o vínculo duplo (v1.42.0): o
+  segundo vínculo é a MESMA pessoa com o MESMO CPF, marcando "confirma vínculo adicional" — CPF
+  obrigatório não conflita com isso, na verdade fortalece a detecção (antes um segundo vínculo
+  sem CPF nenhum escapava por completo de `verificarCpfDuplicado`). **Não é retroativo**:
+  servidor legado sem CPF (57 em produção em 08/2026) só é bloqueado na próxima edição, não
+  travado de imediato — mesmo padrão já usado pro `CHECK` de dígito verificador (v1.38.0).
+  `CampoDocumento` do CPF ganhou `required` nos dois formulários.
+
+### Fixed
+- **Promover uma pendência de importação do RH cujo servidor já está ativo estourava erro cru
+  de Postgres** (`duplicate key value violates unique constraint "servidores_matricula_key"`) —
+  achado em produção promovendo FLAVIA BARROS CAVALCANTE (matrícula 58144, já ativa na escala do
+  DMAC). `fn_promover_pendencia_rh` só detectava conflito pelo CPF (`fn_cpf_ja_cadastrado`); se a
+  pendência não tem CPF (ou o cadastro ativo também não tem — mesmos 57 servidores acima), a
+  checagem nunca disparava e a função tentava o `INSERT` direto, que só então esbarrava na
+  constraint de matrícula — a tela nunca chegava a perguntar "vínculo adicional ou atualização",
+  só mostrava o erro do banco.
+  - Nova função `fn_servidor_por_matricula` (mesmo padrão `SECURITY DEFINER` de
+    `fn_cpf_ja_cadastrado`), verificada **antes** do CPF em `fn_promover_pendencia_rh` — colisão
+    por matrícula nunca é um vínculo válido (matrícula é a própria chave que a fila usa pra
+    identificar "esta pessoa ainda não tem cadastro"; se já existe alguém com essa matrícula, é
+    sempre o MESMO registro). A tela (`buscarConflitoPendencia`, renomeada de
+    `buscarConflitoCpf`) passa a checar matrícula e CPF numa só chamada, e a `LinhaPendente` só
+    oferece **um** caminho quando o conflito é por matrícula ("atualizar cadastro existente") —
+    nunca a opção de vínculo duplo, que não faz sentido nesse caso.
+  - `fn_atualizar_cadastro_via_pendencia_rh` ganhou `p_cpf` opcional e passa a preencher `cpf`
+    do cadastro existente por `COALESCE` (nunca sobrescreve) — antes CPF ficava de fora do
+    `UPDATE` porque só era alcançada quando já tinha casado por CPF (logo já preenchido); agora
+    também é alcançada por colisão de matrícula, onde o cadastro existente pode não ter CPF
+    nenhum. Migration `20260812110000`.
+  - `fn_promover_pendencia_rh` (criar cadastro novo) e `fn_atualizar_cadastro_via_pendencia_rh`
+    (completar existente) passam a exigir CPF também nesse caminho — vem do CPF que a pendência
+    já traz do relatório do RH ou, na falta dele, de um campo novo na própria linha da tela
+    (`CampoDocumento`), sem que o coordenador precise sair pra outra tela.
+  - "À medida que os cadastros forem sendo atualizados eles saem das pendências" já era o
+    comportamento existente — `promovido_em` tira a linha da fila `WHERE promovido_em IS NULL`
+    assim que a promoção ou atualização é confirmada; nada novo precisou aqui.
+
 ## [1.55.2] - 2026-08-12
 
 ### Changed

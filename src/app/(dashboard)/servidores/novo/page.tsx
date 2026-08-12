@@ -266,15 +266,19 @@ export default function NovoServidorPage() {
             />
           </div>
 
-          {/* handleSubmit faz formData.set('cpf', currentCpf), entao aqui nao vai `name`. */}
+          {/* handleSubmit faz formData.set('cpf', currentCpf), entao aqui nao vai `name`.
+              Obrigatorio desde 12/08/2026 — pedido do usuario, sem exceção nem pra vínculo
+              duplo (o segundo vínculo é a MESMA pessoa, com o MESMO CPF, marcando "vínculo
+              adicional" abaixo — CPF obrigatório não conflita com isso). */}
           <CampoDocumento
             className="sm:col-span-2"
             id="cpf"
-            label="CPF"
+            label="CPF *"
             tipo="cpf"
             value={currentCpf}
             onChange={setCurrentCpf}
             placeholder="000.000.000-00"
+            required
           />
 
           <div className="sm:col-span-6">

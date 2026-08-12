@@ -349,15 +349,18 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
             />
           </div>
 
-          {/* handleSubmit faz formData.set('cpf', currentCpf), entao aqui nao vai `name`. */}
+          {/* handleSubmit faz formData.set('cpf', currentCpf), entao aqui nao vai `name`.
+              Obrigatorio desde 12/08/2026 — servidor legado sem CPF (57 em produção) não é
+              bloqueado até ser reeditado; a partir daí, salvar exige preencher. */}
           <CampoDocumento
             className="sm:col-span-2"
             id="cpf"
-            label="CPF"
+            label="CPF *"
             tipo="cpf"
             value={currentCpf}
             onChange={setCurrentCpf}
             placeholder="000.000.000-00"
+            required
           />
 
           <div className="sm:col-span-6">
