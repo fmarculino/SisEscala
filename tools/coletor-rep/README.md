@@ -32,8 +32,17 @@ Dois binários, pacotes internos (`rep/`, `sisescala/`, `fila/`, `terminal/`, `c
    `HKCU\...\CurrentVersion\Run` (sem precisar de administrador) e relança a si mesmo de lá — a
    pasta onde o `.zip` foi extraído pode ser apagada depois.
 4. A partir daí, ícone na bandeja: verde = tudo certo, vermelho = falhando há algumas
-   tentativas seguidas (com notificação). Menu com "Sincronizar agora", "Abrir tela de
-   presença", "Ver logs", "Sair".
+   tentativas seguidas (com notificação). Menu com "Sincronizar agora", "Sincronizar cadastros
+   agora" (Fase 7 — só quando `dispositivo_rep` está configurado, ver aviso abaixo), "Abrir tela
+   de presença", "Ver logs", "Sair".
+
+### "Sincronizar cadastros agora" — push de identidade para o relógio (Fase 7)
+
+Envia matrícula/nome/CPF (nunca biometria — isso sempre exige alguém presencial no equipamento)
+dos servidores enfileirados em **Marcações → Dispositivos REP → editar → Sincronizar cadastros**.
+⚠️ **Diferente do resto deste app, essa função nunca foi validada contra hardware real** — ver
+aviso extenso em `rep/client.go`. Antes de confiar nela numa unidade nova, rode
+`coletor-rep cadastros-testar` (abaixo) contra o relógio dessa unidade.
 
 ### Máquina que precisa das duas modalidades (relógio + terminal)
 
@@ -64,6 +73,8 @@ coletor-rep sync                sincroniza AFD do relógio REP configurado (uma 
 coletor-rep heartbeat           reporta versão e deriva de relógio ao SisEscala (uma vez)
 coletor-rep diagnostico         testa conexão com o REP e com o SisEscala
 coletor-rep afd-raw             só imprime a resposta crua do relógio (diagnóstico, não grava nada)
+coletor-rep cadastros           aplica a fila de push de identidade real no relógio (Fase 7) — GRAVA no equipamento
+coletor-rep cadastros-testar    cria um usuário de teste no relógio e lista biometria (diagnóstico — GRAVA um registro de teste, ver aviso acima)
 coletor-rep terminal abrir      abre a tela de presença local no navegador (uma vez)
 ```
 
@@ -112,7 +123,9 @@ idempotente por `(dispositivo_id, lote_id)`.
 - Auto-atualização do app de bandeja — reinstalar baixando o `.zip` de novo resolve por ora.
 - Instalador `.msi`/painel de controle — o auto-instalável cobre a necessidade por enquanto.
 - Exportar/aplicar por pendrive (`.sisrep`) — Fase 6 do plano do relógio de ponto.
-- Push de cadastro SisEscala → relógio (biometria, matrícula) — Fase 7 do plano.
+- Biometria em si (o template do dedo) — sempre presencial no equipamento, nunca por API.
+  Push de identidade (matrícula/nome/CPF) já existe desde 12/08/2026, ver seção acima —
+  não validado contra hardware real ainda.
 - Leitura prévia do `ultimo_nsr` antes de pedir o AFD (hoje `sync` sempre pede a partir do NSR
   1 e deixa a idempotência do servidor descartar o que já foi ingerido — funciona, mas
   reenvia o arquivo inteiro a cada ciclo; ver TODO em `ciclo/ciclo.go`).

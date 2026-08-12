@@ -6,9 +6,10 @@ import { listarTerminaisLocais, listarDispositivosRep, excluirTerminalLocal, exc
 import { TerminalLocalModal } from './TerminalLocalModal'
 import { DispositivoRepModal } from './DispositivoRepModal'
 import { PendenciasTab } from './PendenciasTab'
+import { BiometriaTab } from './BiometriaTab'
 import { IdCopyBadge } from './IdCopyBadge'
 
-type Aba = 'terminais' | 'dispositivos' | 'pendencias'
+type Aba = 'terminais' | 'dispositivos' | 'pendencias' | 'biometria'
 
 interface Opcoes {
   unidades: { id: string; nome: string }[]
@@ -61,6 +62,7 @@ export function MarcacoesClient({ isAdmin, opcoes }: { isAdmin: boolean; opcoes:
     { id: 'terminais', label: 'Terminais Locais', icon: Monitor, visivel: isAdmin },
     { id: 'dispositivos', label: 'Dispositivos REP', icon: Fingerprint, visivel: isAdmin },
     { id: 'pendencias', label: 'Pendências', icon: ListChecks, visivel: true },
+    { id: 'biometria', label: 'Biometria Pendente', icon: Fingerprint, visivel: true },
   ]
 
   return (
@@ -222,6 +224,7 @@ export function MarcacoesClient({ isAdmin, opcoes }: { isAdmin: boolean; opcoes:
       )}
 
       {aba === 'pendencias' && <PendenciasTab />}
+      {aba === 'biometria' && <BiometriaTab />}
     </div>
   )
 }

@@ -141,6 +141,52 @@ func Heartbeat(cfg *config.Config) error {
 	return sc.Heartbeat(&relogioDevice)
 }
 
+// SincronizarCadastros aplica a fila de push de identidade (Fase 7) no relógio e reporta quem
+// já tem biometria cadastrada lá. Deliberadamente NUNCA chamada pelo ciclo automático de
+// executarCiclo (cmd/tray) — só por clique manual no menu ou pelo subcomando de diagnóstico da
+// CLI. rep.CriarUsuario/ListarUsuariosComBiometria não foram validadas contra hardware real
+// (ver aviso em rep/client.go); rodar isso sozinho de tempos em tempos escreveria no relógio
+// de produção com um formato de campo ainda não confirmado.
+func SincronizarCadastros(cfg *config.Config) error {
+	if cfg.DispositivoRep == nil {
+		return fmt.Errorf("secao dispositivo_rep ausente no config.yaml — nada para sincronizar")
+	}
+	d := cfg.DispositivoRep
+	sc := sisescala.NovoClient(cfg.SisEscala.URL, d.ID, d.Token)
+	rc := rep.NovoClient(d.Endereco, d.Porta, d.UsaHTTPS, d.UsuarioRep, d.SenhaRep, d.CertFingerprint)
+
+	pendentes, err := sc.ListarCadastrosPendentes()
+	if err != nil {
+		return fmt.Errorf("falha ao listar cadastros pendentes: %w", err)
+	}
+	log.Printf("cadastros: %d pendente(s) para enviar ao rele", len(pendentes))
+
+	for _, p := range pendentes {
+		deviceUserID, err := rc.CriarUsuario(p.Matricula, p.Nome, p.IdentificadorAFD)
+		if err != nil {
+			log.Printf("cadastro de %s (%s) falhou: %v", p.Nome, p.Matricula, err)
+			if erroConfirmar := sc.ConfirmarCadastro(p.FilaID, false, nil, err.Error()); erroConfirmar != nil {
+				log.Printf("aviso: falha tambem ao reportar erro do cadastro %s: %v", p.FilaID, erroConfirmar)
+			}
+			continue
+		}
+		log.Printf("cadastro de %s (%s) criado no rele com device_user_id=%d", p.Nome, p.Matricula, deviceUserID)
+		if err := sc.ConfirmarCadastro(p.FilaID, true, &deviceUserID, ""); err != nil {
+			log.Printf("aviso: cadastro %s criado no rele mas falha ao confirmar no SisEscala: %v", p.FilaID, err)
+		}
+	}
+
+	comBiometria, err := rc.ListarUsuariosComBiometria()
+	if err != nil {
+		log.Printf("aviso: nao foi possivel listar biometria do rele: %v", err)
+		return nil // envio de cadastros ja aconteceu - nao falha o ciclo por isso
+	}
+	if err := sc.ReportarBiometria(comBiometria); err != nil {
+		log.Printf("aviso: falha ao reportar biometria ao SisEscala: %v", err)
+	}
+	return nil
+}
+
 // extrairRelogioDevice tenta os nomes de campo mais prováveis da API Control iD. Não
 // confirmado contra hardware real ainda — ver aviso no topo de rep/client.go.
 func extrairRelogioDevice(info map[string]interface{}) time.Time {

@@ -239,6 +239,31 @@ export async function gerarTokenDispositivoRep(id: string) {
 }
 
 // ============================================================================
+// Push de cadastro (identidade) para o rele - Fase 7, parte de identidade
+// ============================================================================
+// A biometria em si nunca passa por aqui - sempre exige alguem presencial no equipamento.
+// Isto so prepara matricula/nome/CPF no rele antes disso.
+
+export async function enfileirarCadastrosRep(dispositivoId: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Não autenticado.' }
+
+  const { data, error } = await supabase.rpc('fn_enfileirar_cadastros_rep', { p_dispositivo_id: dispositivoId })
+  if (error) return { error: error.message }
+
+  revalidatePath('/marcacoes')
+  return data as { enfileirados: number; sem_cpf: number; ja_vinculados: number }
+}
+
+export async function listarPendenciasBiometria() {
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc('fn_pendencias_biometria', { p_dispositivo_id: null })
+  if (error) throw new Error(error.message)
+  return data || []
+}
+
+// ============================================================================
 // Pendências (marcações do terminal fora da janela prevista)
 // ============================================================================
 

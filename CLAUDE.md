@@ -180,6 +180,48 @@ equipamento não supervisionado, e PIN ali reintroduz o "bater ponto pelo colega
 respaldado por AFD assinado, o que torna o registro falso *mais* difícil de contestar. Some-se
 que `servidores.pin_acesso` é bcrypt e não é recuperável para envio ao device.
 
+### Fase 7 (parte identidade) — push de cadastro SisEscala → relógio (12/08/2026)
+
+Motivada por instalação em mais de uma unidade: sem `rep_vinculos_servidor` populado por
+dispositivo, um segundo relógio gera marcação que ninguém consegue atribuir — e essa tabela não
+tinha tela nenhuma até aqui (só existia via `fn_vinculos_sugeridos_afd` + SQL direto).
+
+**Biometria continua impossível de empurrar por API** — o template vem do sensor com a pessoa
+presente no equipamento, sempre vai exigir alguém ir até o relógio pelo menos uma vez por
+servidor (confirmado no plano original, Fase 7). O que ficou automatizado é só a
+**identidade** (matrícula/nome/CPF) chegar pronta no relógio antes disso.
+
+| peça | onde |
+|---|---|
+| fila de push | `rep_cadastros_fila` (migration `20260812000000`) |
+| enfileirar (admin, por dispositivo) | `fn_enfileirar_cadastros_rep` — pula quem já tem vínculo vigente e quem não tem CPF preenchido |
+| o coletor pergunta o que está pendente | `GET /api/rep/v1/pendencias` (antes um stub que sempre devolvia `[]`) |
+| o coletor confirma sucesso/falha | `POST /api/rep/v1/pendencias` → `fn_confirmar_cadastro_rep`, que cria/renova `rep_vinculos_servidor` com `tem_biometria = false` |
+| fecha o loop quando alguém cadastra o dedo | `POST /api/rep/v1/biometria` → `fn_atualizar_biometria_vinculos` — só liga `tem_biometria`, nunca desliga sozinha |
+| tela de gestão | botão "Sincronizar cadastros" no modal de Dispositivo REP (`/marcacoes`) |
+| tela de acompanhamento | aba "Biometria Pendente" em `/marcacoes` (`fn_pendencias_biometria`, por escopo) |
+
+`identificador_afd` é gerado como `lpad(cpf_digits, 12, '0')` — a mesma convenção de 12 dígitos
+da armadilha 10, na direção inversa (`right(ident, 11)` recupera o CPF; aqui é o CPF que vira o
+identificador).
+
+⚠️⚠️ **`rep.CriarUsuario`/`rep.ListarUsuariosComBiometria` (`tools/coletor-rep/rep/client.go`)
+NUNCA foram testadas contra hardware real.** Implementam a API genérica "objects" da Control iD
+(`create_objects.fcgi`/`load_objects.fcgi`, object `users`/`templates`, campos
+`name`/`registration`/`pis`) — os nomes `registration`/`pis` não são chute, já foram confirmados
+por leitura de AFD tipo 5 real, mas **gravar** nesses campos e o formato da resposta nunca foram
+confirmados, exatamente a mesma classe de erro que a armadilha 11 (formato de data do AFD)
+ensinou a não presumir. Por isso:
+
+- **Nunca entram no ciclo automático** de `cmd/tray` (o ticker de 5 min só roda `Sync`/`Heartbeat`).
+  Só rodam por clique manual no menu "Sincronizar cadastros agora" ou pelo subcomando
+  `coletor-rep cadastros` da CLI.
+- `coletor-rep cadastros-testar` (novo subcomando) cria **um** usuário de teste bem marcado
+  ("SISESCALA TESTE - PODE APAGAR") direto no relógio e lista quem tem biometria, sem tocar na
+  fila real do SisEscala — é o `afd-raw` desta função: rode contra o relógio de teste e confira
+  a resposta antes de habilitar em produção. Erro nele já imprime a resposta crua do
+  equipamento (útil para corrigir os nomes de campo se estiverem errados).
+
 ## Terminal local sem sessão de coordenador (11/08/2026)
 
 O terminal `/presenca` ativa com `supabase.auth.signInWithPassword()` **rodando no navegador da

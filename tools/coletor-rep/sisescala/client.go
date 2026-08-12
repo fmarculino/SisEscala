@@ -114,6 +114,78 @@ func (c *Client) EnviarLote(loteID string, linhas []string, arquivoSHA256, colet
 	return &resultado, nil
 }
 
+// CadastroPendente é um item da fila de push de identidade (Fase 7 — ver
+// fn_cadastros_pendentes_dispositivo). identificador_afd já vem pronto no formato de 12
+// dígitos que o AFD usa (CPF com zero de preenchimento à esquerda).
+type CadastroPendente struct {
+	FilaID           string `json:"fila_id"`
+	ServidorID       string `json:"servidor_id"`
+	Matricula        string `json:"matricula"`
+	Nome             string `json:"nome"`
+	IdentificadorAFD string `json:"identificador_afd"`
+}
+
+// ListarCadastrosPendentes busca a fila de identidade a enviar ao relógio deste dispositivo.
+func (c *Client) ListarCadastrosPendentes() ([]CadastroPendente, error) {
+	respBytes, status, err := c.chamar(http.MethodGet, "/api/rep/v1/pendencias", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("falha ao listar cadastros pendentes (HTTP %d): %s", status, string(respBytes))
+	}
+
+	var pendentes []CadastroPendente
+	if err := json.Unmarshal(respBytes, &pendentes); err != nil {
+		return nil, fmt.Errorf("resposta invalida do SisEscala: %s", string(respBytes))
+	}
+	return pendentes, nil
+}
+
+// ConfirmarCadastro reporta o resultado de um item da fila — sucesso com o device_user_id
+// atribuído pelo relógio, ou falha com o motivo. Idempotente: reenviar a confirmação de um
+// item já processado não faz nada (fn_confirmar_cadastro_rep ignora silenciosamente).
+func (c *Client) ConfirmarCadastro(filaID string, sucesso bool, deviceUserID *int64, mensagemErro string) error {
+	payload := map[string]interface{}{"fila_id": filaID, "sucesso": sucesso}
+	if deviceUserID != nil {
+		payload["device_user_id"] = *deviceUserID
+	}
+	if mensagemErro != "" {
+		payload["erro"] = mensagemErro
+	}
+	corpo, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	respBytes, status, err := c.chamar(http.MethodPost, "/api/rep/v1/pendencias", corpo)
+	if err != nil {
+		return err
+	}
+	if status != http.StatusOK {
+		return fmt.Errorf("falha ao confirmar cadastro (HTTP %d): %s", status, string(respBytes))
+	}
+	return nil
+}
+
+// ReportarBiometria envia os device_user_id que atualmente têm biometria cadastrada no
+// relógio — só liga a flag do lado do SisEscala, nunca desliga (ver fn_atualizar_biometria_vinculos).
+func (c *Client) ReportarBiometria(deviceUserIDs []int64) error {
+	corpo, err := json.Marshal(map[string]interface{}{"device_user_ids": deviceUserIDs})
+	if err != nil {
+		return err
+	}
+
+	respBytes, status, err := c.chamar(http.MethodPost, "/api/rep/v1/biometria", corpo)
+	if err != nil {
+		return err
+	}
+	if status != http.StatusOK {
+		return fmt.Errorf("falha ao reportar biometria (HTTP %d): %s", status, string(respBytes))
+	}
+	return nil
+}
+
 // Heartbeat reporta a hora do relógio do device para o SisEscala calcular a deriva.
 // relogioDevice nil quando o coletor não conseguiu ler o relógio do REP — o heartbeat ainda
 // vale para atualizar ultimo_contato_em, só não atualiza deriva_segundos.

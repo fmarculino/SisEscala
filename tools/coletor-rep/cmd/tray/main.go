@@ -325,6 +325,13 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 	if cfg.TerminalLocal == nil {
 		itemAbrirTerminal.Disable()
 	}
+	// So manual, nunca no ticker automatico: rep.CriarUsuario/ListarUsuariosComBiometria ainda
+	// nao foram validadas contra hardware real (ver aviso em rep/client.go) - um clique errado
+	// e recuperavel, um loop automatico escrevendo errado no rele de producao nao seria.
+	itemSincronizarCadastros := systray.AddMenuItem("Sincronizar cadastros agora", "Envia identidade (matricula/nome/CPF) pendente para o rele")
+	if cfg.DispositivoRep == nil {
+		itemSincronizarCadastros.Disable()
+	}
 	itemVerLogs := systray.AddMenuItem("Ver logs", "Abre a pasta de logs e configuracao")
 	systray.AddSeparator()
 	itemSair := systray.AddMenuItem("Sair", "Encerra o coletor-rep")
@@ -381,6 +388,13 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 				executarCiclo()
 			case <-itemAbrirTerminal.ClickedCh:
 				abrirTerminalSeConfigurado()
+			case <-itemSincronizarCadastros.ClickedCh:
+				if err := ciclo.SincronizarCadastros(cfg); err != nil {
+					log.Printf("erro ao sincronizar cadastros: %v", err)
+					_ = beeep.Notify("SisEscala - Coletor", "Falha ao sincronizar cadastros com o rele. Ver log.", nil)
+				} else {
+					_ = beeep.Notify("SisEscala - Coletor", "Cadastros sincronizados com o rele.", nil)
+				}
 			case <-itemVerLogs.ClickedCh:
 				exec.Command("explorer", dirInstalado).Start() //nolint:errcheck
 			case <-itemSair.ClickedCh:

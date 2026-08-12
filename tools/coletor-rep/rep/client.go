@@ -9,6 +9,10 @@
 // initial_nsr incremental — o resto (nomes de campo do get_system_information) é a melhor
 // aproximação da API Control iD e precisa ser confirmado com `curl.exe -sk` antes de confiar
 // cegamente no parsing de rodarHeartbeat.
+//
+// ⚠️ CriarUsuario e ListarUsuariosComBiometria (Fase 7, 12/08/2026) são MAIS incertas ainda —
+// nunca testadas contra hardware nenhum. Ver aviso extenso junto delas, mais abaixo neste
+// arquivo, antes de habilitar em produção.
 package rep
 
 import (
@@ -152,4 +156,92 @@ func (c *Client) InformacoesSistema() (map[string]interface{}, error) {
 		}
 	}
 	return c.chamar(fmt.Sprintf("get_system_information.fcgi?session=%s", c.sessao), map[string]interface{}{})
+}
+
+// ⚠️⚠️ NAO VALIDADO CONTRA HARDWARE REAL. CriarUsuario e ListarUsuariosComBiometria abaixo
+// implementam a API generica "objects" da Control iD (create_objects.fcgi/load_objects.fcgi),
+// que e o padrao documentado da linha iDClass/iDAccess para CRUD de usuarios/templates - mas
+// nunca foi testada contra o device de 10.110.2.89 nem contra nenhum outro. login.fcgi e
+// get_afd.fcgi so viraram confiaveis depois de bater com curl.exe -sk contra o hardware real
+// (ver cabecalho do arquivo); o mesmo aconteceu com o formato de data do AFD, que parecia
+// razoavel e estava errado (armadilha 11, CLAUDE.md). NÃO chame estas duas funcoes num ciclo
+// automatico antes de confirmar com `coletor-rep cadastros-testar` (cmd/cli) que os nomes de
+// campo abaixo (object "users": name/registration/pis; object "templates": user_id) batem com
+// o que o equipamento realmente aceita e devolve.
+//
+// Os nomes 'registration' e 'pis' nao sao chute: ja foram confirmados como os campos reais do
+// device por leitura de AFD tipo 5 real (ver comentario em rep_vinculos_servidor,
+// supabase/migrations/20260808000000). O que nao foi confirmado e create_objects.fcgi aceitar
+// GRAVACAO nesses mesmos campos, nem o formato exato da resposta (assumido {"ids":[...]}).
+
+// CriarUsuario cadastra uma identidade "vazia" no rele (sem biometria - isso so acontece
+// presencialmente no equipamento). Devolve o device_user_id atribuido pelo rele.
+func (c *Client) CriarUsuario(matricula, nome, identificadorAfd string) (int64, error) {
+	if c.sessao == "" {
+		if err := c.Login(); err != nil {
+			return 0, err
+		}
+	}
+
+	resultado, err := c.chamar(fmt.Sprintf("create_objects.fcgi?session=%s", c.sessao), map[string]interface{}{
+		"object": "users",
+		"values": []map[string]interface{}{
+			{"name": nome, "registration": matricula, "pis": identificadorAfd},
+		},
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	ids, ok := resultado["ids"].([]interface{})
+	if !ok || len(ids) == 0 {
+		return 0, fmt.Errorf("create_objects.fcgi nao devolveu id de usuario: %v", resultado)
+	}
+	idFloat, ok := ids[0].(float64)
+	if !ok {
+		return 0, fmt.Errorf("id de usuario em formato inesperado: %v", ids[0])
+	}
+	return int64(idFloat), nil
+}
+
+// ListarUsuariosComBiometria devolve os device_user_id que tem pelo menos um template
+// biometrico cadastrado no rele - usado para fechar o loop de "pendencias de biometria" sem
+// exigir que ninguem digite nada no SisEscala manualmente.
+func (c *Client) ListarUsuariosComBiometria() ([]int64, error) {
+	if c.sessao == "" {
+		if err := c.Login(); err != nil {
+			return nil, err
+		}
+	}
+
+	resultado, err := c.chamar(fmt.Sprintf("load_objects.fcgi?session=%s", c.sessao), map[string]interface{}{
+		"object": "templates",
+		"fields": []string{"user_id"},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	templates, ok := resultado["templates"].([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("load_objects.fcgi (templates) resposta inesperada: %v", resultado)
+	}
+
+	vistos := map[int64]bool{}
+	var ids []int64
+	for _, item := range templates {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		userID, ok := m["user_id"].(float64)
+		if !ok {
+			continue
+		}
+		if id := int64(userID); !vistos[id] {
+			vistos[id] = true
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
 }

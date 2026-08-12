@@ -46,6 +46,13 @@ func main() {
 		rodarDiagnostico(cfg)
 	case "afd-raw":
 		rodarAfdRaw(cfg)
+	case "cadastros":
+		if err := ciclo.SincronizarCadastros(cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "Falha ao sincronizar cadastros: %v\n", err)
+			os.Exit(1)
+		}
+	case "cadastros-testar":
+		rodarCadastrosTestar(cfg)
 	case "terminal":
 		if len(os.Args) < 3 || os.Args[2] != "abrir" {
 			fmt.Fprintln(os.Stderr, "Uso: coletor-rep terminal abrir")
@@ -76,6 +83,8 @@ Uso:
   coletor-rep heartbeat           reporta versao e deriva de relogio ao SisEscala (uma vez)
   coletor-rep diagnostico         testa conexao com o REP e com o SisEscala
   coletor-rep afd-raw             so imprime a resposta crua do relogio (diagnostico, nao grava nada)
+  coletor-rep cadastros           aplica a fila de push de identidade real no rele (Fase 7) - GRAVA no equipamento
+  coletor-rep cadastros-testar    cria UM usuario de teste no rele e lista biometria (diagnostico - GRAVA no equipamento, ver aviso)
   coletor-rep terminal abrir      abre a tela de presenca local no navegador (uma vez)
 
 Flags:
@@ -190,5 +199,49 @@ func rodarAfdRaw(cfg *config.Config) {
 			break
 		}
 		fmt.Printf("linha %d (%d chars): %q\n", i+1, len(l), l)
+	}
+}
+
+// rodarCadastrosTestar cria UM usuario de teste diretamente no rele (nome bem marcado, para
+// achar e apagar na mao pela interface do equipamento depois) e lista quem tem biometria - sem
+// tocar na fila real do SisEscala (nunca chama sisescala.ConfirmarCadastro). Existe porque
+// create_objects.fcgi/load_objects.fcgi (rep/client.go) NUNCA foram confirmados contra hardware
+// real - rodar isto uma vez, contra o rele de teste, e o que decide se e seguro habilitar
+// `cadastros`/o botao da bandeja em producao. Se o formato de campo estiver errado, o erro
+// impresso abaixo traz a resposta crua do equipamento (ver %v em rep/client.go).
+func rodarCadastrosTestar(cfg *config.Config) {
+	if cfg.DispositivoRep == nil {
+		fmt.Fprintln(os.Stderr, "Secao dispositivo_rep ausente no config.yaml.")
+		os.Exit(1)
+	}
+	d := cfg.DispositivoRep
+	rc := rep.NovoClient(d.Endereco, d.Porta, d.UsaHTTPS, d.UsuarioRep, d.SenhaRep, d.CertFingerprint)
+
+	fmt.Println("ATENCAO: isto vai GRAVAR um usuario de teste no rele de verdade.")
+	fmt.Println("Nome usado: 'SISESCALA TESTE - PODE APAGAR' / matricula 'TESTE000' — apague pela")
+	fmt.Println("interface do proprio equipamento depois de conferir o resultado abaixo.\n")
+
+	if err := rc.Login(); err != nil {
+		fmt.Fprintf(os.Stderr, "Falha no login: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("login no REP: OK")
+
+	deviceUserID, err := rc.CriarUsuario("TESTE000", "SISESCALA TESTE - PODE APAGAR", "000000000000")
+	if err != nil {
+		fmt.Printf("CriarUsuario: FALHOU — %v\n", err)
+		fmt.Println("\nA mensagem acima, se tiver a resposta crua do rele, e o que decide o proximo passo:")
+		fmt.Println("o objeto/campo certo pode ter nome diferente do assumido (object \"users\",")
+		fmt.Println("campos name/registration/pis) - ajuste rep/client.go e teste de novo antes de")
+		fmt.Println("habilitar isto em producao.")
+	} else {
+		fmt.Printf("CriarUsuario: OK — device_user_id=%d\n", deviceUserID)
+	}
+
+	comBiometria, err := rc.ListarUsuariosComBiometria()
+	if err != nil {
+		fmt.Printf("ListarUsuariosComBiometria: FALHOU — %v\n", err)
+	} else {
+		fmt.Printf("ListarUsuariosComBiometria: OK — %d usuario(s) com template cadastrado: %v\n", len(comBiometria), comBiometria)
 	}
 }

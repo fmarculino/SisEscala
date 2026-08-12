@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.50.0] - 2026-08-12
+
+### Added
+- **Push de identidade SisEscala → relógio de ponto (Fase 7, parte identidade)**. Instalar em
+  mais unidades expôs uma lacuna: `rep_vinculos_servidor` (a ponte CPF-do-relógio↔servidor) não
+  tinha tela nenhuma, e cadastrar cada servidor manualmente na telinha do equipamento não
+  escala. A biometria em si continua exigindo alguém presencial no relógio (o template do dedo
+  não é enviável por API) — o que passa a ser automático é matrícula/nome/CPF chegarem prontos
+  antes disso.
+  - `rep_cadastros_fila` (migration `20260812000000`) + `fn_enfileirar_cadastros_rep` (admin
+    clica, enfileira ativos da unidade/setor do dispositivo sem vínculo vigente e com CPF
+    preenchido — pula e conta quem não tem CPF).
+  - `GET /api/rep/v1/pendencias` deixa de ser stub (sempre `[]`) e passa a servir a fila real;
+    `POST` no mesmo caminho confirma sucesso/falha e cria/renova `rep_vinculos_servidor`; nova
+    `POST /api/rep/v1/biometria` fecha o loop (só liga `tem_biometria`, nunca desliga sozinha).
+  - Botão "Sincronizar cadastros" no modal de Dispositivo REP; nova aba "Biometria Pendente" em
+    `/marcacoes`.
+  - `coletor-rep-tray` ganha menu "Sincronizar cadastros agora"; `coletor-rep` (CLI) ganha
+    `cadastros` (aplica a fila real) e `cadastros-testar` (diagnóstico — cria um usuário de
+    teste isolado no relógio, não toca na fila do SisEscala).
+  - ⚠️ **`rep.CriarUsuario`/`rep.ListarUsuariosComBiometria` nunca foram testadas contra
+    hardware real** (API genérica "objects" da Control iD — `create_objects.fcgi`/
+    `load_objects.fcgi`). Por isso nunca entram no ciclo automático de 5 min — só rodam por
+    clique manual ou pelo subcomando `cadastros-testar`, que deve ser rodado contra o relógio de
+    cada unidade nova antes de confiar no botão da bandeja.
+
+Ver [`docs/evolucao/2026-08-12-push-identidade-rele-fase7.md`](docs/evolucao/2026-08-12-push-identidade-rele-fase7.md).
+
 ## [1.49.1] - 2026-08-12
 
 ### Fixed

@@ -2,8 +2,8 @@
 
 import { useState } from 'react'
 import { Modal } from '@/components/ui/Modal'
-import { Loader2, KeyRound, Download } from 'lucide-react'
-import { criarDispositivoRep, atualizarDispositivoRep, gerarTokenDispositivoRep } from './actions'
+import { Loader2, KeyRound, Download, Users } from 'lucide-react'
+import { criarDispositivoRep, atualizarDispositivoRep, gerarTokenDispositivoRep, enfileirarCadastrosRep } from './actions'
 import { TokenRevealBox } from './TokenRevealBox'
 import { baixarAplicativoColetorRep } from './baixarAplicativo'
 
@@ -59,6 +59,8 @@ export function DispositivoRepModal({
   const [token, setToken] = useState<string | null>(null)
   const [dispositivoId, setDispositivoId] = useState<string | null>(dispositivo?.id || null)
   const [baixando, setBaixando] = useState(false)
+  const [sincronizandoCadastros, setSincronizandoCadastros] = useState(false)
+  const [resultadoCadastros, setResultadoCadastros] = useState<{ enfileirados: number; sem_cpf: number; ja_vinculados: number } | null>(null)
 
   const setoresDaUnidade = opcoes.setores.filter((s) => s.unidade_id === unidadeId)
 
@@ -108,6 +110,20 @@ export function DispositivoRepModal({
       return
     }
     setToken((resultado as any).token)
+  }
+
+  async function handleSincronizarCadastros() {
+    if (!dispositivoId) return
+    setSincronizandoCadastros(true)
+    setErro(null)
+    setResultadoCadastros(null)
+    const resultado = await enfileirarCadastrosRep(dispositivoId)
+    setSincronizandoCadastros(false)
+    if ('error' in resultado && resultado.error) {
+      setErro(resultado.error)
+      return
+    }
+    setResultadoCadastros(resultado as any)
   }
 
   async function handleBaixarAplicativo() {
@@ -306,6 +322,34 @@ export function DispositivoRepModal({
                 {gerandoToken ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
                 Gerar token
               </button>
+            )}
+          </div>
+        )}
+
+        {dispositivoId && (
+          <div className="pt-4 border-t border-zinc-100 dark:border-zinc-800 space-y-3">
+            <p className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">Cadastro de servidores no relógio</p>
+            <p className="text-[11px] text-zinc-500">
+              Prepara matrícula/nome/CPF no relógio para os servidores ativos desta unidade/setor
+              que ainda não têm vínculo aqui. A biometria (digital) continua exigindo alguém
+              presencial no aparelho — isso só evita digitar tudo na telinha dele.
+            </p>
+            <button
+              type="button"
+              onClick={handleSincronizarCadastros}
+              disabled={sincronizandoCadastros}
+              className="w-full border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800 py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60"
+            >
+              {sincronizandoCadastros ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users className="h-4 w-4" />}
+              Sincronizar cadastros
+            </button>
+            {resultadoCadastros && (
+              <p className="text-[11px] text-zinc-500">
+                {resultadoCadastros.enfileirados} enfileirado(s) para envio
+                {resultadoCadastros.ja_vinculados > 0 && ` · ${resultadoCadastros.ja_vinculados} já vinculado(s)`}
+                {resultadoCadastros.sem_cpf > 0 && ` · ${resultadoCadastros.sem_cpf} sem CPF cadastrado (não enviados)`}
+                . O aplicativo local aplica no relógio no próximo ciclo.
+              </p>
             )}
           </div>
         )}
