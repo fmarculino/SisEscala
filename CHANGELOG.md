@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.57.0] - 2026-08-12
+
+### Fixed
+- **"Aplicar Template" → "Validar automaticamente dias passados" só gravava entrada/saída,
+  mesmo em unidade com marcação de intervalo habilitada (4 marcações)** — a feature nasceu antes
+  do módulo de intervalo (v1.17.0) e nunca foi atualizada. Dois pontos, os dois em
+  `ScaleGrid.tsx`:
+  - O checkbox só marcava `presenceData` com `{ entrada: true, saida: true }`, sem olhar se a
+    unidade e a jornada do dia exigem intervalo (`isUnitInterval`, mesma regra do indicador de
+    presença da grade — unidade com `permite_marca_intervalo` + jornada com duração > 6h e
+    intervalo cadastrado, CLT Art. 71). Passa a marcar as 4 flags quando aplicável, olhando a
+    jornada efetiva do dia (respeitando jornada temporária, como o resto da grade já faz).
+  - **Mesmo corrigido o passo acima, nada seria salvo**: `handleSave` ("Salvar Previsão") é quem
+    de fato grava `escala_diaria` a partir de `presenceData`, e só conhecia as colunas
+    `presenca_entrada_em`/`presenca_saida_em` — as colunas de intervalo
+    (`presenca_intervalo_saida_em`/`presenca_intervalo_retorno_em`) nunca estavam no payload,
+    então a marcação "desaparecia" ao salvar mesmo com o indicador mostrando os 4 segmentos
+    verdes na hora. Passa a preencher as duas colunas usando a mesma fonte já estabelecida no
+    arquivo (`getShiftForecastTime`/`blocoDaCelula`, "Fonte Única — Fase 3"): horário do bloco já
+    salvo no banco quando existir, senão a cascata horário personalizado do servidor → padrão da
+    jornada → fallback início+4h — nunca uma fórmula nova.
+  - Não mexe em `fn_confirmar_presenca_manual` nem em nenhuma função de banco — o problema era
+    inteiramente client-side, na duplicação (já existente antes desta correção) entre a lógica de
+    presença da grade e a RPC de validação manual.
+
 ## [1.56.1] - 2026-08-12
 
 ### Fixed

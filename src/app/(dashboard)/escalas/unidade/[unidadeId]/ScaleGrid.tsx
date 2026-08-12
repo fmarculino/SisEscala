@@ -2601,6 +2601,8 @@ export function ScaleGrid({
 
             let ent = existing?.presenca_entrada_em || null
             let sai = existing?.presenca_saida_em || null
+            let intSai = existing?.presenca_intervalo_saida_em || null
+            let intVolta = existing?.presenca_intervalo_retorno_em || null
             let conf = existing?.presenca_confirmada || false
             let confBy = existing?.confirmado_por_id || null
 
@@ -2617,6 +2619,8 @@ export function ScaleGrid({
               if (blocoSalvar) {
                 if (localPresence?.entrada && !ent) ent = blocoSalvar.inicio_previsto
                 if (localPresence?.saida && !sai) sai = blocoSalvar.fim_previsto
+                if (localPresence?.intervalo_saida && !intSai) intSai = blocoSalvar.intervalo_inicio_previsto
+                if (localPresence?.intervalo_retorno && !intVolta) intVolta = blocoSalvar.intervalo_fim_previsto
               }
 
               const t = turnos.find(x => x.id === turnoId)
@@ -2642,6 +2646,22 @@ export function ScaleGrid({
                   sai = `${endYear}-${String(endMonth).padStart(2, '0')}-${String(endDay).padStart(2, '0')}T${String(endHourValNorm).padStart(2, '0')}:00:00-03:00`
                 }
               }
+
+              // Saída/retorno de intervalo (unidade com permite_marca_intervalo, ver isUnitInterval
+              // ~linha 3827) — mesma fonte única de acima (getShiftForecastTime), que já implementa
+              // a cascata personalizado do servidor → padrão da jornada → fallback início+4h, e
+              // nunca inventa horário de intervalo quando o passo não existe pra este bloco (CLT
+              // Art. 71). Sem isto, "validar dias passados" do Aplicar Template só gravava
+              // entrada/saída mesmo em unidade com intervalo — a linha de indicadores mostrava os
+              // 4 segmentos como confirmados na hora, mas nada de intervalo ia pro banco ao salvar.
+              if (localPresence?.intervalo_saida && !intSai) {
+                const hhmm = getShiftForecastTime(turnoId, 'intervalo_saida', em.servidor_id, categoria, day)
+                if (hhmm) intSai = `${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${hhmm}:00-03:00`
+              }
+              if (localPresence?.intervalo_retorno && !intVolta) {
+                const hhmm = getShiftForecastTime(turnoId, 'intervalo_retorno', em.servidor_id, categoria, day)
+                if (hhmm) intVolta = `${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${hhmm}:00-03:00`
+              }
             }
 
             // Hora informada pelo coordenador. Vale para qualquer turno que a aceite — inclusive
@@ -2662,6 +2682,8 @@ export function ScaleGrid({
               hora_inicio_prevista: horaPrevista,
               presenca_entrada_em: ent,
               presenca_saida_em: sai,
+              presenca_intervalo_saida_em: intSai,
+              presenca_intervalo_retorno_em: intVolta,
               presenca_confirmada: conf,
               confirmado_por_id: confBy
             }
@@ -4617,6 +4639,21 @@ export function ScaleGrid({
 
                   // Se marcado para validar dias passados, atualizar a presenceData local
                   if (templateModal.validatePastDays) {
+                    // Mesma unidade/jornada usada pelo indicador de presença da grade
+                    // (isUnitInterval, ~linha 3827): unidade com marcação de intervalo habilitada
+                    // + jornada do dia (respeitando jornada temporária) com duração > 6h e
+                    // intervalo_minutos > 0 exige as 4 marcações (CLT Art. 71), não só entrada/saída.
+                    // Sem isto, validar automaticamente aqui sempre gravava só 2 marcações mesmo em
+                    // unidade com intervalo — inconsistente com o resto da grade e com o que
+                    // fn_confirmar_presenca_manual grava numa validação manual por célula/servidor.
+                    const gridStartRange = `${ano}-${mes.toString().padStart(2, '0')}-01`
+                    const gridEndRange = `${ano}-${mes.toString().padStart(2, '0')}-${daysInMonth.toString().padStart(2, '0')}`
+                    const serverTempJourneys = jornadasTemporarias.filter(jt =>
+                      jt.servidor_id === sId &&
+                      jt.data_inicio <= gridEndRange &&
+                      jt.data_fim >= gridStartRange
+                    )
+
                     setPresenceData(prev => {
                       const serverPres = prev[sId] || { 'Regular': {}, 'Extra': {}, 'Plantão': {}, 'Sobreaviso': {} }
                       const updatedRegular = { ...serverPres['Regular'] }
@@ -4629,12 +4666,21 @@ export function ScaleGrid({
                       const nAno = Number(ano)
 
                       for (let d = templateModal.startDay; d <= daysInMonth; d++) {
-                        const isPast = nAno < currentYear || 
-                                       (nAno === currentYear && nMes < currentMonth) || 
+                        const isPast = nAno < currentYear ||
+                                       (nAno === currentYear && nMes < currentMonth) ||
                                        (nAno === currentYear && nMes === currentMonth && d < currentDay)
-                        
+
                         if (isPast && templateResult[d] && !protectedDays.has(d)) {
-                          updatedRegular[d] = { entrada: true, intervalo_saida: false, intervalo_retorno: false, saida: true }
+                          const dateStr = `${ano}-${mes.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`
+                          const dayTempJourney = serverTempJourneys.find(jt => dateStr >= jt.data_inicio && dateStr <= jt.data_fim)
+                          const jornadaDoDia = dayTempJourney?.jornadas || jornadas.find(j => j.id === em.jornada_id)
+                          const duracaoHoras = Number(jornadaDoDia?.horas_totais || 0)
+                          const jornadaTemIntervalo = duracaoHoras > 6 && Number(jornadaDoDia?.intervalo_minutos ?? 60) > 0
+                          const isUnitInterval = (unidadedata?.permite_marca_intervalo || false) && jornadaTemIntervalo
+
+                          updatedRegular[d] = isUnitInterval
+                            ? { entrada: true, intervalo_saida: true, intervalo_retorno: true, saida: true }
+                            : { entrada: true, intervalo_saida: false, intervalo_retorno: false, saida: true }
                         }
                       }
 
