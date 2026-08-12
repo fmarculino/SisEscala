@@ -6,6 +6,7 @@ import { listarTerminaisLocais, listarDispositivosRep } from './actions'
 import { TerminalLocalModal } from './TerminalLocalModal'
 import { DispositivoRepModal } from './DispositivoRepModal'
 import { PendenciasTab } from './PendenciasTab'
+import { IdCopyBadge } from './IdCopyBadge'
 
 type Aba = 'terminais' | 'dispositivos' | 'pendencias'
 
@@ -98,6 +99,9 @@ export function MarcacoesClient({ isAdmin, opcoes }: { isAdmin: boolean; opcoes:
                       Responsável: {t.profiles?.full_name || '—'} · Último contato:{' '}
                       {t.ultimo_contato_em ? new Date(t.ultimo_contato_em).toLocaleString('pt-BR') : 'nunca'}
                     </p>
+                    <div className="mt-1">
+                      <IdCopyBadge id={t.id} />
+                    </div>
                   </div>
                   <button
                     onClick={() => setModalTerminal({ aberto: true, terminal: t })}
@@ -157,6 +161,9 @@ export function MarcacoesClient({ isAdmin, opcoes }: { isAdmin: boolean; opcoes:
                         <span className="text-amber-600 font-bold"> · deriva de relógio: {d.deriva_segundos}s</span>
                       )}
                     </p>
+                    <div className="mt-1">
+                      <IdCopyBadge id={d.id} />
+                    </div>
                   </div>
                   <button
                     onClick={() => setModalDispositivo({ aberto: true, dispositivo: d })}
