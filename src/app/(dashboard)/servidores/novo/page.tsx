@@ -12,6 +12,7 @@ import { sendWhatsAppMessageAction } from '@/app/actions/communication'
 import { useDialog } from '@/components/ui/DialogProvider'
 import { IntervaloPersonalizadoFields } from '@/components/servidores/IntervaloPersonalizadoFields'
 import { CampoDocumento } from '@/components/CampoDocumento'
+import { PendenciaRhCpfBanner } from '@/components/servidores/PendenciaRhCpfBanner'
 
 interface Cargo {
   id: string
@@ -148,6 +149,7 @@ export default function NovoServidorPage() {
   const [currentPin, setCurrentPin] = useState('')
   const [currentTelefone, setCurrentTelefone] = useState('')
   const [currentCpf, setCurrentCpf] = useState('')
+  const [pendenciaRhId, setPendenciaRhId] = useState<string | null>(null)
 
   const dialog = useDialog()
 
@@ -191,6 +193,7 @@ export default function NovoServidorPage() {
     formData.set('telefone', currentTelefone)
     formData.set('cpf', currentCpf)
     formData.set('confirma_vinculo_adicional', confirmaVinculoAdicional ? 'true' : 'false')
+    if (pendenciaRhId) formData.set('pendencia_rh_id', pendenciaRhId)
 
     // Setor é o que sustenta escala e folha, e é por ele que a RLS autoriza a gravação — sem ele o
     // banco recusa com um texto cru de policy. Ver `validarLotacaoNoEscopo` na action.
@@ -273,6 +276,10 @@ export default function NovoServidorPage() {
             onChange={setCurrentCpf}
             placeholder="000.000.000-00"
           />
+
+          <div className="sm:col-span-6">
+            <PendenciaRhCpfBanner cpf={currentCpf} modo="novo" onSelecionar={setPendenciaRhId} />
+          </div>
 
           <div className="sm:col-span-2">
             <label htmlFor="matricula" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">

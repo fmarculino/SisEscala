@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo, useEffect, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import { Save, User, Layers, Eye, EyeOff, MessageCircle, Info, Briefcase, Search, Check, ChevronsUpDown, FileText, Printer, Camera, ZoomIn, Loader2 } from 'lucide-react'
 import { updateServidor } from '../actions'
 import { DadosComplementaresSection } from '@/components/servidores/DadosComplementaresSection'
@@ -11,6 +12,7 @@ import { sendWhatsAppMessageAction } from '@/app/actions/communication'
 import { useDialog } from '@/components/ui/DialogProvider'
 import { IntervaloPersonalizadoFields } from '@/components/servidores/IntervaloPersonalizadoFields'
 import { CampoDocumento } from '@/components/CampoDocumento'
+import { PendenciaRhCpfBanner } from '@/components/servidores/PendenciaRhCpfBanner'
 import { createClient } from '@/utils/supabase/client'
 import { calcularDataMinimaTransferencia } from '@/utils/transferValidation'
 
@@ -24,6 +26,7 @@ interface EditServidorFormProps {
 }
 
 export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSuperAdmin = false }: EditServidorFormProps) {
+  const router = useRouter()
   const [formTab, setFormTab] = useState<'principal' | 'complementar'>('principal')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -356,6 +359,10 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
             onChange={setCurrentCpf}
             placeholder="000.000.000-00"
           />
+
+          <div className="sm:col-span-6">
+            <PendenciaRhCpfBanner cpf={currentCpf} modo="edicao" servidorIdAtual={id} onAplicado={() => router.refresh()} />
+          </div>
 
           <div className="sm:col-span-2">
             <label htmlFor="matricula" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">

@@ -405,7 +405,7 @@ export async function createServidor(formData: FormData) {
     return { error: erroLotacao }
   }
 
-  const { error } = await supabase.from('servidores').insert({
+  const { data: novoServidor, error } = await supabase.from('servidores').insert({
     nome,
     matricula: matriculaFinal,
     // Normaliza aqui, e nao so no formulario: a action e chamavel direto e a importacao de CSV
@@ -426,7 +426,7 @@ export async function createServidor(formData: FormData) {
     intervalo_flexivel,
     vinculo_multiplo_confirmado: vinculoMultiplo,
     ...dadosComplementares,
-  })
+  }).select('id').single()
 
   if (error) {
     return { error: traduzirErroCadastro(error) }
@@ -443,6 +443,18 @@ export async function createServidor(formData: FormData) {
     unidadeId: unidade_id || null,
     setorId: setor_id || null,
   })
+
+  // Se o formulário detectou (pela tela) uma pendência de importação do RH pra este mesmo CPF e
+  // o usuário confirmou puxar os dados, aplica agora - COALESCE-only (só preenche vazio) e já
+  // tira a pendência da fila. Best-effort: o servidor já foi criado com sucesso acima, uma falha
+  // aqui não pode impedir o redirect.
+  const pendenciaRhId = formData.get('pendencia_rh_id') as string | null
+  if (pendenciaRhId && novoServidor?.id) {
+    const resPendencia = await atualizarCadastroViaPendenciaRh(pendenciaRhId, novoServidor.id)
+    if ((resPendencia as any)?.error) {
+      console.error('Falha ao puxar dados da pendência de RH no cadastro novo:', (resPendencia as any).error)
+    }
+  }
 
   revalidatePath('/servidores')
   redirect('/servidores')
@@ -1303,7 +1315,35 @@ export async function atualizarCadastroViaPendenciaRh(pendenciaId: string, servi
 
   revalidatePath('/servidores/pendencias')
   revalidatePath('/servidores')
+  revalidatePath(`/servidores/${servidorId}`)
   return { success: true, servidorId: data as string }
+}
+
+/**
+ * Lookup pontual por CPF em `importacao_rh_pendentes` (não promovida) — usado no cadastro/edição
+ * de servidor pra detectar sozinho, sem passar pela tela de Pendências, que existe uma pendência
+ * de importação do RH pra este CPF e oferecer puxar os dados complementares. A aplicação em si
+ * reusa `atualizarCadastroViaPendenciaRh` (acima) — que já preenche o que estiver vazio e tira a
+ * pendência da fila (`promovido_em`); não precisa de lógica nova pra isso.
+ */
+export async function buscarPendenciaPorCpf(cpf: string) {
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc('fn_pendencia_rh_por_cpf', { p_cpf: cpf })
+  if (error) return { error: error.message }
+  return (data && data[0]) || null
+}
+
+/**
+ * Busca cross-unidade em `importacao_rh_pendentes` por nome/matrícula/CPF (`fn_buscar_pendencia_rh_por_termo`,
+ * 20260812050000) — encontra quem a importação do RH não conseguiu casar com nenhuma unidade
+ * (38% da fila, 12/08/2026), que fica invisível na lista escopada por unidade. Bounded pela RPC
+ * (mínimo 3 caracteres, no máximo 20 resultados).
+ */
+export async function buscarPendenciaRhPorTermo(termo: string) {
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc('fn_buscar_pendencia_rh_por_termo', { p_termo: termo })
+  if (error) return { error: error.message }
+  return data || []
 }
 
 /**

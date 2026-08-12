@@ -2,6 +2,51 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.53.0] - 2026-08-12
+
+### Fixed
+- **Coordenador cujo acesso vem só de `profile_setores` (setor vinculado, sem a unidade-pai
+  vinculada também) via a tela de Pendências de Cadastro sempre com "0"** — mesmo a unidade
+  dele tendo pendências de importação do RH. Diagnosticado com consultas reais em produção
+  (coordenador do piloto da TI: zero linhas em `profile_unidades`, acesso só via
+  `profile_setores`). Causa: a RLS de `importacao_rh_pendentes` (`20260812030000`) e o parâmetro
+  de escopo de `fn_promover_pendencia_rh`/`fn_atualizar_cadastro_via_pendencia_rh`
+  (`fn_unidade_no_escopo`) só verificavam `profile_unidades` — o mesmo padrão que a policy de
+  `servidores` (`20260618080000`) já soma corretamente (unidade-direta OU setor-vinculado), mas
+  que nunca chegou a `fn_unidade_no_escopo`.
+  - Nova função `fn_unidade_alcancavel_por_setor` (migration `20260812050000`), usada só nos dois
+    lugares desta feature — `fn_unidade_no_escopo` em si não foi alterada (é usada por bastante
+    coisa do módulo REP não auditada nesta sessão; mudar o comportamento dela é risco maior do
+    que o necessário aqui). Fica registrada como lacuna conhecida no CLAUDE.md.
+  - `permittedUnidades` em `/servidores/pendencias` (o seletor de unidade do formulário de
+    promoção) ganhou a mesma união.
+
+### Added
+- **Busca cross-unidade de pendências de RH por nome/matrícula/CPF** — 1.284 das 3.361
+  pendências (38%, medido em produção) têm `unidade_id` nulo porque a importação original
+  (v1.42.0) não conseguiu casar o departamento de origem com nenhuma unidade do SisEscala, e
+  nada persiste uma correção disso depois. Nenhum coordenador conseguia ver essas linhas (nem
+  com o fix acima), porque `unidade_id IN (...)` nunca casa com `NULL` — só admin/super_admin
+  alcançavam. Mas é o coordenador quem reconhece o próprio pessoal pelo nome. Nova seção "Não
+  achou seu servidor? Busque em toda a base" em `/servidores/pendencias`, usando
+  `fn_buscar_pendencia_rh_por_termo` — `SECURITY DEFINER` bypassando RLS de propósito (mesmo
+  padrão de `get_external_servers_for_scale`/`fn_cpf_ja_cadastrado`), *bounded* por termo
+  digitado (mínimo 3 caracteres, no máximo 20 resultados) — nunca lista a fila inteira.
+- **Detecção automática de pendência de RH pelo CPF no cadastro/edição de servidor** (pedido do
+  usuário: "o próprio sistema consultar" essa base, sem precisar saber que a tela de Pendências
+  existe). Novo componente `PendenciaRhCpfBanner`, usado em `/servidores/novo` e na ficha de
+  edição: ao digitar um CPF que bate com uma pendência não promovida, mostra um aviso oferecendo
+  puxar os dados complementares. Reusa `fn_atualizar_cadastro_via_pendencia_rh` (já existente,
+  v1.51.0) — que já só preenche campo vazio (nunca sobrescreve) e já marca `promovido_em`, então
+  tirar da fila de pendências acontece automaticamente como parte de aplicar os dados, sem
+  função nova pra isso.
+  - No cadastro novo, como `createServidor` sempre termina em `redirect()` (nunca devolve o id
+    pro cliente), o formulário só marca a intenção (`pendencia_rh_id` no `FormData`) e a própria
+    action aplica a atualização — melhor esforço — depois que o `INSERT` já teve sucesso, antes
+    de redirecionar.
+  - Na edição, o botão aplica na hora (o servidor já existe) e dá `router.refresh()` pra
+    refletir os campos novos.
+
 ## [1.52.0] - 2026-08-12
 
 ### Added

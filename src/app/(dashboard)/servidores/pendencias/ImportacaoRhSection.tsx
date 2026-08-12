@@ -5,7 +5,7 @@ import Link from 'next/link'
 import {
   UserPlus, Search, ChevronLeft, ChevronRight, CheckCircle2, Info, Users2, X, Loader2,
 } from 'lucide-react'
-import { promoverPendenciaRh, buscarConflitoCpf, atualizarCadastroViaPendenciaRh } from '../actions'
+import { promoverPendenciaRh, buscarConflitoCpf, atualizarCadastroViaPendenciaRh, buscarPendenciaRhPorTermo } from '../actions'
 
 interface ConflitoCpf {
   servidor_id: string
@@ -81,6 +81,8 @@ export function ImportacaoRhSection({ pendentesRh, erroPendentesRh, unidades, se
   }
 
   return (
+    <div className="space-y-4">
+    <BuscaCrossUnidade unidades={unidades} setores={setores} cargos={cargos} />
     <section className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
       <div className="px-5 py-4 border-b border-zinc-200 dark:border-zinc-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
@@ -182,6 +184,98 @@ export function ImportacaoRhSection({ pendentesRh, erroPendentesRh, unidades, se
               </div>
             )}
           </>
+        )}
+      </div>
+    </section>
+    </div>
+  )
+}
+
+/**
+ * "Não achou aqui? Busque em toda a base" — a importação do RH nem sempre resolveu a unidade
+ * (38% dos casos, unidade_id NULL, 12/08/2026), então essas linhas nunca aparecem na lista acima
+ * (escopada por unidade). fn_buscar_pendencia_rh_por_termo bypassa esse escopo de propósito,
+ * mas é bounded por termo digitado (mínimo 3 caracteres, no máximo 20 resultados) — nunca um
+ * dump da fila inteira. Reusa LinhaPendente (mesmo componente, mesmo fluxo de promover/atualizar).
+ */
+function BuscaCrossUnidade({ unidades, setores, cargos }: { unidades: Unidade[]; setores: Setor[]; cargos: Cargo[] }) {
+  const [termo, setTermo] = useState('')
+  const [resultados, setResultados] = useState<PendenteRh[] | null>(null)
+  const [buscando, setBuscando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const [linhaAberta, setLinhaAberta] = useState<string | null>(null)
+  const [promovidos, setPromovidos] = useState<Set<string>>(new Set())
+
+  async function handleBuscar(e: React.FormEvent) {
+    e.preventDefault()
+    if (termo.trim().length < 3) {
+      setErro('Digite ao menos 3 caracteres para buscar.')
+      return
+    }
+    setBuscando(true)
+    setErro(null)
+    const res = await buscarPendenciaRhPorTermo(termo.trim())
+    setBuscando(false)
+    if ((res as any)?.error) {
+      setErro((res as any).error)
+      return
+    }
+    setResultados(res as PendenteRh[])
+  }
+
+  const visiveis = (resultados || []).filter(r => !promovidos.has(r.id))
+
+  return (
+    <section className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
+      <div className="px-5 py-4 border-b border-zinc-200 dark:border-zinc-800">
+        <h2 className="font-semibold text-zinc-900 dark:text-white flex items-center gap-2">
+          <Search className="h-4 w-4 text-blue-500" /> Não achou seu servidor? Busque em toda a base
+        </h2>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+          A importação do RH nem sempre resolveu a unidade — busque por nome, matrícula ou CPF em
+          toda a fila, mesmo fora do que já apareceu resolvido acima.
+        </p>
+      </div>
+      <div className="p-5 space-y-4">
+        <form onSubmit={handleBuscar} className="flex gap-2">
+          <input
+            type="text"
+            value={termo}
+            onChange={e => setTermo(e.target.value)}
+            placeholder="Nome, matrícula ou CPF..."
+            className="flex-1 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-white"
+          />
+          <button
+            type="submit"
+            disabled={buscando}
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {buscando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+            Buscar
+          </button>
+        </form>
+
+        {erro && <p className="text-sm text-red-600 dark:text-red-400">{erro}</p>}
+
+        {resultados !== null && (
+          visiveis.length === 0 ? (
+            <p className="text-sm text-zinc-500 dark:text-zinc-400 py-4 text-center">Nenhum resultado para essa busca.</p>
+          ) : (
+            <div className="space-y-2">
+              {visiveis.map(p => (
+                <LinhaPendente
+                  key={p.id}
+                  pendente={p}
+                  aberta={linhaAberta === p.id}
+                  onToggle={() => setLinhaAberta(linhaAberta === p.id ? null : p.id)}
+                  onPromovido={() => { setPromovidos(prev => new Set(prev).add(p.id)); setLinhaAberta(null) }}
+                  unidades={unidades}
+                  setores={setores}
+                  cargos={cargos}
+                />
+              ))}
+            </div>
+          )
         )}
       </div>
     </section>

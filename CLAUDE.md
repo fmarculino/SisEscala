@@ -171,6 +171,15 @@ sessão que fez essa reestruturação:
    `fn_alocar_marcacoes_dia` → `fn_projecao_marcacoes_dia` → `fn_conferir_reconciliacao`: precisa
    de bypass para `service_role` (`auth.uid() IS NULL`). `fn_reconciliar_marcacoes_dia`, a única
    que escreve, já é `service_role` apenas.
+   ⚠️ **`fn_unidade_no_escopo` em si só verifica `profile_unidades`, nunca `profile_setores`** —
+   um coordenador cujo acesso vem inteiramente de setor vinculado (sem a unidade-pai vinculada
+   também, ex.: o piloto da TI) passa `p_unidade_id IS NULL` mas falha em qualquer chamada real,
+   mesmo tendo acesso legítimo pelo próprio setor. Descoberto e contornado em 12/08/2026
+   (`fn_unidade_alcancavel_por_setor`, migration `20260812050000`) só para
+   `importacao_rh_pendentes` — `fn_unidade_no_escopo` em si **não** foi corrigida, por prudência
+   com o módulo REP que a usa e não foi auditado nessa sessão. Antes de usar
+   `fn_unidade_no_escopo` sozinha em código novo, some `OR fn_unidade_alcancavel_por_setor(...)`
+   ou confirme que quem vai chamar sempre tem `profile_unidades` preenchido.
 
 ✅ **Não é mais pendência:** a policy `WITH CHECK (true)` de `logs_tentativas_presenca` foi
 fechada por `20260807130000`. O plano do REP ainda a listava como aberta.

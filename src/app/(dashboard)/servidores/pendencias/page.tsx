@@ -8,7 +8,7 @@ export default async function PendenciasCadastroPage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, acesso_todas_unidades, profile_unidades(unidade_id)')
+    .select('role, acesso_todas_unidades, profile_unidades(unidade_id), profile_setores(setores(unidade_id))')
     .eq('id', user?.id)
     .single()
 
@@ -38,7 +38,19 @@ export default async function PendenciasCadastroPage() {
   // DEFINER e enxergam a base inteira de propósito - puladas aqui pra não vazar dado de outra
   // unidade nem gastar consulta à toa.
   if (isCoordEscopo) {
-    const permittedUnidades = ((profile as any)?.profile_unidades || []).map((pu: any) => pu.unidade_id)
+    // Une unidade vinculada direto (profile_unidades) com unidade alcançada só por um setor
+    // (profile_setores → setores.unidade_id) — coordenador cujo acesso vem inteiramente de
+    // setor vinculado (sem a unidade-pai explicitamente vinculada também) tinha permittedUnidades
+    // sempre vazio aqui, mesmo tendo acesso legítimo à unidade pelo próprio setor (mesmo bug que
+    // a RLS de importacao_rh_pendentes tinha antes de 20260812050000 — fn_unidade_no_escopo
+    // nunca considerou profile_setores, só fn_unidade_alcancavel_por_setor complementa isso).
+    const unidadesPorSetor = ((profile as any)?.profile_setores || [])
+      .map((ps: any) => (Array.isArray(ps.setores) ? ps.setores[0] : ps.setores)?.unidade_id)
+      .filter(Boolean)
+    const permittedUnidades = Array.from(new Set([
+      ...((profile as any)?.profile_unidades || []).map((pu: any) => pu.unidade_id),
+      ...unidadesPorSetor,
+    ]))
 
     async function buscarPendentesRhEscopado() {
       const linhas: any[] = []
