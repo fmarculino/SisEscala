@@ -77,6 +77,19 @@ comportamento existente. `promovido_em` (setado tanto por `fn_promover_pendencia
 `fn_atualizar_cadastro_via_pendencia_rh`) tira a linha da fila `WHERE promovido_em IS NULL`
 assim que a promoção ou atualização é confirmada.
 
+## Correção da correção (mesmo dia, v1.56.1)
+
+Testando esta própria mudança em produção, "Atualizar cadastro existente" da pendência da FLAVIA
+passou a recusar com `Este CPF não corresponde mais ao cadastro informado`. Causa: a pendência
+dela tem um CPF preenchido, mas **diferente** do CPF gravado no cadastro ativo — a colisão real é
+só por matrícula. `fn_atualizar_cadastro_via_pendencia_rh` revalidava o conflito exigindo sempre
+que `fn_cpf_ja_cadastrado` batesse com o `servidor_id` recebido — regra herdada do fluxo antigo
+(conflito só por CPF), nunca adaptada para o novo caminho de matrícula.
+
+Corrigido em `20260812120000`: a revalidação tenta `fn_servidor_por_matricula` primeiro — se
+bater, segue direto, sem checar CPF nenhum. Só cai para `fn_cpf_ja_cadastrado` quando a matrícula
+não aponta para o `servidor_id` recebido (o caso original).
+
 ## Verificação
 
 - `npx tsc --noEmit` / `npm run build`.

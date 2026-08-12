@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.56.1] - 2026-08-12
+
+### Fixed
+- **"Atualizar cadastro existente" recusava com `Este CPF não corresponde mais ao cadastro
+  informado` mesmo quando a tela já tinha detectado corretamente o conflito por matrícula** —
+  achado testando a própria correção da v1.56.0 em produção, no cadastro da FLAVIA BARROS
+  CAVALCANTE: a pendência dela tem um CPF preenchido que **não é** o CPF gravado no cadastro
+  ativo (a colisão é só por matrícula). `fn_atualizar_cadastro_via_pendencia_rh` continuava
+  revalidando o conflito **só** por CPF (`fn_cpf_ja_cadastrado`), herdado do fluxo antigo — não
+  foi adaptado para o novo caminho de matrícula da v1.56.0. Migration `20260812120000`: a
+  revalidação agora tenta matrícula primeiro (`fn_servidor_por_matricula`) — se bater com o
+  `servidor_id` recebido, segue direto; só cai para checar CPF quando a matrícula não bate (o
+  caso original, conflito descoberto só por CPF).
+
 ## [1.56.0] - 2026-08-12
 
 ### Added
