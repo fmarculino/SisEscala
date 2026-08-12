@@ -5,60 +5,89 @@ independentes — uma máquina pode ter só uma, ou as duas:
 
 1. **Sincroniza o relógio de ponto REP-C** (Control iD): busca o AFD incremental e envia para
    `/api/rep/v1/marcacoes`.
-2. **Abre a tela de presença do terminal local** (`terminal abrir`): substitui o login de
-   coordenador por email/senha no navegador da máquina do terminal por um token de
+2. **Mantém a tela de presença do terminal local aberta** (`terminal abrir`): substitui o login
+   de coordenador por email/senha no navegador da máquina do terminal por um token de
    dispositivo, restrito à unidade/setor cadastrados. Ver
-   `docs/planos/2026-08-08-integracao-relogio-de-ponto-rep.md` e o plano de terminal local
-   para o motivo.
+   `docs/planos/2026-08-08-integracao-relogio-de-ponto-rep.md` para o motivo.
 
-## ⚠️ Estado desta versão
+Dois binários, pacotes internos (`rep/`, `sisescala/`, `fila/`, `terminal/`, `config/`,
+`ciclo/`) compartilhados entre os dois — nenhuma lógica duplicada:
 
-Este código foi escrito **sem acesso a um ambiente Go nem ao relógio físico** nesta sessão —
-não foi compilado nem testado contra hardware real. Antes de instalar em produção:
+- **`cmd/tray`** — o app de bandeja. É o que roda o dia a dia numa unidade: ícone verde/vermelho,
+  ciclo de sync automático, autostart, auto-instalável. **É o que a maioria das pessoas deve
+  baixar e usar** — pela tela **Marcações** do SisEscala, não compilando na mão.
+- **`cmd/cli`** — ferramenta de linha de comando para diagnóstico/configuração manual (testar
+  login no relógio, rodar um `sync` avulso, inspecionar o AFD cru). Útil para quem está
+  configurando ou depurando uma unidade, não para rodar continuamente.
 
-1. Instale o Go (1.21+) e rode `go mod tidy` dentro de `tools/coletor-rep/` para baixar as
-   dependências (`kardianos/service`, `golang.org/x/text`, `gopkg.in/yaml.v3`) e gerar o
-   `go.sum`.
-2. Rode `go build -o coletor-rep.exe .` e confira que compila sem erro.
-3. **Confirme os nomes de campo da API do relógio contra o hardware real** antes de confiar no
-   parsing, especialmente `get_system_information.fcgi` (usado só para a deriva de relógio no
-   `heartbeat` — `rep/client.go` tenta `device_time`, `system_time` e `datetime`, nessa ordem,
-   e se nenhum bater o heartbeat segue sem deriva, não quebra). `login.fcgi` e
-   `get_afd.fcgi?mode=671` já foram validados contra produção em 08/08/2026 (ver o plano) —
-   é o resto da API que é aproximação.
-4. Use `curl.exe -sk` a partir do PowerShell para validar cada endpoint isoladamente antes de
-   rodar `coletor-rep sync` de verdade — `Invoke-RestMethod` falha contra o TLS não-padrão do
-   device (documentado no plano).
+## Distribuição normal (o caminho esperado para a maioria das unidades)
 
-## Uso
+1. No SisEscala, **Marcações → Terminais Locais** (ou **Dispositivos REP**) → editar o
+   registro → **Gerar token** → **Baixar aplicativo**. O `.zip` baixado já vem com o
+   `config.yaml` preenchido — ninguém copia token à mão.
+2. Extrair o `.zip` inteiro (não só o `.exe` — ele precisa do `config.yaml` do lado) e executar
+   `coletor-rep-tray.exe`.
+3. Na primeira execução ele se copia sozinho para
+   `%LOCALAPPDATA%\SisEscala\coletor-rep\`, registra autostart em
+   `HKCU\...\CurrentVersion\Run` (sem precisar de administrador) e relança a si mesmo de lá — a
+   pasta onde o `.zip` foi extraído pode ser apagada depois.
+4. A partir daí, ícone na bandeja: verde = tudo certo, vermelho = falhando há algumas
+   tentativas seguidas (com notificação). Menu com "Sincronizar agora", "Abrir tela de
+   presença", "Ver logs", "Sair".
+
+### ⚠️ Aviso do Windows na primeira execução — é esperado
+
+Sem certificado de assinatura de código (decisão consciente — ver
+`docs/evolucao/2026-08-11-app-bandeja-coletor-rep.md`), o Windows vai avisar:
+
+- **SmartScreen** (a maioria das máquinas): "Mais informações" → "Executar assim mesmo". Aviso
+  normal para qualquer programa não assinado por uma editora grande, mesmo sendo legítimo.
+- **Smart App Control** (só em instalação limpa/recente do Windows 11 — raro em máquina já em
+  uso há anos): bloqueio **sem** opção de exceção por app. Único caminho: Configurações do
+  Windows → Privacidade e segurança → Segurança do Windows → Controle de aplicativos e
+  navegador → desligar o Smart App Control, executar o instalador, e então pode reativar (em
+  builds recentes do Windows 11 isso já não exige reinstalar o Windows do zero — confira a
+  versão do sistema se a opção de reativar não aparecer).
+
+## Uso da CLI (`cmd/cli`) — diagnóstico manual
 
 ```
-coletor-rep sync                            sincroniza AFD do relógio REP configurado
-coletor-rep heartbeat                       reporta versão e deriva de relógio ao SisEscala
-coletor-rep diagnostico                     testa conexão com o REP e com o SisEscala
-coletor-rep terminal abrir                  abre a tela de presença local no navegador
-coletor-rep install|start|stop|uninstall    gerencia o serviço do Windows
-coletor-rep run                             roda o ciclo contínuo em primeiro plano (usado pelo serviço)
+coletor-rep sync                sincroniza AFD do relógio REP configurado (uma vez)
+coletor-rep heartbeat           reporta versão e deriva de relógio ao SisEscala (uma vez)
+coletor-rep diagnostico         testa conexão com o REP e com o SisEscala
+coletor-rep afd-raw             só imprime a resposta crua do relógio (diagnóstico, não grava nada)
+coletor-rep terminal abrir      abre a tela de presença local no navegador (uma vez)
 ```
 
-Todos os comandos leem `config.yaml` ao lado do executável (ou o caminho passado em
-`--config`). Copie `config.yaml.exemplo` para `config.yaml` e preencha.
+Lê `config.yaml` do diretório de trabalho atual (ou o caminho passado em `--config`) — copie
+`config.yaml.exemplo` para `config.yaml` e preencha à mão para uso manual/depuração.
 
-## Provisionamento
+## Desenvolvimento
 
-1. Na tela **Marcações** do SisEscala (menu Operação), crie o dispositivo REP e/ou o terminal
-   local, escolhendo unidade/setor e (para terminal local) o coordenador responsável.
-2. Clique em "Gerar token" — o valor só aparece **uma vez**. Copie para o `config.yaml` da
-   máquina.
-3. Rode `coletor-rep diagnostico` para confirmar que o token autentica antes de instalar como
-   serviço.
-4. `coletor-rep install` seguido de `coletor-rep start` (como Administrador) registra o
-   serviço do Windows, que roda o ciclo de sync+heartbeat a cada 5 minutos.
-5. Para o terminal local, crie um atalho na área de trabalho (ou na inicialização do usuário
-   do quiosque) apontando para `coletor-rep.exe terminal abrir`. Recomenda-se abrir o
-   navegador em modo kiosk (`--kiosk` do Chrome/Edge) como camada extra — isso não é o que
-   fecha o vazamento de sessão de coordenador (o cookie assinado do terminal é o que fecha),
-   mas reduz a superfície de navegação indevida.
+```powershell
+cd tools/coletor-rep
+go mod tidy
+go build -o cmd/cli/coletor-rep.exe ./cmd/cli
+go build -ldflags="-H=windowsgui" -o dist/coletor-rep-tray.exe ./cmd/tray   # binário de release, sem console
+```
+
+- `-ldflags="-H=windowsgui"` no build do `cmd/tray` suprime a janela de console que piscaria ao
+  abrir — sem isso o app ainda funciona, só fica visualmente errado para um app de bandeja.
+- `dist/coletor-rep-tray.exe` é o binário que a rota `/api/coletor-rep/download`
+  (`src/app/api/coletor-rep/download/route.ts`) empacota com o `config.yaml` de cada
+  terminal/dispositivo — **precisa ser recompilado e commitado manualmente a cada mudança em
+  `cmd/tray` ou nos pacotes que ele importa**; o container de produção não tem toolchain Go
+  para compilar em build-time. `next.config.js` inclui `tools/coletor-rep/dist/**` no output
+  standalone via `outputFileTracingIncludes` — sem isso a rota funciona em `npm run dev` (lê o
+  filesystem completo) mas falha em produção.
+- Atalho de desenvolvimento no `cmd/tray`: se existir um `config.yaml` no diretório de trabalho
+  atual, ele roda direto dali (pula a auto-instalação) — é o único jeito de testar via
+  `go run ./cmd/tray` sem simular um download de verdade, e é como este projeto testa
+  localmente.
+- **Smart App Control pode bloquear até `go run`**, não só o `.exe` compilado — o binário
+  temporário que o `go run` gera também é "não assinado" aos olhos do SAC, e o bloqueio não
+  pareceu 100% determinístico nos testes desta sessão. Se acontecer, é preciso testar numa
+  máquina sem SAC ativo, ou desligá-lo temporariamente nesta.
 
 ## Fila offline
 
@@ -69,8 +98,15 @@ idempotente por `(dispositivo_id, lote_id)`.
 
 ## Fora do escopo desta versão
 
-- Exportar/aplicar por pendrive (`.sisrep`) — Fase 6 do plano.
+- Windows 7/8 — o Go 1.21+ usado aqui exige Windows 10+. Se surgir necessidade real, o caminho
+  é compilar essa unidade separadamente com Go 1.20 (última versão com suporte), sem misturar
+  toolchain no build principal.
+- Auto-atualização do app de bandeja — reinstalar baixando o `.zip` de novo resolve por ora.
+- Instalador `.msi`/painel de controle — o auto-instalável cobre a necessidade por enquanto.
+- Exportar/aplicar por pendrive (`.sisrep`) — Fase 6 do plano do relógio de ponto.
 - Push de cadastro SisEscala → relógio (biometria, matrícula) — Fase 7 do plano.
 - Leitura prévia do `ultimo_nsr` antes de pedir o AFD (hoje `sync` sempre pede a partir do NSR
   1 e deixa a idempotência do servidor descartar o que já foi ingerido — funciona, mas
-  reenvia o arquivo inteiro a cada ciclo; ver TODO em `main.go`).
+  reenvia o arquivo inteiro a cada ciclo; ver TODO em `ciclo/ciclo.go`).
+- `get_system_information.fcgi` (deriva de relógio no heartbeat) continua aproximação — os
+  nomes de campo não foram confirmados contra o hardware real.

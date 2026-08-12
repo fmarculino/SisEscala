@@ -100,23 +100,36 @@ Duas lacunas conhecidas, registradas no plano:
 - Nenhum turno do grupo cruza a meia-noite → o cursor de "ontem" fica sem teste. Escalar um
   `Plantão N` no mês resolve.
 
-### Coletor Go (`tools/coletor-rep/`) — compilado e testado contra hardware real em 11/08/2026
+### Coletor Go (`tools/coletor-rep/`) — dois binários, mesmo pacote interno
 
-Implementa `sync` (AFD → `/api/rep/v1/marcacoes`), `heartbeat`, `diagnostico`, `afd-raw`
-(diagnóstico puro, não grava nada — buscar o AFD e imprimir cru, útil para conferir o formato
-real de um relógio antes de confiar no parser), `terminal abrir` (ver seção do terminal local)
-e `install/start/stop` como serviço Windows (`kardianos/service`).
+`rep/ sisescala/ fila/ terminal/ config/ ciclo/` são compartilhados por dois `cmd/`:
 
-- `login.fcgi` e `get_afd.fcgi?mode=671` **validados contra o relógio real** (10.110.2.89),
-  login e busca do AFD completo funcionando.
-- **Windows Smart App Control bloqueia o `.exe` recém-compilado** (sem assinatura/reputação —
-  `Code Integrity determined that a process ... did not meet the Enterprise signing level
-  requirements`, evento 3077/3089 em `Microsoft-Windows-CodeIntegrity/Operational`). `go run .`
-  contorna isso para desenvolvimento/teste. Desligar o Smart App Control é **irreversível sem
-  reinstalar o Windows** — não é decisão para tomar de passagem.
-- `get_system_information.fcgi` (deriva de relógio no heartbeat) continua aproximação —
-  `rep/client.go` tenta `device_time`/`system_time`/`datetime` nessa ordem e segue sem deriva
-  se nenhum bater. Não confirmado ainda.
+| binário | papel |
+|---|---|
+| `cmd/cli` | diagnóstico manual: `sync`, `heartbeat`, `diagnostico`, `afd-raw` (busca e imprime o AFD cru, não grava nada), `terminal abrir`. Não roda continuamente. |
+| `cmd/tray` | o que roda o dia a dia numa unidade: ícone de bandeja (verde/vermelho conforme o ciclo), autostart via `HKCU\...\Run` (sem precisar de administrador — `kardianos/service`, que a CLI usava antes, foi **removido**, não adaptado: serviço do Windows roda na Sessão 0, isolada da área de trabalho desde o Vista, e por isso **nunca** pode mostrar ícone de bandeja nem abrir navegador na sessão do usuário), auto-instalação no primeiro uso (copia a si mesmo para `%LOCALAPPDATA%\SisEscala\coletor-rep\` e relança de lá). |
+
+**Distribuição normal não é compilar na mão** — `/marcacoes` (Terminais Locais / Dispositivos
+REP) tem botão "Baixar aplicativo" que gera o token e devolve um `.zip` já configurado
+(`POST /api/coletor-rep/download`, empacota `tools/coletor-rep/dist/coletor-rep-tray.exe`
+pré-compilado + `config.yaml` preenchido). `dist/coletor-rep-tray.exe` **precisa ser
+recompilado e commitado manualmente** a cada mudança em `cmd/tray` ou no que ele importa — o
+container do Coolify não tem toolchain Go. `next.config.js` usa `outputFileTracingIncludes`
+para incluir esse binário no `output: 'standalone'` (ele fica fora de `src/`, fora do
+rastreamento automático) — confirme com
+`find .next/standalone -iname coletor-rep-tray.exe` depois de qualquer `npm run build` que
+mexa nisso.
+
+- `login.fcgi` e `get_afd.fcgi?mode=671` **validados contra o relógio real** (10.110.2.89).
+- **Windows Smart App Control bloqueia o `.exe` recém-compilado** (sem assinatura/reputação) —
+  e em 11/08/2026 bloqueou também `go run` do `cmd/tray`, sem determinismo aparente (`go run`
+  do `cmd/cli` tinha funcionado antes, na mesma máquina). Sem opção de exceção por app quando
+  ativo ("Ativado", não avaliação) — o único caminho é desligar nas Configurações do Windows.
+  Uma nota anterior aqui dizia que isso era **irreversível sem reinstalar o Windows** — builds
+  mais recentes do Windows 11 já trouxeram a opção de reativar sem reinstalar; confira a versão
+  antes de assumir uma coisa ou outra.
+- `get_system_information.fcgi` (deriva de relógio no heartbeat) continua aproximação — não
+  confirmado contra hardware real.
 - `sync` sempre pede o AFD a partir do NSR 1 (não lê `dispositivos_rep.ultimo_nsr` antes) e
   confia na idempotência de `fn_ingerir_afd` para descartar o que já foi ingerido — funciona,
   mas reenvia o arquivo inteiro do relógio a cada ciclo. Antes de ligar em relógio de alto
@@ -125,9 +138,13 @@ e `install/start/stop` como serviço Windows (`kardianos/service`).
   comando do `cmd.exe`) — quebrava a URL de ativação do terminal local, que tem
   `?terminal_id=...&token=...`. `terminal/terminal.go` usa
   `rundll32 url.dll,FileProtocolHandler` em vez disso.
+- Windows 7 **não é suportado** — Go 1.21+ exige Windows 10+. Decisão consciente (maioria do
+  parque é 10/11); se precisar de verdade, compilar essa unidade à parte com Go 1.20.
 
 Confirme cada ponto com `curl.exe -sk` a partir do PowerShell antes de instalar em campo —
-`Invoke-RestMethod` falha contra o TLS não-padrão do device (já registrado acima).
+`Invoke-RestMethod` falha contra o TLS não-padrão do device (já registrado acima). Detalhes da
+sessão que fez essa reestruturação:
+[`docs/evolucao/2026-08-11-app-bandeja-coletor-rep.md`](docs/evolucao/2026-08-11-app-bandeja-coletor-rep.md).
 
 ### Pendências que bloqueiam a Fase 5
 

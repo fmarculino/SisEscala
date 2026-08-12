@@ -51,4 +51,6 @@ docs/Dados Cadastrais*.csv
 # coletor-rep: config.yaml carrega tokens de dispositivo em texto claro (a credencial real,
 # nao um hash) - nunca deve ir para o repositorio. O binario compilado tambem nao.
 tools/coletor-rep/config.yaml
-tools/coletor-rep/*.exe
+tools/coletor-rep/cmd/**/*.exe
+# tools/coletor-rep/dist/*.exe NAO e ignorado - e o binario pre-compilado que a rota de
+# download em /api/coletor-rep/download serve, precisa estar versionado.

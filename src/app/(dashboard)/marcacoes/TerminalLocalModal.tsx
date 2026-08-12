@@ -2,9 +2,10 @@
 
 import { useState } from 'react'
 import { Modal } from '@/components/ui/Modal'
-import { Loader2, KeyRound } from 'lucide-react'
+import { Loader2, KeyRound, Download } from 'lucide-react'
 import { criarTerminalLocal, atualizarTerminalLocal, gerarTokenTerminalLocal } from './actions'
 import { TokenRevealBox } from './TokenRevealBox'
+import { baixarAplicativoColetorRep } from './baixarAplicativo'
 
 interface Opcoes {
   unidades: { id: string; nome: string }[]
@@ -45,6 +46,7 @@ export function TerminalLocalModal({
   const [gerandoToken, setGerandoToken] = useState(false)
   const [token, setToken] = useState<string | null>(null)
   const [terminalId, setTerminalId] = useState<string | null>(terminal?.id || null)
+  const [baixando, setBaixando] = useState(false)
 
   const setoresDaUnidade = opcoes.setores.filter((s) => s.unidade_id === unidadeId)
 
@@ -89,6 +91,19 @@ export function TerminalLocalModal({
       return
     }
     setToken((resultado as any).token)
+  }
+
+  async function handleBaixarAplicativo() {
+    if (!terminalId || !token) return
+    setBaixando(true)
+    setErro(null)
+    try {
+      await baixarAplicativoColetorRep('terminal', terminalId, token)
+    } catch (e: any) {
+      setErro(e.message || 'Falha ao baixar o aplicativo.')
+    } finally {
+      setBaixando(false)
+    }
   }
 
   return (
@@ -184,7 +199,22 @@ export function TerminalLocalModal({
           <div className="pt-4 border-t border-zinc-100 dark:border-zinc-800 space-y-3">
             <p className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">Credencial do aplicativo local</p>
             {token ? (
-              <TokenRevealBox token={token} />
+              <>
+                <TokenRevealBox token={token} />
+                <button
+                  type="button"
+                  onClick={handleBaixarAplicativo}
+                  disabled={baixando}
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60"
+                >
+                  {baixando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                  Baixar aplicativo (já configurado)
+                </button>
+                <p className="text-[11px] text-zinc-500">
+                  Extraia o .zip inteiro na máquina do terminal e execute o
+                  coletor-rep-tray.exe — ele mesmo se instala e ativa a tela de presença.
+                </p>
+              </>
             ) : (
               <button
                 type="button"

@@ -14,6 +14,13 @@ const nextConfig = {
   env: {
     NEXT_PUBLIC_APP_VERSION: appVersion,
   },
+  // tools/coletor-rep/dist/ fica FORA de src/ e do rastreamento automatico de arquivos do
+  // output:'standalone' - sem isto, /api/coletor-rep/download funciona em `npm run dev` (le do
+  // filesystem completo) mas devolve 404/erro no container do Coolify, que roda so o que o
+  // standalone empacotou. Estavel desde o Next 15 (nao e mais `experimental`).
+  outputFileTracingIncludes: {
+    '/api/coletor-rep/download': ['./tools/coletor-rep/dist/**/*'],
+  },
 };
 
 module.exports = nextConfig;
