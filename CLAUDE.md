@@ -880,6 +880,38 @@ retroativamente as marcações que deveriam ter sido criadas desde o início.
 `sync` de verdade. Um exemplo ilustrativo em markdown não é evidência do formato real; só o
 byte cru é.
 
+## Papéis de RH: Geral vs da Unidade (12/08/2026)
+
+`role = 'rh'` ("RH Geral") enxerga tudo; `role = 'rh_unidade'` ("RH da Unidade") é escopado por
+`profile_unidades`, com acesso automático a **todos os setores** das unidades vinculadas (nunca
+setor por setor — `acesso_todos_setores` é forçado no servidor pra esse papel em
+`usuarios/actions.ts`, e a RLS de `escala_mensal`/`escala_diaria`/`folha_ponto`/
+`servidores_eventos` também não exige essa flag pra ele especificamente). Ver
+[`docs/evolucao/2026-08-12-desdobramento-do-perfil-rh.md`](docs/evolucao/2026-08-12-desdobramento-do-perfil-rh.md).
+
+⚠️ **Duas formas de escopo coexistem no projeto, e um papel novo precisa das duas.** A maioria
+das telas do dashboard usa `applyAccessFilters` (`src/utils/permissions.ts`), que monta a query
+certa a partir de `permitted_unidades`/`permitted_setores`/`acesso_todas_unidades`/
+`acesso_todos_setores` — mas é só o filtro do **lado do cliente**. A RLS é quem de fato restringe
+os dados, e nem toda tabela reconhece todo papel: `escala_mensal`/`escala_diaria`/`folha_ponto`
+tiveram suas policies escritas citando só `admin`/`coordenador` (`20260618080000`) **antes** de
+`rh` existir (`20260811130000`, quase dois meses depois) — e nenhuma migration atualizou essas
+policies até `20260812070000`. Resultado: `rh` tinha bypass total em `applyAccessFilters` (excesso
+de acesso em várias telas) e ZERO linhas nessas três tabelas via RLS (falta total de acesso nas
+telas que mais importam pra esse papel — `/escalas`, `/folha-ponto`, `/relatorios/rh`), ao mesmo
+tempo. **Ao criar um papel novo, busque por `= ANY(ARRAY['admin'::user_role, 'coordenador'::user_role])`
+nas migrations** pra achar toda policy que precisa do papel novo — não confie em `applyAccessFilters`
+sozinho pra saber o que o papel alcança.
+
+⚠️ **"Vincular a uma unidade garante acesso a todos os setores dela" nem sempre é verdade.** Nas
+policies que checam `unidade_id IN profile_unidades` (ex.: `servidores`, `escala_mensal` antes de
+`20260812070000`), essa condição normalmente vem **E**'d com `acesso_todos_setores = true` — só o
+branch `setor_id IN profile_setores` funciona sem a flag. A nota que existe há tempos na tela de
+Usuários promete o contrário; ela só era verdade nas tabelas que não checam papel (`servidores`).
+Um papel pensado como "toda unidade vinculada, sem setor por setor" (como `rh_unidade`) precisa ou
+de um branch de RLS próprio que não exija a flag, ou forçar `acesso_todos_setores = true` no
+servidor sempre que esse papel for escolhido — os dois foram feitos pra `rh_unidade`.
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.

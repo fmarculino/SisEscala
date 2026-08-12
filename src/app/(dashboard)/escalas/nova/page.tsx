@@ -35,10 +35,13 @@ export default function NovaEscalaPage() {
       const permitted_unidades = prof.profile_unidades?.map((pu: any) => pu.unidade_id) || []
       const permitted_setores = prof.profile_setores?.map((ps: any) => ps.setor_id) || []
       const isSuperAdmin = prof.role === 'super_admin'
+      // RH Geral enxerga tudo por definição do papel, mesmo que acesso_todas_unidades não
+      // esteja marcado no perfil (o bypass dele vive no papel, não na flag — ver applyAccessFilters).
+      const isRhGeral = prof.role === 'rh'
 
       // Fetch Units
       let unitsQuery = supabase.from('unidades').select('id, nome').eq('ativo', true).order('nome')
-      if (!prof.acesso_todas_unidades && !isSuperAdmin) {
+      if (!prof.acesso_todas_unidades && !isSuperAdmin && !isRhGeral) {
         if (permitted_unidades.length > 0) {
           unitsQuery = unitsQuery.in('id', permitted_unidades)
         } else if (permitted_setores.length > 0) {
@@ -56,7 +59,7 @@ export default function NovaEscalaPage() {
 
       // Fetch Sectors
       let sectorsQuery = supabase.from('setores').select('id, unidade_id, parent_id, dicionario_setores(nome)').eq('ativo', true)
-      if (!prof.acesso_todos_setores && !isSuperAdmin) {
+      if (!prof.acesso_todos_setores && !isSuperAdmin && !isRhGeral) {
         if (prof.role === 'coordenador') {
           // Coordenadores SÓ vêem setores vinculados
           if (permitted_setores.length > 0) {

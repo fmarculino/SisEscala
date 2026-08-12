@@ -29,7 +29,11 @@ export async function createUser(formData: FormData) {
   const unidadeIds = formData.getAll('unidade_ids') as string[]
   const setorIds = formData.getAll('setor_ids') as string[]
   const acessoTodasUnidades = formData.get('acesso_todas_unidades') === 'true'
-  const acessoTodosSetores = formData.get('acesso_todos_setores') === 'true'
+  // RH da Unidade sempre enxerga todos os setores das unidades vinculadas — nunca setor por
+  // setor (é a diferença dele pro RH Geral: unidade sim, setor não). Forçado aqui, não só no
+  // client, porque a action é chamável direto. Ver src/utils/permissions.ts (applyAccessFilters)
+  // e a migration 20260812070000 — as duas camadas dependem dessa flag pra esse papel.
+  const acessoTodosSetores = role === 'rh_unidade' ? true : formData.get('acesso_todos_setores') === 'true'
 
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return { error: 'Chave SUPABASE_SERVICE_ROLE_KEY não configurada no servidor.' }
@@ -90,7 +94,9 @@ export async function updateUser(formData: FormData) {
   const unidadeIds = formData.getAll('unidade_ids') as string[]
   const setorIds = formData.getAll('setor_ids') as string[]
   const acessoTodasUnidades = formData.get('acesso_todas_unidades') === 'true'
-  const acessoTodosSetores = formData.get('acesso_todos_setores') === 'true'
+  // RH da Unidade sempre enxerga todos os setores das unidades vinculadas — ver mesmo comentário
+  // em createUser.
+  const acessoTodosSetores = role === 'rh_unidade' ? true : formData.get('acesso_todos_setores') === 'true'
 
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return { error: 'Chave SUPABASE_SERVICE_ROLE_KEY não configurada no servidor.' }

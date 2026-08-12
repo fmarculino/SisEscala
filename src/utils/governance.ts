@@ -1,4 +1,4 @@
-export type UserRole = 'super_admin' | 'rh' | 'admin' | 'coordenador' | 'ass_adm' | 'servidor' | 'comum';
+export type UserRole = 'super_admin' | 'rh' | 'rh_unidade' | 'admin' | 'coordenador' | 'ass_adm' | 'servidor' | 'comum';
 
 interface CheckScaleAccessProps {
   role: UserRole;

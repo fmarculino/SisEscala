@@ -298,7 +298,7 @@ export default function EscalasPage() {
           <h1 className="text-3xl font-black tracking-tight text-zinc-900 dark:text-white uppercase">Escalas de Serviço</h1>
           <p className="mt-1 text-zinc-500 text-sm italic">Gestão centralizada de plantões e sobreavisos.</p>
         </div>
-          {(profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'coordenador') && (
+          {(profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'coordenador' || profile?.role === 'rh' || profile?.role === 'rh_unidade') && (
             <Link
               href="/escalas/nova"
               className="inline-flex items-center rounded-xl bg-blue-600 px-6 py-3 text-sm font-black text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all uppercase tracking-tighter"

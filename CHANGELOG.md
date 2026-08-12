@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.54.0] - 2026-08-12
+
+### Fixed
+- **O perfil "Recursos Humanos" (`role = 'rh'`, v1.44) estava incompleto desde que foi criado** —
+  o usuário reportou que, ao limitar um RH a unidades específicas na tela de Usuários, ele
+  continuava vendo dados de outras unidades. Investigação encontrou dois problemas opostos:
+  - **Excesso**: `applyAccessFilters` (`src/utils/permissions.ts`, usado em 20 telas —
+    `/servidores`, `/escalas`, `/folha-ponto`, `/relatorios/*`, `/home`, `/afastamentos`,
+    `/justificativas`, `/unidades`, `/setores`, `/auditoria`) tinha `role === 'rh'` num bypass
+    incondicional — ignorava completamente o que estava gravado no perfil (unidades/setores
+    vinculados), daí desmarcar "Acesso Total" não ter efeito nenhum nessas telas.
+  - **Falta**: a RLS de `escala_mensal`, `escala_diaria` e `folha_ponto` (`20260618080000`, a
+    versão vigente de cada uma) nunca foi atualizada para incluir `'rh'` — o papel foi adicionado
+    ao enum depois dessa migration. Resultado: um usuário `rh` tinha **zero** linhas de escala e
+    folha de ponto via RLS, não importa o que estivesse marcado no perfil — `/escalas`,
+    `/folha-ponto` e `/relatorios/rh` (a tela batizada justamente pro RH) vinham vazias.
+
+### Added
+- **Perfil "Recursos Humanos" desdobrado em dois**, migrations `20260812060000`/`20260812070000`:
+  - **RH Geral** (`role = 'rh'`, mantido — nenhuma migração de dado, todo `rh` existente continua
+    sendo isso) — enxerga tudo, agora corretamente também em escala e folha de ponto.
+  - **RH da Unidade** (`role = 'rh_unidade'`, novo) — escopado pelas unidades vinculadas
+    (`profile_unidades`), com acesso automático a **todos os setores** dessas unidades (nunca
+    setor por setor — `acesso_todos_setores` é forçado no servidor ao escolher esse papel em
+    `usuarios/actions.ts`, e as novas policies de RLS também não exigem essa flag pra esse papel
+    especificamente, então as duas camadas concordam).
+  - Novo item no seletor "Nível de Acesso" em `/usuarios`; ao escolher RH da Unidade, o checkbox
+    "Acesso Total" de Setores fica travado marcado, com nota explicando o porquê.
+  - `escala_mensal`, `escala_diaria`, `folha_ponto` (SELECT/INSERT/UPDATE/DELETE) e
+    `servidores_eventos` ganharam branches para os dois papéis nas policies de RLS.
+
+Ver [`docs/evolucao/2026-08-12-desdobramento-do-perfil-rh.md`](docs/evolucao/2026-08-12-desdobramento-do-perfil-rh.md).
+
 ## [1.53.0] - 2026-08-12
 
 ### Fixed

@@ -139,7 +139,7 @@ export function Sidebar({ user }: { user?: any }) {
   // Role-based filtering
   const userRole = user?.role || ''
   const isSuperAdmin = userRole === 'super_admin'
-  const isRh = userRole === 'rh'
+  const isRh = userRole === 'rh' || userRole === 'rh_unidade'
   const isAdmin = userRole === 'admin'
   const isCoord = userRole === 'coordenador' || userRole === 'ass_adm'
 

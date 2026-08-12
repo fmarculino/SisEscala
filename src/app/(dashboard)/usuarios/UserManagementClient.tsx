@@ -44,6 +44,11 @@ export default function UserManagementClient({
   const [selectedSetores, setSelectedSetores] = useState<string[]>([])
   const [acessoTodasUnidades, setAcessoTodasUnidades] = useState(false)
   const [acessoTodosSetores, setAcessoTodosSetores] = useState(false)
+  const [formRole, setFormRole] = useState('coordenador')
+  // RH da Unidade sempre enxerga todos os setores das unidades vinculadas — nunca setor por
+  // setor (é a diferença dele pro RH Geral, que enxerga tudo). A action força o mesmo no
+  // servidor (createUser/updateUser), então isto é só a UI refletindo o que vai valer de fato.
+  const isRhUnidade = formRole === 'rh_unidade'
 
   // Form input field states
   const [formFullName, setFormFullName] = useState('')
@@ -78,6 +83,7 @@ export default function UserManagementClient({
     setEditingUser(user)
     setFormFullName(user.full_name || '')
     setFormEmail(user.email || '')
+    setFormRole(user.role || 'coordenador')
     setSelectedUnidades(user.permitted_unidades || [])
     setSelectedSetores(user.permitted_setores || [])
     setAcessoTodasUnidades(user.acesso_todas_unidades || false)
@@ -90,6 +96,7 @@ export default function UserManagementClient({
     setEditingUser(null)
     setFormFullName('')
     setFormEmail('')
+    setFormRole('coordenador')
     setSelectedServidor('')
     setSearchTerm('')
     setIsDropdownOpen(false)
@@ -99,6 +106,16 @@ export default function UserManagementClient({
     setAcessoTodosSetores(false)
     setResetStatus(null)
   }
+
+  // RH da Unidade força acesso_todos_setores — troca de/para esse papel já reflete isso na UI
+  // sem precisar de um clique extra.
+  useEffect(() => {
+    if (isRhUnidade) {
+      setAcessoTodosSetores(true)
+      setSelectedSetores([])
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRhUnidade])
 
   const handleResetPassword = async () => {
     if (!editingUser) return
@@ -694,17 +711,18 @@ export default function UserManagementClient({
 
               <div>
                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Nível de Acesso</label>
-                <select 
-                  required 
-                  name="role" 
-                  defaultValue={editingUser?.role || 'coordenador'}
-                  key={editingUser?.id + '-role'}
+                <select
+                  required
+                  name="role"
+                  value={formRole}
+                  onChange={(e) => setFormRole(e.target.value)}
                   className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 py-2 px-3 text-sm focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
                 >
                   <option value="ass_adm">{ROLE_LABELS.ass_adm}</option>
                   <option value="coordenador">{ROLE_LABELS.coordenador}</option>
                   <option value="admin">{ROLE_LABELS.admin}</option>
                   <option value="rh">{ROLE_LABELS.rh}</option>
+                  <option value="rh_unidade">{ROLE_LABELS.rh_unidade}</option>
                   {currentUserRole === 'super_admin' && <option value="super_admin">{ROLE_LABELS.super_admin}</option>}
                 </select>
               </div>
@@ -751,11 +769,12 @@ export default function UserManagementClient({
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Setores Específicos</label>
-                  <label className="flex items-center text-xs text-zinc-500 cursor-pointer">
-                    <input 
-                      type="checkbox" 
-                      className="mr-1 h-3 w-3 rounded border-zinc-300" 
+                  <label className={`flex items-center text-xs text-zinc-500 ${isRhUnidade ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
+                    <input
+                      type="checkbox"
+                      className="mr-1 h-3 w-3 rounded border-zinc-300"
                       checked={acessoTodosSetores}
+                      disabled={isRhUnidade}
                       onChange={(e) => {
                         setAcessoTodosSetores(e.target.checked)
                         if (e.target.checked) setSelectedSetores([])
@@ -764,7 +783,14 @@ export default function UserManagementClient({
                     Acesso Total
                   </label>
                 </div>
-                
+
+                {isRhUnidade && (
+                  <p className="text-[10px] text-blue-600 dark:text-blue-400 italic">
+                    RH da Unidade sempre tem acesso a todos os setores das unidades vinculadas —
+                    não é possível restringir por setor específico para este papel.
+                  </p>
+                )}
+
                 {!acessoTodosSetores && (
                   <div className="mt-1 max-h-64 overflow-y-auto p-3 border border-zinc-300 dark:border-zinc-700 rounded-xl bg-zinc-50 dark:bg-zinc-800/50 space-y-4">
                     {unidades
@@ -864,6 +890,7 @@ export default function UserManagementClient({
                 <option value="coordenador">{ROLE_LABELS.coordenador}</option>
                 <option value="admin">{ROLE_LABELS.admin}</option>
                 <option value="rh">{ROLE_LABELS.rh}</option>
+                <option value="rh_unidade">{ROLE_LABELS.rh_unidade}</option>
                 <option value="super_admin">{ROLE_LABELS.super_admin}</option>
               </select>
 

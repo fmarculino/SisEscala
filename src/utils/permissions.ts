@@ -2,7 +2,7 @@ import { PostgrestFilterBuilder } from '@supabase/postgrest-js'
 
 export interface UserProfile {
   id: string
-  role: 'super_admin' | 'rh' | 'admin' | 'coordenador' | 'ass_adm' | 'servidor' | 'comum'
+  role: 'super_admin' | 'rh' | 'rh_unidade' | 'admin' | 'coordenador' | 'ass_adm' | 'servidor' | 'comum'
   acesso_todas_unidades: boolean
   acesso_todos_setores: boolean
   permitted_unidades: string[]
@@ -46,7 +46,12 @@ export function applyAccessFilters(
     bypassSuperAdmin = true 
   } = options
 
-  // Super Admin e RH têm acesso irrestrito a dados
+  // Super Admin e RH Geral (role 'rh') têm acesso irrestrito a dados — é a definição do papel
+  // ("RH Geral" enxerga tudo). RH da Unidade (role 'rh_unidade') NÃO entra aqui de propósito:
+  // cai no fluxo normal abaixo, escopado por permitted_unidades/permitted_setores como
+  // admin/coordenador — só funciona certo se acesso_todos_setores estiver true junto da unidade
+  // vinculada (createUser/updateUser em src/app/(dashboard)/usuarios/actions.ts força isso para
+  // esse papel).
   if (bypassSuperAdmin && (profile.role === 'super_admin' || profile.role === 'rh')) {
     return query
   }

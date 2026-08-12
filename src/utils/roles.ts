@@ -2,7 +2,8 @@ export const ROLE_LABELS: Record<string, string> = {
   ass_adm: 'Ass. Administrativo',
   coordenador: 'Coordenador',
   admin: 'Diretor',
-  rh: 'Recursos Humanos',
+  rh: 'RH Geral',
+  rh_unidade: 'RH da Unidade',
   super_admin: 'Administrador Geral',
   servidor: 'Servidor'
 }
