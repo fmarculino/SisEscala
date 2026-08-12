@@ -341,9 +341,91 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 	}
 	itemVerLogs := systray.AddMenuItem("Ver logs", "Abre a pasta de logs e configuracao")
 	systray.AddSeparator()
+	itemAtualizar := systray.AddMenuItem("Verificar atualizacao", "Confere se ha uma versao mais nova do coletor-rep-tray")
 	itemSair := systray.AddMenuItem("Sair", "Encerra o coletor-rep")
 
 	estado := &estadoApp{}
+
+	// Estado da atualizacao — lido e escrito SO dentro da goroutine unica do loop de eventos
+	// abaixo (executarCiclo e os case dos ClickedCh rodam todos ali, nunca em paralelo entre si),
+	// entao nao precisa de mutex. "avisa e espera clique, nunca aplica sozinho": verificarAtualizacao
+	// so troca o titulo do item e manda uma notificacao; quem baixa e substitui o executavel e'
+	// sempre o clique em itemAtualizar.ClickedCh, nunca o ticker automatico.
+	var (
+		infoAtualizacao   ciclo.InfoVersaoServidor
+		atualizacaoPronta bool
+		ultimaChecagem    time.Time
+	)
+
+	verificarAtualizacao := func(manual bool) {
+		info, temNova, err := ciclo.VersaoDisponivel(cfg)
+		ultimaChecagem = time.Now()
+		if err != nil {
+			log.Printf("erro ao verificar atualizacao: %v", err)
+			if manual {
+				_ = beeep.Notify("SisEscala - Coletor", "Nao foi possivel verificar atualizacoes agora. Ver log.", nil)
+			}
+			return
+		}
+
+		jaAvisado := atualizacaoPronta && infoAtualizacao.Versao == info.Versao
+		infoAtualizacao = info
+
+		if !temNova {
+			atualizacaoPronta = false
+			itemAtualizar.SetTitle("Verificar atualizacao")
+			if manual {
+				_ = beeep.Notify("SisEscala - Coletor", "Voce ja esta na versao mais recente (v"+ciclo.Versao+").", nil)
+			}
+			return
+		}
+
+		atualizacaoPronta = true
+		itemAtualizar.SetTitle("Atualizar para v" + info.Versao)
+		if !jaAvisado {
+			_ = beeep.Notify("SisEscala - Coletor",
+				"Nova versao disponivel: v"+info.Versao+". Clique em 'Atualizar para v"+info.Versao+"' no menu da bandeja.", nil)
+		}
+	}
+
+	aplicarAtualizacao := func() {
+		exeTemp, err := ciclo.BaixarNovaVersao(cfg, infoAtualizacao.SHA256)
+		if err != nil {
+			log.Printf("erro ao baixar atualizacao: %v", err)
+			_ = beeep.Notify("SisEscala - Coletor", "Falha ao baixar a atualizacao. Ver log.", nil)
+			return
+		}
+		defer os.Remove(exeTemp)
+
+		exeAtual := filepath.Join(dirInstalado, nomeExecutavel)
+		exeAntigo := exeAtual + ".antigo"
+		_ = os.Remove(exeAntigo) // sobra de uma tentativa anterior, melhor esforco
+
+		// Windows permite renomear um .exe em execucao (nao permite sobrescrever com o mesmo
+		// nome) — e o mesmo truque que autoInstalarERelancar usa para instalar por cima de uma
+		// instalacao anterior, aqui aplicado ao proprio processo rodando.
+		if err := os.Rename(exeAtual, exeAntigo); err != nil {
+			log.Printf("erro ao renomear executavel atual para aplicar atualizacao: %v", err)
+			_ = beeep.Notify("SisEscala - Coletor", "Falha ao aplicar a atualizacao (nao foi possivel substituir o executavel). Ver log.", nil)
+			return
+		}
+
+		if err := copiarArquivo(exeTemp, exeAtual); err != nil {
+			log.Printf("erro ao instalar nova versao: %v", err)
+			_ = os.Rename(exeAntigo, exeAtual) // desfaz - segue rodando a versao antiga em vez de ficar sem nenhuma
+			_ = beeep.Notify("SisEscala - Coletor", "Falha ao instalar a atualizacao. Ver log.", nil)
+			return
+		}
+
+		log.Printf("atualizado de v%s para v%s, reiniciando", ciclo.Versao, infoAtualizacao.Versao)
+		if err := exec.Command(exeAtual).Start(); err != nil {
+			log.Printf("erro ao relancar apos atualizar: %v", err)
+			_ = beeep.Notify("SisEscala - Coletor", "Atualizado para v"+infoAtualizacao.Versao+", mas falhou ao reiniciar sozinho. Abra o app manualmente.", nil)
+			return
+		}
+		_ = os.Remove(exeAntigo)
+		systray.Quit()
+	}
 
 	abrirTerminalSeConfigurado := func() {
 		if cfg.TerminalLocal == nil {
@@ -380,6 +462,12 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 				"Falha ao sincronizar ha varias tentativas seguidas. Verifique a conexao com a rede e com o SisEscala.", nil)
 		}
 
+		// No maximo 1x por dia — e' so' um GET pequeno, mas nao ha necessidade de checar a cada
+		// 5 minutos. A primeira chamada do app (ultimaChecagem ainda zero) sempre checa.
+		if time.Since(ultimaChecagem) > 24*time.Hour {
+			verificarAtualizacao(false)
+		}
+
 		atualizarBandeja(estado, itemStatus)
 	}
 
@@ -411,6 +499,12 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 				}
 			case <-itemVerLogs.ClickedCh:
 				exec.Command("explorer", dirInstalado).Start() //nolint:errcheck
+			case <-itemAtualizar.ClickedCh:
+				if atualizacaoPronta {
+					aplicarAtualizacao()
+				} else {
+					verificarAtualizacao(true)
+				}
 			case <-itemSair.ClickedCh:
 				systray.Quit()
 				return

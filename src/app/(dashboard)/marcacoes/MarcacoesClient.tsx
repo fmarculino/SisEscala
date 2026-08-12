@@ -1,16 +1,17 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Monitor, Fingerprint, ListChecks, Plus, Pencil, Trash2, ShieldCheck } from 'lucide-react'
+import { Monitor, Fingerprint, ListChecks, Plus, Pencil, Trash2, ShieldCheck, UploadCloud } from 'lucide-react'
 import { listarTerminaisLocais, listarDispositivosRep, excluirTerminalLocal, excluirDispositivoRep } from './actions'
 import { TerminalLocalModal } from './TerminalLocalModal'
 import { DispositivoRepModal } from './DispositivoRepModal'
 import { PendenciasTab } from './PendenciasTab'
 import { BiometriaTab } from './BiometriaTab'
 import { HigieneDispositivoTab } from './HigieneDispositivoTab'
+import { ImportarPendriveTab } from './ImportarPendriveTab'
 import { IdCopyBadge } from './IdCopyBadge'
 
-type Aba = 'terminais' | 'dispositivos' | 'pendencias' | 'biometria' | 'higiene'
+type Aba = 'terminais' | 'dispositivos' | 'pendencias' | 'biometria' | 'higiene' | 'pendrive'
 
 interface Opcoes {
   unidades: { id: string; nome: string }[]
@@ -65,6 +66,7 @@ export function MarcacoesClient({ isAdmin, opcoes }: { isAdmin: boolean; opcoes:
     { id: 'pendencias', label: 'Pendências', icon: ListChecks, visivel: true },
     { id: 'biometria', label: 'Biometria Pendente', icon: Fingerprint, visivel: true },
     { id: 'higiene', label: 'Higiene do Relógio', icon: ShieldCheck, visivel: isAdmin },
+    { id: 'pendrive', label: 'Importar por Pendrive', icon: UploadCloud, visivel: isAdmin },
   ]
 
   return (
@@ -228,6 +230,7 @@ export function MarcacoesClient({ isAdmin, opcoes }: { isAdmin: boolean; opcoes:
       {aba === 'pendencias' && <PendenciasTab />}
       {aba === 'biometria' && <BiometriaTab />}
       {aba === 'higiene' && isAdmin && <HigieneDispositivoTab />}
+      {aba === 'pendrive' && isAdmin && <ImportarPendriveTab />}
     </div>
   )
 }

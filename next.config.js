@@ -21,6 +21,8 @@ const nextConfig = {
   outputFileTracingIncludes: {
     '/api/coletor-rep/download': ['./tools/coletor-rep/dist/**/*'],
     '/api/coletor-rep/download-cli': ['./tools/coletor-rep/dist/**/*'],
+    '/api/coletor-rep/tray-version': ['./tools/coletor-rep/dist/**/*'],
+    '/api/coletor-rep/tray-download': ['./tools/coletor-rep/dist/**/*'],
   },
 };
 

@@ -2,6 +2,7 @@
 
 import { createClient, createAdminClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { randomUUID, createHash } from 'crypto'
 
 async function exigirAdmin() {
   const supabase = await createClient()
@@ -335,6 +336,112 @@ export async function buscarEscalasCandidatas(servidorId: string, ocorridoEmIso:
     turno_codigo: e.dicionario_turnos?.codigo || null,
     presenca_confirmada: e.presenca_confirmada,
   }))
+}
+
+// ============================================================================
+// Import de AFD por pendrive (unidade sem rede até o relógio) — Fase 6
+// ============================================================================
+// Arquivo `.sisrep` gerado por `coletor-rep afd-exportar` numa máquina sem rede até o SisEscala:
+// cabeçalho ASCII curto (dispositivo_id/faixa de NSR/quando foi gerado), delimitador `---\n`, e o
+// AFD CRU em seguida (latin1, sem decodificar) — mesmo motivo de `linha_bruta` ser o artefato
+// legal em `rep_afd_registros`. A ingestão chama a MESMA `fn_ingerir_afd` que o sync online usa
+// (`src/app/api/rep/v1/marcacoes/route.ts`), só trocando `p_canal` para `'pendrive'` e
+// preenchendo `p_importado_por` com quem está logado — idempotência por (dispositivo_id, nsr) já
+// cobre reenviar o mesmo arquivo sem duplicar nada.
+
+const DELIMITADOR_SISREP = '---\n'
+
+function parseArquivoSisrep(buffer: Buffer): { cabecalho: Record<string, string>; corpo: Buffer } {
+  // O cabeçalho é sempre curto e ASCII (poucas linhas "chave: valor") — procurar o delimitador só
+  // nos primeiros bytes evita casar por acaso com uma sequência igual dentro do corpo binário.
+  const inicioBusca = buffer.subarray(0, 2000).toString('latin1')
+  const posDelimitador = inicioBusca.indexOf(DELIMITADOR_SISREP)
+  if (posDelimitador === -1) {
+    throw new Error('Arquivo não parece um .sisrep válido (delimitador de cabeçalho não encontrado).')
+  }
+
+  const cabecalho: Record<string, string> = {}
+  for (const linha of inicioBusca.slice(0, posDelimitador).split('\n')) {
+    const idx = linha.indexOf(':')
+    if (idx === -1) continue
+    cabecalho[linha.slice(0, idx).trim()] = linha.slice(idx + 1).trim()
+  }
+
+  return { cabecalho, corpo: buffer.subarray(posDelimitador + DELIMITADOR_SISREP.length) }
+}
+
+export async function importarPendriveAfd(dispositivoId: string, formData: FormData) {
+  await exigirAdmin()
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Não autenticado.' }
+
+  if (!dispositivoId) return { error: 'Escolha o dispositivo de origem do arquivo.' }
+
+  const arquivo = formData.get('arquivo')
+  if (!(arquivo instanceof File)) return { error: 'Selecione um arquivo .sisrep.' }
+
+  let cabecalho: Record<string, string>
+  let corpo: Buffer
+  try {
+    const bytes = Buffer.from(await arquivo.arrayBuffer())
+    ;({ cabecalho, corpo } = parseArquivoSisrep(bytes))
+  } catch (e: any) {
+    return { error: e.message || 'Falha ao ler o arquivo.' }
+  }
+
+  let aviso: string | null = null
+  if (cabecalho.dispositivo_id && cabecalho.dispositivo_id !== dispositivoId) {
+    aviso = `O cabeçalho do arquivo indica o dispositivo ${cabecalho.dispositivo_id}, diferente do `
+      + 'selecionado — importado mesmo assim para o dispositivo escolhido no formulário.'
+  }
+
+  const linhas = corpo
+    .toString('latin1')
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((l) => l.replace(/\r$/, ''))
+    .filter((l) => l.trim() !== '')
+
+  if (linhas.length === 0) {
+    return { error: 'O arquivo não contém nenhuma linha de AFD.' }
+  }
+
+  const arquivoSha256 = createHash('sha256').update(corpo).digest('hex')
+
+  // fn_ingerir_afd é REVOKE FROM authenticated / GRANT TO service_role apenas — precisa do
+  // client admin (mesmo padrão de /api/rep/v1/marcacoes, que autentica o dispositivo por HMAC e
+  // só então usa o client de service role para a escrita). O admin logado já foi confirmado
+  // acima via sessão normal, só a chamada à RPC em si precisa do client elevado.
+  const admin = await createAdminClient()
+
+  let recebidas = 0, novas = 0, duplicadas = 0, marcacoes = 0, orfas = 0
+  const TAMANHO_LOTE = 500
+  for (let inicio = 0; inicio < linhas.length; inicio += TAMANHO_LOTE) {
+    const trecho = linhas.slice(inicio, inicio + TAMANHO_LOTE)
+    const { data, error } = await admin.rpc('fn_ingerir_afd', {
+      p_dispositivo_id: dispositivoId,
+      p_lote_id: randomUUID(),
+      p_linhas: trecho,
+      p_canal: 'pendrive',
+      p_arquivo_sha256: arquivoSha256,
+      p_coletor_versao: null,
+      p_coletor_host: null,
+      p_ip: null,
+      p_importado_por: user.id,
+      p_assinatura_ok: null,
+    })
+    if (error) return { error: `Falha ao importar (a partir da linha ${inicio + 1}): ${error.message}` }
+
+    recebidas += data?.recebidas || 0
+    novas += data?.novas || 0
+    duplicadas += data?.duplicadas || 0
+    marcacoes += data?.marcacoes || 0
+    orfas += data?.orfas || 0
+  }
+
+  revalidatePath('/marcacoes')
+  return { recebidas, novas, duplicadas, marcacoes, orfas, aviso }
 }
 
 export async function aceitarMarcacaoPendente(input: {

@@ -106,7 +106,7 @@ Duas lacunas conhecidas, registradas no plano:
 
 | binário | papel |
 |---|---|
-| `cmd/cli` | diagnóstico manual: `sync`, `heartbeat`, `diagnostico`, `afd-raw` (busca e imprime o AFD cru, não grava nada), `terminal abrir`. Não roda continuamente. |
+| `cmd/cli` | diagnóstico manual: `sync`, `heartbeat`, `diagnostico`, `afd-raw` (busca e imprime o AFD cru, não grava nada), `afd-exportar` (grava `.sisrep` para pendrive, ver abaixo), `terminal abrir`. Não roda continuamente. |
 | `cmd/tray` | o que roda o dia a dia numa unidade: ícone de bandeja (verde/vermelho conforme o ciclo), autostart via `HKCU\...\Run` (sem precisar de administrador — `kardianos/service`, que a CLI usava antes, foi **removido**, não adaptado: serviço do Windows roda na Sessão 0, isolada da área de trabalho desde o Vista, e por isso **nunca** pode mostrar ícone de bandeja nem abrir navegador na sessão do usuário), auto-instalação no primeiro uso (copia a si mesmo para `%LOCALAPPDATA%\SisEscala\coletor-rep\` e relança de lá). |
 
 **Distribuição normal não é compilar na mão** — `/marcacoes` (Terminais Locais / Dispositivos
@@ -119,6 +119,35 @@ para incluir esse binário no `output: 'standalone'` (ele fica fora de `src/`, f
 rastreamento automático) — confirme com
 `find .next/standalone -iname coletor-rep-tray.exe` depois de qualquer `npm run build` que
 mexa nisso.
+
+**Desde 12/08/2026, todo release do coletor também exige bump de `dist/VERSION`** — arquivo
+texto puro com o número (`0.3.0`, sem prefixo `v`), lido por `GET /api/coletor-rep/tray-version`
+(pública, sem sessão — mesmo espírito de `/api/version`) para o próprio app de bandeja comparar
+com `ciclo.Versao` (`tools/coletor-rep/ciclo/ciclo.go`) e avisar sozinho que existe atualização.
+Esquecer de subir um dos dois deixa o app achando que já está atualizado (ou, pior, oferecendo
+"atualização" para a mesma versão). Ordem: bump `ciclo.Versao` → recompilar os dois `.exe` →
+escrever `dist/VERSION` com o mesmo número → `npm run build` → conferir
+`find .next/standalone -iname VERSION -path "*coletor-rep*"` → commitar os três juntos.
+
+**Update do app de bandeja é "avisa e espera clique", nunca automático** — decisão explícita do
+usuário, mesma cautela já registrada para o Smart App Control bloquear o `.exe` sem aviso.
+`cmd/tray/main.go` checa `ciclo.VersaoDisponivel` no máximo 1x/dia (não a cada ciclo de 5 min),
+habilita um item de menu "Atualização disponível" e só troca o `.exe` (`ciclo.AplicarAtualizacao`
+— confere sha256 do download antes de instalar, recusa se não bater) quando alguém clica.
+Reaproveita o mesmo padrão de renomear-e-relançar de `autoInstalarERelancar`, não duplica lógica.
+
+**Import/export de AFD por pendrive (Fase 6, 12/08/2026)** — para unidades onde o relógio não
+tem rede até o servidor (ex.: LACEN). `coletor-rep-cli afd-exportar <arquivo>.sisrep` roda numa
+máquina que enxerga o equipamento, lê um estado local (`estado-pendrive.json`, ao lado do
+`config.yaml` — **nunca** no banco, porque essa máquina por definição não tem caminho até lá) para
+pedir só o que ainda não foi exportado, e grava um cabeçalho ASCII + os bytes crus do AFD
+(ISO-8859-1, sem decodificar — mesma preservação de `linha_bruta`). O arquivo é levado
+fisicamente até uma máquina com acesso ao SisEscala e importado pela aba "Importar por Pendrive"
+em `/marcacoes` (`importarPendriveAfd` em `marcacoes/actions.ts`, que chama a mesma
+`fn_ingerir_afd` do sync online com `p_canal: 'pendrive'`). Nenhuma migration nova foi necessária
+— a RPC já aceitava esse canal desde a Fase 0-3. **`fn_ingerir_afd` só é `GRANT`ada a
+`service_role`**: a action usa `createAdminClient()` só para essa chamada, não `createClient()`
+(que teria `auth.getUser()` funcionando mas falharia com permissão negada na RPC).
 
 - ⚠️ **Atalho de dev do `cmd/tray` não pode detectar `go run` pela presença de `config.yaml`
   no diretório de trabalho.** Era exatamente esse teste que fazia todo usuário real nunca se

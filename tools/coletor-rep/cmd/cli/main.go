@@ -6,9 +6,13 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/sms-maraba/sisescala-coletor-rep/ciclo"
 	"github.com/sms-maraba/sisescala-coletor-rep/config"
@@ -46,6 +50,12 @@ func main() {
 		rodarDiagnostico(cfg)
 	case "afd-raw":
 		rodarAfdRaw(cfg)
+	case "afd-exportar":
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "Uso: coletor-rep afd-exportar <caminho-do-arquivo-de-saida.sisrep>")
+			os.Exit(1)
+		}
+		rodarAfdExportar(cfg, caminhoCfg, os.Args[2])
 	case "cadastros":
 		if err := ciclo.SincronizarCadastros(cfg); err != nil {
 			fmt.Fprintf(os.Stderr, "Falha ao sincronizar cadastros: %v\n", err)
@@ -93,6 +103,7 @@ Uso:
   coletor-rep heartbeat           reporta versao e deriva de relogio ao SisEscala (uma vez)
   coletor-rep diagnostico         testa conexao com o REP e com o SisEscala
   coletor-rep afd-raw             so imprime a resposta crua do relogio (diagnostico, nao grava nada)
+  coletor-rep afd-exportar <arq>  exporta so o AFD novo (desde a ultima exportacao) para um arquivo .sisrep - unidade sem rede ate o SisEscala, ver README
   coletor-rep cadastros           aplica a fila de push de identidade real no rele (Fase 7) - GRAVA no equipamento
   coletor-rep cadastros-testar    cria UM usuario de teste no rele e lista biometria (diagnostico - GRAVA no equipamento, ver aviso)
   coletor-rep higiene             le todos os usuarios do rele e reporta ao SisEscala (Fase 7b) - so' leitura, seguro rodar sempre
@@ -212,6 +223,107 @@ func rodarAfdRaw(cfg *config.Config) {
 		}
 		fmt.Printf("linha %d (%d chars): %q\n", i+1, len(l), l)
 	}
+}
+
+// arquivoEstadoPendrive fica ao lado do config.yaml carregado — é o único lugar onde "até onde
+// já exportei por pendrive" pode viver, porque a exportação acontece numa máquina sem rede até o
+// SisEscala (não há como usar dispositivos_rep.ultimo_nsr, que é o do canal online).
+func arquivoEstadoPendrive(caminhoCfg string) string {
+	return filepath.Join(filepath.Dir(caminhoCfg), "estado-pendrive.json")
+}
+
+type estadoPendrive struct {
+	UltimoNsrExportado int64 `json:"ultimo_nsr_exportado"`
+}
+
+func lerEstadoPendrive(caminho string) estadoPendrive {
+	dados, err := os.ReadFile(caminho)
+	if err != nil {
+		return estadoPendrive{} // primeira exportacao deste dispositivo - comeca do NSR 1
+	}
+	var e estadoPendrive
+	if json.Unmarshal(dados, &e) != nil {
+		return estadoPendrive{}
+	}
+	return e
+}
+
+func gravarEstadoPendrive(caminho string, e estadoPendrive) error {
+	dados, err := json.MarshalIndent(e, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(caminho, dados, 0o644)
+}
+
+// rodarAfdExportar busca do rele so' o que ainda nao foi exportado por pendrive antes (retomando
+// do estado local em estado-pendrive.json, ao lado do config.yaml) e grava num arquivo .sisrep -
+// pensado pra ser levado fisicamente ate' uma maquina com rede e importado em Marcacoes ->
+// Importar por Pendrive. Preserva os bytes CRUS do AFD (latin1, sem decodificar) - mesmo motivo
+// de linha_bruta ser o artefato legal em rep_afd_registros: quem decodifica e' a rota de import,
+// no mesmo ponto em que este coletor decodificaria se estivesse online.
+func rodarAfdExportar(cfg *config.Config, caminhoCfg, caminhoSaida string) {
+	if cfg.DispositivoRep == nil {
+		fmt.Fprintln(os.Stderr, "Secao dispositivo_rep ausente no config.yaml.")
+		os.Exit(1)
+	}
+	d := cfg.DispositivoRep
+	rc := rep.NovoClient(d.Endereco, d.Porta, d.UsaHTTPS, d.UsuarioRep, d.SenhaRep, d.CertFingerprint)
+
+	caminhoEstado := arquivoEstadoPendrive(caminhoCfg)
+	estado := lerEstadoPendrive(caminhoEstado)
+
+	fmt.Printf("Buscando AFD a partir do NSR %d...\n", estado.UltimoNsrExportado+1)
+	bruto, err := rc.GetAFD(estado.UltimoNsrExportado + 1)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Falha ao buscar AFD: %v\n", err)
+		os.Exit(1)
+	}
+
+	afdUTF8, err := rep.DecodificarLatin1(bruto)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Falha ao decodificar AFD para achar o NSR maximo: %v\n", err)
+		os.Exit(1)
+	}
+	linhas := rep.DividirLinhas(afdUTF8)
+	if len(linhas) == 0 {
+		fmt.Println("Nenhuma marcacao nova desde a ultima exportacao por pendrive.")
+		return
+	}
+
+	// O NSR ocupa os 9 primeiros caracteres da linha - mesma convencao ja usada por
+	// ciclo.go para ordenar lotes (`ORDER BY substring(x from 1 for 9)`), so' que aqui lida
+	// localmente, sem depender do banco.
+	nsrMax := estado.UltimoNsrExportado
+	for _, l := range linhas {
+		if len(l) < 9 {
+			continue
+		}
+		if n, err := strconv.ParseInt(strings.TrimSpace(l[:9]), 10, 64); err == nil && n > nsrMax {
+			nsrMax = n
+		}
+	}
+
+	cabecalho := fmt.Sprintf(
+		"SISREP-V1\ndispositivo_id: %s\nnsr_de: %d\nnsr_ate: %d\ngerado_em: %s\n---\n",
+		d.ID, estado.UltimoNsrExportado+1, nsrMax, time.Now().Format(time.RFC3339))
+
+	conteudo := append([]byte(cabecalho), bruto...)
+	if err := os.WriteFile(caminhoSaida, conteudo, 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "Falha ao gravar %s: %v\n", caminhoSaida, err)
+		os.Exit(1)
+	}
+
+	// So' avanca o estado local DEPOIS de gravar o arquivo com sucesso - se a gravacao falhar
+	// (pendrive cheio, sem permissao), a proxima tentativa pede o mesmo intervalo de novo.
+	if err := gravarEstadoPendrive(caminhoEstado, estadoPendrive{UltimoNsrExportado: nsrMax}); err != nil {
+		fmt.Fprintf(os.Stderr, "aviso: arquivo gravado, mas falha ao atualizar %s: %v\n", caminhoEstado, err)
+		fmt.Println("A proxima exportacao vai repetir este intervalo de NSR (seguro: reimportar so' descarta duplicado, nunca duplica).")
+	}
+
+	fmt.Printf("Exportado: %s (NSR %d a %d, %d linha(s), %d bytes)\n",
+		caminhoSaida, estado.UltimoNsrExportado+1, nsrMax, len(linhas), len(bruto))
+	fmt.Println("Leve este arquivo ate uma maquina com acesso ao SisEscala e importe em Marcacoes -> Importar por Pendrive.")
 }
 
 // rodarCadastrosTestar cria UM usuario de teste diretamente no rele (nome bem marcado, para

@@ -4,9 +4,14 @@ package ciclo
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/sms-maraba/sisescala-coletor-rep/config"
@@ -15,7 +20,7 @@ import (
 	"github.com/sms-maraba/sisescala-coletor-rep/sisescala"
 )
 
-const Versao = "0.2.0"
+const Versao = "0.3.0"
 
 func hostname() string {
 	h, err := os.Hostname()
@@ -257,6 +262,97 @@ func HigienizarRemocoes(cfg *config.Config) error {
 		}
 	}
 	return nil
+}
+
+// InfoVersaoServidor é o que GET /api/coletor-rep/tray-version devolve.
+type InfoVersaoServidor struct {
+	Versao string `json:"versao"`
+	SHA256 string `json:"sha256"`
+}
+
+// VersaoDisponivel confere no SisEscala se existe uma versão do coletor-rep-tray mais nova que a
+// instalada (Versao, const no topo deste arquivo). Chamada PÚBLICA, sem HMAC de dispositivo — o
+// binário não carrega segredo nenhum, e precisa funcionar mesmo numa máquina só com
+// terminal_local configurado (sem dispositivo_rep, que é quem tem token). Nunca aplica nada
+// sozinha — só informa; quem decide baixar e trocar o executável é o clique no menu da bandeja
+// (`cmd/tray/main.go`), nunca este ciclo automático.
+func VersaoDisponivel(cfg *config.Config) (InfoVersaoServidor, bool, error) {
+	var info InfoVersaoServidor
+
+	resp, err := http.Get(strings.TrimRight(cfg.SisEscala.URL, "/") + "/api/coletor-rep/tray-version")
+	if err != nil {
+		return info, false, fmt.Errorf("falha ao consultar versao no SisEscala: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return info, false, fmt.Errorf("SisEscala respondeu %d ao consultar versao", resp.StatusCode)
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return info, false, fmt.Errorf("resposta de versao invalida: %w", err)
+	}
+
+	return info, compararVersoes(info.Versao, Versao) > 0, nil
+}
+
+// BaixarNovaVersao baixa o .exe do servidor para um arquivo temporário e confere o sha256 contra
+// o que VersaoDisponivel informou — download corrompido ou incompleto nunca chega a ser
+// instalado. Quem troca o executável de verdade (rename do atual + copia do novo + relançar) é
+// `cmd/tray/main.go`, que já tem esse padrão pronto (`autoInstalarERelancar`); esta função só
+// entrega o arquivo baixado e verificado.
+func BaixarNovaVersao(cfg *config.Config, sha256Esperado string) (string, error) {
+	resp, err := http.Get(strings.TrimRight(cfg.SisEscala.URL, "/") + "/api/coletor-rep/tray-download")
+	if err != nil {
+		return "", fmt.Errorf("falha ao baixar nova versao: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("SisEscala respondeu %d ao baixar nova versao", resp.StatusCode)
+	}
+
+	dados, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("falha ao ler download: %w", err)
+	}
+
+	if sha256Esperado != "" && rep.SHA256Hex(dados) != sha256Esperado {
+		return "", fmt.Errorf("sha256 do download nao confere com o esperado - descartado")
+	}
+
+	arquivoTemp, err := os.CreateTemp("", "coletor-rep-tray-novo-*.exe")
+	if err != nil {
+		return "", fmt.Errorf("falha ao criar arquivo temporario: %w", err)
+	}
+	defer arquivoTemp.Close()
+
+	if _, err := arquivoTemp.Write(dados); err != nil {
+		return "", fmt.Errorf("falha ao gravar arquivo temporario: %w", err)
+	}
+
+	return arquivoTemp.Name(), nil
+}
+
+// compararVersoes devolve >0 se a for mais nova que b, 0 se iguais, <0 se a for mais antiga.
+// Versoes em formato "X.Y.Z" - compara numericamente cada parte, nao como string, senao
+// "0.10.0" perderia de "0.9.0" na comparacao lexicografica.
+func compararVersoes(a, b string) int {
+	pa := strings.Split(a, ".")
+	pb := strings.Split(b, ".")
+	for i := 0; i < len(pa) || i < len(pb); i++ {
+		na, nb := 0, 0
+		if i < len(pa) {
+			na, _ = strconv.Atoi(pa[i])
+		}
+		if i < len(pb) {
+			nb, _ = strconv.Atoi(pb[i])
+		}
+		if na != nb {
+			return na - nb
+		}
+	}
+	return 0
 }
 
 // extrairRelogioDevice tenta os nomes de campo mais prováveis da API Control iD. Não

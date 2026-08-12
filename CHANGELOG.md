@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.58.0] - 2026-08-12
+
+### Added
+- **Coletor REP: atualização semi-automática do app de bandeja.** Duas rotas públicas novas
+  (`GET /api/coletor-rep/tray-version`, `GET /api/coletor-rep/tray-download` — sem sessão, mesmo
+  espírito de `/api/version`) permitem que `coletor-rep-tray.exe` compare sua própria versão
+  (`ciclo.Versao`) com `dist/VERSION` no servidor. Quando há versão nova, o menu da bandeja ganha
+  o item "Atualização disponível" e uma notificação — a troca do `.exe` só acontece com clique
+  explícito (nunca sozinha), com conferência de sha256 antes de instalar. Reaproveita o mecanismo
+  de renomear-e-relançar já usado pela auto-instalação (`autoInstalarERelancar`).
+- **Import/export de AFD por pendrive**, para unidades sem rede até o relógio (ex.: LACEN).
+  Novo subcomando `coletor-rep-cli afd-exportar <arquivo>.sisrep`, com estado local
+  (`estado-pendrive.json`) para exportar só o que ainda não foi levado desde a última vez — nunca
+  o AFD inteiro do dispositivo. Nova aba "Importar por Pendrive" em `/marcacoes` (admin) recebe o
+  arquivo e chama a mesma `fn_ingerir_afd` do sync online (`p_canal: 'pendrive'`) — nenhuma
+  migration nova foi necessária, a RPC já previa esse canal desde a Fase 0-3. Reenviar o mesmo
+  arquivo depois não duplica nada (idempotência por `dispositivo_id` + NSR, já existente).
+
 ## [1.57.0] - 2026-08-12
 
 ### Fixed
