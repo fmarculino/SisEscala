@@ -77,7 +77,7 @@ export default function FeriadosPage() {
         const role = profile?.role || 'servidor'
         setUserRole(role)
         
-        if (role === 'super_admin') {
+        if (role === 'super_admin' || role === 'rh') {
           await Promise.all([
             fetchFeriados(),
             fetchPontosFacultativos(),
@@ -246,7 +246,7 @@ export default function FeriadosPage() {
     )
   }
 
-  if (userRole !== 'super_admin') {
+  if (userRole !== 'super_admin' && userRole !== 'rh') {
     return <AcessoNegado />
   }
 

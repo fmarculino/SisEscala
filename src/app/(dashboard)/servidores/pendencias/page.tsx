@@ -13,7 +13,10 @@ export default async function PendenciasCadastroPage() {
     .single()
 
   const role = profile?.role
-  const isFullAdmin = role === 'super_admin' || role === 'admin'
+  // RH Geral (role 'rh', 12/08/2026) entra aqui — mesma visão irrestrita de admin/super_admin,
+  // sem escopo por unidade. RH da Unidade (role 'rh_unidade') deliberadamente NÃO entra: essa
+  // tela ficou definida como RH Geral apenas (nem o menu aparece pra rh_unidade, ver sidebar.tsx).
+  const isFullAdmin = role === 'super_admin' || role === 'admin' || role === 'rh'
   // Só coordenador - ass_adm NÃO tem acesso a esta tela (decisão de 12/08/2026, corrigindo
   // 20260812020000 que tinha liberado os dois seguindo o mesmo agrupamento que a sidebar usa
   // pra outras decisões de menu).

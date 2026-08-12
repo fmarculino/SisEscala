@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.55.0] - 2026-08-12
+
+### Added
+- **Oito telas viram explicitamente exclusivas de RH Geral, RH da Unidade não vê nem o menu**:
+  Férias e Licenças, Marcações, Pendências de Cadastro, Cargos, Feriados, Jornadas, Dicionário
+  de Turnos e Tipos de Afastamento — confirmado pelo usuário testando o papel novo em produção.
+  `sidebar.tsx` ganhou `isRhGeral`/`isRhUnidade` separados (antes um `isRh` só tratava os dois
+  igual) e uma lista `itensSoRhGeral` que tira esses oito itens do menu de `rh_unidade`.
+
+### Fixed
+- **RH Geral (`role = 'rh'`) não tinha acesso a nenhuma dessas oito telas** — os gates de página
+  (`/ferias-licencas`, `/marcacoes`, `/servidores/pendencias`) e alguns nem admin/coordenador
+  alcançavam por completo (`/feriados`, `/turnos`, `/tipos-eventos` eram **`super_admin` apenas**,
+  mais restrito que Diretor). Corrigido nas seis páginas para reconhecer `role === 'rh'`.
+  - RLS de escrita de `feriados`, `pontos_facultativos`, `dicionario_turnos`, `tipos_eventos`,
+    `cargos` e `jornadas` (migration `20260812090000`) ganhou `'rh'::user_role` — sem isso a
+    tela abriria mas qualquer tentativa de salvar seria recusada pela RLS, já que leitura sempre
+    foi `USING (true)` para qualquer autenticado, mas escrita restrita a super_admin/admin.
+  - `/marcacoes`: RH Geral entra na tela mas continua sem `isAdmin` (gestão de dispositivo REP/
+    terminal é infraestrutura de TI, não foi pedido) — mesma aba "Pendências" que coordenador já
+    usa.
+  - `/servidores/pendencias`: RH Geral entra pelo caminho de admin/super_admin (visão irrestrita,
+    sem escopo de unidade) — `isSuperAdmin` (que controla aprovar/rejeitar transferência)
+    continua exclusivo de `super_admin`, decisão do v1.43.0 não alterada.
+
 ## [1.54.1] - 2026-08-12
 
 ### Fixed

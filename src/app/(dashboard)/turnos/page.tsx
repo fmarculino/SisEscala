@@ -49,7 +49,7 @@ export default function TurnosPage() {
         const role = profile?.role || 'servidor'
         setUserRole(role)
         
-        if (role === 'super_admin') {
+        if (role === 'super_admin' || role === 'rh') {
           const { data, error } = await supabase
             .from('dicionario_turnos')
             .select('*')
@@ -89,7 +89,7 @@ export default function TurnosPage() {
     )
   }
 
-  if (userRole !== 'super_admin') {
+  if (userRole !== 'super_admin' && userRole !== 'rh') {
     return <AcessoNegado />
   }
 

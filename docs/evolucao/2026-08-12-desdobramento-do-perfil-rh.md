@@ -92,6 +92,27 @@ for RH só consultar, as policies de `20260812070000` precisam trocar de `FOR AL
 `FOR SELECT` nesses dois papéis — não implementado, fica registrado aqui como decisão a revisar
 se for o caso.
 
+## Correções feitas testando em produção (mesmo dia)
+
+Testando o papel novo direto em produção, o usuário achou mais duas lacunas — ambas do mesmo
+padrão "guard de papel escrito antes do papel existir", mas em lugares que a checklist inicial
+não cobriu:
+
+1. **Card "Sobreaviso Hoje" do dashboard veio vazio pro RH da Unidade** — `fn_painel_sobreaviso_dia`/
+   `fn_pode_acionar_sobreaviso` (08/08/2026) tinham allowlist fixa de papel, escrita antes de
+   `rh`/`rh_unidade` existirem. Corrigido em `20260812080000` (v1.54.1) — `fn_painel_sobreaviso_dia`
+   virou denylist (só barra `servidor`/`comum`) pra não repetir a cada papel novo.
+2. **Oito telas (Férias e Licenças, Marcações, Pendências de Cadastro, Cargos, Feriados,
+   Jornadas, Dicionário de Turnos, Tipos de Afastamento) deveriam ser exclusivas de RH Geral, e
+   nem o menu deveria aparecer pro RH da Unidade** — decisão explícita do usuário, testando o
+   papel novo. Revelou que **RH Geral também não tinha acesso** a nenhuma delas (alguns gates,
+   como `/feriados`/`/turnos`/`/tipos-eventos`, eram `super_admin` apenas — mais restrito que
+   Diretor). Corrigido em `20260812090000` (v1.55.0): `sidebar.tsx` ganhou `isRhGeral`/
+   `isRhUnidade` separados, os seis gates de página passaram a reconhecer `role === 'rh'`, e a
+   RLS de escrita de `feriados`/`pontos_facultativos`/`dicionario_turnos`/`tipos_eventos`/
+   `cargos`/`jornadas` ganhou `'rh'::user_role` (sem isso a tela abriria mas salvar seria
+   recusado pela RLS).
+
 ## Verificação
 
 - `npx tsc --noEmit` / `npm run build`.

@@ -274,7 +274,7 @@ COMMENT ON FUNCTION public.fn_pode_acionar_sobreaviso(uuid) IS
 passa por aqui. rh (Geral) tem o mesmo alcance do super_admin aqui, igual ao resto de
 escala/folha de ponto (20260812070000). Setor com sobreaviso_abrangencia = geral libera
 admin/coordenador/rh_unidade; o resto mantem o escopo por unidade/setor que a policy da tabela
-ja exigia - rh_unidade tambem aceita unidade vinculada (profile_unidades), nao so' setor.';
+ja exigia - rh_unidade tambem aceita unidade vinculada (profile_unidades), nao so setor.';
 
 GRANT EXECUTE ON FUNCTION public.fn_pode_acionar_sobreaviso(uuid) TO authenticated;
 

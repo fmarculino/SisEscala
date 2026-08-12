@@ -4,7 +4,7 @@ import { Radio } from 'lucide-react'
 import { MarcacoesClient } from './MarcacoesClient'
 import { listarOpcoesFormulario } from './actions'
 
-const ROLES_COM_ACESSO = ['admin', 'super_admin', 'coordenador', 'ass_adm']
+const ROLES_COM_ACESSO = ['admin', 'super_admin', 'coordenador', 'ass_adm', 'rh']
 const ROLES_ADMIN = ['admin', 'super_admin']
 
 export default async function MarcacoesPage() {
@@ -16,7 +16,8 @@ export default async function MarcacoesPage() {
   if (!profile || !ROLES_COM_ACESSO.includes(profile.role)) return <AcessoNegado />
 
   const isAdmin = ROLES_ADMIN.includes(profile.role)
-  // Dispositivos e terminais são gestão administrativa; coordenador só usa a aba Pendências,
+  // Dispositivos e terminais são gestão administrativa (infraestrutura de TI); coordenador e
+  // RH Geral (12/08/2026 — só vê a tela, não ganhou acesso a device) só usam a aba Pendências,
   // que já é filtrada por escopo dentro de fn_marcacoes_pendentes_revisao (fn_unidade_no_escopo).
   const opcoes = isAdmin
     ? await listarOpcoesFormulario()

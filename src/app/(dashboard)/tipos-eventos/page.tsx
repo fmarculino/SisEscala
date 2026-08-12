@@ -50,7 +50,7 @@ export default function TiposEventosPage() {
         const role = profile?.role || 'servidor'
         setUserRole(role)
         
-        if (role === 'super_admin') {
+        if (role === 'super_admin' || role === 'rh') {
           const { data, error } = await supabase
             .from('tipos_eventos')
             .select('*')
@@ -176,7 +176,7 @@ export default function TiposEventosPage() {
     )
   }
 
-  if (userRole !== 'super_admin') {
+  if (userRole !== 'super_admin' && userRole !== 'rh') {
     return <AcessoNegado />
   }
 

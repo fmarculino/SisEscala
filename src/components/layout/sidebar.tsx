@@ -139,7 +139,8 @@ export function Sidebar({ user }: { user?: any }) {
   // Role-based filtering
   const userRole = user?.role || ''
   const isSuperAdmin = userRole === 'super_admin'
-  const isRh = userRole === 'rh' || userRole === 'rh_unidade'
+  const isRhGeral = userRole === 'rh'
+  const isRhUnidade = userRole === 'rh_unidade'
   const isAdmin = userRole === 'admin'
   const isCoord = userRole === 'coordenador' || userRole === 'ass_adm'
 
@@ -150,6 +151,16 @@ export function Sidebar({ user }: { user?: any }) {
   // continua fora do alcance dele.
   const itensCadastrosParaCoord = ['Servidores', 'Pendências de Cadastro']
 
+  // RH da Unidade (12/08/2026) não gerencia nada que seja catálogo global (Cargos, Feriados,
+  // Jornadas, Dicionário de Turnos, Tipos de Afastamento — não são por unidade) nem coisa
+  // administrativa cross-unidade (Marcações = dispositivos REP/terminais; Férias e Licenças e
+  // Pendências de Cadastro decidido explicitamente como RH Geral apenas) — essas telas
+  // continuam exclusivas de RH Geral/Diretor/Administrador Geral.
+  const itensSoRhGeral = [
+    'Férias e Licenças', 'Marcações', 'Pendências de Cadastro',
+    'Cargos', 'Feriados', 'Jornadas', 'Dicionário de Turnos', 'Tipos de Afastamento',
+  ]
+
   const filteredGroups = menuGroups.map(group => {
     // Filter items within group
     const filteredItems = group.items.filter(item => {
@@ -157,9 +168,17 @@ export function Sidebar({ user }: { user?: any }) {
 
       if (isSuperAdmin) return true
 
-      if (isRh || isAdmin) {
-        // Recursos Humanos e Diretor possuem acesso aos módulos operacionais e cadastrais, mas NÃO veem o menu SISTEMA
+      if (isRhGeral || isAdmin) {
+        // Recursos Humanos Geral e Diretor possuem acesso aos módulos operacionais e cadastrais, mas NÃO veem o menu SISTEMA
         if (group.title === 'SISTEMA') return false
+        return true
+      }
+
+      if (isRhUnidade) {
+        // Mesmo alcance de RH Geral, exceto SISTEMA e os itens que só fazem sentido pra quem
+        // enxerga a secretaria inteira (ver itensSoRhGeral acima).
+        if (group.title === 'SISTEMA') return false
+        if (itensSoRhGeral.includes(item.name)) return false
         return true
       }
 
