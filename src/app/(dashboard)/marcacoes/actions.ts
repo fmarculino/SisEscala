@@ -264,6 +264,37 @@ export async function listarPendenciasBiometria() {
 }
 
 // ============================================================================
+// Higiene de cadastros do dispositivo REP (Fase 7b) - usuarios de outro sistema
+// ============================================================================
+// O rele chega usado por outro sistema antes do SisEscala, com cadastros de gente que pode nao
+// fazer mais parte do quadro. A listagem (fn_higiene_usuarios_dispositivo) so' le' o snapshot que
+// o coletor ja reportou (`coletor-rep higiene`/"Atualizar lista de cadastros do relogio" na
+// bandeja) - nao aciona o rele direto (o servidor do SisEscala nao tem caminho ate a rede da
+// unidade). Enfileirar remocao so' marca a intencao; quem aplica no equipamento e' o coletor,
+// via `coletor-rep higiene-remover`.
+
+export async function listarHigieneUsuariosDispositivo(dispositivoId: string) {
+  await exigirAdmin()
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc('fn_higiene_usuarios_dispositivo', { p_dispositivo_id: dispositivoId })
+  if (error) throw new Error(error.message)
+  return data || []
+}
+
+export async function enfileirarRemocaoUsuariosDispositivo(dispositivoId: string, identificadoresAfd: string[]) {
+  await exigirAdmin()
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc('fn_enfileirar_remocao_usuarios_dispositivo', {
+    p_dispositivo_id: dispositivoId,
+    p_identificadores_afd: identificadoresAfd,
+  })
+  if (error) return { error: error.message }
+
+  revalidatePath('/marcacoes')
+  return data as { enfileirados: number; bloqueados_por_vinculo_ativo: number }
+}
+
+// ============================================================================
 // Pendências (marcações do terminal fora da janela prevista)
 // ============================================================================
 

@@ -249,6 +249,52 @@ máquina física dentro da rede da unidade. `GET /api/coletor-rep/download-cli` 
 admin/super_admin) baixa `coletor-rep-cli.exe` avulso — não vem no `.zip` do app de bandeja, que
 é só para uso contínuo — para colocar ao lado do `config.yaml` já instalado nessa máquina.
 
+### Fase 7b — higiene de cadastros do dispositivo (12/08/2026)
+
+Motivada pela primeira instalação real fora do piloto da TI (LACEN): o relógio é **reaproveitado
+de outro sistema**, e chega com cadastros de gente que pode não fazer mais parte do quadro.
+Confirmado ao vivo no log de sync da LACEN: o histórico de marcação antigo (~34.500 registros
+tipo 3) deu `marcacoes == orfas` em **todo** lote, porque `rep_vinculos_servidor` estava vazio
+até a primeira identidade (Fase 7) ser empurrada — ou seja, dado órfão de relógio reaproveitado
+já é inofensivo por construção (nunca escreve em `escala_diaria` sem vínculo), o problema real
+era só o **cadastro de usuário** desatualizado no equipamento.
+
+⚠️ **Não existe "zerar o relógio" e não deveria existir.** A memória do AFD é desenhada para ser
+inviolável (é o que dá ao REP-C valor como prova legal, Portaria 671/2021) — um botão de reset no
+SisEscala minaria essa garantia, e não há confirmação de que a API do equipamento sequer exponha
+uma operação dessas. O histórico órfão já é inofensivo; a higiene mexe só em **cadastro de
+usuário**, que é dado gerenciável pela mesma família de API já validada na Fase 7
+(`add_users`/`load_users`/`remove_users.fcgi`).
+
+| peça | onde |
+|---|---|
+| snapshot do que existe no relógio agora | `rep_usuarios_dispositivo` — substituído por inteiro a cada relato, nunca reconciliado incrementalmente |
+| fila de remoção | `rep_remocoes_fila` — só populada por ação explícita na tela |
+| enfileirar (admin/super_admin) | `fn_enfileirar_remocao_usuarios_dispositivo` — recusa quem tem `rep_vinculos_servidor` vigente para um servidor Ativo, não confia só na UI |
+| coletor reporta o snapshot | `POST /api/rep/v1/usuarios-dispositivo` ← `coletor-rep higiene` (só leitura, `load_users.fcgi`) |
+| coletor aplica remoções | `GET`/`POST /api/rep/v1/remocoes` ← `coletor-rep higiene-remover` |
+| tela | aba "Higiene do Relógio" em `/marcacoes` (admin/super_admin) |
+
+⚠️ **`rep.RemoverUsuario` (`remove_users.fcgi`) NUNCA foi confirmada contra hardware real** — ao
+contrário de `add_users`/`load_users.fcgi` (cinco rodadas de teste na Fase 7). O corpo da chamada
+(`{"users": [{"pis": ...}]}`) é uma aproximação por simetria com `load_users.fcgi`, não uma
+confirmação. Por isso `coletor-rep higiene` (só leitura) tem botão na bandeja, mas
+`coletor-rep higiene-remover` (apaga cadastro de verdade) fica **só na CLI** — mesma prudência já
+aplicada a `cadastros`/`cadastros-testar`. Validar contra um usuário de teste (o mesmo "SISESCALA
+TESTE - PODE APAGAR" que `cadastros-testar` cria) antes de confiar nisso em cima de cadastro real.
+
+`rep.ListarUsuarios` é só um refactor de `ListarUsuariosComBiometria` para devolver a lista
+inteira, não filtrada — reaproveita a mesma paginação já confirmada, então herda a confiança dela
+(`ListarUsuariosComBiometria` virou um filtro em cima de `ListarUsuarios`).
+
+⚠️ **Confirmado com dado real (log da LACEN, 12/08/2026): `sync` reprocessa as ~36 mil linhas do
+AFD inteiro a cada ciclo de 5 minutos**, não só na primeira vez — o item já registrado acima como
+pendência ("Antes de ligar em relógio de alto volume, trocar por leitura prévia do
+`ultimo_nsr`"). Não corrompe nada (o atalho de idempotência por lote de `fn_ingerir_afd` devolve
+o resultado já calculado, `reenvio: true`, sem reprocessar — só o log do coletor não distingue
+isso de reprocessamento de verdade), mas é candidato a prioridade agora que há volume real
+medido em produção.
+
 ## Terminal local sem sessão de coordenador (11/08/2026)
 
 O terminal `/presenca` ativa com `supabase.auth.signInWithPassword()` **rodando no navegador da

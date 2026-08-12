@@ -188,6 +188,81 @@ func (c *Client) ReportarBiometria(identificadoresAfd []string) error {
 	return nil
 }
 
+// UsuarioDispositivoRelato é o que o coletor manda em /api/rep/v1/usuarios-dispositivo — o
+// snapshot completo de quem está cadastrado no relógio agora (Fase 7b, higiene de cadastros de
+// outro sistema, 12/08/2026).
+type UsuarioDispositivoRelato struct {
+	IdentificadorAFD  string `json:"identificador_afd"`
+	RegistrationBruto string `json:"registration_bruto,omitempty"`
+	Nome              string `json:"nome,omitempty"`
+	TemBiometria      bool   `json:"tem_biometria"`
+}
+
+// ReportarUsuariosDispositivo envia o snapshot inteiro de load_users.fcgi — o SisEscala
+// substitui por completo o que tinha antes para este dispositivo (fn_registrar_snapshot_usuarios_dispositivo).
+func (c *Client) ReportarUsuariosDispositivo(usuarios []UsuarioDispositivoRelato) (jsonResumo []byte, err error) {
+	corpo, err := json.Marshal(map[string]interface{}{"usuarios": usuarios})
+	if err != nil {
+		return nil, err
+	}
+
+	respBytes, status, err := c.chamar(http.MethodPost, "/api/rep/v1/usuarios-dispositivo", corpo)
+	if err != nil {
+		return nil, err
+	}
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("falha ao reportar usuarios do dispositivo (HTTP %d): %s", status, string(respBytes))
+	}
+	return respBytes, nil
+}
+
+// RemocaoPendente é um item da fila de remoção (Fase 7b) — quem foi selecionado na tela de
+// higiene para sair do relógio.
+type RemocaoPendente struct {
+	FilaID           string `json:"fila_id"`
+	IdentificadorAFD string `json:"identificador_afd"`
+	NomeNoDevice     string `json:"nome_no_device"`
+}
+
+// ListarRemocoesPendentes busca a fila de remoção de usuário deste dispositivo.
+func (c *Client) ListarRemocoesPendentes() ([]RemocaoPendente, error) {
+	respBytes, status, err := c.chamar(http.MethodGet, "/api/rep/v1/remocoes", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("falha ao listar remocoes pendentes (HTTP %d): %s", status, string(respBytes))
+	}
+
+	var pendentes []RemocaoPendente
+	if err := json.Unmarshal(respBytes, &pendentes); err != nil {
+		return nil, fmt.Errorf("resposta invalida do SisEscala: %s", string(respBytes))
+	}
+	return pendentes, nil
+}
+
+// ConfirmarRemocao reporta o resultado de uma remoção — sucesso ou falha com o motivo.
+// Idempotente: reenviar a confirmação de um item já processado não faz nada.
+func (c *Client) ConfirmarRemocao(filaID string, sucesso bool, mensagemErro string) error {
+	payload := map[string]interface{}{"fila_id": filaID, "sucesso": sucesso}
+	if mensagemErro != "" {
+		payload["erro"] = mensagemErro
+	}
+	corpo, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	respBytes, status, err := c.chamar(http.MethodPost, "/api/rep/v1/remocoes", corpo)
+	if err != nil {
+		return err
+	}
+	if status != http.StatusOK {
+		return fmt.Errorf("falha ao confirmar remocao (HTTP %d): %s", status, string(respBytes))
+	}
+	return nil
+}
+
 // Heartbeat reporta a hora do relógio do device para o SisEscala calcular a deriva.
 // relogioDevice nil quando o coletor não conseguiu ler o relógio do REP — o heartbeat ainda
 // vale para atualizar ultimo_contato_em, só não atualiza deriva_segundos.

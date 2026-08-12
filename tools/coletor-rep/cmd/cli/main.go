@@ -53,6 +53,16 @@ func main() {
 		}
 	case "cadastros-testar":
 		rodarCadastrosTestar(cfg)
+	case "higiene":
+		if err := ciclo.HigienizarListagem(cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "Falha ao listar cadastros do rele: %v\n", err)
+			os.Exit(1)
+		}
+	case "higiene-remover":
+		if err := ciclo.HigienizarRemocoes(cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "Falha ao aplicar remocoes no rele: %v\n", err)
+			os.Exit(1)
+		}
 	case "terminal":
 		if len(os.Args) < 3 || os.Args[2] != "abrir" {
 			fmt.Fprintln(os.Stderr, "Uso: coletor-rep terminal abrir")
@@ -85,6 +95,8 @@ Uso:
   coletor-rep afd-raw             so imprime a resposta crua do relogio (diagnostico, nao grava nada)
   coletor-rep cadastros           aplica a fila de push de identidade real no rele (Fase 7) - GRAVA no equipamento
   coletor-rep cadastros-testar    cria UM usuario de teste no rele e lista biometria (diagnostico - GRAVA no equipamento, ver aviso)
+  coletor-rep higiene             le todos os usuarios do rele e reporta ao SisEscala (Fase 7b) - so' leitura, seguro rodar sempre
+  coletor-rep higiene-remover     aplica no rele quem foi selecionado na tela de higiene - GRAVA/APAGA no equipamento, ver aviso em rep/client.go
   coletor-rep terminal abrir      abre a tela de presenca local no navegador (uma vez)
 
 Flags:

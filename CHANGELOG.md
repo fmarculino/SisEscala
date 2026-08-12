@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.52.0] - 2026-08-12
+
+### Added
+- **Higiene de cadastros do dispositivo REP (Fase 7b)** — instalação real na LACEN (primeira
+  unidade fora do piloto da TI) revelou que o relógio, reaproveitado de outro sistema, chega com
+  cadastros de gente que pode não fazer mais parte do quadro. Nova tela "Higiene do Relógio" em
+  `/marcacoes` (admin/super_admin) lista quem está cadastrado no equipamento agora e se
+  corresponde a um servidor ativo do SisEscala ou não, com opção de marcar candidatos sem
+  correspondência para remoção.
+  - `rep_usuarios_dispositivo`: snapshot do que existe no relógio, reportado pelo coletor
+    (`load_users.fcgi`) — substituído por inteiro a cada relato, nunca reconciliado
+    incrementalmente.
+  - `rep_remocoes_fila`: fila de remoção, só populada por ação explícita na tela.
+    `fn_enfileirar_remocao_usuarios_dispositivo` recusa quem tem `rep_vinculos_servidor` vigente
+    para um servidor Ativo — a tela não oferece a opção, mas a RPC também não confia só na UI.
+  - Rotas novas `/api/rep/v1/usuarios-dispositivo` (POST, snapshot) e `/api/rep/v1/remocoes`
+    (GET/POST, fila) — mesmo esquema de autenticação por token+HMAC das demais rotas do coletor.
+  - Coletor Go: `rep.ListarUsuarios` (refactor de `ListarUsuariosComBiometria`, que virou um
+    filtro em cima dela — herda a confiança da paginação já validada contra hardware real) e
+    `rep.RemoverUsuario` (`remove_users.fcgi`) — **esta última NUNCA foi confirmada contra
+    hardware real**, ao contrário de `add_users`/`load_users.fcgi`; o corpo da chamada é uma
+    aproximação por simetria, precisa validar contra um usuário de teste antes de confiar em
+    produção. Por isso `coletor-rep higiene` (leitura, segura) tem botão na bandeja, mas
+    `coletor-rep higiene-remover` (escreve/apaga no equipamento) fica só na CLI, como
+    `cadastros`/`cadastros-testar` já fazem para escrita.
+- Log de sync da LACEN (12/08/2026) também confirmou, com dado real, que o `sync` sempre pede o
+  AFD inteiro do relógio desde o NSR 1 a cada ciclo de 5 minutos (item já registrado como
+  pendência no plano) — sem duplicar nada no banco (o atalho de idempotência por lote de
+  `fn_ingerir_afd` absorve o reenvio), mas reprocessando ~36 mil linhas sem necessidade. Não
+  corrigido nesta versão; documentado no CLAUDE.md como candidato a próxima prioridade.
+
 ## [1.51.1] - 2026-08-12
 
 ### Fixed

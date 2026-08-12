@@ -97,6 +97,8 @@ coletor-rep diagnostico         testa conexão com o REP e com o SisEscala
 coletor-rep afd-raw             só imprime a resposta crua do relógio (diagnóstico, não grava nada)
 coletor-rep cadastros           aplica a fila de push de identidade real no relógio (Fase 7) — GRAVA no equipamento
 coletor-rep cadastros-testar    cria um usuário de teste no relógio e lista biometria (diagnóstico — GRAVA um registro de teste, ver aviso acima)
+coletor-rep higiene             lê todos os usuários do relógio e reporta ao SisEscala (Fase 7b) — só leitura, seguro rodar sempre
+coletor-rep higiene-remover     aplica no relógio quem foi selecionado na tela de higiene — GRAVA/APAGA no equipamento, remove_users.fcgi NUNCA confirmado contra hardware real
 coletor-rep terminal abrir      abre a tela de presença local no navegador (uma vez)
 ```
 
@@ -108,17 +110,19 @@ Lê `config.yaml` do diretório de trabalho atual (ou o caminho passado em `--co
 ```powershell
 cd tools/coletor-rep
 go mod tidy
-go build -o cmd/cli/coletor-rep.exe ./cmd/cli
-go build -ldflags="-H=windowsgui" -o dist/coletor-rep-tray.exe ./cmd/tray   # binário de release, sem console
+go build -o cmd/cli/coletor-rep.exe ./cmd/cli                              # binário de dev, uso local
+go build -o dist/coletor-rep-cli.exe ./cmd/cli                             # binário de release (GET /api/coletor-rep/download-cli)
+go build -ldflags="-H=windowsgui" -o dist/coletor-rep-tray.exe ./cmd/tray  # binário de release, sem console
 ```
 
 - `-ldflags="-H=windowsgui"` no build do `cmd/tray` suprime a janela de console que piscaria ao
   abrir — sem isso o app ainda funciona, só fica visualmente errado para um app de bandeja.
-- `dist/coletor-rep-tray.exe` é o binário que a rota `/api/coletor-rep/download`
-  (`src/app/api/coletor-rep/download/route.ts`) empacota com o `config.yaml` de cada
-  terminal/dispositivo — **precisa ser recompilado e commitado manualmente a cada mudança em
-  `cmd/tray` ou nos pacotes que ele importa**; o container de produção não tem toolchain Go
-  para compilar em build-time. `next.config.js` inclui `tools/coletor-rep/dist/**` no output
+- `dist/coletor-rep-cli.exe` e `dist/coletor-rep-tray.exe` são os binários que
+  `/api/coletor-rep/download-cli` e `/api/coletor-rep/download`
+  (`src/app/api/coletor-rep/download{-cli,}/route.ts`) servem — **precisam ser recompilados e
+  commitados manualmente a cada mudança em `cmd/cli`, `cmd/tray`, ou nos pacotes que eles
+  importam**; o container de produção não tem toolchain Go para compilar em build-time.
+  `next.config.js` inclui `tools/coletor-rep/dist/**` no output
   standalone via `outputFileTracingIncludes` — sem isso a rota funciona em `npm run dev` (lê o
   filesystem completo) mas falha em produção.
 - Atalho de desenvolvimento no `cmd/tray`: se existir um `config.yaml` no diretório de trabalho

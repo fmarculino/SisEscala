@@ -1,15 +1,16 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Monitor, Fingerprint, ListChecks, Plus, Pencil, Trash2 } from 'lucide-react'
+import { Monitor, Fingerprint, ListChecks, Plus, Pencil, Trash2, ShieldCheck } from 'lucide-react'
 import { listarTerminaisLocais, listarDispositivosRep, excluirTerminalLocal, excluirDispositivoRep } from './actions'
 import { TerminalLocalModal } from './TerminalLocalModal'
 import { DispositivoRepModal } from './DispositivoRepModal'
 import { PendenciasTab } from './PendenciasTab'
 import { BiometriaTab } from './BiometriaTab'
+import { HigieneDispositivoTab } from './HigieneDispositivoTab'
 import { IdCopyBadge } from './IdCopyBadge'
 
-type Aba = 'terminais' | 'dispositivos' | 'pendencias' | 'biometria'
+type Aba = 'terminais' | 'dispositivos' | 'pendencias' | 'biometria' | 'higiene'
 
 interface Opcoes {
   unidades: { id: string; nome: string }[]
@@ -63,6 +64,7 @@ export function MarcacoesClient({ isAdmin, opcoes }: { isAdmin: boolean; opcoes:
     { id: 'dispositivos', label: 'Dispositivos REP', icon: Fingerprint, visivel: isAdmin },
     { id: 'pendencias', label: 'Pendências', icon: ListChecks, visivel: true },
     { id: 'biometria', label: 'Biometria Pendente', icon: Fingerprint, visivel: true },
+    { id: 'higiene', label: 'Higiene do Relógio', icon: ShieldCheck, visivel: isAdmin },
   ]
 
   return (
@@ -225,6 +227,7 @@ export function MarcacoesClient({ isAdmin, opcoes }: { isAdmin: boolean; opcoes:
 
       {aba === 'pendencias' && <PendenciasTab />}
       {aba === 'biometria' && <BiometriaTab />}
+      {aba === 'higiene' && isAdmin && <HigieneDispositivoTab />}
     </div>
   )
 }

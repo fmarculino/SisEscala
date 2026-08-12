@@ -332,6 +332,13 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 	if cfg.DispositivoRep == nil {
 		itemSincronizarCadastros.Disable()
 	}
+	// So' leitura no rele (load_users.fcgi, ja confirmado contra hardware real) - seguro no menu.
+	// A remocao (destrutiva, rep.RemoverUsuario nunca confirmada contra hardware real) fica so'
+	// na CLI (`coletor-rep higiene-remover`), nao na bandeja - ver aviso em ciclo.HigienizarRemocoes.
+	itemHigienizarCadastros := systray.AddMenuItem("Atualizar lista de cadastros do relogio", "Le todos os usuarios do rele e envia ao SisEscala, para a tela de higiene em Marcacoes")
+	if cfg.DispositivoRep == nil {
+		itemHigienizarCadastros.Disable()
+	}
 	itemVerLogs := systray.AddMenuItem("Ver logs", "Abre a pasta de logs e configuracao")
 	systray.AddSeparator()
 	itemSair := systray.AddMenuItem("Sair", "Encerra o coletor-rep")
@@ -394,6 +401,13 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 					_ = beeep.Notify("SisEscala - Coletor", "Falha ao sincronizar cadastros com o rele. Ver log.", nil)
 				} else {
 					_ = beeep.Notify("SisEscala - Coletor", "Cadastros sincronizados com o rele.", nil)
+				}
+			case <-itemHigienizarCadastros.ClickedCh:
+				if err := ciclo.HigienizarListagem(cfg); err != nil {
+					log.Printf("erro ao listar cadastros do rele: %v", err)
+					_ = beeep.Notify("SisEscala - Coletor", "Falha ao ler cadastros do rele. Ver log.", nil)
+				} else {
+					_ = beeep.Notify("SisEscala - Coletor", "Lista de cadastros do rele enviada ao SisEscala.", nil)
 				}
 			case <-itemVerLogs.ClickedCh:
 				exec.Command("explorer", dirInstalado).Start() //nolint:errcheck

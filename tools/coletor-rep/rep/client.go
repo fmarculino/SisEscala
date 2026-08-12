@@ -21,6 +21,13 @@
 // piloto com biometria cadastrada, CPFs batendo. Segue sem entrar no ciclo automático (só
 // clique manual/`cadastros`) por prudência com escrita em equipamento de produção, não por
 // dúvida sobre o formato.
+//
+// ⚠️ ListarUsuarios (Fase 7b, higiene de cadastros, 12/08/2026) é só um refactor de
+// ListarUsuariosComBiometria para devolver a lista inteira, não filtrada — reaproveita a mesma
+// paginação já confirmada, então herda a confiança dela. RemoverUsuario (mesma leva) é
+// diferente: remove_users.fcgi NUNCA foi chamado contra o device real, o corpo da chamada é uma
+// aproximação por simetria com load_users.fcgi. Não habilitar no ciclo automático nem no menu da
+// bandeja até validar contra um usuário de teste (ver aviso na própria função).
 package rep
 
 import (
@@ -234,13 +241,22 @@ func (c *Client) CriarUsuario(matricula, nome, identificadorAfd string) error {
 	return nil
 }
 
-// ListarUsuariosComBiometria devolve os identificador_afd (formato de 12 digitos, mesma
-// convencao de rep_vinculos_servidor) dos usuarios que tem pelo menos um template biometrico
-// cadastrado no rele - usado para fechar o loop de "pendencias de biometria" sem exigir que
-// ninguem digite nada no SisEscala manualmente. `templates: true` no pedido pede ao rele para
-// incluir o array de templates biometricos na resposta (confirmado: array vazio = sem
-// biometria). Casa por `pis`, nao por um "id" que este device nao tem (ver aviso acima).
-func (c *Client) ListarUsuariosComBiometria() ([]string, error) {
+// UsuarioDispositivo é um usuário como veio de load_users.fcgi, sem filtro de biometria - base
+// da higiene de cadastros (Fase 7b, 12/08/2026): o rele chega usado por outro sistema antes do
+// SisEscala, com usuarios que podem nao fazer mais parte do quadro. RegistrationBruto fica como
+// veio do device (string, mesmo sendo numero na API) porque aqui e' so' para exibicao/auditoria -
+// nunca vira identidade de referencia (essa continua sendo IdentificadorAFD, ver armadilha 10).
+type UsuarioDispositivo struct {
+	IdentificadorAFD  string
+	RegistrationBruto string
+	Nome              string
+	TemBiometria      bool
+}
+
+// ListarUsuarios devolve TODOS os usuarios cadastrados no rele agora (load_users.fcgi), nao so'
+// quem tem biometria - ListarUsuariosComBiometria (abaixo) e' um filtro em cima deste. Casa por
+// `pis`, nao por um "id" que este device nao tem (ver aviso acima).
+func (c *Client) ListarUsuarios() ([]UsuarioDispositivo, error) {
 	if c.sessao == "" {
 		if err := c.Login(); err != nil {
 			return nil, err
@@ -251,7 +267,7 @@ func (c *Client) ListarUsuariosComBiometria() ([]string, error) {
 	// causou o HTTP 400 anterior (a mensagem de erro do rele nao nomeia o campo). Pagina ate a
 	// pagina voltar com menos que o limite.
 	const tamanhoPagina = 100
-	var identificadores []string
+	var usuarios []UsuarioDispositivo
 	var totalUsuarios int
 	var semPisReconhecivel int
 	var amostra interface{}
@@ -264,12 +280,12 @@ func (c *Client) ListarUsuariosComBiometria() ([]string, error) {
 			return nil, err
 		}
 
-		usuarios, ok := resultado["users"].([]interface{})
+		lista, ok := resultado["users"].([]interface{})
 		if !ok {
 			return nil, fmt.Errorf("load_users.fcgi resposta inesperada: %v", resultado)
 		}
 
-		for _, item := range usuarios {
+		for _, item := range lista {
 			totalUsuarios++
 			if amostra == nil {
 				amostra = item
@@ -286,13 +302,23 @@ func (c *Client) ListarUsuariosComBiometria() ([]string, error) {
 				semPisReconhecivel++
 				continue
 			}
-			templates, ok := m["templates"].([]interface{})
-			if ok && len(templates) > 0 {
-				identificadores = append(identificadores, fmt.Sprintf("%012d", int64(pis)))
+
+			var registrationBruto string
+			if reg, ok := m["registration"].(float64); ok {
+				registrationBruto = strconv.FormatInt(int64(reg), 10)
 			}
+			nome, _ := m["name"].(string)
+			templates, _ := m["templates"].([]interface{})
+
+			usuarios = append(usuarios, UsuarioDispositivo{
+				IdentificadorAFD:  fmt.Sprintf("%012d", int64(pis)),
+				RegistrationBruto: registrationBruto,
+				Nome:              nome,
+				TemBiometria:      len(templates) > 0,
+			})
 		}
 
-		if len(usuarios) < tamanhoPagina {
+		if len(lista) < tamanhoPagina {
 			break
 		}
 	}
@@ -303,5 +329,61 @@ func (c *Client) ListarUsuariosComBiometria() ([]string, error) {
 				"o nome do campo de identificador pode ser outro (modo 671 usa 'cpf'?). Exemplo cru: %v",
 			totalUsuarios, amostra)
 	}
+	return usuarios, nil
+}
+
+// ListarUsuariosComBiometria devolve os identificador_afd (formato de 12 digitos, mesma
+// convencao de rep_vinculos_servidor) dos usuarios que tem pelo menos um template biometrico
+// cadastrado no rele - usado para fechar o loop de "pendencias de biometria" sem exigir que
+// ninguem digite nada no SisEscala manualmente. `templates: true` no pedido pede ao rele para
+// incluir o array de templates biometricos na resposta (confirmado: array vazio = sem
+// biometria).
+func (c *Client) ListarUsuariosComBiometria() ([]string, error) {
+	usuarios, err := c.ListarUsuarios()
+	if err != nil {
+		return nil, err
+	}
+	var identificadores []string
+	for _, u := range usuarios {
+		if u.TemBiometria {
+			identificadores = append(identificadores, u.IdentificadorAFD)
+		}
+	}
 	return identificadores, nil
+}
+
+// RemoverUsuario tira um usuario do rele (remove_users.fcgi) - identifica por `pis`, o mesmo
+// campo que load_users.fcgi/ListarUsuarios devolvem como identidade (armadilha 10:
+// identificador_afd = pis, 12 digitos, CPF com zero de preenchimento).
+//
+// ⚠️ NUNCA CONFIRMADO CONTRA HARDWARE REAL. Ao contrario de add_users.fcgi/load_users.fcgi
+// (cinco rodadas de teste em 12/08/2026, ver aviso no topo do arquivo), remove_users.fcgi nunca
+// foi chamado contra o device de verdade. O corpo abaixo segue por simetria o mesmo formato de
+// load_users.fcgi (array "users" com o campo que identifica cada um) - e' a melhor aproximacao,
+// nao uma confirmacao. Antes de confiar nisto em cima de um cadastro real, valide contra um
+// usuario de teste (o "SISESCALA TESTE - PODE APAGAR" que `cadastros-testar` cria e' o alvo
+// natural) e so' depois rode `coletor-rep higiene-remover` de verdade.
+func (c *Client) RemoverUsuario(identificadorAfd string) error {
+	if c.sessao == "" {
+		if err := c.Login(); err != nil {
+			return err
+		}
+	}
+
+	pisNum, err := strconv.ParseInt(identificadorAfd, 10, 64)
+	if err != nil {
+		return fmt.Errorf("identificador_afd %q nao e numerico: %w", identificadorAfd, err)
+	}
+
+	resultado, err := c.chamar(fmt.Sprintf("remove_users.fcgi?session=%s&mode=671", c.sessao), map[string]interface{}{
+		"users": []map[string]interface{}{{"pis": pisNum}},
+	})
+	if err != nil {
+		return err
+	}
+
+	if errMsg, ok := resultado["error"]; ok {
+		return fmt.Errorf("remove_users.fcgi recusou: %v", errMsg)
+	}
+	return nil
 }

@@ -189,6 +189,76 @@ func SincronizarCadastros(cfg *config.Config) error {
 	return nil
 }
 
+// HigienizarListagem lê TODOS os usuários cadastrados no relógio (load_users.fcgi) e reporta o
+// snapshot ao SisEscala — a base da tela de higiene (Fase 7b, 12/08/2026): um relógio usado
+// antes por outro sistema chega com cadastros de gente que pode não fazer mais parte do quadro.
+// Só LEITURA no equipamento (mesma chamada já confirmada contra hardware real em
+// ListarUsuariosComBiometria) — segura de rodar a qualquer momento, diferente de
+// HigienizarRemocoes abaixo.
+func HigienizarListagem(cfg *config.Config) error {
+	if cfg.DispositivoRep == nil {
+		return fmt.Errorf("secao dispositivo_rep ausente no config.yaml — nada para higienizar")
+	}
+	d := cfg.DispositivoRep
+	sc := sisescala.NovoClient(cfg.SisEscala.URL, d.ID, d.Token)
+	rc := rep.NovoClient(d.Endereco, d.Porta, d.UsaHTTPS, d.UsuarioRep, d.SenhaRep, d.CertFingerprint)
+
+	usuarios, err := rc.ListarUsuarios()
+	if err != nil {
+		return fmt.Errorf("falha ao listar usuarios do rele: %w", err)
+	}
+	log.Printf("higiene: %d usuario(s) lido(s) do rele", len(usuarios))
+
+	relato := make([]sisescala.UsuarioDispositivoRelato, len(usuarios))
+	for i, u := range usuarios {
+		relato[i] = sisescala.UsuarioDispositivoRelato{
+			IdentificadorAFD: u.IdentificadorAFD, RegistrationBruto: u.RegistrationBruto,
+			Nome: u.Nome, TemBiometria: u.TemBiometria,
+		}
+	}
+	resumo, err := sc.ReportarUsuariosDispositivo(relato)
+	if err != nil {
+		return fmt.Errorf("falha ao reportar usuarios ao SisEscala: %w", err)
+	}
+	log.Printf("higiene: snapshot reportado ao SisEscala — %s", string(resumo))
+	return nil
+}
+
+// HigienizarRemocoes aplica no relógio quem foi selecionado na tela de higiene (Fase 7b) para
+// sair do equipamento. Deliberadamente NUNCA chamada pelo ciclo automático nem pelo menu da
+// bandeja: rep.RemoverUsuario nunca foi confirmada contra hardware real (ver aviso em
+// rep/client.go) — mais arriscada que SincronizarCadastros, que só cria; isto apaga cadastro de
+// verdade do equipamento.
+func HigienizarRemocoes(cfg *config.Config) error {
+	if cfg.DispositivoRep == nil {
+		return fmt.Errorf("secao dispositivo_rep ausente no config.yaml — nada para remover")
+	}
+	d := cfg.DispositivoRep
+	sc := sisescala.NovoClient(cfg.SisEscala.URL, d.ID, d.Token)
+	rc := rep.NovoClient(d.Endereco, d.Porta, d.UsaHTTPS, d.UsuarioRep, d.SenhaRep, d.CertFingerprint)
+
+	pendentes, err := sc.ListarRemocoesPendentes()
+	if err != nil {
+		return fmt.Errorf("falha ao listar remocoes pendentes: %w", err)
+	}
+	log.Printf("higiene: %d remocao(oes) pendente(s) para aplicar no rele", len(pendentes))
+
+	for _, p := range pendentes {
+		if err := rc.RemoverUsuario(p.IdentificadorAFD); err != nil {
+			log.Printf("remocao de %s (%s) falhou: %v", p.NomeNoDevice, p.IdentificadorAFD, err)
+			if erroConfirmar := sc.ConfirmarRemocao(p.FilaID, false, err.Error()); erroConfirmar != nil {
+				log.Printf("aviso: falha tambem ao reportar erro da remocao %s: %v", p.FilaID, erroConfirmar)
+			}
+			continue
+		}
+		log.Printf("usuario %s (%s) removido do rele", p.NomeNoDevice, p.IdentificadorAFD)
+		if err := sc.ConfirmarRemocao(p.FilaID, true, ""); err != nil {
+			log.Printf("aviso: usuario %s removido do rele mas falha ao confirmar no SisEscala: %v", p.FilaID, err)
+		}
+	}
+	return nil
+}
+
 // extrairRelogioDevice tenta os nomes de campo mais prováveis da API Control iD. Não
 // confirmado contra hardware real ainda — ver aviso no topo de rep/client.go.
 func extrairRelogioDevice(info map[string]interface{}) time.Time {
