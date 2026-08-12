@@ -120,6 +120,19 @@ rastreamento automático) — confirme com
 `find .next/standalone -iname coletor-rep-tray.exe` depois de qualquer `npm run build` que
 mexa nisso.
 
+- ⚠️ **Atalho de dev do `cmd/tray` não pode detectar `go run` pela presença de `config.yaml`
+  no diretório de trabalho.** Era exatamente esse teste que fazia todo usuário real nunca se
+  auto-instalar de verdade: o Explorer do Windows abre um `.exe` com CWD = pasta do próprio
+  executável, que é onde o `.zip` baixado sempre deixa o `config.yaml`, ao lado do `.exe`. Todo
+  duplo-clique caía no atalho "modo dev", rodava direto da pasta extraída e nunca copiava para
+  `%LOCALAPPDATA%`, nunca registrava autostart, nunca passava pela mesclagem de config.yaml —
+  "reinstalar" rodando o mesmo `.exe` de novo era sempre um no-op sobre o mesmo arquivo estático
+  da extração original (inclusive um token já superado por um "Gerar token" mais recente na
+  tela). Corrigido em 12/08/2026 (`rodandoViaGoRun()`, v1.49.1) detectando pelo caminho do
+  binário (`go-build` no path — padrão do toolchain Go em qualquer SO) em vez de por arquivo
+  vizinho. Esse teste nunca foi exercitado numa instalação real antes disso — só via `go run`
+  na máquina de quem escreveu o código, onde o CWD por acaso também tinha um `config.yaml` de
+  teste, mascarando o problema.
 - `login.fcgi` e `get_afd.fcgi?mode=671` **validados contra o relógio real** (10.110.2.89).
 - **Windows Smart App Control bloqueia o `.exe` recém-compilado** (sem assinatura/reputação) —
   e em 11/08/2026 bloqueou também `go run` do `cmd/tray`, sem determinismo aparente (`go run`

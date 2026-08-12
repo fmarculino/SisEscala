@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.49.1] - 2026-08-12
+
+### Fixed
+- **`coletor-rep-tray` nunca se auto-instalava de verdade em nenhuma máquina real** —
+  `cmd/tray/main.go` decidia "modo desenvolvimento, roda direto sem instalar" checando só se
+  havia um `config.yaml` no diretório de trabalho atual. O Explorer do Windows abre um `.exe`
+  com o diretório de trabalho igual à pasta do próprio executável — exatamente onde o `.zip`
+  baixado sempre deixa o `config.yaml`, ao lado do `.exe`. Resultado: **todo** duplo-clique de
+  um usuário real caía nesse atalho, rodava direto da pasta extraída, e nunca copiava para
+  `%LOCALAPPDATA%`, nunca registrava autostart, nunca passava pela mesclagem de config.yaml da
+  v1.48.2. "Reinstalar" rodando o mesmo `.exe` de novo era sempre um no-op — sempre o mesmo
+  arquivo estático da extração original, inclusive um token de terminal já superado por um
+  "Gerar token" mais recente na tela do SisEscala, produzindo "Terminal ou token inválido" na
+  ativação. Corrigido detectando `go run` pelo caminho do binário (contém `go-build`, padrão do
+  toolchain Go em qualquer SO) em vez de pela presença de um arquivo ao lado dele.
+- `dist/coletor-rep-tray.exe` recompilado com a correção — quem baixar o aplicativo a partir de
+  agora recebe o binário corrigido.
+
 ## [1.49.0] - 2026-08-11
 
 ### Fixed

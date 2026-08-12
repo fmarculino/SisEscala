@@ -57,14 +57,25 @@ const (
 func main() {
 	garantirInstanciaUnica()
 
-	// Atalho de desenvolvimento: mesmo padrao do cmd/cli (caminhoConfig la) - se ha um
-	// config.yaml no diretorio de trabalho atual, roda direto dali, sem auto-instalar. E o
-	// unico jeito de testar via `go run` (que compila para um binario temporario em outro
-	// caminho a cada execucao, entao nunca "ja esta instalado" de verdade) e tambem serve para
-	// depurar uma unidade a partir do proprio checkout do projeto.
+	// Atalho de desenvolvimento SO para `go run` - detectado pelo caminho do binario, nunca
+	// pela presenca de config.yaml. BUG CORRIGIDO EM 12/08/2026: a versao anterior checava so
+	// "existe config.yaml no diretorio de trabalho atual", e o Explorer do Windows abre um .exe
+	// com o CWD igual a pasta do proprio executavel - exatamente onde o .zip baixado sempre
+	// deixa o config.yaml ao lado do .exe. Resultado: TODO usuario real que dava duplo-clique
+	// caia neste atalho, rodava direto da pasta extraida, e NUNCA se auto-instalava (nunca
+	// copiava para %LOCALAPPDATA%, nunca registrava autostart, nunca mesclava config.yaml) -
+	// "reinstalar" rodando o mesmo .exe de novo era sempre um no-op, sempre lendo o mesmo
+	// arquivo estatico da extracao original. `go run` compila para um binario temporario dentro
+	// de um diretorio "go-build..." em os.TempDir() - isso sim e um sinal confiavel de que nao
+	// e um .exe baixado de verdade.
 	dirInstalado := diretorioInstalado()
-	if _, err := os.Stat("config.yaml"); err == nil {
-		dirInstalado, _ = filepath.Abs(".")
+	if rodandoViaGoRun() {
+		if _, err := os.Stat("config.yaml"); err == nil {
+			dirInstalado, _ = filepath.Abs(".")
+		} else {
+			mostrarErroFatal("Modo de desenvolvimento (go run): crie um config.yaml no diretorio atual.")
+			os.Exit(1)
+		}
 	} else if !estaRodandoDe(dirInstalado) {
 		autoInstalarERelancar(dirInstalado)
 		return
@@ -94,6 +105,16 @@ func garantirInstanciaUnica() {
 	if err == windows.ERROR_ALREADY_EXISTS {
 		os.Exit(0)
 	}
+}
+
+// rodandoViaGoRun detecta `go run` pelo caminho do binario compilado, nunca por arquivos ao
+// lado dele - ver comentario em main() sobre o bug que essa distincao corrige.
+func rodandoViaGoRun() bool {
+	exePath, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(exePath, "go-build")
 }
 
 func diretorioInstalado() string {
