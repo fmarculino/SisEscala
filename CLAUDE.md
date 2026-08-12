@@ -211,6 +211,14 @@ para quem rodar localmente). Sem ela, `/api/presenca-local/ativar` falha com 500
 nunca cai para um segredo fixo no código, que é exatamente o padrão que o `CRON_SECRET` com
 fallback hardcoded já provou ser ruim (ver rota `/api/cron`).
 
+⚠️ **Path do cookie tem que cobrir `/presenca-local` E `/api/presenca-local`.** São prefixos
+irmãos, não pai/filho — `path: '/presenca-local'` (o valor original, corrigido em 11/08/2026)
+deixava o cookie de fora de toda chamada a `/api/presenca-local/registrar`. Sintoma: ativação
+funcionava, a tela abria, e **toda** tentativa de bater o ponto caía em "Terminal não ativado" —
+só apareceu ao testar contra hardware/rede reais, não em nenhuma revisão de código. Use
+`path: '/'` para qualquer cookie compartilhado entre uma página e uma rota de API que não
+compartilhem o mesmo primeiro segmento de URL.
+
 ⚠️ **Escopo é pela lotação do servidor (`servidores.unidade_id/setor_id`), não pela escala do
 dia.** Um servidor temporariamente escalado em outra unidade fica bloqueado no terminal local
 dessa unidade até a lotação dele ser atualizada. Decisão deliberada por simplicidade — trocar a

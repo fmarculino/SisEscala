@@ -1,14 +1,13 @@
-/** Dispara o download do .zip (app de bandeja + config.yaml já preenchido) pelo navegador. */
-export async function baixarAplicativoColetorRep(
-  tipo: 'terminal' | 'dispositivo',
-  id: string,
-  token: string,
-  enderecoIp?: string
-) {
+/**
+ * Dispara o download do .zip (app de bandeja + config.yaml já preenchido) pelo navegador.
+ * Para tipo 'dispositivo', endereço/usuário/senha/porta do relógio vêm do banco (a rota lê
+ * dispositivos_rep pelo id) — nunca do que está no formulário no momento do clique.
+ */
+export async function baixarAplicativoColetorRep(tipo: 'terminal' | 'dispositivo', id: string, token: string) {
   const resposta = await fetch('/api/coletor-rep/download', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tipo, id, token, endereco_ip: enderecoIp }),
+    body: JSON.stringify({ tipo, id, token }),
   })
 
   if (!resposta.ok) {

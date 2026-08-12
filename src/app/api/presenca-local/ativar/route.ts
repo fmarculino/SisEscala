@@ -57,7 +57,10 @@ export async function POST(request: Request) {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
-    path: '/presenca-local',
+    // '/presenca-local' NÃO cobre '/api/presenca-local/registrar' — são prefixos irmãos, não
+    // pai/filho, então o cookie nunca era enviado na chamada de registro e toda batida caía em
+    // "Terminal não ativado" mesmo logo após ativar com sucesso. path '/' cobre as duas rotas.
+    path: '/',
     maxAge: sessao.maxAge,
   })
   return response

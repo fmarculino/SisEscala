@@ -107,6 +107,19 @@ export async function atualizarTerminalLocal(id: string, formData: FormData) {
   return { success: true }
 }
 
+export async function excluirTerminalLocal(id: string) {
+  await exigirAdmin()
+  // Terminal local nao e referenciado por marcacoes_ponto nem por nenhuma outra tabela — a
+  // marcacao gravada por ele carrega origem 'terminal', igual ao terminal classico, sem FK para
+  // terminais_locais.id. Exclusao e sempre segura, ao contrario de dispositivos_rep.
+  const supabase = await createAdminClient()
+  const { error } = await supabase.from('terminais_locais').delete().eq('id', id)
+  if (error) return { error: error.message }
+
+  revalidatePath('/marcacoes')
+  return { success: true }
+}
+
 export async function gerarTokenTerminalLocal(id: string) {
   await exigirAdmin()
   // Precisa da sessão do usuário (não createAdminClient): fn_gerar_token_terminal_local lê
@@ -130,7 +143,11 @@ export async function listarDispositivosRep() {
   const { data, error } = await supabase
     .from('dispositivos_rep')
     .select(
+      // senha_rep NAO entra aqui de proposito - a lista alimenta o estado do componente client,
+      // e nao ha motivo para o valor em texto claro trafegar ate o navegador so para preencher
+      // uma lista. O modal de edicao nunca preenche o campo de senha de volta (ver DispositivoRepModal).
       'id, nome, unidade_id, setor_id, numero_serie, endereco_ip, modo_operacao, ativo, '
+      + 'usuario_rep, porta, usa_https, '
       + 'ultimo_nsr, ultimo_contato_em, deriva_segundos, created_at, unidades(nome), setores(dicionario_setores(nome))'
     )
     .order('created_at', { ascending: false })
@@ -146,7 +163,11 @@ function lerCamposDispositivo(formData: FormData) {
   const numero_serie = String(formData.get('numero_serie') || '').trim() || null
   const endereco_ip = String(formData.get('endereco_ip') || '').trim() || null
   const modo_operacao = String(formData.get('modo_operacao') || 'pull')
-  return { nome, unidade_id, setor_id, numero_serie, endereco_ip, modo_operacao }
+  const usuario_rep = String(formData.get('usuario_rep') || 'admin').trim() || 'admin'
+  const senha_rep = String(formData.get('senha_rep') || '').trim() || null
+  const porta = Number(formData.get('porta') || 443) || 443
+  const usa_https = formData.get('usa_https') !== 'false'
+  return { nome, unidade_id, setor_id, numero_serie, endereco_ip, modo_operacao, usuario_rep, senha_rep, porta, usa_https }
 }
 
 export async function criarDispositivoRep(formData: FormData) {
@@ -166,11 +187,14 @@ export async function criarDispositivoRep(formData: FormData) {
 
 export async function atualizarDispositivoRep(id: string, formData: FormData) {
   await exigirAdmin()
-  const campos = lerCamposDispositivo(formData)
+  const campos: any = lerCamposDispositivo(formData)
   if (!campos.nome || !campos.unidade_id) {
     return { error: 'Nome e unidade são obrigatórios.' }
   }
   const ativo = formData.get('ativo') === 'true'
+  // Campo de senha vem em branco quando o admin nao digitou uma nova (o valor salvo nunca e
+  // reenviado ao formulario) - omitir do update preserva a senha ja gravada em vez de apagar.
+  if (campos.senha_rep === null) delete campos.senha_rep
 
   const supabase = await createAdminClient()
   const { error } = await supabase
@@ -178,6 +202,27 @@ export async function atualizarDispositivoRep(id: string, formData: FormData) {
     .update({ ...campos, ativo, updated_at: new Date().toISOString() })
     .eq('id', id)
   if (error) return { error: error.message }
+
+  revalidatePath('/marcacoes')
+  return { success: true }
+}
+
+export async function excluirDispositivoRep(id: string) {
+  await exigirAdmin()
+  const supabase = await createAdminClient()
+  const { error } = await supabase.from('dispositivos_rep').delete().eq('id', id)
+  if (error) {
+    // rep_afd_registros/rep_sincronizacoes/marcacoes_ponto referenciam dispositivo_id sem
+    // ON DELETE CASCADE de proposito (registro legal de ponto, retido por 5 anos — CLAUDE.md).
+    // O Postgres recusa com violacao de FK (23503); a mensagem crua nao diz isso a um admin.
+    if (error.code === '23503') {
+      return {
+        error: 'Este dispositivo já tem marcações de ponto ou histórico de sincronização registrados — '
+          + 'não pode ser excluído (o registro é legalmente retido). Desative-o em vez de excluir.',
+      }
+    }
+    return { error: error.message }
+  }
 
   revalidatePath('/marcacoes')
   return { success: true }

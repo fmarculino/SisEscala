@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Monitor, Fingerprint, ListChecks, Plus, Pencil } from 'lucide-react'
-import { listarTerminaisLocais, listarDispositivosRep } from './actions'
+import { Monitor, Fingerprint, ListChecks, Plus, Pencil, Trash2 } from 'lucide-react'
+import { listarTerminaisLocais, listarDispositivosRep, excluirTerminalLocal, excluirDispositivoRep } from './actions'
 import { TerminalLocalModal } from './TerminalLocalModal'
 import { DispositivoRepModal } from './DispositivoRepModal'
 import { PendenciasTab } from './PendenciasTab'
@@ -34,6 +34,20 @@ export function MarcacoesClient({ isAdmin, opcoes }: { isAdmin: boolean; opcoes:
   async function recarregarDispositivos() {
     setCarregandoLista(true)
     try { setDispositivos(await listarDispositivosRep()) } finally { setCarregandoLista(false) }
+  }
+
+  async function handleExcluirTerminal(t: any) {
+    if (!confirm(`Excluir o terminal "${t.nome}"? Esta ação não pode ser desfeita.`)) return
+    const res = await excluirTerminalLocal(t.id)
+    if (res?.error) { alert(res.error); return }
+    recarregarTerminais()
+  }
+
+  async function handleExcluirDispositivo(d: any) {
+    if (!confirm(`Excluir o dispositivo "${d.nome}"? Esta ação não pode ser desfeita.`)) return
+    const res = await excluirDispositivoRep(d.id)
+    if (res?.error) { alert(res.error); return }
+    recarregarDispositivos()
   }
 
   useEffect(() => {
@@ -103,13 +117,22 @@ export function MarcacoesClient({ isAdmin, opcoes }: { isAdmin: boolean; opcoes:
                       <IdCopyBadge id={t.id} />
                     </div>
                   </div>
-                  <button
-                    onClick={() => setModalTerminal({ aberto: true, terminal: t })}
-                    className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500"
-                    title="Editar / gerar token"
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setModalTerminal({ aberto: true, terminal: t })}
+                      className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500"
+                      title="Editar / gerar token"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => handleExcluirTerminal(t)}
+                      className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-zinc-500 hover:text-red-600"
+                      title="Excluir"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -165,13 +188,22 @@ export function MarcacoesClient({ isAdmin, opcoes }: { isAdmin: boolean; opcoes:
                       <IdCopyBadge id={d.id} />
                     </div>
                   </div>
-                  <button
-                    onClick={() => setModalDispositivo({ aberto: true, dispositivo: d })}
-                    className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500"
-                    title="Editar / gerar token"
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setModalDispositivo({ aberto: true, dispositivo: d })}
+                      className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500"
+                      title="Editar / gerar token"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => handleExcluirDispositivo(d)}
+                      className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-zinc-500 hover:text-red-600"
+                      title="Excluir"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

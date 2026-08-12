@@ -36,7 +36,6 @@ export async function POST(request: Request) {
   const tipo: string = body?.tipo
   const id: string = body?.id
   const token: string = body?.token
-  const enderecoIp: string | undefined = body?.endereco_ip
   if ((tipo !== 'terminal' && tipo !== 'dispositivo') || !id || !token) {
     return NextResponse.json({ error: 'tipo, id e token são obrigatórios.' }, { status: 400 })
   }
@@ -52,9 +51,23 @@ export async function POST(request: Request) {
     )
   }
 
-  const configYaml = tipo === 'terminal'
-    ? montarConfigTerminal(origem, id, token)
-    : montarConfigDispositivo(origem, id, token, enderecoIp)
+  let configYaml: string
+  if (tipo === 'terminal') {
+    configYaml = montarConfigTerminal(origem, id, token)
+  } else {
+    // Le endereco/usuario/senha/porta direto do banco (nao do corpo da requisicao) - sao os
+    // mesmos campos que o admin acabou de preencher em "Editar dispositivo REP", e assim o zip
+    // sai pronto sem editar config.yaml a mao (a lacuna que restava depois da v1.48.2).
+    const { data: dispositivo, error: dispErr } = await supabase
+      .from('dispositivos_rep')
+      .select('endereco_ip, usuario_rep, senha_rep, porta, usa_https')
+      .eq('id', id)
+      .single()
+    if (dispErr || !dispositivo) {
+      return NextResponse.json({ error: 'Dispositivo REP não encontrado.' }, { status: 404 })
+    }
+    configYaml = montarConfigDispositivo(origem, id, token, dispositivo)
+  }
 
   let binario: Buffer
   try {
@@ -114,18 +127,23 @@ terminal_local:
 `
 }
 
-function montarConfigDispositivo(origem: string, id: string, token: string, enderecoIp?: string): string {
+function montarConfigDispositivo(
+  origem: string,
+  id: string,
+  token: string,
+  dispositivo: { endereco_ip: string | null; usuario_rep: string | null; senha_rep: string | null; porta: number | null; usa_https: boolean | null }
+): string {
   return `sisescala:
   url: ${origem}
 
 dispositivo_rep:
   id: "${id}"
   token: "${token}"
-  endereco: "${enderecoIp || 'PREENCHA_O_IP_DO_RELOGIO'}"
-  porta: 443
-  usa_https: true
-  usuario_rep: admin
-  senha_rep: "PREENCHA_A_SENHA_DE_ADMIN_DO_RELOGIO"
+  endereco: "${dispositivo.endereco_ip || 'PREENCHA_O_IP_DO_RELOGIO'}"
+  porta: ${dispositivo.porta ?? 443}
+  usa_https: ${dispositivo.usa_https ?? true}
+  usuario_rep: "${dispositivo.usuario_rep || 'admin'}"
+  senha_rep: "${dispositivo.senha_rep || 'PREENCHA_A_SENHA_DE_ADMIN_DO_RELOGIO'}"
   cert_fingerprint: ""
 `
 }

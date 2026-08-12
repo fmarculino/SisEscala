@@ -21,6 +21,9 @@ interface DispositivoRep {
   endereco_ip: string | null
   modo_operacao: string
   ativo: boolean
+  usuario_rep?: string | null
+  porta?: number | null
+  usa_https?: boolean | null
 }
 
 export function DispositivoRepModal({
@@ -43,6 +46,12 @@ export function DispositivoRepModal({
   const [enderecoIp, setEnderecoIp] = useState(dispositivo?.endereco_ip || '')
   const [modoOperacao, setModoOperacao] = useState(dispositivo?.modo_operacao || 'pull')
   const [ativo, setAtivo] = useState(dispositivo?.ativo ?? true)
+  const [usuarioRep, setUsuarioRep] = useState(dispositivo?.usuario_rep || 'admin')
+  // Senha nunca vem preenchida do servidor (listarDispositivosRep não a devolve de propósito) —
+  // em branco ao editar significa "manter a senha já salva", não "sem senha".
+  const [senhaRep, setSenhaRep] = useState('')
+  const [porta, setPorta] = useState(dispositivo?.porta ?? 443)
+  const [usaHttps, setUsaHttps] = useState(dispositivo?.usa_https ?? true)
 
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
@@ -66,6 +75,10 @@ export function DispositivoRepModal({
     formData.set('endereco_ip', enderecoIp)
     formData.set('modo_operacao', modoOperacao)
     formData.set('ativo', String(ativo))
+    formData.set('usuario_rep', usuarioRep)
+    formData.set('senha_rep', senhaRep)
+    formData.set('porta', String(porta))
+    formData.set('usa_https', String(usaHttps))
 
     const resultado = dispositivoId
       ? await atualizarDispositivoRep(dispositivoId, formData)
@@ -102,7 +115,7 @@ export function DispositivoRepModal({
     setBaixando(true)
     setErro(null)
     try {
-      await baixarAplicativoColetorRep('dispositivo', dispositivoId, token, enderecoIp)
+      await baixarAplicativoColetorRep('dispositivo', dispositivoId, token)
     } catch (e: any) {
       setErro(e.message || 'Falha ao baixar o aplicativo.')
     } finally {
@@ -191,6 +204,53 @@ export function DispositivoRepModal({
             </select>
           </div>
 
+          <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800">
+            <p className="text-xs font-semibold text-zinc-600 dark:text-zinc-400 mb-2 mt-3">
+              Credenciais de admin do relógio (para o coletor logar nele)
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-zinc-600 dark:text-zinc-400 mb-1">Usuário</label>
+                <input
+                  value={usuarioRep}
+                  onChange={(e) => setUsuarioRep(e.target.value)}
+                  placeholder="admin"
+                  className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-zinc-600 dark:text-zinc-400 mb-1">Senha</label>
+                <input
+                  type="password"
+                  value={senhaRep}
+                  onChange={(e) => setSenhaRep(e.target.value)}
+                  placeholder={dispositivo ? '•••••••• (deixe em branco para manter)' : ''}
+                  autoComplete="new-password"
+                  className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3 mt-3">
+              <div>
+                <label className="block text-xs font-semibold text-zinc-600 dark:text-zinc-400 mb-1">Porta</label>
+                <input
+                  type="number"
+                  value={porta}
+                  onChange={(e) => setPorta(Number(e.target.value) || 443)}
+                  className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm"
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm self-end pb-2">
+                <input type="checkbox" checked={usaHttps} onChange={(e) => setUsaHttps(e.target.checked)} />
+                Usa HTTPS
+              </label>
+            </div>
+            <p className="text-[11px] text-zinc-400 mt-1">
+              Ficam gravadas aqui e embutidas automaticamente no config.yaml a cada "Baixar
+              aplicativo" — ninguém mais precisa editar o arquivo à mão.
+            </p>
+          </div>
+
           {dispositivo && (
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={ativo} onChange={(e) => setAtivo(e.target.checked)} />
@@ -213,6 +273,11 @@ export function DispositivoRepModal({
         {dispositivoId && (
           <div className="pt-4 border-t border-zinc-100 dark:border-zinc-800 space-y-3">
             <p className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">Credencial do coletor-rep</p>
+            <p className="text-[11px] text-amber-600 dark:text-amber-400">
+              O aplicativo é montado com o que está salvo no banco, não com o que está digitado
+              acima na tela. Clique em "Salvar alterações" antes de gerar o token/baixar, se
+              mudou endereço, usuário, senha ou porta.
+            </p>
             {token ? (
               <>
                 <TokenRevealBox token={token} />
@@ -227,8 +292,8 @@ export function DispositivoRepModal({
                 </button>
                 <p className="text-[11px] text-zinc-500">
                   Extraia o .zip inteiro na máquina onde o relógio está acessível e execute o
-                  coletor-rep-tray.exe — a senha do relógio ainda precisa ser preenchida à mão
-                  no config.yaml (o SisEscala não guarda essa senha).
+                  coletor-rep-tray.exe — o config.yaml já sai com endereço, usuário e senha
+                  preenchidos com o que foi salvo acima.
                 </p>
               </>
             ) : (

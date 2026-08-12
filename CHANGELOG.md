@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.49.0] - 2026-08-11
+
+### Fixed
+- **Terminal local ativava mas nenhuma batida registrava — sempre caía em "Terminal não
+  ativado".** `POST /api/presenca-local/ativar` gravava o cookie de sessão com
+  `path: '/presenca-local'`; `/api/presenca-local/registrar` é um prefixo **irmão** desse path,
+  não filho, então o navegador nunca enviava o cookie de volta na chamada de registro. A
+  ativação em si "funcionava" (a tela abria normalmente) — só bater o ponto falhava, sempre.
+  Corrigido para `path: '/'` em `src/app/api/presenca-local/ativar/route.ts`. Encontrado no
+  primeiro teste de campo com hardware/rede reais.
+
+### Added
+- **Usuário e senha do relógio migram para a tela "Editar dispositivo REP"** (migration
+  `20260811200000`, nova coluna `usuario_rep`/`senha_rep`/`porta`/`usa_https` em
+  `dispositivos_rep`). Reabria, para essa credencial específica, o mesmo problema que a v1.48.2
+  tinha acabado de fechar: `config.yaml` sempre saía com `usuario_rep: admin` e um placeholder de
+  senha, e o admin tinha que editar o arquivo à mão depois de baixar. `POST
+  /api/coletor-rep/download` passa a ler endereço/usuário/senha/porta direto do banco pelo `id`
+  do dispositivo em vez de confiar no que estava digitado no formulário no momento do clique — o
+  zip baixado sempre reflete o que está de fato salvo. Senha nunca volta ao formulário em texto
+  claro (nem na lista, nem preenchendo o campo ao editar); deixar o campo em branco ao salvar
+  preserva a senha já gravada.
+- **Botão de excluir para Terminal Local e Dispositivo REP** — só existia editar/desativar.
+  Terminal local exclui sempre (nenhuma tabela referencia `terminais_locais.id`). Dispositivo REP
+  recusa a exclusão com mensagem explicativa quando já existe AFD/marcação vinculada (violação de
+  FK 23503 — registro de ponto retido por 5 anos, nunca apagável), sugerindo desativar em vez de
+  excluir; um dispositivo de teste sem histórico exclui normalmente.
+
+Ver [`docs/evolucao/2026-08-11-cookie-terminal-local-credenciais-rep-e-exclusao.md`](docs/evolucao/2026-08-11-cookie-terminal-local-credenciais-rep-e-exclusao.md).
+
 ## [1.48.2] - 2026-08-11
 
 ### Added
