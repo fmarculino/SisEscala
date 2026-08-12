@@ -151,9 +151,11 @@ export function Sidebar({ user }: { user?: any }) {
   // continua fora do alcance dele.
   const itensCadastrosParaCoord = ['Servidores', 'Pendências de Cadastro']
 
-  // RH da Unidade (12/08/2026) não gerencia catálogo global (Cargos, Feriados, Jornadas,
-  // Dicionário de Turnos, Tipos de Afastamento — não são por unidade, são regra da secretaria
-  // inteira) — essas telas continuam exclusivas de RH Geral/Diretor/Administrador Geral.
+  // Catálogo global (Cargos, Feriados, Jornadas, Dicionário de Turnos, Tipos de Afastamento —
+  // não são por unidade, são regra da secretaria inteira) fica exclusivo de RH Geral e
+  // Administrador Geral. RH da Unidade nunca teve acesso (não gerencia nada cross-unidade).
+  // Diretor (`admin`) TAMBÉM perdeu esses 5 itens em 12/08/2026, a pedido do usuário — antes
+  // dividia o mesmo bypass de RH Geral (`isRhGeral || isAdmin`) e via tudo.
   // Férias e Licenças, Marcações e Pendências de Cadastro NÃO entram aqui: são por unidade e
   // RH da Unidade deve continuar vendo (12/08/2026 — correção de escopo que tinha tirado essas
   // três por engano junto das cinco de catálogo).
@@ -168,9 +170,17 @@ export function Sidebar({ user }: { user?: any }) {
 
       if (isSuperAdmin) return true
 
-      if (isRhGeral || isAdmin) {
-        // Recursos Humanos Geral e Diretor possuem acesso aos módulos operacionais e cadastrais, mas NÃO veem o menu SISTEMA
+      if (isRhGeral) {
+        // RH Geral vê tudo, inclusive o catálogo global (itensSoRhGeral), menos SISTEMA.
         if (group.title === 'SISTEMA') return false
+        return true
+      }
+
+      if (isAdmin) {
+        // Diretor vê os módulos operacionais e cadastrais, menos SISTEMA e o catálogo global
+        // (12/08/2026 — antes dividia o mesmo bypass de RH Geral e via os 5 itens também).
+        if (group.title === 'SISTEMA') return false
+        if (itensSoRhGeral.includes(item.name)) return false
         return true
       }
 

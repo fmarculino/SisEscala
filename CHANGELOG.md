@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.55.2] - 2026-08-12
+
+### Changed
+- **Diretor (`role = 'admin'`) perde o menu de catálogo global** (Cargos, Feriados, Jornadas,
+  Dicionário de Turnos, Tipos de Afastamento) — pedido explícito do usuário. Antes Diretor
+  dividia o mesmo bypass de RH Geral na sidebar (`isRhGeral || isAdmin`) e via os 5 itens junto;
+  agora só RH Geral e Administrador Geral (`super_admin`) veem esse grupo.
+  - Para Feriados, Dicionário de Turnos e Tipos de Afastamento isso é só limpeza de menu: o
+    gate de página dessas 3 telas já era `super_admin`/`rh` desde a v1.55.0 — Diretor clicando
+    ali já caía em "Acesso Negado".
+  - **Cargos e Jornadas não têm gate de página** — Diretor continua alcançando `/cargos` e
+    `/jornadas` digitando a URL direto. Jornadas já bloqueia a escrita por RLS (`super_admin`/
+    `rh` apenas, nunca incluiu `admin`); Cargos **ainda aceita escrita de `admin` via RLS** — só
+    o link do menu saiu, o acesso direto por URL não foi fechado. Sinalizado, não corrigido:
+    não foi pedido remover a capacidade de Diretor gerenciar cargos, só o item do menu.
+
 ## [1.55.1] - 2026-08-12
 
 ### Fixed
