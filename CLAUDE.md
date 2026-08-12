@@ -486,6 +486,14 @@ se deslocava.
 **Ver é global; acionar é por abrangência.** Default `'unidade'` — fecha por padrão. Só a TI da
 SMS entra marcada como `geral` na migration; CAF e Transporte ficam para a tela.
 
+⚠️ **"Ver é global" depende de um guard de papel que precisa ser lembrado a cada papel novo.**
+`fn_painel_sobreaviso_dia`/`fn_pode_acionar_sobreaviso` (08/08/2026) nasceram com uma allowlist
+fixa de papel (`super_admin`/`admin`/`coordenador`) — `rh` (11/08) e `rh_unidade` (12/08) ficaram
+de fora até `20260812080000` corrigir. `fn_painel_sobreaviso_dia` virou denylist (só barra
+`servidor`/`comum`, os papéis do Portal) para não repetir — mas `fn_pode_acionar_sobreaviso`
+continua allowlist de propósito (acionar é uma decisão de autoridade, não só visibilidade), então
+um papel novo com poder de agir precisa ser adicionado ali manualmente.
+
 ⚠️ **`fn_blocos_previstos_dia` não serve para Sobreaviso** — exclui a categoria por construção
 (armadilha 6), e os 5 códigos de sobreaviso têm `horario_inicio = NULL` de propósito. Por isso a
 janela precisou de função própria. Não tente ancorar código de Sobreaviso no dicionário.

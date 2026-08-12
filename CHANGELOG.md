@@ -2,7 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.54.0] - 2026-08-12
+## [1.54.1] - 2026-08-12
+
+### Fixed
+- **Card "Sobreaviso Hoje" do dashboard veio vazio para RH da Unidade, mesmo com sobreaviso
+  geral ativo no momento** — regra já documentada e deliberada desde a Fase 5 do acionamento de
+  sobreaviso (`20260808190000`): "VER é global; ACIONAR é por abrangência". `fn_painel_sobreaviso_dia`
+  e `fn_pode_acionar_sobreaviso` (ambas de 08/08/2026, antes de `rh` existir em 11/08 e de
+  `rh_unidade` em 12/08) tinham o guard de papel escrito como **allowlist fixa**
+  (`super_admin`/`admin`/`coordenador`) — mesma classe de lacuna já corrigida nesta sessão em
+  outros lugares, só que dentro do guard de uma função em vez de numa policy de RLS.
+  - `fn_painel_sobreaviso_dia`: guard vira **denylist** (só barra `servidor`/`comum`, os papéis
+    do Portal, que não usam este dashboard) em vez de allowlist — um papel interno novo não
+    reabre este buraco de novo na próxima vez.
+  - `fn_pode_acionar_sobreaviso`: `rh`/`rh_unidade` ganham a mesma capacidade de
+    admin/coordenador (mesma decisão de paridade já assumida pro resto de escala/folha de ponto
+    em v1.54.0). `ass_adm` deliberadamente não entra — continua só vendo, não acionando; não foi
+    pedido e é decisão de autoridade maior que visibilidade.
+  - Migration `20260812080000`.
 
 ### Fixed
 - **O perfil "Recursos Humanos" (`role = 'rh'`, v1.44) estava incompleto desde que foi criado** —
