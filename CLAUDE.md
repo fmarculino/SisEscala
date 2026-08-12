@@ -205,18 +205,30 @@ servidor (confirmado no plano original, Fase 7). O que ficou automatizado é só
 da armadilha 10, na direção inversa (`right(ident, 11)` recupera o CPF; aqui é o CPF que vira o
 identificador).
 
-⚠️⚠️ **`rep.CriarUsuario`/`rep.ListarUsuariosComBiometria` (`tools/coletor-rep/rep/client.go`)
-já foram testadas contra hardware real uma vez — e a primeira versão estava errada.** A tentativa
-original usava a API genérica "objects" da Control iD (`create_objects.fcgi`/`load_objects.fcgi`)
-e o relógio de teste (10.110.2.89) recusou as duas com HTTP 400 "Invalid command": esse padrão
-pertence à **outra** linha de produto da Control iD (Linha de Acesso — iDAccess/iDFlex/iDBlock),
-não à linha REP/iDClass que `login.fcgi`/`get_afd.fcgi` já confirmaram real neste device.
-Reescrita em 12/08/2026 para `add_users.fcgi`/`load_users.fcgi` (a API real da linha iDClass,
-confirmada pela documentação oficial via busca — `controlid.com.br/suporte/api_idclass_latest.html`)
-com `mode=671`/campo `cpf`, já que `get_afd.fcgi` deste device já usa `mode=671`. **Essa segunda
-versão ainda não foi confirmada contra hardware** — os nomes `registration`/`cpf` batem com o que
-a documentação descreve, mas o formato exato da resposta de `add_users.fcgi` continua incerto
-(`CriarUsuario` tenta três formatos plausíveis antes de falhar). Por isso:
+⚠️⚠️ **`rep.CriarUsuario`/`rep.ListarUsuariosComBiometria` (`tools/coletor-rep/rep/client.go`) —
+quatro rodadas de teste real em 12/08/2026, a última confirmando dados de verdade:**
+
+1. API genérica "objects" (`create_objects.fcgi`/`load_objects.fcgi`) — HTTP 400 "Invalid
+   command". Pertence à Linha de Acesso da Control iD (iDAccess/iDFlex/iDBlock), não à linha
+   REP/iDClass deste device.
+2. `add_users.fcgi`/`load_users.fcgi` (documentação oficial via busca,
+   `controlid.com.br/suporte/api_idclass_latest.html`) — comando certo, mas CPF de teste
+   `"000000000000"` reprovado no dígito verificador e `limit: 1000` acima do máximo (100).
+3. Corrigidos CPF de teste e paginação — `load_users.fcgi` devolveu **6 usuários reais do
+   piloto com sucesso**. Revelou que este device **não tem campo `"id"`** — só
+   `pis`/`registration`/`code`/`rfid`/`templates`, **todos como número JSON**, não string. Isso
+   também explica o erro de `CriarUsuario` (`'cpf' em formato incorreto`): estava enviando
+   string onde o device espera número.
+4. Corrigido: `registration`/`cpf` viram número; `device_user_id` (que não existe de verdade
+   neste hardware) foi substituído por `identificador_afd` como identidade de referência em
+   toda a cadeia (`ListarUsuariosComBiometria`, `fn_atualizar_biometria_vinculos` — migration
+   `20260812010000`, `bigint[]` → `text[]`). **Matrícula temporária alfanumérica (`T26xxxxx`)
+   não pode ser representada no campo `registration` deste equipamento** — `CriarUsuario` recusa
+   cedo em vez de mandar dado quebrado. `CriarUsuario` (criar de fato) ainda não confirmou
+   sucesso end-to-end — só a leitura (`load_users.fcgi`) foi validada contra dados reais até
+   aqui.
+
+Por isso:
 
 - **Nunca entram no ciclo automático** de `cmd/tray` (o ticker de 5 min só roda `Sync`/`Heartbeat`).
   Só rodam por clique manual no menu "Sincronizar cadastros agora" ou pelo subcomando

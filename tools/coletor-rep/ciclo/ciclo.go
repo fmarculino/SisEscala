@@ -162,16 +162,18 @@ func SincronizarCadastros(cfg *config.Config) error {
 	log.Printf("cadastros: %d pendente(s) para enviar ao rele", len(pendentes))
 
 	for _, p := range pendentes {
-		deviceUserID, err := rc.CriarUsuario(p.Matricula, p.Nome, p.IdentificadorAFD)
-		if err != nil {
+		// device_user_id sempre nil - confirmado em 12/08/2026 que este device nao expoe um id
+		// interno separado (so pis/registration). A identidade de referencia e' identificador_afd,
+		// ja gravado em fn_confirmar_cadastro_rep a partir do proprio servidor da fila.
+		if err := rc.CriarUsuario(p.Matricula, p.Nome, p.IdentificadorAFD); err != nil {
 			log.Printf("cadastro de %s (%s) falhou: %v", p.Nome, p.Matricula, err)
 			if erroConfirmar := sc.ConfirmarCadastro(p.FilaID, false, nil, err.Error()); erroConfirmar != nil {
 				log.Printf("aviso: falha tambem ao reportar erro do cadastro %s: %v", p.FilaID, erroConfirmar)
 			}
 			continue
 		}
-		log.Printf("cadastro de %s (%s) criado no rele com device_user_id=%d", p.Nome, p.Matricula, deviceUserID)
-		if err := sc.ConfirmarCadastro(p.FilaID, true, &deviceUserID, ""); err != nil {
+		log.Printf("cadastro de %s (%s) criado no rele", p.Nome, p.Matricula)
+		if err := sc.ConfirmarCadastro(p.FilaID, true, nil, ""); err != nil {
 			log.Printf("aviso: cadastro %s criado no rele mas falha ao confirmar no SisEscala: %v", p.FilaID, err)
 		}
 	}

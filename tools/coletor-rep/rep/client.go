@@ -10,12 +10,14 @@
 // aproximação da API Control iD e precisa ser confirmado com `curl.exe -sk` antes de confiar
 // cegamente no parsing de rodarHeartbeat.
 //
-// ⚠️ CriarUsuario e ListarUsuariosComBiometria (Fase 7, 12/08/2026) são MAIS incertas ainda —
-// a primeira tentativa (API genérica "objects") já foi testada contra hardware real e
-// **rejeitada** (HTTP 400 "Invalid command" — API errada, pertencia a outra linha de produto
-// Control iD). Reescrita em 12/08/2026 para `add_users.fcgi`/`load_users.fcgi`, a API real da
-// linha iDClass — mas essa segunda versão ainda não foi confirmada contra hardware. Ver aviso
-// extenso junto delas, mais abaixo neste arquivo, antes de habilitar em produção.
+// ⚠️ CriarUsuario e ListarUsuariosComBiometria (Fase 7, 12/08/2026) — três rodadas de teste
+// real até aqui: (1) API genérica "objects" rejeitada, API errada (outra linha de produto
+// Control iD); (2) `add_users.fcgi`/`load_users.fcgi` reconhecidos, mas CPF de teste inválido e
+// `limit` acima do máximo; (3) `load_users.fcgi` confirmou dados reais (6 usuários do piloto) —
+// e revelou que este device **não tem campo "id"** e que `pis`/`registration` são NÚMEROS, não
+// strings. `device_user_id` deixou de ser o identificador de referência — passou a ser `pis`
+// (mesmo formato de `identificador_afd`). CriarUsuario ainda não confirmou sucesso end-to-end.
+// Ver aviso extenso junto das duas funções, mais abaixo neste arquivo.
 package rep
 
 import (
@@ -28,6 +30,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -176,69 +179,70 @@ func (c *Client) InformacoesSistema() (map[string]interface{}, error) {
 //
 // O campo 'registration' (matricula) nao e chute: ja foi confirmado como o campo real do device
 // por leitura de AFD tipo 5 real (ver comentario em rep_vinculos_servidor,
-// supabase/migrations/20260808000000). O formato exato da resposta de add_users.fcgi (id do
-// usuario criado) tambem nao foi confirmado — CriarUsuario tenta as formas mais prováveis
-// (`ids`, `id`, `users[0].id`) e devolve o mapa cru em erro se nenhuma bater.
+// supabase/migrations/20260808000000).
+//
+// ⚠️ CONFIRMADO EM 12/08/2026 via load_users.fcgi real (6 usuarios do piloto, devolvidos com
+// sucesso): o objeto "user" deste device **nao tem campo "id"** — so `pis`/`registration`/`code`
+// /`rfid`/`templates`/etc, TODOS como numero JSON, nao string. `add_users.fcgi` recusou o
+// primeiro teste com "'cpf' em formato incorreto" ao receber `"cpf": "11144477735"` (string) —
+// e a evidencia do load_users real (`pis` sempre numero) aponta pra causa provavel: o campo tem
+// que ser numero, nao string. Corrigido abaixo. Como o device nao expoe um id interno separado,
+// a identidade de referencia passa a ser sempre `pis`/`registration`, nao um `device_user_id`
+// sintetico — ListarUsuariosComBiometria casa por `pis`, nao por id.
+//
+// ⚠️ `registration` e' numero no device (visto real: `2.600005e+06` = matricula 2600005) — uma
+// matricula temporaria alfanumerica (formato `T26xxxxx`, ver CLAUDE.md) **nao pode** ser
+// representada nesse campo. CriarUsuario recusa cedo nesse caso, em vez de mandar dado quebrado.
 
 // CriarUsuario cadastra uma identidade "vazia" no rele (sem biometria - isso so acontece
-// presencialmente no equipamento). Devolve o device_user_id atribuido pelo rele.
-// identificadorAfd vem no formato de 12 digitos do AFD (CPF com zero de preenchimento); o campo
-// cpf da API espera o CPF puro, daí o `right(...,11)` aqui — a mesma operacao inversa que
-// fn_vinculos_sugeridos_afd já faz do lado do banco (armadilha 10, CLAUDE.md).
-func (c *Client) CriarUsuario(matricula, nome, identificadorAfd string) (int64, error) {
+// presencialmente no equipamento). identificadorAfd vem no formato de 12 digitos do AFD (CPF
+// com zero de preenchimento); o campo cpf da API espera o CPF puro como NUMERO, daí o
+// `right(...,11)` + conversao — a mesma operacao inversa que fn_vinculos_sugeridos_afd já faz
+// do lado do banco (armadilha 10, CLAUDE.md).
+func (c *Client) CriarUsuario(matricula, nome, identificadorAfd string) error {
 	if c.sessao == "" {
 		if err := c.Login(); err != nil {
-			return 0, err
+			return err
 		}
 	}
 
-	cpf := identificadorAfd
-	if len(cpf) > 11 {
-		cpf = cpf[len(cpf)-11:]
+	matriculaNum, err := strconv.ParseInt(matricula, 10, 64)
+	if err != nil {
+		return fmt.Errorf("matricula %q nao e numerica - este rele so aceita 'registration' numerico, "+
+			"matriculas temporarias alfanumericas (T26xxxxx) nao podem ser enviadas: %w", matricula, err)
+	}
+
+	cpfStr := identificadorAfd
+	if len(cpfStr) > 11 {
+		cpfStr = cpfStr[len(cpfStr)-11:]
+	}
+	cpfNum, err := strconv.ParseInt(cpfStr, 10, 64)
+	if err != nil {
+		return fmt.Errorf("identificador_afd %q nao produziu um cpf numerico valido: %w", identificadorAfd, err)
 	}
 
 	resultado, err := c.chamar(fmt.Sprintf("add_users.fcgi?session=%s&mode=671", c.sessao), map[string]interface{}{
 		"users": []map[string]interface{}{
-			{"name": nome, "registration": matricula, "cpf": cpf, "admin": false},
+			{"name": nome, "registration": matriculaNum, "cpf": cpfNum, "admin": false},
 		},
 	})
 	if err != nil {
-		return 0, err
+		return err
 	}
 
-	if id, ok := extrairIDCriado(resultado); ok {
-		return id, nil
+	if errMsg, ok := resultado["error"]; ok {
+		return fmt.Errorf("add_users.fcgi recusou: %v", errMsg)
 	}
-	return 0, fmt.Errorf("add_users.fcgi nao devolveu id de usuario reconhecivel: %v", resultado)
+	return nil
 }
 
-// extrairIDCriado tenta os formatos de resposta mais prováveis de add_users.fcgi — nenhum
-// confirmado ainda contra hardware real (ver aviso acima).
-func extrairIDCriado(resultado map[string]interface{}) (int64, bool) {
-	if ids, ok := resultado["ids"].([]interface{}); ok && len(ids) > 0 {
-		if v, ok := ids[0].(float64); ok {
-			return int64(v), true
-		}
-	}
-	if id, ok := resultado["id"].(float64); ok {
-		return int64(id), true
-	}
-	if users, ok := resultado["users"].([]interface{}); ok && len(users) > 0 {
-		if m, ok := users[0].(map[string]interface{}); ok {
-			if id, ok := m["id"].(float64); ok {
-				return int64(id), true
-			}
-		}
-	}
-	return 0, false
-}
-
-// ListarUsuariosComBiometria devolve os device_user_id que tem pelo menos um template
-// biometrico cadastrado no rele - usado para fechar o loop de "pendencias de biometria" sem
-// exigir que ninguem digite nada no SisEscala manualmente. `templates: true` no pedido pede ao
-// rele para incluir o array de templates biometricos na resposta (documentado: array vazio =
-// sem biometria cadastrada).
-func (c *Client) ListarUsuariosComBiometria() ([]int64, error) {
+// ListarUsuariosComBiometria devolve os identificador_afd (formato de 12 digitos, mesma
+// convencao de rep_vinculos_servidor) dos usuarios que tem pelo menos um template biometrico
+// cadastrado no rele - usado para fechar o loop de "pendencias de biometria" sem exigir que
+// ninguem digite nada no SisEscala manualmente. `templates: true` no pedido pede ao rele para
+// incluir o array de templates biometricos na resposta (confirmado: array vazio = sem
+// biometria). Casa por `pis`, nao por um "id" que este device nao tem (ver aviso acima).
+func (c *Client) ListarUsuariosComBiometria() ([]string, error) {
 	if c.sessao == "" {
 		if err := c.Login(); err != nil {
 			return nil, err
@@ -249,9 +253,9 @@ func (c *Client) ListarUsuariosComBiometria() ([]int64, error) {
 	// causou o HTTP 400 anterior (a mensagem de erro do rele nao nomeia o campo). Pagina ate a
 	// pagina voltar com menos que o limite.
 	const tamanhoPagina = 100
-	var ids []int64
+	var identificadores []string
 	var totalUsuarios int
-	var semIDReconhecivel int
+	var semPisReconhecivel int
 	var amostra interface{}
 
 	for offset := 0; ; offset += tamanhoPagina {
@@ -276,14 +280,17 @@ func (c *Client) ListarUsuariosComBiometria() ([]int64, error) {
 			if !ok {
 				continue
 			}
-			userID, ok := m["id"].(float64)
+			// pis vem como numero JSON - CPF que comeca com zero perde esse zero na
+			// serializacao (ex.: CPF 08943857128 -> pis 8943857128, 10 digitos). %012d
+			// devolve exatamente o formato de 12 digitos de identificador_afd (armadilha 10).
+			pis, ok := m["pis"].(float64)
 			if !ok {
-				semIDReconhecivel++
+				semPisReconhecivel++
 				continue
 			}
 			templates, ok := m["templates"].([]interface{})
 			if ok && len(templates) > 0 {
-				ids = append(ids, int64(userID))
+				identificadores = append(identificadores, fmt.Sprintf("%012d", int64(pis)))
 			}
 		}
 
@@ -292,15 +299,11 @@ func (c *Client) ListarUsuariosComBiometria() ([]int64, error) {
 		}
 	}
 
-	// Campo "id" nao confirmado contra hardware real (a documentacao consultada nao mostrou
-	// exemplo com ele) - se NENHUM usuario teve "id" reconhecivel apesar de existirem usuarios,
-	// e mais provavel que o nome do campo esteja errado do que que o rele nao tenha ninguem
-	// cadastrado. Falhar alto em vez de devolver lista vazia em silencio.
-	if totalUsuarios > 0 && semIDReconhecivel == totalUsuarios {
+	if totalUsuarios > 0 && semPisReconhecivel == totalUsuarios {
 		return nil, fmt.Errorf(
-			"load_users.fcgi devolveu %d usuario(s) mas nenhum com campo 'id' reconhecivel - "+
-				"o nome do campo de identificador pode ser outro. Exemplo cru de um usuario: %v",
+			"load_users.fcgi devolveu %d usuario(s) mas nenhum com campo 'pis' reconhecivel - "+
+				"o nome do campo de identificador pode ser outro (modo 671 usa 'cpf'?). Exemplo cru: %v",
 			totalUsuarios, amostra)
 	}
-	return ids, nil
+	return identificadores, nil
 }

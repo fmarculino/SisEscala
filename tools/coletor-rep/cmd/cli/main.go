@@ -218,7 +218,7 @@ func rodarCadastrosTestar(cfg *config.Config) {
 	rc := rep.NovoClient(d.Endereco, d.Porta, d.UsaHTTPS, d.UsuarioRep, d.SenhaRep, d.CertFingerprint)
 
 	fmt.Println("ATENCAO: isto vai GRAVAR um usuario de teste no rele de verdade.")
-	fmt.Println("Nome usado: 'SISESCALA TESTE - PODE APAGAR' / matricula 'TESTE000' — apague pela")
+	fmt.Println("Nome usado: 'SISESCALA TESTE - PODE APAGAR' / matricula '900000' — apague pela")
 	fmt.Println("interface do proprio equipamento depois de conferir o resultado abaixo.\n")
 
 	if err := rc.Login(); err != nil {
@@ -227,19 +227,17 @@ func rodarCadastrosTestar(cfg *config.Config) {
 	}
 	fmt.Println("login no REP: OK")
 
-	// CPF de teste valido (passa no digito verificador) - "00000000000" foi recusado pelo rele
-	// com "'cpf' em formato incorreto": o equipamento valida o digito verificador de verdade,
-	// nao so a forma. 011144477735 -> right(11) = 11144477735, um CPF de teste sintaticamente
-	// valido e amplamente usado em QA de sistemas brasileiros (nunca emitido de verdade).
-	deviceUserID, err := rc.CriarUsuario("TESTE000", "SISESCALA TESTE - PODE APAGAR", "011144477735")
+	// matricula precisa ser numerica - confirmado em 12/08/2026 que 'registration' no device e
+	// numero (visto real: 2.600005e+06). CPF de teste valido (passa no digito verificador) -
+	// "00000000000" foi recusado com "'cpf' em formato incorreto". 011144477735 -> right(11) =
+	// 11144477735, um CPF de teste sintaticamente valido e amplamente usado em QA de sistemas
+	// brasileiros (nunca emitido de verdade).
+	err := rc.CriarUsuario("900000", "SISESCALA TESTE - PODE APAGAR", "011144477735")
 	if err != nil {
 		fmt.Printf("CriarUsuario: FALHOU — %v\n", err)
-		fmt.Println("\nA mensagem acima, se tiver a resposta crua do rele, e o que decide o proximo passo:")
-		fmt.Println("o objeto/campo certo pode ter nome diferente do assumido (object \"users\",")
-		fmt.Println("campos name/registration/pis) - ajuste rep/client.go e teste de novo antes de")
-		fmt.Println("habilitar isto em producao.")
+		fmt.Println("\nA mensagem acima, se tiver a resposta crua do rele, e o que decide o proximo passo.")
 	} else {
-		fmt.Printf("CriarUsuario: OK — device_user_id=%d\n", deviceUserID)
+		fmt.Println("CriarUsuario: OK")
 	}
 
 	comBiometria, err := rc.ListarUsuariosComBiometria()

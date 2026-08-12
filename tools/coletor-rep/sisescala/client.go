@@ -168,10 +168,12 @@ func (c *Client) ConfirmarCadastro(filaID string, sucesso bool, deviceUserID *in
 	return nil
 }
 
-// ReportarBiometria envia os device_user_id que atualmente têm biometria cadastrada no
-// relógio — só liga a flag do lado do SisEscala, nunca desliga (ver fn_atualizar_biometria_vinculos).
-func (c *Client) ReportarBiometria(deviceUserIDs []int64) error {
-	corpo, err := json.Marshal(map[string]interface{}{"device_user_ids": deviceUserIDs})
+// ReportarBiometria envia os identificador_afd (formato 12 dígitos) que atualmente têm
+// biometria cadastrada no relógio — só liga a flag do lado do SisEscala, nunca desliga (ver
+// fn_atualizar_biometria_vinculos). Casa por identificador_afd, não por um "id" de device que
+// esta linha de equipamento não expõe (confirmado 12/08/2026, ver rep/client.go).
+func (c *Client) ReportarBiometria(identificadoresAfd []string) error {
+	corpo, err := json.Marshal(map[string]interface{}{"identificadores_afd": identificadoresAfd})
 	if err != nil {
 		return err
 	}

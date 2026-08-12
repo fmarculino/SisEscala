@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.50.4] - 2026-08-12
+
+### Fixed
+- **Terceiro teste real (`load_users.fcgi` bem-sucedido, 6 usuários do piloto devolvidos)
+  revelou que este relógio não tem campo `"id"`** — só `pis`/`registration`/`code`/`rfid`/
+  `templates`, todos como **número JSON**, não string. Isso explicava também o erro anterior de
+  `CriarUsuario` (`'cpf' em formato incorreto`): o campo estava sendo enviado como string
+  (`"11144477735"`) quando o relógio espera número.
+  - `device_user_id` deixou de ser o identificador de referência entre SisEscala e relógio — não
+    existe, de verdade, nesta linha de equipamento. Passa a ser sempre `identificador_afd`
+    (mesmo formato de 12 dígitos já usado em `rep_vinculos_servidor` para o sentido AFD→servidor).
+  - `CriarUsuario` envia `registration`/`cpf` como número; recusa cedo (sem chamar o relógio) se
+    a matrícula não for numérica — **matrículas temporárias alfanuméricas (`T26xxxxx`) não podem
+    ser representadas neste campo do equipamento**, limitação real do hardware, não do código.
+  - `ListarUsuariosComBiometria` casa por `pis` (zero-padded para 12 dígitos — CPF que começa
+    com zero perde esse zero virando número JSON, mesma classe de bug da armadilha 10) em vez de
+    um `id` inexistente.
+  - `fn_atualizar_biometria_vinculos` (migration `20260812010000`) muda de `bigint[]` para
+    `text[]`, casando por `identificador_afd`.
+
+Ver [`docs/evolucao/2026-08-12-push-identidade-rele-fase7.md`](docs/evolucao/2026-08-12-push-identidade-rele-fase7.md).
+
 ## [1.50.3] - 2026-08-12
 
 ### Fixed
