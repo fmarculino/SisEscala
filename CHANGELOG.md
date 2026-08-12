@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.48.2] - 2026-08-11
+
+### Added
+- **`coletor-rep-tray` mescla `config.yaml` em vez de sobrescrever no auto-instalador.** Uma
+  máquina que precisa das duas modalidades (relógio + terminal) baixava dois `.zip` diferentes
+  — cada um com só uma seção preenchida — e o segundo instalador apagava a seção que o primeiro
+  tinha acabado de gravar, exigindo mesclar o YAML manualmente. `instalarConfig`
+  (`cmd/tray/main.go`) agora lê o `config.yaml` já instalado (se houver), faz o parse dos dois
+  com `gopkg.in/yaml.v3`, preserva a seção que o novo download não trouxe, e escreve o
+  resultado mesclado. Rodar os dois instaladores, em qualquer ordem, basta.
+
 ## [1.48.1] - 2026-08-11
 
 ### Fixed

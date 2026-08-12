@@ -30,6 +30,7 @@ import (
 	"github.com/gen2brain/beeep"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
+	"gopkg.in/yaml.v3"
 
 	"github.com/sms-maraba/sisescala-coletor-rep/ciclo"
 	"github.com/sms-maraba/sisescala-coletor-rep/config"
@@ -147,8 +148,8 @@ func autoInstalarERelancar(dirInstalado string) {
 		mostrarErroFatal("Falha ao instalar o executavel em " + dirInstalado + ": " + err.Error())
 		os.Exit(1)
 	}
-	if err := copiarArquivo(configOrigem, filepath.Join(dirInstalado, "config.yaml")); err != nil {
-		mostrarErroFatal("Falha ao copiar config.yaml: " + err.Error())
+	if err := instalarConfig(configOrigem, filepath.Join(dirInstalado, "config.yaml")); err != nil {
+		mostrarErroFatal("Falha ao instalar config.yaml: " + err.Error())
 		os.Exit(1)
 	}
 
@@ -188,6 +189,47 @@ func copiarArquivo(origem, destino string) error {
 
 	_, err = io.Copy(dst, src)
 	return err
+}
+
+// instalarConfig copia o config.yaml recém-baixado para o destino — MESCLANDO com um
+// config.yaml que já esteja instalado ali, em vez de sobrescrever. Cada download do SisEscala
+// só preenche a seção que o admin pediu (terminal_local OU dispositivo_rep); uma máquina que
+// precisa das duas modalidades roda os dois instaladores em sequência, e é isto que evita que
+// o segundo apague a seção que o primeiro já tinha gravado. Ninguém edita YAML na mão.
+func instalarConfig(configOrigem, configDestino string) error {
+	novoConteudo, err := os.ReadFile(configOrigem)
+	if err != nil {
+		return err
+	}
+
+	existenteConteudo, err := os.ReadFile(configDestino)
+	if err != nil {
+		// Nada instalado ainda (ou erro de leitura irrelevante aqui) - so copia.
+		return os.WriteFile(configDestino, novoConteudo, 0o644)
+	}
+
+	var existente, novo config.Config
+	if yaml.Unmarshal(existenteConteudo, &existente) != nil || yaml.Unmarshal(novoConteudo, &novo) != nil {
+		// Um dos dois nao parseou - nao arrisca mesclar dado que pode estar corrompido.
+		log.Printf("aviso: config.yaml existente ou novo nao parseou como YAML valido; sobrescrevendo sem mesclar")
+		return os.WriteFile(configDestino, novoConteudo, 0o644)
+	}
+
+	mesclado := novo
+	if novo.DispositivoRep == nil && existente.DispositivoRep != nil {
+		mesclado.DispositivoRep = existente.DispositivoRep
+		log.Println("config.yaml: preservada a secao dispositivo_rep de uma instalacao anterior")
+	}
+	if novo.TerminalLocal == nil && existente.TerminalLocal != nil {
+		mesclado.TerminalLocal = existente.TerminalLocal
+		log.Println("config.yaml: preservada a secao terminal_local de uma instalacao anterior")
+	}
+
+	saida, err := yaml.Marshal(&mesclado)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(configDestino, saida, 0o644)
 }
 
 func registrarAutostart(exePath string) error {

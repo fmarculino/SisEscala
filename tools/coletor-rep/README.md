@@ -35,6 +35,14 @@ Dois binários, pacotes internos (`rep/`, `sisescala/`, `fila/`, `terminal/`, `c
    tentativas seguidas (com notificação). Menu com "Sincronizar agora", "Abrir tela de
    presença", "Ver logs", "Sair".
 
+### Máquina que precisa das duas modalidades (relógio + terminal)
+
+Baixe os dois `.zip` (um em Terminais Locais, outro em Dispositivos REP) e rode os dois
+instaladores nela, em qualquer ordem — **não precisa editar `config.yaml` na mão**. Cada
+download só vem com a seção que você pediu, mas o segundo instalador **mescla** com o
+`config.yaml` que o primeiro já deixou instalado (`instalarConfig` em `cmd/tray/main.go`), em
+vez de sobrescrever. No fim sobra um `config.yaml` só, com as duas seções.
+
 ### ⚠️ Aviso do Windows na primeira execução — é esperado
 
 Sem certificado de assinatura de código (decisão consciente — ver
