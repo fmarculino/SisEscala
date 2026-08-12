@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.51.1] - 2026-08-12
+
+### Fixed
+- **`ass_adm` tinha sido liberado por engano para Servidores/Pendências de Cadastro junto com
+  coordenador** (v1.51.0) — a v1.51.0 replicou o agrupamento `isCoord` (coordenador + ass_adm)
+  que a sidebar já usava pra outras decisões de menu, mas o pedido original era só coordenador
+  (e diretor, que já tinha). Corrigido em três camadas (migration `20260812030000`):
+  - Sidebar: item de menu só aparece pra `coordenador`.
+  - RLS de `importacao_rh_pendentes`: policy só cita `coordenador`.
+  - `fn_promover_pendencia_rh`/`fn_atualizar_cadastro_via_pendencia_rh` ganharam allowlist de
+    papel explícito (`super_admin`/`admin`/`coordenador`) — a RLS fecha a listagem pela UI, mas
+    as RPCs continuavam alcançáveis direto (client Supabase, SQL) sem checar papel nenhum além
+    do que `fn_unidade_no_escopo` já garantia (que não distingue `ass_adm` de outros papéis com
+    `profile_unidades` preenchido).
+
 ## [1.51.0] - 2026-08-12
 
 ### Added

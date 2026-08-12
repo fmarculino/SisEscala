@@ -143,10 +143,11 @@ export function Sidebar({ user }: { user?: any }) {
   const isAdmin = userRole === 'admin'
   const isCoord = userRole === 'coordenador' || userRole === 'ass_adm'
 
-  // Coordenador/ass_adm passam a ver "Servidores" e "Pendências de Cadastro" dentro de
-  // CADASTROS (RLS já escopa quem eles enxergam/editam em servidores; a tela de pendências
-  // mostra pra eles só a própria unidade — ver page.tsx). O resto do grupo (Unidades, Setores,
-  // Cargos, Jornadas, Turnos, Feriados, Tipos de Afastamento) continua fora do alcance deles.
+  // Coordenador (só coordenador — NÃO ass_adm, decisão de 12/08/2026) passa a ver "Servidores"
+  // e "Pendências de Cadastro" dentro de CADASTROS (RLS já escopa quem ele enxerga/edita em
+  // servidores; a tela de pendências mostra só a própria unidade — ver page.tsx). O resto do
+  // grupo (Unidades, Setores, Cargos, Jornadas, Turnos, Feriados, Tipos de Afastamento)
+  // continua fora do alcance dele.
   const itensCadastrosParaCoord = ['Servidores', 'Pendências de Cadastro']
 
   const filteredGroups = menuGroups.map(group => {
@@ -163,9 +164,11 @@ export function Sidebar({ user }: { user?: any }) {
       }
 
       if (isCoord) {
-        // Coordenador não vê Sistema nem Auditoria & Gestão, e só uma fatia de Cadastros
+        // Coordenador/ass_adm não veem Sistema nem Auditoria & Gestão. Cadastros: só
+        // coordenador (não ass_adm) vê Servidores/Pendências; o resto do grupo fica fora dos
+        // dois.
         if (group.title === 'SISTEMA' || group.title === 'AUDITORIA & GESTÃO') return false
-        if (group.title === 'CADASTROS') return itensCadastrosParaCoord.includes(item.name)
+        if (group.title === 'CADASTROS') return userRole === 'coordenador' && itensCadastrosParaCoord.includes(item.name)
         return true
       }
 

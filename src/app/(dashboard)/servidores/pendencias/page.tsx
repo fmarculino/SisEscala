@@ -14,7 +14,10 @@ export default async function PendenciasCadastroPage() {
 
   const role = profile?.role
   const isFullAdmin = role === 'super_admin' || role === 'admin'
-  const isCoordEscopo = role === 'coordenador' || role === 'ass_adm'
+  // Só coordenador - ass_adm NÃO tem acesso a esta tela (decisão de 12/08/2026, corrigindo
+  // 20260812020000 que tinha liberado os dois seguindo o mesmo agrupamento que a sidebar usa
+  // pra outras decisões de menu).
+  const isCoordEscopo = role === 'coordenador'
   const isAuthorized = isFullAdmin || isCoordEscopo
 
   if (!isAuthorized) {
@@ -29,7 +32,7 @@ export default async function PendenciasCadastroPage() {
     )
   }
 
-  // Coordenador/ass_adm: só a importação de RH importa pra eles, e só da própria unidade (a
+  // Coordenador: só a importação de RH importa pra ele, e só da própria unidade (a
   // RLS nova de importacao_rh_pendentes já filtra isso sozinha - 20260812020000). As demais
   // consultas (documentos inválidos, duplicidades, sem CPF, transferências) são SECURITY
   // DEFINER e enxergam a base inteira de propósito - puladas aqui pra não vazar dado de outra
