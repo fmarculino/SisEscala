@@ -41,7 +41,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'tipo, id e token são obrigatórios.' }, { status: 400 })
   }
 
-  const origem = new URL(request.url).origin
+  const origem = resolverUrlPublica(request)
+  if (!origem) {
+    console.error(
+      'Nem NEXT_PUBLIC_SITE_URL nem X-Forwarded-Host disponíveis — não é seguro adivinhar a URL publica.'
+    )
+    return NextResponse.json(
+      { error: 'Configuração do servidor incompleta (URL pública desconhecida). Avise o administrador do sistema.' },
+      { status: 503 }
+    )
+  }
+
   const configYaml = tipo === 'terminal'
     ? montarConfigTerminal(origem, id, token)
     : montarConfigDispositivo(origem, id, token, enderecoIp)
@@ -70,6 +80,28 @@ export async function POST(request: Request) {
       'Content-Length': String(zip.length),
     },
   })
+}
+
+/**
+ * `new URL(request.url).origin` NÃO É CONFIÁVEL atrás do proxy do Coolify: já produziu
+ * `http://localhost:3000` num download real (o bind interno do servidor standalone, não o
+ * domínio público) — resultado inútil embutido no config.yaml de alguém tentando instalar.
+ * `NEXT_PUBLIC_SITE_URL` é a mesma variável que o link de sobreaviso por WhatsApp já usa
+ * (`src/app/actions/sobreaviso.ts`) por este exato motivo. `X-Forwarded-Host` é o fallback
+ * padrão de quem está atrás de um reverse proxy (Traefik envia esse header por padrão).
+ */
+function resolverUrlPublica(request: Request): string | null {
+  if (process.env.NEXT_PUBLIC_SITE_URL) {
+    return process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '')
+  }
+
+  const forwardedHost = request.headers.get('x-forwarded-host')
+  if (forwardedHost) {
+    const forwardedProto = request.headers.get('x-forwarded-proto') || 'https'
+    return `${forwardedProto}://${forwardedHost}`
+  }
+
+  return null
 }
 
 function montarConfigTerminal(origem: string, id: string, token: string): string {

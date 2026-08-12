@@ -2,6 +2,104 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.48.1] - 2026-08-11
+
+### Fixed
+- **`config.yaml` baixado em `/marcacoes` vinha com `sisescala.url: http://localhost:3000`.**
+  `new URL(request.url).origin` não é confiável atrás do proxy do Coolify — refletiu o bind
+  interno do servidor standalone (`localhost:3000`), não o domínio público, e ninguém percebeu
+  até um download real embutir isso no `config.yaml` de uma instalação de campo (o app abria o
+  navegador em `localhost:3000/presenca-local/ativar?...` → `ERR_CONNECTION_REFUSED`). Corrigido
+  em `src/app/api/coletor-rep/download/route.ts`: usa `NEXT_PUBLIC_SITE_URL` (a mesma variável
+  que o link de sobreaviso por WhatsApp já usa, `src/app/actions/sobreaviso.ts`, por este exato
+  motivo), com `X-Forwarded-Host`/`X-Forwarded-Proto` como fallback caso a variável não esteja
+  configurada. Antes falhava em silêncio embutindo uma URL errada; agora, sem nenhuma das duas
+  fontes disponíveis, devolve erro explícito em vez de adivinhar.
+
+## [1.48.0] - 2026-08-11
+
+### Added
+- **App de bandeja para o coletor-rep, substituindo o modelo de serviço do Windows.**
+  `tools/coletor-rep/` virou dois binários compartilhando os mesmos pacotes internos: `cmd/cli`
+  (diagnóstico manual, o que já existia) e `cmd/tray` (novo). `kardianos/service` foi removido,
+  não adaptado — serviço do Windows roda na Sessão 0, isolada da área de trabalho desde o
+  Vista, e por isso nunca pode mostrar ícone de bandeja nem abrir navegador na sessão do
+  usuário. O app de bandeja é um processo comum, com autostart via `HKCU\...\Run` (sem precisar
+  de administrador), auto-instalação no primeiro uso, ícone verde/vermelho conforme o ciclo de
+  sync, notificação (`gen2brain/beeep`) após falhas seguidas.
+- **Distribuição por download em `/marcacoes`**, em vez de copiar token à mão. Botão "Baixar
+  aplicativo" nos modais de Terminal Local e Dispositivo REP; nova rota
+  `POST /api/coletor-rep/download` empacota o binário pré-compilado
+  (`tools/coletor-rep/dist/coletor-rep-tray.exe`) com um `config.yaml` já preenchido com o
+  id/token daquele terminal/dispositivo específico. Zip montado sem dependência nova
+  (`src/utils/zip.ts`, formato STORE + CRC32 manual). `next.config.js` usa
+  `outputFileTracingIncludes` para incluir o binário no `output: 'standalone'` — ele fica fora
+  de `src/` e do rastreamento automático.
+- Windows 7 fica deliberadamente fora do escopo (Go 1.21+ já exige Windows 10+); sem
+  certificado de assinatura de código nem AD/GPO central sobre as unidades, o aviso do Windows
+  na primeira execução (SmartScreen na maioria das máquinas, ocasionalmente Smart App Control)
+  não dá para eliminar nesta rodada, só documentar.
+
+⚠️ Binário do app de bandeja não testado interativamente nesta sessão — Smart App Control
+bloqueou até `go run` na máquina onde foi escrito. Compila limpo e cada API externa foi
+conferida contra documentação real, mas o comportamento em tempo de execução precisa de
+validação numa máquina sem esse bloqueio. Ver
+[`docs/evolucao/2026-08-11-app-bandeja-coletor-rep.md`](docs/evolucao/2026-08-11-app-bandeja-coletor-rep.md).
+
+## [1.47.0] - 2026-08-11
+
+### Fixed
+- **Campo de data/hora do AFD tem 12 dígitos (`DDMMYYYYHHMM`), não 24 (ISO 8601).**
+  `fn_parse_linha_afd` (`20260808080000`) nascera assumindo o formato do exemplo ilustrativo do
+  plano (`2023-11-08T08:46:00-0300`) como os bytes reais — não são: o exemplo era uma
+  reformatação para leitura humana na documentação. O cast direto `::timestamptz` falhava
+  silenciosamente (capturado pelo `EXCEPTION` já existente) para toda linha tipo 3, e
+  `fn_ingerir_afd` nunca criava marcação nenhuma — uma sincronização trouxe 17.448 registros do
+  histórico completo do relógio e zero marcações. `linha_bruta` sempre esteve correta; o bug
+  era só na extração das colunas derivadas, recuperável via `parse_versao` sem tocar no
+  artefato legal. Migration `20260811190000` corrige os offsets e roda
+  `fn_reparse_afd_dispositivo` para todo dispositivo existente, recuperando retroativamente as
+  marcações que deveriam ter sido criadas desde o início. Confirmado em produção: 21 marcações
+  resolvidas para servidor (batidas reais do piloto, horários conferidos).
+- **Middleware redirecionava `/api/rep/v1/*` e `/api/presenca-local/*` para `/login`** por
+  falta de sessão Supabase — essas rotas autenticam por token de dispositivo ou cookie
+  assinado, nunca por sessão de navegador. Sintoma enganoso: `405 Method Not Allowed` em vez de
+  um redirect visível (o POST redirecionado caía numa página `GET`-only). Corrigido
+  acrescentando as duas rotas a `rotasApiPublicas`.
+- Windows: `cmd /c start` cortava a URL de ativação do terminal local no primeiro `&`
+  (separador de comando do `cmd.exe`) — `terminal/terminal.go` passa a usar
+  `rundll32 url.dll,FileProtocolHandler`.
+
+Ver [`docs/evolucao/2026-08-11-terminal-local-e-fechamento-fase4-rep.md`](docs/evolucao/2026-08-11-terminal-local-e-fechamento-fase4-rep.md).
+
+## [1.46.0] - 2026-08-11
+
+### Fixed
+- Ver 1.47.0 acima — o fix do middleware foi lançado nesta versão e re-detalhado ali junto do
+  fix do AFD, feito na sequência no mesmo dia.
+
+## [1.45.0] - 2026-08-11
+
+### Added
+- **Terminal local sem sessão de coordenador.** O terminal `/presenca` ativava com
+  `supabase.auth.signInWithPassword()` rodando no navegador da máquina do terminal — como o
+  fluxo real é "coordenador ativa e vai embora", aquele navegador ficava com uma sessão
+  Supabase Auth completa de coordenador/admin por dias, e servidores com acesso físico à
+  máquina usavam isso para alterações indevidas na retaguarda. Nova tabela `terminais_locais`
+  (`20260811180000`) com token por dispositivo (mesmo esquema sha256 de
+  `dispositivos_rep`); `fn_registrar_ponto_terminal_local` confere que a matrícula pertence à
+  unidade/setor do terminal — recusando **antes** de checar o PIN — e delega para
+  `fn_registrar_ponto` sem tocar nela. O navegador do terminal nunca mais chama
+  `supabase.auth`: ativa por um cookie httpOnly assinado com HMAC
+  (`src/utils/terminalLocalSession.ts`), revogável na hora via `terminais_locais.ativo`.
+  `/presenca` clássico não foi alterado — continua existindo para unidades sem o app local.
+- **Fechamento em código da Fase 4** do plano de integração com o relógio de ponto (parada em
+  08/08/2026): rotas `/api/rep/v1/*` com autenticação por token de dispositivo + assinatura
+  HMAC anti-replay, módulo `/marcacoes` (Terminais Locais, Dispositivos REP, Pendências), e o
+  coletor local em Go (`tools/coletor-rep`).
+
+Ver [`docs/evolucao/2026-08-11-terminal-local-e-fechamento-fase4-rep.md`](docs/evolucao/2026-08-11-terminal-local-e-fechamento-fase4-rep.md).
+
 ## [1.44.0] - 2026-08-11
 
 ### Fixed

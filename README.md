@@ -1,4 +1,4 @@
-# SisEscala 📅[![Version](https://img.shields.io/badge/version-1.21.0-green.svg)](https://github.com/fmarculino/SisEscala)
+# SisEscala 📅[![Version](https://img.shields.io/badge/version-1.48.0-green.svg)](https://github.com/fmarculino/SisEscala)
 [![Next.js](https://img.shields.io/badge/framework-Next.js%2015-black.svg)](https://nextjs.org/)
 [![Supabase](https://img.shields.io/badge/backend-Supabase-green.svg)](https://supabase.com/)
 [![Tailwind CSS](https://img.shields.io/badge/styling-Tailwind%20CSS-38B2AC.svg)](https://tailwindcss.com/)
@@ -115,8 +115,8 @@ O sistema foca em **governança, segurança jurídica e eficiência operacional*
 - **Linguagem**: [TypeScript](https://www.typescriptlang.org/)
 - **Estilização**: [Tailwind CSS](https://tailwindcss.com/)
 - **Ícones**: [Lucide React](https://lucide.dev/)
-- **Backend/Banco de Dados**: [Supabase](https://supabase.com/) (PostgreSQL + RLS + Auth)
-- **Deployment**: [Vercel](https://vercel.com/)
+- **Backend/Banco de Dados**: [Supabase](https://supabase.com/) (PostgreSQL + RLS + Auth), self-hospedado
+- **Deployment**: [Coolify](https://coolify.io/) numa VPS própria — deploy automático a cada push na `main`
 
 ---
 
