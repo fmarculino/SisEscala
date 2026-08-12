@@ -90,6 +90,14 @@ interface PendenciasCadastroClientProps {
   }[]
   erroSolicitacoesTransferencia: string | null
   isSuperAdmin: boolean
+  /**
+   * true pra coordenador/ass_adm: só a seção de importação de RH (escopada pela própria
+   * unidade via RLS) é relevante pra eles. As demais seções são `SECURITY DEFINER` e enxergam
+   * a base inteira sem escopo de unidade/setor, de propósito (armadilha do CLAUDE.md sobre
+   * `fn_documentos_invalidos`/`fn_possiveis_duplicidades_servidor`) — abri-las pra coordenador
+   * vazaria CPF/nome de servidor de outras unidades.
+   */
+  escopoLimitado: boolean
 }
 
 const CRITERIO_LABEL: Record<Duplicidade['criterio'], string> = {
@@ -149,6 +157,7 @@ export function PendenciasCadastroClient({
   erroDocumentos, erroDuplicidades,
   pendentesRh, erroPendentesRh, unidades, setores, cargos,
   solicitacoesTransferencia, erroSolicitacoesTransferencia, isSuperAdmin,
+  escopoLimitado,
 }: PendenciasCadastroClientProps) {
   const [buscaSemCpf, setBuscaSemCpf] = useState('')
   const [gruposAbertos, setGruposAbertos] = useState<Set<string>>(new Set())
@@ -170,6 +179,31 @@ export function PendenciasCadastroClient({
       else next.add(chave)
       return next
     })
+  }
+
+  if (escopoLimitado) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-white">Pendências de Cadastro</h1>
+          <p className="mt-2 text-zinc-600 dark:text-zinc-400">
+            Vínculos importados do RH aguardando virar cadastro ativo na sua unidade.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:max-w-xs gap-4">
+          <StatCard icon={UserPlus} label="Importados aguardando cadastro" value={pendentesRh.length} tone={pendentesRh.length ? 'amber' : 'green'} note="da sua unidade" />
+        </div>
+
+        <ImportacaoRhSection
+          pendentesRh={pendentesRh}
+          erroPendentesRh={erroPendentesRh}
+          unidades={unidades}
+          setores={setores}
+          cargos={cargos}
+        />
+      </div>
+    )
   }
 
   return (

@@ -1,11 +1,19 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
   UserPlus, Search, ChevronLeft, ChevronRight, CheckCircle2, Info, Users2, X, Loader2,
 } from 'lucide-react'
-import { promoverPendenciaRh } from '../actions'
+import { promoverPendenciaRh, buscarConflitoCpf, atualizarCadastroViaPendenciaRh } from '../actions'
+
+interface ConflitoCpf {
+  servidor_id: string
+  nome: string
+  matricula: string | null
+  unidade_nome: string | null
+  status: string
+}
 
 interface PendenteRh {
   id: string
@@ -194,13 +202,27 @@ function LinhaPendente({ pendente, aberta, onToggle, onPromovido, unidades, seto
   const [unidadeId, setUnidadeId] = useState(pendente.unidade_id || '')
   const [setorId, setSetorId] = useState('')
   const [cargoId, setCargoId] = useState(cargoInicial)
-  const [confirmaVinculoAdicional, setConfirmaVinculoAdicional] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
 
+  // Conflito de CPF é checado proativamente ao abrir a linha — não mais reativo a um erro de
+  // "confirme de novo". undefined = ainda não checou; null = checou, sem conflito.
+  const [conflito, setConflito] = useState<ConflitoCpf | null | undefined>(undefined)
+  const [checandoConflito, setChecandoConflito] = useState(false)
+  const [escolha, setEscolha] = useState<'duplo' | 'atualizar' | null>(null)
+
+  useEffect(() => {
+    if (!aberta || conflito !== undefined) return
+    setChecandoConflito(true)
+    buscarConflitoCpf(pendente.id).then(res => {
+      setConflito((res as any)?.conflito ?? null)
+      setChecandoConflito(false)
+    })
+  }, [aberta, conflito, pendente.id])
+
   const setoresDaUnidade = useMemo(() => setores.filter(s => s.unidade_id === unidadeId), [setores, unidadeId])
 
-  async function handleConfirmar() {
+  async function handleConfirmarVinculoDuplo() {
     const cargoNome = cargos.find(c => c.id === cargoId)?.nome
     if (!unidadeId || !setorId || !cargoNome) {
       setErro('Unidade, setor e cargo são obrigatórios.')
@@ -208,7 +230,37 @@ function LinhaPendente({ pendente, aberta, onToggle, onPromovido, unidades, seto
     }
     setSalvando(true)
     setErro(null)
-    const res = await promoverPendenciaRh(pendente.id, unidadeId, setorId, cargoNome, confirmaVinculoAdicional)
+    const res = await promoverPendenciaRh(pendente.id, unidadeId, setorId, cargoNome, true)
+    setSalvando(false)
+    if (res?.error) {
+      setErro(res.error)
+      return
+    }
+    onPromovido()
+  }
+
+  async function handleAtualizarExistente() {
+    if (!conflito) return
+    setSalvando(true)
+    setErro(null)
+    const res = await atualizarCadastroViaPendenciaRh(pendente.id, conflito.servidor_id)
+    setSalvando(false)
+    if (res?.error) {
+      setErro(res.error)
+      return
+    }
+    onPromovido()
+  }
+
+  async function handleConfirmarNovoCadastro() {
+    const cargoNome = cargos.find(c => c.id === cargoId)?.nome
+    if (!unidadeId || !setorId || !cargoNome) {
+      setErro('Unidade, setor e cargo são obrigatórios.')
+      return
+    }
+    setSalvando(true)
+    setErro(null)
+    const res = await promoverPendenciaRh(pendente.id, unidadeId, setorId, cargoNome, false)
     setSalvando(false)
     if (res?.error) {
       setErro(res.error)
@@ -242,75 +294,139 @@ function LinhaPendente({ pendente, aberta, onToggle, onPromovido, unidades, seto
 
       {aberta && (
         <div className="p-4 space-y-4 border-t border-zinc-200 dark:border-zinc-800">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-1">Unidade</label>
-              <select
-                value={unidadeId}
-                onChange={e => { setUnidadeId(e.target.value); setSetorId('') }}
-                className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-white"
-              >
-                <option value="">Selecione...</option>
-                {unidades.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
-              </select>
-              {!pendente.unidade_id && (
-                <p className="mt-1 text-[10px] text-zinc-400">
-                  Sem match automático. Se a unidade certa não existe, <Link href="/unidades/nova" target="_blank" className="text-blue-600 dark:text-blue-400 underline">crie-a</Link> e volte aqui.
+          {checandoConflito && (
+            <p className="flex items-center gap-2 text-xs text-zinc-400">
+              <Loader2 className="h-3 w-3 animate-spin" /> Conferindo se este CPF já está cadastrado...
+            </p>
+          )}
+
+          {conflito && (
+            <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-500/10 p-4 space-y-3">
+              <p className="text-sm text-amber-900 dark:text-amber-200 flex items-start gap-2">
+                <Info className="h-4 w-4 mt-0.5 shrink-0" />
+                <span>
+                  Já existe um cadastro com este CPF: <b>{conflito.nome}</b> (matrícula{' '}
+                  {conflito.matricula || '—'}{conflito.unidade_nome ? `, ${conflito.unidade_nome}` : ''}).
+                  O que isto é?
+                </span>
+              </p>
+              <div className="space-y-2 pl-1">
+                <label className="flex items-start gap-2 text-sm text-amber-900 dark:text-amber-200 cursor-pointer">
+                  <input
+                    type="radio"
+                    name={`escolha-${pendente.id}`}
+                    className="mt-0.5"
+                    checked={escolha === 'atualizar'}
+                    onChange={() => setEscolha('atualizar')}
+                  />
+                  <span>
+                    <b>É atualização do cadastro existente.</b> Preenche só o que estiver vazio
+                    no cadastro de {conflito.nome} — nunca sobrescreve o que já está preenchido,
+                    e não mexe em matrícula, unidade, setor nem status.
+                  </span>
+                </label>
+                <label className="flex items-start gap-2 text-sm text-amber-900 dark:text-amber-200 cursor-pointer">
+                  <input
+                    type="radio"
+                    name={`escolha-${pendente.id}`}
+                    className="mt-0.5"
+                    checked={escolha === 'duplo'}
+                    onChange={() => setEscolha('duplo')}
+                  />
+                  <span>
+                    <b>É um vínculo adicional de verdade.</b> Mesma pessoa, outro cargo/lotação —
+                    cria um cadastro novo, separado do existente.
+                  </span>
+                </label>
+              </div>
+              {escolha === 'atualizar' && pendente.unidade_nome && conflito.unidade_nome && pendente.unidade_nome !== conflito.unidade_nome && (
+                <p className="text-xs text-amber-700 dark:text-amber-400 flex items-start gap-2">
+                  <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  O RH indica unidade <b>{pendente.unidade_nome}</b>; o cadastro atual está em{' '}
+                  <b>{conflito.unidade_nome}</b> — isso não muda aqui. Se for mesmo mudança de
+                  lotação, trate na ficha do servidor (exige aprovação do Administrador Geral).
                 </p>
               )}
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-1">Setor</label>
-              <select
-                value={setorId}
-                onChange={e => setSetorId(e.target.value)}
-                disabled={!unidadeId}
-                className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-white disabled:opacity-50"
-              >
-                <option value="">{unidadeId ? 'Selecione...' : 'Escolha a unidade primeiro'}</option>
-                {setoresDaUnidade.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
-              </select>
+          )}
+
+          {(conflito === null || escolha === 'duplo') && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-1">Unidade</label>
+                <select
+                  value={unidadeId}
+                  onChange={e => { setUnidadeId(e.target.value); setSetorId('') }}
+                  className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-white"
+                >
+                  <option value="">Selecione...</option>
+                  {unidades.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
+                </select>
+                {!pendente.unidade_id && (
+                  <p className="mt-1 text-[10px] text-zinc-400">
+                    Sem match automático. Se a unidade certa não existe, <Link href="/unidades/nova" target="_blank" className="text-blue-600 dark:text-blue-400 underline">crie-a</Link> e volte aqui.
+                  </p>
+                )}
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-1">Setor</label>
+                <select
+                  value={setorId}
+                  onChange={e => setSetorId(e.target.value)}
+                  disabled={!unidadeId}
+                  className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-white disabled:opacity-50"
+                >
+                  <option value="">{unidadeId ? 'Selecione...' : 'Escolha a unidade primeiro'}</option>
+                  {setoresDaUnidade.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-1">Cargo</label>
+                <select
+                  value={cargoId}
+                  onChange={e => setCargoId(e.target.value)}
+                  className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-white"
+                >
+                  <option value="">Selecione...</option>
+                  {cargos.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                </select>
+              </div>
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-1">Cargo</label>
-              <select
-                value={cargoId}
-                onChange={e => setCargoId(e.target.value)}
-                className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-white"
-              >
-                <option value="">Selecione...</option>
-                {cargos.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-              </select>
-            </div>
-          </div>
+          )}
 
           {erro && (
-            <div className="rounded-md bg-red-50 dark:bg-red-900/20 p-3 space-y-2">
+            <div className="rounded-md bg-red-50 dark:bg-red-900/20 p-3">
               <p className="text-sm text-red-700 dark:text-red-400">{erro}</p>
-              {erro.includes('vinculo adicional') || erro.includes('vínculo adicional') ? (
-                <label className="flex items-start gap-2 text-sm text-red-800 dark:text-red-300">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5"
-                    checked={confirmaVinculoAdicional}
-                    onChange={e => setConfirmaVinculoAdicional(e.target.checked)}
-                  />
-                  Confirmo: é a mesma pessoa, com um vínculo adicional de verdade — não é cadastro
-                  duplicado. Clique em confirmar de novo.
-                </label>
-              ) : null}
             </div>
           )}
 
           <div className="flex justify-end">
-            <button
-              onClick={handleConfirmar}
-              disabled={salvando}
-              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-              {salvando ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-              Confirmar cadastro
-            </button>
+            {(() => {
+              const semEscolhaAinda = !!conflito && !escolha
+              const desabilitado = checandoConflito || salvando || semEscolhaAinda
+              const rotulo = checandoConflito
+                ? 'Verificando...'
+                : semEscolhaAinda
+                  ? 'Escolha uma opção acima'
+                  : escolha === 'atualizar'
+                    ? 'Atualizar cadastro existente'
+                    : escolha === 'duplo'
+                      ? 'Confirmar cadastro novo (vínculo adicional)'
+                      : 'Confirmar cadastro'
+              const aoClicar = escolha === 'atualizar' ? handleAtualizarExistente
+                : escolha === 'duplo' ? handleConfirmarVinculoDuplo
+                : handleConfirmarNovoCadastro
+              return (
+                <button
+                  onClick={aoClicar}
+                  disabled={desabilitado}
+                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {salvando ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                  {rotulo}
+                </button>
+              )
+            })()}
           </div>
         </div>
       )}

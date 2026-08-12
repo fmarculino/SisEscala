@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.51.0] - 2026-08-12
+
+### Added
+- **Coordenador/ass_adm ganham acesso a "Servidores" e "Pendências de Cadastro"** — a intenção
+  original da importação de dados de RH (v1.42.0) era usar o backlog de "Importados aguardando
+  cadastro" pra facilitar a inclusão de servidores, mas só quem tinha acesso admin conseguia
+  fazer isso.
+  - "Servidores" precisou só de mudança na sidebar — a RLS (`"Scoped access for Admins and
+    Coordinators"`, `20260618080000`) já incluía `coordenador` explicitamente, escopado por
+    unidade/setor.
+  - "Pendências de Cadastro" ganhou uma versão enxuta pra coordenador/ass_adm: só a importação
+    de RH da própria unidade (nova policy de RLS em `importacao_rh_pendentes`, migration
+    `20260812020000`). As duas seções que enxergam a base inteira sem escopo (documentos com
+    dígito inválido, duplicidades suspeitas) continuam admin/super_admin apenas — são
+    `SECURITY DEFINER` de propósito, e abrir isso pra coordenador vazaria CPF/nome de servidor
+    de outras unidades.
+- **Nova opção "é atualização de um cadastro que já existe"** no conflito de CPF da importação
+  de RH — antes só existia "confirmo que é vínculo adicional" (que sempre cria um cadastro
+  novo). `fn_atualizar_cadastro_via_pendencia_rh` (migration `20260812020000`) só preenche campo
+  vazio (nunca sobrescreve o que já está preenchido) e nunca toca matrícula/unidade/setor/status
+  — mudar lotação continua exigindo o fluxo de solicitação com aprovação do Administrador Geral
+  (v1.43.0, criado depois do incidente real da THIELE/KETTELE). Divergência de lotação vira só
+  um aviso na tela.
+  - O painel de conflito deixou de depender de uma mensagem de erro pra aparecer: nova action
+    `buscarConflitoCpf` chama `fn_cpf_ja_cadastrado` (já existente, `20260809110000`) assim que
+    a linha é aberta, e mostra as duas opções lado a lado, explícitas, em vez de uma checkbox
+    escondida atrás de um erro.
+  - `fn_promover_pendencia_rh` ganhou checagem de escopo (`fn_unidade_no_escopo`) — não validava
+    papel nenhum antes, porque só era alcançável pela UI admin-only; agora que coordenador chama
+    direto, só promove pra dentro da própria unidade.
+
 ## [1.50.6] - 2026-08-12
 
 ### Notes

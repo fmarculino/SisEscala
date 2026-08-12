@@ -1245,6 +1245,68 @@ export async function promoverPendenciaRh(
 }
 
 /**
+ * Resolve o conflito de CPF de uma pendência de importação de RH — quem já está cadastrado com
+ * esse CPF, se houver. Chamada uma vez, ao abrir a linha na tela (não N+1 na lista inteira).
+ * `fn_cpf_ja_cadastrado` é `SECURITY DEFINER` (enxerga a base inteira, de propósito — a mesma
+ * razão de `20260809110000`), então isso funciona mesmo pra coordenador vendo só sua unidade na
+ * lista: se o CPF colidir com alguém de outra unidade, ele ainda vê que existe conflito (só não
+ * consegue promover/atualizar pra fora do próprio escopo — isso é bloqueado nas RPCs).
+ */
+export async function buscarConflitoCpf(pendenciaId: string) {
+  const supabase = await createClient()
+
+  const { data: pend, error: erroPend } = await supabase
+    .from('importacao_rh_pendentes')
+    .select('cpf_normalizado')
+    .eq('id', pendenciaId)
+    .single()
+  if (erroPend || !pend) return { error: 'Pendência não encontrada.' }
+
+  const { data, error } = await supabase.rpc('fn_cpf_ja_cadastrado', { p_cpf: pend.cpf_normalizado })
+  if (error) return { error: error.message }
+
+  return { conflito: (data && data[0]) || null }
+}
+
+/**
+ * "É atualização de um cadastro que já existe" — a opção que faltava ao lado de "vínculo
+ * adicional" (que sempre cria um cadastro novo). A escrita real acontece em
+ * `fn_atualizar_cadastro_via_pendencia_rh` (20260812020000, SECURITY DEFINER): só preenche campo
+ * vazio (nunca sobrescreve o que já está preenchido) e nunca toca matrícula/unidade/setor/status
+ * — mudar lotação continua exigindo o fluxo de solicitação com aprovação do super_admin
+ * (v1.43.0). O diff pro log de auditoria é calculado aqui, comparando antes/depois.
+ */
+export async function atualizarCadastroViaPendenciaRh(pendenciaId: string, servidorId: string) {
+  const supabase = await createClient()
+
+  const { data: antes } = await supabase.from('servidores').select('*').eq('id', servidorId).single()
+
+  const { data, error } = await supabase.rpc('fn_atualizar_cadastro_via_pendencia_rh', {
+    p_pendencia_id: pendenciaId,
+    p_servidor_id: servidorId,
+  })
+  if (error) return { error: error.message }
+
+  const { data: depois } = await supabase.from('servidores').select('*').eq('id', servidorId).single()
+
+  const { data: { user: autor } } = await supabase.auth.getUser()
+  await registrarLog({
+    acao: 'SERVIDOR_EDITADO',
+    entidade: 'servidor',
+    entidadeId: servidorId,
+    userId: autor?.id || null,
+    alteracoes: calcularAlteracoes(antes, depois),
+    detalhes: { origem: 'importacao_rh_2026_07', pendenciaId, viaAtualizacaoPendenciaRh: true },
+    unidadeId: depois?.unidade_id || null,
+    setorId: depois?.setor_id || null,
+  })
+
+  revalidatePath('/servidores/pendencias')
+  revalidatePath('/servidores')
+  return { success: true, servidorId: data as string }
+}
+
+/**
  * Aprova ou rejeita um pedido de transferência de unidade/setor (v1.43.0). Só `super_admin` —
  * a RLS de `solicitacoes_transferencia_servidor` (20260811110000) já recusaria o `UPDATE` de
  * qualquer outro papel, mas a checagem aqui dá mensagem legível em vez do erro cru da policy.

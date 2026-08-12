@@ -8,15 +8,14 @@ export default async function PendenciasCadastroPage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role')
+    .select('role, acesso_todas_unidades, profile_unidades(unidade_id)')
     .eq('id', user?.id)
     .single()
 
-  // Fase 5 do plano de validacao de documentos: fn_documentos_invalidos e
-  // fn_possiveis_duplicidades_servidor sao SECURITY DEFINER e enxergam a base inteira, sem
-  // escopo por unidade/setor - de proposito, e' o ponto delas. A tela precisa do mesmo gate
-  // que /usuarios usa, nao da RLS de servidores (que so' restringe por unidade/setor).
-  const isAuthorized = profile?.role === 'super_admin' || profile?.role === 'admin'
+  const role = profile?.role
+  const isFullAdmin = role === 'super_admin' || role === 'admin'
+  const isCoordEscopo = role === 'coordenador' || role === 'ass_adm'
+  const isAuthorized = isFullAdmin || isCoordEscopo
 
   if (!isAuthorized) {
     return (
@@ -27,6 +26,84 @@ export default async function PendenciasCadastroPage() {
           <p className="mt-2 text-zinc-600 dark:text-zinc-400">Você não tem permissão para ver pendências de cadastro.</p>
         </div>
       </div>
+    )
+  }
+
+  // Coordenador/ass_adm: só a importação de RH importa pra eles, e só da própria unidade (a
+  // RLS nova de importacao_rh_pendentes já filtra isso sozinha - 20260812020000). As demais
+  // consultas (documentos inválidos, duplicidades, sem CPF, transferências) são SECURITY
+  // DEFINER e enxergam a base inteira de propósito - puladas aqui pra não vazar dado de outra
+  // unidade nem gastar consulta à toa.
+  if (isCoordEscopo) {
+    const permittedUnidades = ((profile as any)?.profile_unidades || []).map((pu: any) => pu.unidade_id)
+
+    async function buscarPendentesRhEscopado() {
+      const linhas: any[] = []
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabase
+          .from('importacao_rh_pendentes')
+          .select('id, nome, matricula, classificacao, cargo_sugerido, unidade_id, departamento_origem, vinculo_adicional_de_cpf, criado_em, unidades(nome)')
+          .is('promovido_em', null)
+          .order('nome')
+          .range(from, from + 999)
+        if (error) return { data: null, error }
+        linhas.push(...(data || []))
+        if (!data || data.length < 1000) break
+      }
+      return { data: linhas, error: null }
+    }
+
+    const [pendentesRhRes, unidadesRes, setoresRes, cargosRes] = await Promise.all([
+      buscarPendentesRhEscopado(),
+      // Unidade fora do escopo do coordenador nunca aparece no seletor - promover pra lá é
+      // recusado pela RPC de qualquer forma, mas mostrar a opção seria confuso (CLAUDE.md:
+      // "direcionar pra onde é mais prático").
+      profile?.acesso_todas_unidades
+        ? supabase.from('unidades').select('id, nome').order('nome')
+        : supabase.from('unidades').select('id, nome').in('id', permittedUnidades.length ? permittedUnidades : ['00000000-0000-0000-0000-000000000000']).order('nome'),
+      supabase.from('setores').select('id, unidade_id, dicionario_setores(nome)').order('id'),
+      supabase.from('cargos').select('id, nome').eq('ativo', true).order('nome'),
+    ])
+
+    const pendentesRh = (pendentesRhRes.data || []).map((p: any) => {
+      const unidadeData = Array.isArray(p.unidades) ? p.unidades[0] : p.unidades
+      return {
+        id: p.id,
+        nome: p.nome,
+        matricula: p.matricula,
+        classificacao: p.classificacao,
+        cargo_sugerido: p.cargo_sugerido,
+        unidade_id: p.unidade_id,
+        unidade_nome: unidadeData?.nome || null,
+        departamento_origem: p.departamento_origem,
+        vinculo_adicional_de_cpf: p.vinculo_adicional_de_cpf,
+      }
+    })
+
+    const setoresRh = (setoresRes.data || []).map((s: any) => {
+      const dictData = Array.isArray(s.dicionario_setores) ? s.dicionario_setores[0] : s.dicionario_setores
+      return { id: s.id, unidade_id: s.unidade_id, nome: dictData?.nome || 'SETOR SEM NOME' }
+    })
+
+    return (
+      <PendenciasCadastroClient
+        documentosInvalidos={[]}
+        duplicidades={[]}
+        semCpf={[]}
+        totalServidores={0}
+        semPisCount={0}
+        erroDocumentos={null}
+        erroDuplicidades={null}
+        pendentesRh={pendentesRh}
+        erroPendentesRh={pendentesRhRes.error?.message || null}
+        unidades={unidadesRes.data || []}
+        setores={setoresRh}
+        cargos={cargosRes.data || []}
+        solicitacoesTransferencia={[]}
+        erroSolicitacoesTransferencia={null}
+        isSuperAdmin={false}
+        escopoLimitado
+      />
     )
   }
 
@@ -164,6 +241,7 @@ export default async function PendenciasCadastroPage() {
       solicitacoesTransferencia={solicitacoesTransferencia}
       erroSolicitacoesTransferencia={solicitacoesTransferenciaRes.error?.message || null}
       isSuperAdmin={isSuperAdmin}
+      escopoLimitado={false}
     />
   )
 }
