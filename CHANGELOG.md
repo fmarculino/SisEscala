@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.50.6] - 2026-08-12
+
+### Notes
+- **Push de identidade (Fase 7) confirmado contra hardware real** — quinto e último teste de
+  `coletor-rep-cli cadastros-testar` contra 10.110.2.89: `CriarUsuario` criou um usuário de
+  teste real no relógio; `ListarUsuariosComBiometria` achou os 5 servidores reais do piloto com
+  biometria já cadastrada, CPFs batendo. Documentação (`rep/client.go`, `CLAUDE.md`,
+  `tools/coletor-rep/README.md`) atualizada de "não validado" para confirmado. Continua fora do
+  ciclo automático da bandeja por prudência com escrita em equipamento de produção, não por
+  dúvida sobre o formato — só roda por clique manual ou `coletor-rep cadastros`.
+
 ## [1.50.5] - 2026-08-12
 
 ### Fixed

@@ -40,9 +40,12 @@ Dois binários, pacotes internos (`rep/`, `sisescala/`, `fila/`, `terminal/`, `c
 
 Envia matrícula/nome/CPF (nunca biometria — isso sempre exige alguém presencial no equipamento)
 dos servidores enfileirados em **Marcações → Dispositivos REP → editar → Sincronizar cadastros**.
-⚠️ **Diferente do resto deste app, essa função nunca foi validada contra hardware real** — ver
-aviso extenso em `rep/client.go`. Antes de confiar nela numa unidade nova, rode
-`coletor-rep-cli cadastros-testar` (abaixo) contra o relógio dessa unidade.
+✅ Confirmada contra hardware real em 12/08/2026 (ver `rep/client.go`) — matrícula temporária
+(`T26xxxxx`) tem o `T` removido antes de virar número no relógio, mesma convenção já usada
+manualmente ali. Mesmo assim, continua fora do ciclo automático (só clique manual ou
+`coletor-rep cadastros`) por prudência com escrita em equipamento de produção — antes de confiar
+numa **unidade nova**, rode `coletor-rep-cli cadastros-testar` (abaixo) contra o relógio dela,
+porque hardware/firmware diferentes podem responder diferente.
 
 ### Não dá para "testar IP/usuário/senha" pela tela do SisEscala
 

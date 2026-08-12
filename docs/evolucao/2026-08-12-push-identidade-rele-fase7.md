@@ -64,6 +64,34 @@ marcado como teste, imprime a resposta crua em caso de erro, e não risca a fila
 relógio dessa unidade primeiro, e só depois usar o botão da bandeja ou "Sincronizar cadastros"
 pela tela.
 
+## Resultado dos testes reais (fecha em 12/08/2026)
+
+`coletor-rep-cli cadastros-testar` rodado cinco vezes contra o relógio de teste (10.110.2.89),
+cada rodada corrigindo o que a anterior revelou:
+
+1. API genérica "objects" (`create_objects.fcgi`/`load_objects.fcgi`) — HTTP 400 "Invalid
+   command". Era a API da Linha de Acesso da Control iD (iDAccess/iDFlex/iDBlock), não a linha
+   REP/iDClass deste equipamento.
+2. `add_users.fcgi`/`load_users.fcgi` (pesquisados na documentação oficial da Control iD) —
+   comando certo, mas CPF de teste `"000000000000"` reprovado no dígito verificador e
+   `limit: 1000` acima do máximo documentado (100).
+3. Corrigidos CPF de teste e paginação — `load_users.fcgi` devolveu **6 usuários reais do
+   piloto com sucesso**, revelando que o objeto "user" deste device **não tem campo `"id"`** — só
+   `pis`/`registration`/`code`/`rfid`/`templates`, todos como **número JSON**, não string.
+4. `registration`/`cpf` passam a ser enviados como número; `device_user_id` (que não existe de
+   verdade neste hardware) foi substituído por `identificador_afd` como identidade de
+   referência em toda a cadeia.
+5. Matrícula temporária (`T26xxxxx`) — o usuário confirmou que a convenção já em uso manual
+   neste mesmo relógio, para os servidores temporários já cadastrados nele, é remover o `T` e
+   tratar o resto como número. Não estava documentada em lugar nenhum do repositório; replicada
+   em `CriarUsuario` em vez de inventada.
+
+**Sexto teste: sucesso completo.** `CriarUsuario` criou um usuário de teste real no relógio
+("SISESCALA TESTE - PODE APAGAR", matrícula 900000); `ListarUsuariosComBiometria` achou os 5
+servidores reais do piloto com biometria já cadastrada, CPFs batendo com o cadastro do SisEscala.
+Push de identidade está confirmado contra hardware real — continua fora do ciclo automático da
+bandeja por prudência (escrita em equipamento de produção), não por dúvida sobre o formato.
+
 ## Continuação do trabalho desta sessão
 
 Antes disso, a mesma sessão corrigiu dois bugs achados testando em campo, pela primeira vez, o

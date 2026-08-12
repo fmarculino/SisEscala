@@ -205,43 +205,41 @@ servidor (confirmado no plano original, Fase 7). O que ficou automatizado é só
 da armadilha 10, na direção inversa (`right(ident, 11)` recupera o CPF; aqui é o CPF que vira o
 identificador).
 
-⚠️⚠️ **`rep.CriarUsuario`/`rep.ListarUsuariosComBiometria` (`tools/coletor-rep/rep/client.go`) —
-quatro rodadas de teste real em 12/08/2026, a última confirmando dados de verdade:**
+✅ **`rep.CriarUsuario`/`rep.ListarUsuariosComBiometria` (`tools/coletor-rep/rep/client.go`) —
+CONFIRMADAS contra hardware real em 12/08/2026**, depois de cinco rodadas de teste
+(`coletor-rep-cli cadastros-testar` contra 10.110.2.89):
 
 1. API genérica "objects" (`create_objects.fcgi`/`load_objects.fcgi`) — HTTP 400 "Invalid
    command". Pertence à Linha de Acesso da Control iD (iDAccess/iDFlex/iDBlock), não à linha
    REP/iDClass deste device.
-2. `add_users.fcgi`/`load_users.fcgi` (documentação oficial via busca,
-   `controlid.com.br/suporte/api_idclass_latest.html`) — comando certo, mas CPF de teste
-   `"000000000000"` reprovado no dígito verificador e `limit: 1000` acima do máximo (100).
+2. `add_users.fcgi`/`load_users.fcgi` — comando certo, mas CPF de teste `"000000000000"`
+   reprovado no dígito verificador e `limit: 1000` acima do máximo (100).
 3. Corrigidos CPF de teste e paginação — `load_users.fcgi` devolveu **6 usuários reais do
    piloto com sucesso**. Revelou que este device **não tem campo `"id"`** — só
-   `pis`/`registration`/`code`/`rfid`/`templates`, **todos como número JSON**, não string. Isso
-   também explica o erro de `CriarUsuario` (`'cpf' em formato incorreto`): estava enviando
-   string onde o device espera número.
-4. Corrigido: `registration`/`cpf` viram número; `device_user_id` (que não existe de verdade
-   neste hardware) foi substituído por `identificador_afd` como identidade de referência em
-   toda a cadeia (`ListarUsuariosComBiometria`, `fn_atualizar_biometria_vinculos` — migration
-   `20260812010000`, `bigint[]` → `text[]`). **Matrícula temporária alfanumérica (`T26xxxxx`)
-   não pode ser representada no campo `registration` deste equipamento** — `CriarUsuario` recusa
-   cedo em vez de mandar dado quebrado. `CriarUsuario` (criar de fato) ainda não confirmou
-   sucesso end-to-end — só a leitura (`load_users.fcgi`) foi validada contra dados reais até
-   aqui.
-5. Matrícula temporária alfanumérica (`T26xxxxx`) tem o `T` removido antes de virar número —
-   **confirmado pelo usuário** (não achado em busca no repositório) como a convenção que já
-   estava em uso manual para os servidores temporários já cadastrados neste mesmo relógio.
-   `CriarUsuario` replica isso (`strings.TrimPrefix(..., "T")`) em vez de inventar uma nova regra.
+   `pis`/`registration`/`code`/`rfid`/`templates`, **todos como número JSON**, não string.
+4. `registration`/`cpf` viram número; `device_user_id` (não existe de verdade neste hardware)
+   substituído por `identificador_afd` como identidade de referência em toda a cadeia
+   (`ListarUsuariosComBiometria`, `fn_atualizar_biometria_vinculos` — migration `20260812010000`,
+   `bigint[]` → `text[]`).
+5. Matrícula temporária (`T26xxxxx`) tem o `T` removido antes de virar número — **confirmado
+   pelo usuário** (não achado em busca no repositório) como a convenção já em uso manual para os
+   servidores temporários já cadastrados neste mesmo relógio.
 
-Por isso:
+**Resultado final**: `CriarUsuario` criou um usuário de teste real no relógio; `ListarUsuariosComBiometria`
+achou os 5 servidores reais do piloto com biometria cadastrada, CPFs batendo. Apague o usuário
+"SISESCALA TESTE - PODE APAGAR" (matrícula 900000) pela interface do próprio relógio depois de
+cada rodada de `cadastros-testar`.
 
-- **Nunca entram no ciclo automático** de `cmd/tray` (o ticker de 5 min só roda `Sync`/`Heartbeat`).
-  Só rodam por clique manual no menu "Sincronizar cadastros agora" ou pelo subcomando
-  `coletor-rep cadastros` da CLI.
-- `coletor-rep cadastros-testar` (novo subcomando) cria **um** usuário de teste bem marcado
+Mesmo confirmado, por isso continua:
+
+- **Fora do ciclo automático** de `cmd/tray` (o ticker de 5 min só roda `Sync`/`Heartbeat`). Só
+  roda por clique manual no menu "Sincronizar cadastros agora" ou pelo subcomando
+  `coletor-rep cadastros` da CLI — prudência com escrita em equipamento de produção, não dúvida
+  sobre o formato.
+- `coletor-rep cadastros-testar` (subcomando) cria **um** usuário de teste bem marcado
   ("SISESCALA TESTE - PODE APAGAR") direto no relógio e lista quem tem biometria, sem tocar na
-  fila real do SisEscala — é o `afd-raw` desta função: rode contra o relógio de teste e confira
-  a resposta antes de habilitar em produção. Erro nele já imprime a resposta crua do
-  equipamento (útil para corrigir os nomes de campo se estiverem errados).
+  fila real do SisEscala — o `afd-raw` desta função, útil para validar um relógio novo antes de
+  confiar no botão "Sincronizar cadastros" da tela.
 
 ⚠️ **Não existe (nem pode existir) botão "Testar conexão" na tela do SisEscala.** O relógio fica
 na rede interna da unidade (`10.x.x.x`); o servidor do SisEscala roda na VPS do Coolify, sem

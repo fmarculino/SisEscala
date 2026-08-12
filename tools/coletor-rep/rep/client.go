@@ -10,14 +10,17 @@
 // aproximação da API Control iD e precisa ser confirmado com `curl.exe -sk` antes de confiar
 // cegamente no parsing de rodarHeartbeat.
 //
-// ⚠️ CriarUsuario e ListarUsuariosComBiometria (Fase 7, 12/08/2026) — três rodadas de teste
-// real até aqui: (1) API genérica "objects" rejeitada, API errada (outra linha de produto
-// Control iD); (2) `add_users.fcgi`/`load_users.fcgi` reconhecidos, mas CPF de teste inválido e
-// `limit` acima do máximo; (3) `load_users.fcgi` confirmou dados reais (6 usuários do piloto) —
-// e revelou que este device **não tem campo "id"** e que `pis`/`registration` são NÚMEROS, não
-// strings. `device_user_id` deixou de ser o identificador de referência — passou a ser `pis`
-// (mesmo formato de `identificador_afd`). CriarUsuario ainda não confirmou sucesso end-to-end.
-// Ver aviso extenso junto das duas funções, mais abaixo neste arquivo.
+// ✅ CriarUsuario e ListarUsuariosComBiometria (Fase 7) CONFIRMADAS contra hardware real em
+// 12/08/2026, depois de cinco rodadas de teste (`coletor-rep-cli cadastros-testar` contra
+// 10.110.2.89): API genérica "objects" rejeitada (linha de produto errada) → comando certo
+// (`add_users.fcgi`/`load_users.fcgi`) mas CPF/limit inválidos → dados reais leram certo (6
+// usuários do piloto, sem campo "id", `pis`/`registration` como número) → `CriarUsuario`
+// recusava CPF string → matrícula temporária (`T26xxxxx`) precisa do `T` removido (confirmado
+// pelo usuário como convenção já em uso manual neste relógio). Resultado final: `CriarUsuario`
+// criou um usuário de teste real; `ListarUsuariosComBiometria` achou os 5 servidores reais do
+// piloto com biometria cadastrada, CPFs batendo. Segue sem entrar no ciclo automático (só
+// clique manual/`cadastros`) por prudência com escrita em equipamento de produção, não por
+// dúvida sobre o formato.
 package rep
 
 import (
@@ -165,37 +168,24 @@ func (c *Client) InformacoesSistema() (map[string]interface{}, error) {
 	return c.chamar(fmt.Sprintf("get_system_information.fcgi?session=%s", c.sessao), map[string]interface{}{})
 }
 
-// ⚠️⚠️ AJUSTADO EM 12/08/2026 APOS O PRIMEIRO TESTE REAL FALHAR — AINDA NAO CONFIRMADO DE VOLTA.
-// A primeira tentativa usava a API generica "objects" (create_objects.fcgi/load_objects.fcgi) —
-// o rele de teste (10.110.2.89) recusou as duas com HTTP 400 "Invalid command", confirmando que
-// esse padrao pertence a OUTRA linha de produto da Control iD (Linha de Acesso — iDAccess/
-// iDFlex/iDBlock), nao a linha REP/iDClass que login.fcgi/get_afd.fcgi ja confirmaram real
-// aqui. A API certa da linha iDClass usa comandos por entidade: `add_users.fcgi` para criar,
-// `load_users.fcgi` para listar (confirmado por busca na documentacao oficial da Control iD,
-// controlid.com.br/suporte/api_idclass_latest.html — ainda NAO testado contra hardware).
-// `get_afd.fcgi` ja e chamado com `mode=671` neste codigo (Portaria 671/2021) — por isso
-// add_users.fcgi tambem usa `mode=671` e o campo `cpf` (a documentacao diz que sem mode=671 o
-// campo seria `pis`). Rode `coletor-rep-cli cadastros-testar` de novo contra o rele de teste
-// antes de confiar nisso em producao — se a resposta ainda nao bater, ela aparece crua no erro.
+// ✅ CONFIRMADO CONTRA HARDWARE REAL em 12/08/2026 (10.110.2.89, cinco rodadas via
+// `coletor-rep-cli cadastros-testar`): `add_users.fcgi` (criar) e `load_users.fcgi` (listar) sao
+// os comandos certos da linha iDClass/REP-C — a linha de produto de Acesso (iDAccess/iDFlex/
+// iDBlock) usa uma API "objects" genérica diferente, ja descartada. `mode=671` + campo `cpf`
+// (nao `pis`) porque `get_afd.fcgi` deste device ja roda em modo 671.
 //
-// O campo 'registration' (matricula) nao e chute: ja foi confirmado como o campo real do device
-// por leitura de AFD tipo 5 real (ver comentario em rep_vinculos_servidor,
-// supabase/migrations/20260808000000).
+// Descobertas que mudaram o desenho: o objeto "user" deste device NAO tem campo "id" interno -
+// so `pis`/`registration`/`code`/`rfid`/`templates`, TODOS como numero JSON, nao string. Por
+// isso `device_user_id` deixou de existir no modelo - a identidade de referencia e' sempre
+// `pis`/`registration` (= `identificador_afd`, mesmo formato usado no sentido AFD->servidor).
+// Matricula temporaria (`T26xxxxx`, CLAUDE.md) tem o `T` removido antes de virar numero -
+// confirmado pelo usuario como a convencao ja em uso manual neste mesmo rele para os servidores
+// temporarios ja cadastrados, nao documentada em nenhum lugar do codigo antes disso.
 //
-// ⚠️ CONFIRMADO EM 12/08/2026 via load_users.fcgi real (6 usuarios do piloto, devolvidos com
-// sucesso): o objeto "user" deste device **nao tem campo "id"** — so `pis`/`registration`/`code`
-// /`rfid`/`templates`/etc, TODOS como numero JSON, nao string. `add_users.fcgi` recusou o
-// primeiro teste com "'cpf' em formato incorreto" ao receber `"cpf": "11144477735"` (string) —
-// e a evidencia do load_users real (`pis` sempre numero) aponta pra causa provavel: o campo tem
-// que ser numero, nao string. Corrigido abaixo. Como o device nao expoe um id interno separado,
-// a identidade de referencia passa a ser sempre `pis`/`registration`, nao um `device_user_id`
-// sintetico — ListarUsuariosComBiometria casa por `pis`, nao por id.
-//
-// ⚠️ `registration` e' numero no device (visto real: `2.600005e+06` = matricula 2600005) —
-// matricula temporaria alfanumerica (formato `T26xxxxx`, ver CLAUDE.md) tem o "T" removido
-// antes de virar numero, replicando a convencao que ja estava em uso manualmente neste mesmo
-// rele (confirmado pelo usuario, nao documentado em lugar nenhum do codigo). CriarUsuario ainda
-// recusa cedo se sobrar algo nao-numerico depois de tirar o prefixo.
+// CriarUsuario criou um usuario de teste real; ListarUsuariosComBiometria achou os 5 servidores
+// reais do piloto com biometria cadastrada, CPFs batendo. Continua fora do ciclo automatico (so
+// clique manual / subcomando `cadastros`) por prudencia com escrita em equipamento de producao -
+// nao por duvida restante sobre o formato.
 
 // CriarUsuario cadastra uma identidade "vazia" no rele (sem biometria - isso so acontece
 // presencialmente no equipamento). identificadorAfd vem no formato de 12 digitos do AFD (CPF
