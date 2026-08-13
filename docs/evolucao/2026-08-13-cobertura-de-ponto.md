@@ -13,9 +13,10 @@ a instalação do coletor na unidade. A resposta, medida em produção contra ag
 | fora do relógio | 10 |
 | sem biometria | 1 |
 | pronto para bater | **1** |
-| **total escalado** | **40** |
+| **total escalado** | **39** |
 
-Um de quarenta. E o caso dominante é o pior tipo de falha: a pessoa **está** cadastrada no
+Um de trinta e nove — número confirmado depois pela própria tela, contra o mesmo mês. E o caso
+dominante é o pior tipo de falha: a pessoa **está** cadastrada no
 equipamento, **com biometria**, encosta o dedo, o relógio aceita e grava no AFD — e a batida morre
 como órfã no SisEscala porque não existe `rep_vinculos_servidor` ligando aquele identificador ao
 servidor. Falha silenciosa dos dois lados: nada no relógio recusa, nada na tela avisava. É o mesmo

@@ -1,6 +1,6 @@
 -- Migration: cobertura de ponto — quem esta escalado e NAO consegue bater no relogio
 --
--- MOTIVACAO (medido em producao em 13/08/2026, LACEM, agosto/2026 — 40 servidores escalados):
+-- MOTIVACAO (medido em producao em 13/08/2026, LACEM, agosto/2026 — 39 servidores escalados):
 --
 --     situacao                        | servidores
 --     --------------------------------+-----------
@@ -9,7 +9,7 @@
 --     SEM VINCULO (batida vira orfa)  |    27
 --     OK                              |     1
 --
--- Ou seja: 39 dos 40 escalados nao tinham como ter ponto registrado, e o caso dominante (27) e o
+-- Ou seja: 38 dos 39 escalados nao tinham como ter ponto registrado, e o caso dominante (27) e o
 -- mais traicoeiro — a pessoa ESTA cadastrada no equipamento, COM biometria, encosta o dedo, o
 -- relogio aceita, o AFD grava... e a batida morre como orfa no SisEscala porque nao existe
 -- rep_vinculos_servidor vigente ligando aquele identificador ao servidor. Nada na tela avisava,
@@ -328,7 +328,7 @@ GRANT EXECUTE ON FUNCTION public.fn_cobertura_ponto_resumo(integer, integer) TO 
 -- ============================================================================
 -- 3. CRIAR VINCULO A PARTIR DO SNAPSHOT (o conserto do caso dominante)
 -- ============================================================================
--- O caso 'sem_vinculo' (27 dos 40 na LACEM) NAO precisa de nada no equipamento: a pessoa ja esta
+-- O caso 'sem_vinculo' (27 dos 39 na LACEM) NAO precisa de nada no equipamento: a pessoa ja esta
 -- la, com biometria. Falta so a ponte do lado do SisEscala. Esta funcao cria essa ponte a partir
 -- do snapshot que o coletor ja reportou, casando por CPF.
 --
@@ -516,7 +516,8 @@ GRANT EXECUTE ON FUNCTION public.fn_enfileirar_cadastros_por_escala(uuid, intege
 -- CONFERENCIA APOS APLICAR
 --
 --   1) O resumo tem que reproduzir a contagem medida na mao em 13/08/2026 (LACEM, 08/2026):
---      10 fora_do_relogio, 1 sem_biometria, 27 sem_vinculo, 1 ok.
+--      escalados=39, 10 fora_do_relogio, 1 sem_biometria, 27 sem_vinculo, 1 ok.
+--      ✅ REPRODUZIU, na aplicacao em producao no mesmo dia (38 de 39 nao conseguem bater).
 --
 --   SELECT dispositivo_nome, escalados, ok, sem_vinculo, sem_biometria, fora_do_relogio,
 --          sem_cpf, sem_snapshot, nao_conseguem_bater, batidas_perdidas

@@ -365,8 +365,9 @@ medido em produção.
 
 ### Cobertura de ponto — estar cadastrado no relógio não é estar no ponto (13/08/2026)
 
-Medido em produção na LACEM, agosto/2026, **40 servidores escalados**: **27** "bate e não
-registra", 10 fora do relógio, 1 sem biometria, **1 pronto para bater**. Ver
+Medido em produção na LACEM, agosto/2026, **39 servidores escalados**: **27** "bate e não
+registra", 10 fora do relógio, 1 sem biometria, **1 pronto para bater** — contagem reproduzida
+exatamente pela tela depois de aplicada, o que fecha o portão da migration. Ver
 [`docs/evolucao/2026-08-13-cobertura-de-ponto.md`](docs/evolucao/2026-08-13-cobertura-de-ponto.md).
 
 ⚠️ **O caso dominante é silencioso dos dois lados.** A pessoa está cadastrada no equipamento, com

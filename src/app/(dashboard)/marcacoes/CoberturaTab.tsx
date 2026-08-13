@@ -35,7 +35,7 @@ const SITUACOES: Record<SituacaoCobertura, {
   sem_vinculo: {
     rotulo: 'Bate e não registra',
     descricao: 'Está cadastrado no relógio e com biometria, mas sem vínculo no SisEscala — o equipamento aceita a digital e a batida fica órfã, sem virar registro de ninguém.',
-    acao: 'Use o botão "Criar vínculos por CPF" abaixo. Não precisa mexer no equipamento.',
+    acao: 'Use o botão "Criar vínculos por CPF", no cartão do relógio acima. Não precisa mexer no equipamento.',
     cor: 'red',
     icone: Link2,
     ordem: 1,
@@ -43,7 +43,7 @@ const SITUACOES: Record<SituacaoCobertura, {
   fora_do_relogio: {
     rotulo: 'Fora do relógio',
     descricao: 'Não está cadastrado no equipamento — não tem como bater. Pode estar batendo no terminal do computador e ninguém perceber que ele nunca chegou ao relógio.',
-    acao: 'Use "Enfileirar cadastro(s)" ao abrir o relógio abaixo: escolhe por escala, então pega também quem está lotado em outra unidade.',
+    acao: 'Use "Enfileirar cadastro(s)", no cartão do relógio acima: escolhe por escala, então pega também quem está lotado em outra unidade. Depois rode o coletor na máquina da unidade para aplicar no equipamento.',
     cor: 'red',
     icone: UserX,
     ordem: 2,
@@ -298,12 +298,19 @@ export function CoberturaTab({ isAdmin }: { isAdmin: boolean }) {
                         {' · '}último contato do coletor:{' '}
                         {d.ultimo_contato_em ? new Date(d.ultimo_contato_em).toLocaleString('pt-BR') : 'nunca'}
                       </p>
+                      <p className="text-[11px] text-blue-600 dark:text-blue-400 mt-1">
+                        {aberto ? 'Clique para recolher' : 'Clique para ver servidor por servidor'}
+                      </p>
                     </div>
                   </button>
 
-                  {aberto && (
+                  {/* Os botões de conserto ficam FORA do bloco expansível: são a razão de existir da
+                      tela, e escondê-los atrás de um clique fez a legenda mandar clicar num botão
+                      que ninguém achava (13/08/2026). Também não podem ficar dentro do <button> do
+                      cabeçalho — botão dentro de botão é HTML inválido. */}
+                  {isAdmin && (d.sem_vinculo > 0 || d.fora_do_relogio > 0) && (
                     <div className="border-t border-zinc-200 dark:border-zinc-800 p-4 space-y-3">
-                      {isAdmin && d.sem_vinculo > 0 && (
+                      {d.sem_vinculo > 0 && (
                         <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-red-50 dark:bg-red-900/10">
                           <p className="text-xs text-red-700 dark:text-red-400 flex-1 min-w-[240px]">
                             <strong>{d.sem_vinculo} servidor(es) batendo sem registrar.</strong> Já estão
@@ -320,7 +327,7 @@ export function CoberturaTab({ isAdmin }: { isAdmin: boolean }) {
                         </div>
                       )}
 
-                      {isAdmin && d.fora_do_relogio > 0 && (
+                      {d.fora_do_relogio > 0 && (
                         <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-red-50 dark:bg-red-900/10">
                           <p className="text-xs text-red-700 dark:text-red-400 flex-1 min-w-[240px]">
                             <strong>{d.fora_do_relogio} escalado(s) não estão cadastrados no relógio.</strong>{' '}
@@ -337,7 +344,11 @@ export function CoberturaTab({ isAdmin }: { isAdmin: boolean }) {
                           </button>
                         </div>
                       )}
+                    </div>
+                  )}
 
+                  {aberto && (
+                    <div className="border-t border-zinc-200 dark:border-zinc-800 p-4 space-y-3">
                       {carregandoDetalhe && !detalhe[d.dispositivo_id]?.length ? (
                         <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-zinc-400" /></div>
                       ) : (detalhe[d.dispositivo_id]?.length || 0) === 0 ? (
