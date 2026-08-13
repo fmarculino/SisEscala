@@ -979,6 +979,15 @@ em `20260808090000`.
 Agrava: quem usa relógio tende a ter `cpf` nulo no SisEscala, e `pis_pasep` está vazio em 100%
 dos registros. Auditor fiscal casa por PIS/NIS — é projeto de qualidade de dados da Fase 9.
 
+⚠️ **Pendência (13/08/2026, sem solução escolhida): identificador por CPF quebra para vínculo
+duplo.** `servidores.vinculo_multiplo_confirmado` (`20260810140000`) permite duas matrículas pra
+mesma pessoa/mesmo CPF — 110 CPFs assim na base — mas `uq_vinculo_vigente` só aceita **um**
+vínculo vigente por `(dispositivo_id, identificador_afd)`. Se as duas matrículas precisam bater
+no mesmo relógio, hoje só uma pode ter vínculo — o relógio identifica pela digital cadastrada,
+não sabe distinguir "qual matrícula" a pessoa está representando. É limitação de hardware/
+protocolo AFD, não só de schema. Direções possíveis e o que falta decidir em
+[`docs/planos/2026-08-13-vinculo-duplo-e-identificacao-no-rele.md`](docs/planos/2026-08-13-vinculo-duplo-e-identificacao-no-rele.md).
+
 ### 11. O campo de data/hora do AFD tem 12 dígitos, não 24 (não é ISO 8601)
 
 `fn_parse_linha_afd` (`20260808080000`) nasceu assumindo que o campo de data/hora de uma
