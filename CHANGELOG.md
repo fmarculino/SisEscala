@@ -2,6 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.61.0] - 2026-08-13
+
+### Fixed
+- **`dist/coletor-rep-tray.exe` estava compilado sem `-ldflags="-H=windowsgui"`** — o binário do
+  app de bandeja recompilado/commitado em v1.58.0 saiu com subsystem CONSOLE (confirmado lendo o
+  cabeçalho PE: `Subsystem: 3`, deveria ser `2`), abrindo uma janela preta de terminal ao lado do
+  ícone da bandeja. Fechar aquela janela matava o processo inteiro — não é um efeito colateral
+  cosmético, é literalmente o host do processo. Achado ao instalar na LACEN em 12–13/08/2026.
+  Recompilado com a flag correta desta vez.
+- **`fn_registrar_snapshot_usuarios_dispositivo` derrubava a tela de Higiene inteira quando o
+  relógio tinha o mesmo `identificador_afd` cadastrado mais de uma vez** — cenário real de
+  dispositivo reaproveitado de outro sistema (exatamente o caso que motivou a Fase 7b). O `INSERT`
+  em lote violava `uq_usuario_dispositivo`, a função inteira dava rollback (incluindo o `DELETE`
+  anterior), e "Atualizar lista de cadastros do relógio" falhava sempre para aquele dispositivo.
+  Confirmado em produção na LACEN: 64 usuários lidos do relé, HTTP 500 `duplicate key value
+  violates unique constraint "uq_usuario_dispositivo"`. Migration `20260813000000` deduplica por
+  `identificador_afd` antes do `INSERT`, preferindo o registro com biometria cadastrada quando um
+  dos duplicados a tiver.
+- `VersaoDisponivel` (verificação de atualização do coletor) logava só `invalid character '<'
+  looking for beginning of value` quando a resposta não era JSON — sem status HTTP nem amostra do
+  corpo, impossível saber se era a rota, um proxy no meio, ou um deploy em andamento. Agora loga os
+  dois.
+
+### Added
+- Feedback visual leve nos comandos do menu da bandeja (Sincronizar agora, Sincronizar cadastros
+  agora, Atualizar lista de cadastros do relógio, Verificar atualização): o item muda de título e
+  fica desabilitado enquanto roda, e sai uma notificação de início e de fim com números (ex.: "3
+  cadastro(s) enviado(s) ao relé, 0 falha(s)."), em vez de só um aviso seco no final. Sem janela
+  nova — usa só o que a bandeja já tinha (`systray` + `beeep`). `ciclo.SincronizarCadastros` e
+  `ciclo.HigienizarListagem` passaram a devolver um resumo de contagens além do erro.
+
+### Notes
+- `ciclo.Versao` (app de bandeja/CLI) e `dist/VERSION` foram para `0.4.0`.
+
 ## [1.60.2] - 2026-08-13
 
 ### Notes

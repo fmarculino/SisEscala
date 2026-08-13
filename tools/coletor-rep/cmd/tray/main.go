@@ -480,30 +480,58 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 			case <-ticker.C:
 				executarCiclo()
 			case <-itemSyncAgora.ClickedCh:
+				itemSyncAgora.SetTitle("Sincronizando...")
+				itemSyncAgora.Disable()
 				executarCiclo()
+				itemSyncAgora.SetTitle("Sincronizar agora")
+				itemSyncAgora.Enable()
 			case <-itemAbrirTerminal.ClickedCh:
 				abrirTerminalSeConfigurado()
 			case <-itemSincronizarCadastros.ClickedCh:
-				if err := ciclo.SincronizarCadastros(cfg); err != nil {
+				itemSincronizarCadastros.SetTitle("Enviando cadastros...")
+				itemSincronizarCadastros.Disable()
+				_ = beeep.Notify("SisEscala - Coletor", "Enviando cadastros pendentes para o rele...", nil)
+				resultado, err := ciclo.SincronizarCadastros(cfg)
+				if err != nil {
 					log.Printf("erro ao sincronizar cadastros: %v", err)
 					_ = beeep.Notify("SisEscala - Coletor", "Falha ao sincronizar cadastros com o rele. Ver log.", nil)
+				} else if resultado.Pendentes == 0 {
+					_ = beeep.Notify("SisEscala - Coletor", "Nenhum cadastro pendente para enviar.", nil)
 				} else {
-					_ = beeep.Notify("SisEscala - Coletor", "Cadastros sincronizados com o rele.", nil)
+					_ = beeep.Notify("SisEscala - Coletor",
+						fmt.Sprintf("%d cadastro(s) enviado(s) ao rele, %d falha(s).", resultado.Enviados, resultado.Falhas), nil)
 				}
+				itemSincronizarCadastros.SetTitle("Sincronizar cadastros agora")
+				itemSincronizarCadastros.Enable()
 			case <-itemHigienizarCadastros.ClickedCh:
-				if err := ciclo.HigienizarListagem(cfg); err != nil {
+				itemHigienizarCadastros.SetTitle("Lendo cadastros do relogio...")
+				itemHigienizarCadastros.Disable()
+				_ = beeep.Notify("SisEscala - Coletor", "Lendo cadastros do rele...", nil)
+				resultado, err := ciclo.HigienizarListagem(cfg)
+				if err != nil {
 					log.Printf("erro ao listar cadastros do rele: %v", err)
 					_ = beeep.Notify("SisEscala - Coletor", "Falha ao ler cadastros do rele. Ver log.", nil)
 				} else {
-					_ = beeep.Notify("SisEscala - Coletor", "Lista de cadastros do rele enviada ao SisEscala.", nil)
+					_ = beeep.Notify("SisEscala - Coletor",
+						fmt.Sprintf("%d usuario(s) lido(s) do rele e enviado(s) ao SisEscala.", resultado.UsuariosLidos), nil)
 				}
+				itemHigienizarCadastros.SetTitle("Atualizar lista de cadastros do relogio")
+				itemHigienizarCadastros.Enable()
 			case <-itemVerLogs.ClickedCh:
 				exec.Command("explorer", dirInstalado).Start() //nolint:errcheck
 			case <-itemAtualizar.ClickedCh:
 				if atualizacaoPronta {
-					aplicarAtualizacao()
+					tituloAntes := "Atualizar para v" + infoAtualizacao.Versao
+					itemAtualizar.SetTitle("Baixando atualizacao...")
+					itemAtualizar.Disable()
+					aplicarAtualizacao() // sucesso encerra o processo (systray.Quit) antes de chegar aqui
+					itemAtualizar.SetTitle(tituloAntes)
+					itemAtualizar.Enable()
 				} else {
-					verificarAtualizacao(true)
+					itemAtualizar.SetTitle("Verificando...")
+					itemAtualizar.Disable()
+					verificarAtualizacao(true) // ja reescreve o titulo (Verificar atualizacao / Atualizar para vX)
+					itemAtualizar.Enable()
 				}
 			case <-itemSair.ClickedCh:
 				systray.Quit()

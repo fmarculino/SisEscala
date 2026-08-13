@@ -20,7 +20,7 @@ import (
 	"github.com/sms-maraba/sisescala-coletor-rep/sisescala"
 )
 
-const Versao = "0.3.0"
+const Versao = "0.4.0"
 
 func hostname() string {
 	h, err := os.Hostname()
@@ -152,9 +152,18 @@ func Heartbeat(cfg *config.Config) error {
 // CLI. rep.CriarUsuario/ListarUsuariosComBiometria não foram validadas contra hardware real
 // (ver aviso em rep/client.go); rodar isso sozinho de tempos em tempos escreveria no relógio
 // de produção com um formato de campo ainda não confirmado.
-func SincronizarCadastros(cfg *config.Config) error {
+// ResultadoCadastros resume o que aconteceu num SincronizarCadastros - usado pela bandeja
+// (cmd/tray/main.go) para compor a notificacao final com numeros, em vez de um "ok"/"falhou" seco.
+type ResultadoCadastros struct {
+	Pendentes int
+	Enviados  int
+	Falhas    int
+}
+
+func SincronizarCadastros(cfg *config.Config) (ResultadoCadastros, error) {
+	var resultado ResultadoCadastros
 	if cfg.DispositivoRep == nil {
-		return fmt.Errorf("secao dispositivo_rep ausente no config.yaml — nada para sincronizar")
+		return resultado, fmt.Errorf("secao dispositivo_rep ausente no config.yaml — nada para sincronizar")
 	}
 	d := cfg.DispositivoRep
 	sc := sisescala.NovoClient(cfg.SisEscala.URL, d.ID, d.Token)
@@ -162,8 +171,9 @@ func SincronizarCadastros(cfg *config.Config) error {
 
 	pendentes, err := sc.ListarCadastrosPendentes()
 	if err != nil {
-		return fmt.Errorf("falha ao listar cadastros pendentes: %w", err)
+		return resultado, fmt.Errorf("falha ao listar cadastros pendentes: %w", err)
 	}
+	resultado.Pendentes = len(pendentes)
 	log.Printf("cadastros: %d pendente(s) para enviar ao rele", len(pendentes))
 
 	for _, p := range pendentes {
@@ -171,12 +181,14 @@ func SincronizarCadastros(cfg *config.Config) error {
 		// interno separado (so pis/registration). A identidade de referencia e' identificador_afd,
 		// ja gravado em fn_confirmar_cadastro_rep a partir do proprio servidor da fila.
 		if err := rc.CriarUsuario(p.Matricula, p.Nome, p.IdentificadorAFD); err != nil {
+			resultado.Falhas++
 			log.Printf("cadastro de %s (%s) falhou: %v", p.Nome, p.Matricula, err)
 			if erroConfirmar := sc.ConfirmarCadastro(p.FilaID, false, nil, err.Error()); erroConfirmar != nil {
 				log.Printf("aviso: falha tambem ao reportar erro do cadastro %s: %v", p.FilaID, erroConfirmar)
 			}
 			continue
 		}
+		resultado.Enviados++
 		log.Printf("cadastro de %s (%s) criado no rele", p.Nome, p.Matricula)
 		if err := sc.ConfirmarCadastro(p.FilaID, true, nil, ""); err != nil {
 			log.Printf("aviso: cadastro %s criado no rele mas falha ao confirmar no SisEscala: %v", p.FilaID, err)
@@ -186,12 +198,12 @@ func SincronizarCadastros(cfg *config.Config) error {
 	comBiometria, err := rc.ListarUsuariosComBiometria()
 	if err != nil {
 		log.Printf("aviso: nao foi possivel listar biometria do rele: %v", err)
-		return nil // envio de cadastros ja aconteceu - nao falha o ciclo por isso
+		return resultado, nil // envio de cadastros ja aconteceu - nao falha o ciclo por isso
 	}
 	if err := sc.ReportarBiometria(comBiometria); err != nil {
 		log.Printf("aviso: falha ao reportar biometria ao SisEscala: %v", err)
 	}
-	return nil
+	return resultado, nil
 }
 
 // HigienizarListagem lê TODOS os usuários cadastrados no relógio (load_users.fcgi) e reporta o
@@ -200,9 +212,16 @@ func SincronizarCadastros(cfg *config.Config) error {
 // Só LEITURA no equipamento (mesma chamada já confirmada contra hardware real em
 // ListarUsuariosComBiometria) — segura de rodar a qualquer momento, diferente de
 // HigienizarRemocoes abaixo.
-func HigienizarListagem(cfg *config.Config) error {
+// ResultadoHigiene resume o que aconteceu num HigienizarListagem - usado pela bandeja para
+// compor a notificacao final com numero de usuarios, em vez de um "ok"/"falhou" seco.
+type ResultadoHigiene struct {
+	UsuariosLidos int
+}
+
+func HigienizarListagem(cfg *config.Config) (ResultadoHigiene, error) {
+	var resultado ResultadoHigiene
 	if cfg.DispositivoRep == nil {
-		return fmt.Errorf("secao dispositivo_rep ausente no config.yaml — nada para higienizar")
+		return resultado, fmt.Errorf("secao dispositivo_rep ausente no config.yaml — nada para higienizar")
 	}
 	d := cfg.DispositivoRep
 	sc := sisescala.NovoClient(cfg.SisEscala.URL, d.ID, d.Token)
@@ -210,8 +229,9 @@ func HigienizarListagem(cfg *config.Config) error {
 
 	usuarios, err := rc.ListarUsuarios()
 	if err != nil {
-		return fmt.Errorf("falha ao listar usuarios do rele: %w", err)
+		return resultado, fmt.Errorf("falha ao listar usuarios do rele: %w", err)
 	}
+	resultado.UsuariosLidos = len(usuarios)
 	log.Printf("higiene: %d usuario(s) lido(s) do rele", len(usuarios))
 
 	relato := make([]sisescala.UsuarioDispositivoRelato, len(usuarios))
@@ -223,10 +243,10 @@ func HigienizarListagem(cfg *config.Config) error {
 	}
 	resumo, err := sc.ReportarUsuariosDispositivo(relato)
 	if err != nil {
-		return fmt.Errorf("falha ao reportar usuarios ao SisEscala: %w", err)
+		return resultado, fmt.Errorf("falha ao reportar usuarios ao SisEscala: %w", err)
 	}
 	log.Printf("higiene: snapshot reportado ao SisEscala — %s", string(resumo))
-	return nil
+	return resultado, nil
 }
 
 // HigienizarRemocoes aplica no relógio quem foi selecionado na tela de higiene (Fase 7b) para
@@ -289,8 +309,20 @@ func VersaoDisponivel(cfg *config.Config) (InfoVersaoServidor, bool, error) {
 		return info, false, fmt.Errorf("SisEscala respondeu %d ao consultar versao", resp.StatusCode)
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
-		return info, false, fmt.Errorf("resposta de versao invalida: %w", err)
+	corpo, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return info, false, fmt.Errorf("falha ao ler resposta de versao: %w", err)
+	}
+	if err := json.Unmarshal(corpo, &info); err != nil {
+		// A resposta esperada e' sempre JSON, mesmo nos caminhos de erro da rota
+		// (/api/coletor-rep/tray-version so devolve corpo nao-JSON se algo na frente da aplicacao
+		// - proxy/deploy em andamento - responder no lugar dela). Amostra do corpo cru e' o que
+		// falta pra diferenciar isso de um bug na rota na proxima vez que isso acontecer.
+		amostra := string(corpo)
+		if len(amostra) > 200 {
+			amostra = amostra[:200]
+		}
+		return info, false, fmt.Errorf("resposta de versao invalida (HTTP %d, corpo: %q): %w", resp.StatusCode, amostra, err)
 	}
 
 	return info, compararVersoes(info.Versao, Versao) > 0, nil

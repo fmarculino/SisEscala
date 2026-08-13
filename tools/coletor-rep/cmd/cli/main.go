@@ -57,17 +57,21 @@ func main() {
 		}
 		rodarAfdExportar(cfg, caminhoCfg, os.Args[2])
 	case "cadastros":
-		if err := ciclo.SincronizarCadastros(cfg); err != nil {
+		resultado, err := ciclo.SincronizarCadastros(cfg)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "Falha ao sincronizar cadastros: %v\n", err)
 			os.Exit(1)
 		}
+		fmt.Printf("pendentes=%d enviados=%d falhas=%d\n", resultado.Pendentes, resultado.Enviados, resultado.Falhas)
 	case "cadastros-testar":
 		rodarCadastrosTestar(cfg)
 	case "higiene":
-		if err := ciclo.HigienizarListagem(cfg); err != nil {
+		resultado, err := ciclo.HigienizarListagem(cfg)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "Falha ao listar cadastros do rele: %v\n", err)
 			os.Exit(1)
 		}
+		fmt.Printf("usuarios_lidos=%d\n", resultado.UsuariosLidos)
 	case "higiene-remover":
 		if err := ciclo.HigienizarRemocoes(cfg); err != nil {
 			fmt.Fprintf(os.Stderr, "Falha ao aplicar remocoes no rele: %v\n", err)
