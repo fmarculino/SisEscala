@@ -1063,7 +1063,14 @@ servidor sempre que esse papel for escolhido — os dois foram feitos pra `rh_un
 - **Migrations:** `YYYYMMDDHHMMSS_descricao_em_ingles.sql`. Arquivos usam **CRLF** — scripts que
   fazem substituição de texto precisam tratar isso.
 - **Nunca** rode migration direto em produção sem validar em homologação antes.
-- Timezone padrão: `configuracoes_globais.timezone`, fallback `America/Sao_Paulo`.
+- Timezone padrão: `configuracoes_globais`, fallback `America/Sao_Paulo`. ⚠️ **A tabela é
+  chave/valor, com `valor` jsonb** — não existe coluna `timezone`. Em SQL, a forma usada por
+  `fn_confirmar_presenca` e companhia é a única correta:
+  `SELECT (valor#>>'{}')::text FROM configuracoes_globais WHERE chave = 'timezone'`.
+  Uma nota anterior aqui dizia `configuracoes_globais.timezone`, e isso levou direto a um
+  `column "timezone" does not exist` em produção (13/08/2026, `fn_cobertura_ponto_dispositivo`) —
+  erro que só aparece em runtime, porque plpgsql não resolve nome de coluna na criação da função
+  (armadilha 1).
 
 ## Verificação
 

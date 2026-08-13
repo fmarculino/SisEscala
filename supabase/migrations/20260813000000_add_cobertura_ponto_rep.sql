@@ -123,7 +123,13 @@ BEGIN
     -- Mes/ano default = mes corrente NO FUSO CONFIGURADO. O processo Node roda em UTC e o
     -- Postgres desta instalacao tambem — derivar "mes atual" sem o fuso vira o mes seguinte nas
     -- ultimas 3 horas de todo dia 31 (CLAUDE.md armadilha 12).
-    v_tz := COALESCE((SELECT timezone FROM public.configuracoes_globais LIMIT 1), 'America/Sao_Paulo');
+    -- configuracoes_globais e CHAVE/VALOR (valor jsonb), nao uma linha com uma coluna por
+    -- configuracao: `SELECT timezone FROM ...` morre com 'column "timezone" does not exist' - e
+    -- morre so em RUNTIME, porque plpgsql nao resolve nome de coluna na criacao da funcao
+    -- (CLAUDE.md armadilha 1). Esta e a forma usada por fn_confirmar_presenca e companhia.
+    SELECT (valor#>>'{}')::text INTO v_tz
+      FROM public.configuracoes_globais WHERE chave = 'timezone';
+    v_tz := COALESCE(v_tz, 'America/Sao_Paulo');
     v_hoje := (now() AT TIME ZONE v_tz)::date;
     v_mes := COALESCE(p_mes, EXTRACT(MONTH FROM v_hoje)::integer);
     v_ano := COALESCE(p_ano, EXTRACT(YEAR  FROM v_hoje)::integer);
