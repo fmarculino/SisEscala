@@ -332,6 +332,25 @@ Formato `.sisrep`, tela de importação, subcomandos do coletor. Depois de 4/5 p
 ### Fase 7 — cadastro push SisEscala → REP e biometria
 Fila de pendências, coletor aplica, tela de "servidores pendentes de biometria" (cadastro presencial — o template vem do sensor e não é enviável por API). Deliberadamente por último: hoje isso é feito manualmente e funciona.
 
+> **Estado em 13/08/2026 — implementada e validada em campo.** `add_users`/`load_users.fcgi`
+> confirmados contra hardware real em 12/08; a higiene de cadastros (snapshot + fila de remoção)
+> ganhou `remove_users.fcgi` confirmado em 13/08, na implantação do LACEM. Diário completo em
+> [`docs/evolucao/2026-08-13-implantacao-lacem-diario.md`](../evolucao/2026-08-13-implantacao-lacem-diario.md).
+>
+> Duas coisas que a implantação real acrescentou ao escopo original desta fase:
+>
+> - **Enfileirar cadastro por lotação não cobre quem está escalado.** `fn_enfileirar_cadastros_rep`
+>   escolhe por `servidores.unidade_id`; quem está escalado na unidade mas lotado em outro lugar
+>   nunca entra, e o botão responde "0 enfileirados" sem avisar. Daí
+>   `fn_enfileirar_cadastros_por_escala`, em paralelo.
+> - **Estar cadastrado no relógio não é estar no ponto.** Sem `rep_vinculos_servidor`, a batida é
+>   aceita pelo equipamento e morre órfã, sem aviso em nenhuma ponta. Virou a aba "Cobertura da
+>   Escala" ([`2026-08-13-cobertura-de-ponto.md`](../evolucao/2026-08-13-cobertura-de-ponto.md)).
+>
+> ⚠️ **Colisão de nome:** o `CLAUDE.md` chama de "Fase 7b" a *higiene de cadastros do
+> dispositivo*, enquanto neste plano "Fase 7b" é a marcação por matrícula + PIN, **descartada**
+> (logo abaixo). São coisas diferentes; ao ler "Fase 7b" em qualquer lugar, confira qual das duas.
+
 ### Fase 7b — marcação por matrícula + PIN no relógio — ❌ **DESCARTADA (usuário, 08/08/2026)**
 
 > Proposta levantada e retirada pelo próprio usuário depois da análise abaixo. **Não implementar.**

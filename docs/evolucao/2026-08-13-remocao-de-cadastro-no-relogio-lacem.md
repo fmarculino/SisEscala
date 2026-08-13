@@ -1,6 +1,7 @@
 # Remoção de cadastro no relógio: formato reprovado e confirmado em campo (LACEM, 13/08/2026)
 
 **Versões:** app `1.62.0` · coletor `0.4.4`
+**Contexto do dia:** [`2026-08-13-implantacao-lacem-diario.md`](2026-08-13-implantacao-lacem-diario.md)
 
 > **Desfecho (mesmo dia):** o formato aceito é **`{"users":[N]}`** — array de **números** com o
 > `pis`. Confirmado no equipamento removendo o usuário de teste, com a relistagem provando que só

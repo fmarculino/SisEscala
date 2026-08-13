@@ -1,6 +1,7 @@
 # Cobertura de ponto: quem está escalado e não consegue bater (13/08/2026)
 
-**Versão:** app `1.63.0` · migration `20260813000000_add_cobertura_ponto_rep.sql`
+**Versão:** app `1.64.2` · migration `20260813000000_add_cobertura_ponto_rep.sql`
+**Contexto do dia:** [`2026-08-13-implantacao-lacem-diario.md`](2026-08-13-implantacao-lacem-diario.md)
 
 ## A pergunta e a medição
 

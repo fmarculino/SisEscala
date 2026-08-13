@@ -363,6 +363,18 @@ o resultado já calculado, `reenvio: true`, sem reprocessar — só o log do col
 isso de reprocessamento de verdade), mas é candidato a prioridade agora que há volume real
 medido em produção.
 
+### Implantação do LACEM (13/08/2026) — primeira unidade fora do piloto
+
+Diário de campo completo em
+[`docs/evolucao/2026-08-13-implantacao-lacem-diario.md`](docs/evolucao/2026-08-13-implantacao-lacem-diario.md):
+higiene do relógio (31 cadastros de outro sistema removidos), `remove_users.fcgi` confirmado, e a
+descoberta que virou tela — 38 dos 39 escalados não tinham ponto sendo registrado.
+
+**O cadastro do equipamento ficou limpo; os consertos da unidade ainda não foram aplicados**
+(criar os 27 vínculos → enfileirar os 10 → biometria da última). As 8 batidas já perdidas
+continuam órfãs por decisão consciente: recuperá-las mexe em ponto passado, e o histórico do
+sistema anterior está no mesmo AFD.
+
 ### Cobertura de ponto — estar cadastrado no relógio não é estar no ponto (13/08/2026)
 
 Medido em produção na LACEM, agosto/2026, **39 servidores escalados**: **27** "bate e não
