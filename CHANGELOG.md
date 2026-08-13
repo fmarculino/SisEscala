@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.61.3] - 2026-08-13
+
+### Fixed
+- **Relançamento automático após "Atualizar" continuou falhando mesmo depois do fix da v1.61.2**
+  — segundo teste real (relógio da Informática, 13/08/2026): download, conferência de sha256 e
+  troca do `.exe` funcionaram (a versão instalada passou a mostrar corretamente v0.4.1), mas o
+  processo novo não apareceu sozinho, sem nenhum erro no log — `exec.Command().Start()` só
+  confirma que o Windows aceitou *criar* o processo, não que ele chegou a executar de verdade.
+  Hipótese mais provável, dado o histórico já documentado neste projeto: Smart App Control ou
+  Defender inspecionando o `.exe` recém-escrito em disco (sem assinatura/reputação) antes de
+  deixar rodar, silenciosamente, sem diálogo nenhum para quem não está com os olhos na tela
+  naquele instante exato.
+  - Isso está fora do alcance de qualquer correção de código — se o Smart App Control estiver
+    "Ativado" na máquina, nenhum programa consegue forçá-lo a liberar a execução.
+  - O que mudou: em vez de confiar cegamente no `Start()` e sumir, o processo antigo agora espera
+    até 3s por um sinal de que o processo novo realmente assumiu o mutex de instância única
+    (`aguardarNovoProcessoAssumirMutex`, via `OpenMutex` — nunca `CreateMutex`, para a própria
+    sondagem não criar o mutex e fazer o processo novo pensar que já existe outra instância).
+    Se não confirmar, **mantém a versão antiga rodando** (reocupa o mutex) e notifica
+    explicitamente, em vez de deixar a bandeja sumir sem nada no lugar. Converte uma falha
+    silenciosa em uma falha visível e segura — o app nunca fica totalmente fechado sem avisar.
+
+### Notes
+- `ciclo.Versao` (app de bandeja/CLI) e `dist/VERSION` foram para `0.4.2`.
+- ⚠️ Se isso acontecer de novo, confira em Configurações do Windows → Privacidade e segurança →
+  Segurança do Windows → Controle de aplicativos e navegador se o Smart App Control está
+  "Ativado" na máquina — já documentado neste projeto como bloqueio sem exceção por app.
+
 ## [1.61.2] - 2026-08-13
 
 ### Fixed

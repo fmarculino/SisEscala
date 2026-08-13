@@ -125,6 +125,31 @@ func liberarInstanciaUnica() {
 	handleMutexUnico = 0
 }
 
+// aguardarNovoProcessoAssumirMutex sonda (a cada 200ms, ate durTotal) se algum processo passou a
+// segurar o mutex nomeado - e' o sinal de que o processo relancado por aplicarAtualizacao chegou
+// de verdade a rodar main()/garantirInstanciaUnica(), nao so' que o Windows aceitou criar o
+// processo (o que exec.Command().Start() sem erro so' garante). Usa OpenMutex (nunca CRIA o
+// objeto, so' verifica se ja existe) de proposito - se usasse CreateMutex feito
+// garantirInstanciaUnica, a propria sondagem poderia criar o mutex entre duas tentativas e fazer
+// o processo novo, chegando nesse instante, achar que ja existe outra instancia (nos mesmos, so'
+// que sondando) e desistir - a sondagem causando exatamente a falha que ela existe pra detectar.
+func aguardarNovoProcessoAssumirMutex(durTotal time.Duration) bool {
+	nome, err := windows.UTF16PtrFromString(nomeMutexUnico)
+	if err != nil {
+		return false
+	}
+	intervalo := 200 * time.Millisecond
+	for decorrido := time.Duration(0); decorrido < durTotal; decorrido += intervalo {
+		h, err := windows.OpenMutex(windows.SYNCHRONIZE, false, nome)
+		if err == nil {
+			windows.CloseHandle(h)
+			return true
+		}
+		time.Sleep(intervalo)
+	}
+	return false
+}
+
 // rodandoViaGoRun detecta `go run` pelo caminho do binario compilado, nunca por arquivos ao
 // lado dele - ver comentario em main() sobre o bug que essa distincao corrige.
 func rodandoViaGoRun() bool {
@@ -457,6 +482,27 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 			log.Printf("erro ao relancar apos atualizar: %v", err)
 			_ = beeep.Notify("SisEscala - Coletor", "Atualizado para v"+infoAtualizacao.Versao+", mas falhou ao reiniciar sozinho. Abra o app manualmente.", nil)
 			garantirInstanciaUnica() // este processo continua rodando (nao chegou no Quit abaixo) - reocupa o mutex
+			return
+		}
+
+		// exec.Command().Start() com erro nil so' confirma que o Windows aceitou CRIAR o processo -
+		// nao que ele chegou a executar de verdade. Observado em campo em 13/08/2026 mesmo depois
+		// do fix acima (mutex liberado a tempo, sem erro nenhum no log): a bandeja sumiu e nao
+		// voltou sozinha. Hipotese mais provavel, dado o historico ja documentado deste projeto:
+		// Smart App Control/Defender inspecionando o .exe recem-escrito (sem assinatura/reputacao)
+		// antes de deixar rodar, e podendo bloquear ou atrasar a execucao sem aviso nenhum pra quem
+		// nao esta olhando a tela naquele instante. Em vez de confiar cegamente, espera ate 3s por
+		// sinal de que o processo novo assumiu o mutex nomeado - se nao assumir, mante'm ESTA
+		// instancia (versao antiga) rodando e avisa, em vez de sumir e deixar ninguem rodando.
+		if !aguardarNovoProcessoAssumirMutex(3 * time.Second) {
+			log.Printf("aviso: processo novo (v%s) nao assumiu o mutex de instancia unica em 3s - "+
+				"provavel bloqueio/atraso do Windows (Smart App Control ou Defender) ao executar o "+
+				".exe recem-escrito. Mantendo esta instancia (v%s) rodando.", infoAtualizacao.Versao, ciclo.Versao)
+			_ = beeep.Notify("SisEscala - Coletor",
+				"Atualizado para v"+infoAtualizacao.Versao+", mas o novo aplicativo nao chegou a iniciar sozinho "+
+					"(o Windows pode ter bloqueado o executavel novo). Abra manualmente pela pasta de instalacao, "+
+					"ou tente 'Verificar atualizacao' de novo em alguns minutos.", nil)
+			garantirInstanciaUnica() // reocupa - esta instancia (versao antiga) continua sendo a "unica" valida
 			return
 		}
 		_ = os.Remove(exeAntigo)
