@@ -324,13 +324,30 @@ usuário**, que é dado gerenciável pela mesma família de API já validada na 
 | coletor aplica remoções | `GET`/`POST /api/rep/v1/remocoes` ← `coletor-rep higiene-remover` |
 | tela | aba "Higiene do Relógio" em `/marcacoes` (admin/super_admin) |
 
-⚠️ **`rep.RemoverUsuario` (`remove_users.fcgi`) NUNCA foi confirmada contra hardware real** — ao
-contrário de `add_users`/`load_users.fcgi` (cinco rodadas de teste na Fase 7). O corpo da chamada
-(`{"users": [{"pis": ...}]}`) é uma aproximação por simetria com `load_users.fcgi`, não uma
-confirmação. Por isso `coletor-rep higiene` (só leitura) tem botão na bandeja, mas
-`coletor-rep higiene-remover` (apaga cadastro de verdade) fica **só na CLI** — mesma prudência já
-aplicada a `cadastros`/`cadastros-testar`. Validar contra um usuário de teste (o mesmo "SISESCALA
-TESTE - PODE APAGAR" que `cadastros-testar` cria) antes de confiar nisso em cima de cadastro real.
+❌ **`rep.RemoverUsuario` (`remove_users.fcgi`) foi REPROVADA contra hardware real em
+13/08/2026** (LACEM, primeira rodada de campo do `higiene-remover`): o corpo
+`{"users": [{"pis": ...}]}` — aproximação por simetria com `load_users.fcgi`, nunca confirmada —
+foi recusado nas **31** remoções da fila com `'users' em formato incorreto`. O device nomeia o
+campo **`users`**, não um campo de dentro do objeto (compare com `'cpf' em formato incorreto`, da
+Fase 7, onde o inválido era o valor de um campo interno) — ou seja, o **tipo dos elementos** é que
+está errado: array de números, não de objetos.
+
+Como o formato certo continua sendo hipótese, `RemoverUsuario` **não chuta um formato só**: a
+primeira remoção de cada execução varre os candidatos de `formatosRemocao` (`rep/client.go`,
+ordem do mais provável ao menos) e **confirma por relistagem** qual deles realmente apagou o
+cadastro; o vencedor fica em cache para o resto do lote. Duas defesas que não podem sair daí:
+
+- **`ok` do relógio não é remoção.** Se a relistagem mostrar o cadastro ainda lá, a fila do
+  SisEscala é fechada como **falha**. Marcar como aplicada deixaria a tela dizendo que o relógio
+  está limpo quando não está.
+- **Se um candidato apagar quem não era o alvo, a execução aborta na hora** (diferença de
+  conjunto antes/depois, não só "o alvo sumiu") — nenhum outro pendente é tentado.
+
+`coletor-rep remocao-testar` (13/08/2026) é o `cadastros-testar` da remoção: cria e apaga o
+descartável "SISESCALA TESTE - PODE APAGAR", imprime o formato aceito e **não toca na fila real**.
+Rodar num relógio novo antes de `higiene-remover`. Por tudo isso `coletor-rep higiene` (só
+leitura) tem botão na bandeja, mas `higiene-remover` fica **só na CLI** — mesma prudência já
+aplicada a `cadastros`/`cadastros-testar`.
 
 `rep.ListarUsuarios` é só um refactor de `ListarUsuariosComBiometria` para devolver a lista
 inteira, não filtrada — reaproveita a mesma paginação já confirmada, então herda a confiança dela

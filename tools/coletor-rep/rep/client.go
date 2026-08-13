@@ -24,10 +24,14 @@
 //
 // ⚠️ ListarUsuarios (Fase 7b, higiene de cadastros, 12/08/2026) é só um refactor de
 // ListarUsuariosComBiometria para devolver a lista inteira, não filtrada — reaproveita a mesma
-// paginação já confirmada, então herda a confiança dela. RemoverUsuario (mesma leva) é
-// diferente: remove_users.fcgi NUNCA foi chamado contra o device real, o corpo da chamada é uma
-// aproximação por simetria com load_users.fcgi. Não habilitar no ciclo automático nem no menu da
-// bandeja até validar contra um usuário de teste (ver aviso na própria função).
+// paginação já confirmada, então herda a confiança dela.
+//
+// ❌ RemoverUsuario (mesma leva) foi REPROVADA contra hardware real em 13/08/2026 (LACEM): o
+// corpo `{"users":[{"pis":N}]}`, aproximação por simetria com load_users.fcgi, foi recusado com
+// "'users' em formato incorreto" nas 31 remoções da fila. Desde então a função não chuta um
+// formato só: tenta candidatos em ordem e confirma por relistagem qual REALMENTE apagou o
+// cadastro (descobrirFormatoRemocao). Continua fora do ciclo automático e do menu da bandeja —
+// é a única chamada que apaga dado de equipamento de produção.
 package rep
 
 import (
@@ -51,6 +55,11 @@ type Client struct {
 	usuario    string
 	senha      string
 	sessao     string
+
+	// formatoRemocao guarda qual corpo de remove_users.fcgi este equipamento aceitou nesta
+	// execucao - descoberto na primeira remocao (ver descobrirFormatoRemocao) e reusado depois,
+	// para nao repetir a varredura de candidatos a cada usuario do lote.
+	formatoRemocao *formatoRemocao
 }
 
 func NovoClient(endereco string, porta int, usaHTTPS bool, usuario, senha, certFingerprint string) *Client {
@@ -246,11 +255,19 @@ func (c *Client) CriarUsuario(matricula, nome, identificadorAfd string) error {
 // SisEscala, com usuarios que podem nao fazer mais parte do quadro. RegistrationBruto fica como
 // veio do device (string, mesmo sendo numero na API) porque aqui e' so' para exibicao/auditoria -
 // nunca vira identidade de referencia (essa continua sendo IdentificadorAFD, ver armadilha 10).
+// Pis/Code/Registration ficam como numeros porque sao o que a API do device aceita de volta
+// (remove_users.fcgi) - o rele nao tem campo "id", entao a identidade tem que sair de um destes.
 type UsuarioDispositivo struct {
 	IdentificadorAFD  string
 	RegistrationBruto string
 	Nome              string
 	TemBiometria      bool
+
+	Pis              int64
+	Code             int64
+	CodeConhecido    bool
+	Registration     int64
+	RegistrationConh bool
 }
 
 // ListarUsuarios devolve TODOS os usuarios cadastrados no rele agora (load_users.fcgi), nao so'
@@ -304,8 +321,18 @@ func (c *Client) ListarUsuarios() ([]UsuarioDispositivo, error) {
 			}
 
 			var registrationBruto string
+			var registration int64
+			registrationConh := false
 			if reg, ok := m["registration"].(float64); ok {
-				registrationBruto = strconv.FormatInt(int64(reg), 10)
+				registration = int64(reg)
+				registrationBruto = strconv.FormatInt(registration, 10)
+				registrationConh = true
+			}
+			var code int64
+			codeConhecido := false
+			if cd, ok := m["code"].(float64); ok {
+				code = int64(cd)
+				codeConhecido = true
 			}
 			nome, _ := m["name"].(string)
 			templates, _ := m["templates"].([]interface{})
@@ -315,6 +342,11 @@ func (c *Client) ListarUsuarios() ([]UsuarioDispositivo, error) {
 				RegistrationBruto: registrationBruto,
 				Nome:              nome,
 				TemBiometria:      len(templates) > 0,
+				Pis:               int64(pis),
+				Code:              code,
+				CodeConhecido:     codeConhecido,
+				Registration:      registration,
+				RegistrationConh:  registrationConh,
 			})
 		}
 
@@ -352,38 +384,193 @@ func (c *Client) ListarUsuariosComBiometria() ([]string, error) {
 	return identificadores, nil
 }
 
-// RemoverUsuario tira um usuario do rele (remove_users.fcgi) - identifica por `pis`, o mesmo
-// campo que load_users.fcgi/ListarUsuarios devolvem como identidade (armadilha 10:
-// identificador_afd = pis, 12 digitos, CPF com zero de preenchimento).
+// formatoRemocao e' um jeito candidato de montar o corpo de remove_users.fcgi. O formato certo
+// deste device NAO e' conhecido a priori (ver descobrirFormatoRemocao abaixo), entao o cliente
+// tenta os candidatos em ordem uma unica vez por processo e guarda o que o equipamento aceitou.
 //
-// ⚠️ NUNCA CONFIRMADO CONTRA HARDWARE REAL. Ao contrario de add_users.fcgi/load_users.fcgi
-// (cinco rodadas de teste em 12/08/2026, ver aviso no topo do arquivo), remove_users.fcgi nunca
-// foi chamado contra o device de verdade. O corpo abaixo segue por simetria o mesmo formato de
-// load_users.fcgi (array "users" com o campo que identifica cada um) - e' a melhor aproximacao,
-// nao uma confirmacao. Antes de confiar nisto em cima de um cadastro real, valide contra um
-// usuario de teste (o "SISESCALA TESTE - PODE APAGAR" que `cadastros-testar` cria e' o alvo
-// natural) e so' depois rode `coletor-rep higiene-remover` de verdade.
-func (c *Client) RemoverUsuario(identificadorAfd string) error {
+// Corpo devolve (nil,false) quando o candidato nao se aplica aquele usuario (ex.: o rele nao
+// devolveu `code` para ele) - candidato pulado, nao contado como falha.
+type formatoRemocao struct {
+	Nome  string
+	Mode  bool
+	Corpo func(u UsuarioDispositivo) (map[string]interface{}, bool)
+}
+
+// Ordem deliberada, do mais provavel para o menos:
+//
+// A mensagem real do equipamento em 13/08/2026 (LACEM, 31 remocoes) foi
+// "'users' em formato incorreto" — o device NOMEIA o campo `users`, nao um campo interno do
+// objeto. Compare com "'cpf' em formato incorreto" (12/08/2026, CriarUsuario com CPF de digito
+// verificador invalido), onde o campo nomeado era o de dentro do objeto. Isso aponta para o TIPO
+// dos elementos de `users` estar errado — array de numeros, nao de objetos —, por isso os
+// candidatos de array simples vem primeiro. `code` primeiro entre eles porque e' o campo que mais
+// parece um id interno na resposta de load_users.fcgi deste device (que nao tem campo "id").
+var formatosRemocao = []formatoRemocao{
+	{"users:[code]", true, func(u UsuarioDispositivo) (map[string]interface{}, bool) {
+		if !u.CodeConhecido {
+			return nil, false
+		}
+		return map[string]interface{}{"users": []interface{}{u.Code}}, true
+	}},
+	{"users:[pis]", true, func(u UsuarioDispositivo) (map[string]interface{}, bool) {
+		return map[string]interface{}{"users": []interface{}{u.Pis}}, true
+	}},
+	{"users:[registration]", true, func(u UsuarioDispositivo) (map[string]interface{}, bool) {
+		if !u.RegistrationConh {
+			return nil, false
+		}
+		return map[string]interface{}{"users": []interface{}{u.Registration}}, true
+	}},
+	{"users:[{code}]", true, func(u UsuarioDispositivo) (map[string]interface{}, bool) {
+		if !u.CodeConhecido {
+			return nil, false
+		}
+		return map[string]interface{}{"users": []map[string]interface{}{{"code": u.Code}}}, true
+	}},
+	{"users:[{cpf}]", true, func(u UsuarioDispositivo) (map[string]interface{}, bool) {
+		// mode=671 usa `cpf` na criacao (add_users.fcgi) para o mesmo numero que load_users.fcgi
+		// devolve como `pis` - vale tentar a mesma troca de nome na remocao.
+		return map[string]interface{}{"users": []map[string]interface{}{{"cpf": u.Pis}}}, true
+	}},
+	{"users:[{pis}]", true, func(u UsuarioDispositivo) (map[string]interface{}, bool) {
+		// Formato original (12/08/2026), o unico que ja se sabe REPROVADO contra hardware real.
+		// Fica por ultimo so' para nao descartar a hipotese de a falha ter sido outra coisa.
+		return map[string]interface{}{"users": []map[string]interface{}{{"pis": u.Pis}}}, true
+	}},
+	{"users:[pis] (sem mode)", false, func(u UsuarioDispositivo) (map[string]interface{}, bool) {
+		return map[string]interface{}{"users": []interface{}{u.Pis}}, true
+	}},
+}
+
+// RemoverUsuario tira um usuario do rele (remove_users.fcgi).
+//
+// ⚠️ O formato do corpo desta chamada NAO e' conhecido: a aproximacao por simetria com
+// load_users.fcgi (`{"users":[{"pis":N}]}`) foi REPROVADA contra hardware real em 13/08/2026 na
+// LACEM — o equipamento respondeu "'users' em formato incorreto" para as 31 remocoes. Por isso a
+// primeira remocao de cada processo passa por descobrirFormatoRemocao, que tenta os candidatos
+// acima e CONFIRMA por relistagem qual deles realmente apagou o cadastro; da segunda em diante o
+// formato ja esta em cache no cliente.
+//
+// Recebe o usuario inteiro (como veio de ListarUsuarios), nao so' o identificador, porque os
+// candidatos precisam de `code`/`registration`, que so' existem no snapshot do device.
+func (c *Client) RemoverUsuario(u UsuarioDispositivo) error {
 	if c.sessao == "" {
 		if err := c.Login(); err != nil {
 			return err
 		}
 	}
 
-	pisNum, err := strconv.ParseInt(identificadorAfd, 10, 64)
-	if err != nil {
-		return fmt.Errorf("identificador_afd %q nao e numerico: %w", identificadorAfd, err)
+	if c.formatoRemocao == nil {
+		return c.descobrirFormatoRemocao(u)
+	}
+	return c.aplicarRemocao(*c.formatoRemocao, u)
+}
+
+// aplicarRemocao dispara um formato ja conhecido, sem relistar. Erro aqui e' so' o que o proprio
+// equipamento recusou - a conferencia de que o cadastro realmente saiu e' feita uma vez so, no
+// fim do lote (ciclo.HigienizarRemocoes), para nao paginar load_users.fcgi por usuario.
+func (c *Client) aplicarRemocao(f formatoRemocao, u UsuarioDispositivo) error {
+	corpo, aplicavel := f.Corpo(u)
+	if !aplicavel {
+		return fmt.Errorf("formato %s nao se aplica a %s (o rele nao devolveu os campos necessarios)", f.Nome, u.IdentificadorAFD)
 	}
 
-	resultado, err := c.chamar(fmt.Sprintf("remove_users.fcgi?session=%s&mode=671", c.sessao), map[string]interface{}{
-		"users": []map[string]interface{}{{"pis": pisNum}},
-	})
+	caminho := fmt.Sprintf("remove_users.fcgi?session=%s", c.sessao)
+	if f.Mode {
+		caminho += "&mode=671"
+	}
+	resultado, err := c.chamar(caminho, corpo)
 	if err != nil {
 		return err
 	}
-
 	if errMsg, ok := resultado["error"]; ok {
-		return fmt.Errorf("remove_users.fcgi recusou: %v", errMsg)
+		return fmt.Errorf("remove_users.fcgi recusou (formato %s): %v", f.Nome, errMsg)
 	}
 	return nil
+}
+
+// FormatoRemocaoUsado devolve o nome do formato de remove_users.fcgi que este equipamento
+// aceitou nesta execucao (vazio se nenhuma remocao rodou ainda) - so' para log/diagnostico, e o
+// que permite fixar o formato no codigo depois de uma validacao em campo.
+func (c *Client) FormatoRemocaoUsado() string {
+	if c.formatoRemocao == nil {
+		return ""
+	}
+	return c.formatoRemocao.Nome
+}
+
+// descobrirFormatoRemocao tenta cada candidato ate um deles REALMENTE apagar o cadastro alvo,
+// conferindo por relistagem completa antes e depois. Um "sem erro" do equipamento nao basta: um
+// formato pode ser aceito e nao remover nada (foi o que a aproximacao original teria mascarado se
+// o rele tivesse respondido 200).
+//
+// A conferencia e' por diferenca de conjunto, nao so' "o alvo sumiu": se um formato apagar quem
+// nao devia (ex.: o numero enviado for interpretado como outro campo e casar com outro usuario),
+// isso e' descoberto na hora e a operacao inteira aborta com erro explicito, em vez de continuar
+// varrendo cadastro alheio.
+func (c *Client) descobrirFormatoRemocao(alvo UsuarioDispositivo) error {
+	antes, err := c.ListarUsuarios()
+	if err != nil {
+		return fmt.Errorf("nao foi possivel ler o cadastro do rele antes de remover (a remocao nao "+
+			"e tentada as cegas): %w", err)
+	}
+
+	var tentativas []string
+	for _, f := range formatosRemocao {
+		corpo, aplicavel := f.Corpo(alvo)
+		if !aplicavel {
+			continue
+		}
+
+		caminho := fmt.Sprintf("remove_users.fcgi?session=%s", c.sessao)
+		if f.Mode {
+			caminho += "&mode=671"
+		}
+		resultado, err := c.chamar(caminho, corpo)
+		if err != nil {
+			tentativas = append(tentativas, fmt.Sprintf("%s -> erro de transporte: %v", f.Nome, err))
+			continue
+		}
+		if errMsg, ok := resultado["error"]; ok {
+			tentativas = append(tentativas, fmt.Sprintf("%s -> recusado: %v", f.Nome, errMsg))
+			continue
+		}
+
+		depois, err := c.ListarUsuarios()
+		if err != nil {
+			return fmt.Errorf("formato %s foi aceito pelo rele mas nao foi possivel reler o cadastro "+
+				"para confirmar o efeito - pare e confira na interface do equipamento: %w", f.Nome, err)
+		}
+
+		sumiram := identificadoresAusentes(antes, depois)
+		if len(sumiram) == 1 && sumiram[0] == alvo.IdentificadorAFD {
+			formato := f
+			c.formatoRemocao = &formato
+			return nil
+		}
+		if len(sumiram) > 0 {
+			return fmt.Errorf("PARE: o formato %s removeu %d cadastro(s) que nao eram o alvo %s (%v). "+
+				"Nenhuma outra remocao sera tentada nesta execucao - confira o cadastro do equipamento",
+				f.Nome, len(sumiram), alvo.IdentificadorAFD, sumiram)
+		}
+		tentativas = append(tentativas, fmt.Sprintf("%s -> aceito mas nao removeu nada", f.Nome))
+	}
+
+	return fmt.Errorf("nenhum formato de remove_users.fcgi funcionou neste equipamento; tentativas: %s",
+		strings.Join(tentativas, " | "))
+}
+
+// identificadoresAusentes devolve quem estava em `antes` e nao esta mais em `depois`.
+func identificadoresAusentes(antes, depois []UsuarioDispositivo) []string {
+	presentes := make(map[string]bool, len(depois))
+	for _, u := range depois {
+		presentes[u.IdentificadorAFD] = true
+	}
+	var ausentes []string
+	for _, u := range antes {
+		if !presentes[u.IdentificadorAFD] {
+			ausentes = append(ausentes, u.IdentificadorAFD)
+		}
+	}
+	return ausentes
 }

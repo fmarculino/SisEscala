@@ -71,6 +71,16 @@ export function HigieneDispositivoTab() {
     })
   }
 
+  // Só entra aqui quem a própria tela deixaria clicar um a um — servidor ativo vinculado e quem
+  // já está na fila continuam de fora do "selecionar todos". A regra de verdade é do banco
+  // (fn_enfileirar_remocao_usuarios_dispositivo recusa vínculo vigente); isto é só a UI.
+  const removiveis = usuarios.filter((u) => u.pode_remover && u.fila_status !== 'pendente')
+  const todosSelecionados = removiveis.length > 0 && removiveis.every((u) => selecionados.has(u.identificador_afd))
+
+  function alternarTodos() {
+    setSelecionados(todosSelecionados ? new Set() : new Set(removiveis.map((u) => u.identificador_afd)))
+  }
+
   async function handleMarcarParaRemocao() {
     if (selecionados.size === 0) return
     if (!confirm(
@@ -148,6 +158,25 @@ export function HigieneDispositivoTab() {
         </p>
       ) : (
         <div className="space-y-2">
+          {removiveis.length > 0 && (
+            <label className="flex items-center gap-3 px-3 py-2 rounded-xl border border-dashed border-zinc-300 dark:border-zinc-700 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={todosSelecionados}
+                ref={(el) => {
+                  if (el) el.indeterminate = !todosSelecionados && selecionados.size > 0
+                }}
+                onChange={alternarTodos}
+                className="h-4 w-4"
+              />
+              <span className="text-xs font-bold text-zinc-600 dark:text-zinc-300">
+                {todosSelecionados ? 'Desmarcar todos' : `Selecionar todos os ${removiveis.length} removíveis`}
+              </span>
+              <span className="text-[11px] text-zinc-400">
+                não inclui quem está vinculado a servidor ativo nem quem já está na fila
+              </span>
+            </label>
+          )}
           {usuarios.map((u) => {
             const vinculadoAtivo = u.servidor_id && u.servidor_status === 'Ativo'
             const pendenteRemocao = u.fila_status === 'pendente'

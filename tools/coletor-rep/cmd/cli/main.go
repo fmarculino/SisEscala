@@ -65,6 +65,8 @@ func main() {
 		fmt.Printf("pendentes=%d enviados=%d falhas=%d\n", resultado.Pendentes, resultado.Enviados, resultado.Falhas)
 	case "cadastros-testar":
 		rodarCadastrosTestar(cfg)
+	case "remocao-testar":
+		rodarRemocaoTestar(cfg)
 	case "higiene":
 		resultado, err := ciclo.HigienizarListagem(cfg)
 		if err != nil {
@@ -110,6 +112,7 @@ Uso:
   coletor-rep afd-exportar <arq>  exporta so o AFD novo (desde a ultima exportacao) para um arquivo .sisrep - unidade sem rede ate o SisEscala, ver README
   coletor-rep cadastros           aplica a fila de push de identidade real no rele (Fase 7) - GRAVA no equipamento
   coletor-rep cadastros-testar    cria UM usuario de teste no rele e lista biometria (diagnostico - GRAVA no equipamento, ver aviso)
+  coletor-rep remocao-testar      cria UM usuario de teste e o APAGA - descobre qual formato de remove_users.fcgi este rele aceita, sem tocar em cadastro real
   coletor-rep higiene             le todos os usuarios do rele e reporta ao SisEscala (Fase 7b) - so' leitura, seguro rodar sempre
   coletor-rep higiene-remover     aplica no rele quem foi selecionado na tela de higiene - GRAVA/APAGA no equipamento, ver aviso em rep/client.go
   coletor-rep terminal abrir      abre a tela de presenca local no navegador (uma vez)
@@ -347,7 +350,8 @@ func rodarCadastrosTestar(cfg *config.Config) {
 
 	fmt.Println("ATENCAO: isto vai GRAVAR um usuario de teste no rele de verdade.")
 	fmt.Println("Nome usado: 'SISESCALA TESTE - PODE APAGAR' / matricula '900000' — apague pela")
-	fmt.Println("interface do proprio equipamento depois de conferir o resultado abaixo.\n")
+	fmt.Println("interface do proprio equipamento depois de conferir o resultado abaixo.")
+	fmt.Println()
 
 	if err := rc.Login(); err != nil {
 		fmt.Fprintf(os.Stderr, "Falha no login: %v\n", err)
@@ -374,4 +378,77 @@ func rodarCadastrosTestar(cfg *config.Config) {
 	} else {
 		fmt.Printf("ListarUsuariosComBiometria: OK — %d usuario(s) com template cadastrado: %v\n", len(comBiometria), comBiometria)
 	}
+}
+
+// identificadorTeste e' o CPF de teste (011144477735 -> right(11) = 11144477735, sintaticamente
+// valido e nunca emitido) ja usado por rodarCadastrosTestar. Mesmo usuario nos dois comandos: se
+// remocao-testar falhar no meio, o cadastro que sobra e' o mesmo "SISESCALA TESTE - PODE APAGAR"
+// que ja se sabe apagar na mao pela interface do equipamento.
+const identificadorTeste = "011144477735"
+
+// rodarRemocaoTestar cria o usuario de teste e tenta APAGA-LO, so' para descobrir qual formato de
+// corpo o remove_users.fcgi deste equipamento aceita — o formato original foi reprovado em campo
+// (13/08/2026, LACEM: "'users' em formato incorreto" nas 31 remocoes da fila). Nao toca na fila
+// real do SisEscala: nenhuma chamada a sisescala.ConfirmarRemocao aqui.
+//
+// Roda contra um cadastro descartavel de proposito. rep.RemoverUsuario confere por relistagem se
+// o alvo certo (e so' ele) sumiu, entao o custo de um formato errado e' um usuario de teste que
+// continua no rele, nunca cadastro de servidor real.
+func rodarRemocaoTestar(cfg *config.Config) {
+	if cfg.DispositivoRep == nil {
+		fmt.Fprintln(os.Stderr, "Secao dispositivo_rep ausente no config.yaml.")
+		os.Exit(1)
+	}
+	d := cfg.DispositivoRep
+	rc := rep.NovoClient(d.Endereco, d.Porta, d.UsaHTTPS, d.UsuarioRep, d.SenhaRep, d.CertFingerprint)
+
+	fmt.Println("ATENCAO: isto GRAVA e depois APAGA um usuario de teste no rele de verdade.")
+	fmt.Println("Nome usado: 'SISESCALA TESTE - PODE APAGAR' / matricula '900000'. Nenhum cadastro")
+	fmt.Println("real e' tocado, e a fila de remocao do SisEscala nao e' consultada nem alterada.")
+	fmt.Println()
+
+	if err := rc.Login(); err != nil {
+		fmt.Fprintf(os.Stderr, "Falha no login: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("login no REP: OK")
+
+	if err := rc.CriarUsuario("900000", "SISESCALA TESTE - PODE APAGAR", identificadorTeste); err != nil {
+		// Ja existir de uma rodada anterior de cadastros-testar nao impede o teste de remocao —
+		// a busca abaixo decide.
+		fmt.Printf("CriarUsuario: FALHOU — %v\n", err)
+		fmt.Println("(seguindo mesmo assim: se o usuario de teste ja existir de uma rodada anterior, da' para remover)")
+	} else {
+		fmt.Println("CriarUsuario: OK")
+	}
+
+	usuarios, err := rc.ListarUsuarios()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ListarUsuarios: FALHOU — %v\n", err)
+		os.Exit(1)
+	}
+	var alvo *rep.UsuarioDispositivo
+	for i := range usuarios {
+		if usuarios[i].IdentificadorAFD == identificadorTeste {
+			alvo = &usuarios[i]
+			break
+		}
+	}
+	if alvo == nil {
+		fmt.Fprintf(os.Stderr, "O usuario de teste (%s) nao apareceu em load_users.fcgi — sem alvo seguro para testar a remocao.\n", identificadorTeste)
+		os.Exit(1)
+	}
+	fmt.Printf("alvo de teste no rele: %q pis=%d code=%d(conhecido=%v) registration=%d(conhecido=%v)\n",
+		alvo.Nome, alvo.Pis, alvo.Code, alvo.CodeConhecido, alvo.Registration, alvo.RegistrationConh)
+
+	if err := rc.RemoverUsuario(*alvo); err != nil {
+		fmt.Printf("RemoverUsuario: FALHOU — %v\n", err)
+		fmt.Println("\nA lista de tentativas acima e' o que decide o proximo passo: se NENHUM formato")
+		fmt.Println("foi aceito, o campo de identidade esperado por remove_users.fcgi neste modelo e'")
+		fmt.Println("outro. Apague o usuario de teste pela interface do equipamento.")
+		os.Exit(1)
+	}
+	fmt.Printf("RemoverUsuario: OK — formato aceito por este equipamento: %s\n", rc.FormatoRemocaoUsado())
+	fmt.Println("Confirmado por relistagem: so' o usuario de teste sumiu do cadastro.")
+	fmt.Println("Pode rodar 'coletor-rep higiene-remover' para aplicar a fila real.")
 }

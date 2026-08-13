@@ -97,13 +97,33 @@ coletor-rep diagnostico         testa conexão com o REP e com o SisEscala
 coletor-rep afd-raw             só imprime a resposta crua do relógio (diagnóstico, não grava nada)
 coletor-rep cadastros           aplica a fila de push de identidade real no relógio (Fase 7) — GRAVA no equipamento
 coletor-rep cadastros-testar    cria um usuário de teste no relógio e lista biometria (diagnóstico — GRAVA um registro de teste, ver aviso acima)
+coletor-rep remocao-testar      cria um usuário de teste e o APAGA — descobre qual formato de `remove_users.fcgi` este relógio aceita, sem tocar em cadastro real
 coletor-rep higiene             lê todos os usuários do relógio e reporta ao SisEscala (Fase 7b) — só leitura, seguro rodar sempre
-coletor-rep higiene-remover     aplica no relógio quem foi selecionado na tela de higiene — GRAVA/APAGA no equipamento, remove_users.fcgi NUNCA confirmado contra hardware real
+coletor-rep higiene-remover     aplica no relógio quem foi selecionado na tela de higiene — GRAVA/APAGA no equipamento; rode `remocao-testar` antes (ver abaixo)
 coletor-rep terminal abrir      abre a tela de presença local no navegador (uma vez)
 ```
 
 Lê `config.yaml` do diretório de trabalho atual (ou o caminho passado em `--config`) — copie
 `config.yaml.exemplo` para `config.yaml` e preencha à mão para uso manual/depuração.
+
+### `remove_users.fcgi`: formato descoberto em campo, não presumido
+
+O corpo `{"users":[{"pis":N}]}` (aproximação por simetria com `load_users.fcgi`) foi **reprovado
+contra hardware real** em 13/08/2026 na LACEM: o equipamento recusou as 31 remoções da fila com
+`'users' em formato incorreto`. Desde então `rep.RemoverUsuario` não chuta um formato só — na
+primeira remoção de cada execução ela tenta os candidatos de `formatosRemocao`
+(`rep/client.go`) em ordem e **confirma por relistagem** qual deles realmente apagou o cadastro,
+guardando o vencedor para o resto do lote.
+
+Duas defesas que não podem sair daí:
+
+- um `ok` do relógio **não** conta como remoção — se a relistagem mostrar o cadastro ainda lá, a
+  fila do SisEscala é fechada como falha, não como aplicada;
+- se um candidato apagar alguém que não era o alvo, a execução aborta na hora, sem tentar os
+  outros pendentes.
+
+Rode `coletor-rep remocao-testar` num relógio novo antes de `higiene-remover`: ele cria e apaga o
+usuário descartável "SISESCALA TESTE - PODE APAGAR" e imprime o formato aceito.
 
 ## Desenvolvimento
 
