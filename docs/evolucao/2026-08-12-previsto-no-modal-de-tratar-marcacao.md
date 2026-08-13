@@ -223,5 +223,20 @@ causado zero dano. O padrão do projeto — `configuracoes_globais.timezone` exp
   em D ou D−1. A única exceção não é causada pelo guard — é a batida de EMELLY GONÇALVES
   (11/08, `Sem escala agendada para hoje`), cujo servidor não tem **nenhuma** escala em 08/2026,
   caso que a tela já recusa hoje.
-- ⚠️ **A migration `20260812160000` ainda NÃO foi aplicada.** Validar em homologação antes de
-  produção. A conferência pós-aplicação está no cabeçalho do próprio arquivo.
+- ✅ **Migration `20260812160000` aplicada e confirmada em produção em 13/08/2026** (v1.60.2).
+  As três sondas responderam com JSON limpo — servidor divergente, data fora de `[D−1, D]` e
+  Sobreaviso — e nada foi escrito (`marcacoes_tratamentos` em 32 antes e depois; as três linhas
+  sondadas com os 4 campos de presença ainda `NULL`).
+
+  As sondas usaram **linhas de Sobreaviso de propósito**: se a migration não tivesse pegado, a
+  constraint `chk_sobreaviso_sem_presenca` abortaria a escrita. Os dois desfechos possíveis eram
+  não-destrutivos — era a única forma de sondar sem arriscar gravar ponto falso para descobrir se
+  o guard que impede ponto falso existia.
+
+  A sonda de Sobreaviso é também o **teste positivo dos guards 1 e 2**: o par tinha o mesmo
+  servidor e a mesma data, passou pelos dois e só parou no terceiro. Ficam sem exercício ao vivo
+  apenas o guard de competência (08/2026 está aberta) e a escrita, que é código byte a byte
+  idêntico ao vigente.
+
+  Reauditados os 16 `vincular_escala` existentes (11 da auditoria original + 5 feitos por
+  coordenador real entre a v1.60.0 e agora): **0 divergências de dia ou servidor**.

@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.60.2] - 2026-08-13
+
+### Notes
+- **Migration `20260812160000` confirmada em produção, e v1.60.1 no ar** (`/api/version` devolve
+  `1.60.1`). Os três guards sondáveis responderam com JSON limpo e **nenhuma escrita**:
+
+  | sonda | resposta de produção |
+  |---|---|
+  | servidor divergente | `A batida é de outro servidor. Não é possível vinculá-la a esta escala.` |
+  | data fora de `[D−1, D]` | `A batida de 08/08/2026 não pertence à escala de 05/07/2026. …` |
+  | categoria Sobreaviso | `Sobreaviso não registra presença. Use o fluxo de sobreaviso.` |
+
+  As sondas usaram **linhas de Sobreaviso de propósito**: se a migration não tivesse pegado, a
+  constraint `chk_sobreaviso_sem_presenca` abortaria a escrita — os dois desfechos possíveis eram
+  não-destrutivos. Conferido depois: `marcacoes_tratamentos` inalterada (32 antes e depois) e as
+  três linhas sondadas continuam com os 4 campos de presença `NULL`.
+- **A terceira sonda é também o teste positivo dos guards 1 e 2.** O par tinha o **mesmo
+  servidor** e a **mesma data** da batida, e passou pelos dois guards antes de parar no de
+  Sobreaviso — ou seja, eles não recusam par válido. O que não foi exercitado ao vivo é só o
+  guard de competência (`08/2026` está aberta) e a escrita em si, que é código **byte a byte
+  idêntico** ao vigente, conferido pelo gerador.
+- **Uso real no intervalo, sem nenhuma divergência.** Entre a v1.60.0 e agora entraram 17
+  tratamentos novos (12 `desconsiderar` em massa às 21:33 e 22:23 de 12/08, mais 5
+  `vincular_escala` de passo `saida` entre 23:33 e 23:38). Reauditados os 16 `vincular_escala`
+  existentes: **0 com dia divergente, 0 com servidor divergente**.
+- Estado atual da fila: 74 marcações com observação de pendência — **11 já tratadas, 63
+  aguardando decisão**. Sobra **1** com hora local ≥ 21:00 (12/08 às 21:57); a de 21:26 foi
+  desconsiderada pelo coordenador às 21:33 do mesmo dia.
+- ⚠️ **Não verificado:** a aba Pendências renderizando no navegador (exige sessão de
+  coordenador). O build passou e as Server Actions foram exercitadas pelo banco, mas a tela em si
+  só se confirma abrindo `/marcacoes`.
+
 ## [1.60.1] - 2026-08-12
 
 ### Security
@@ -53,7 +85,7 @@ All notable changes to this project will be documented in this file.
   bug que a auditoria mediu como tendo causado zero dano. O padrão do projeto
   (`configuracoes_globais.timezone` explícito) continua sendo a regra.
 
-⚠️ **Migration ainda não aplicada.** Validar em homologação antes de produção.
+✅ **Migration aplicada e confirmada em produção em 13/08/2026** — ver v1.60.2 acima.
 
 ## [1.60.0] - 2026-08-12
 
