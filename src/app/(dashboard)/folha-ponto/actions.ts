@@ -2,10 +2,10 @@
 
 import { createClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
-import { registrarLog, calcularAlteracoesFolha } from '@/utils/auditoria'
+import { registrarLog, calcularAlteracoes, calcularAlteracoesFolha } from '@/utils/auditoria'
 import { hasSectorAccess, UserProfile, applyAccessFilters } from '@/utils/permissions'
 import { autoCloseExpiredScalesAndTimesheets, isCompetencyClosed } from '@/utils/autoClose'
-import { resolverMarcacaoDoDia, COLUNAS_PRESENCA_FOLHA } from '@/utils/folha/origemMarcacao'
+import { resolverMarcacaoDoDia, COLUNAS_PRESENCA_FOLHA, type PassoPresenca } from '@/utils/folha/origemMarcacao'
 import { podePreAssinalarIntervalo } from '@/utils/folha/preAssinalacao'
 
 // Helper: Get user profile with unit/sector permissions
@@ -1411,6 +1411,130 @@ export async function sincronizarFolhaPonto(folhaId: string) {
     return { success: true }
   } catch (error: any) {
     console.error('Erro na sincronização de folha:', error)
+    return { error: error.message }
+  }
+}
+
+/**
+ * Move uma batida REAL de um passo vazio pro outro no mesmo dia (ex.: uma saida que caiu em
+ * "saida intervalo" porque o servidor trabalhou direto, sem marcar o intervalo, e o terminal
+ * so preenche o proximo passo vazio em sequencia). Nunca fabrica horario: so corrige em qual
+ * campo de escala_diaria o horario real ja gravado esta classificado - marcacoes_ponto nunca e
+ * tocada. Ver fn_reclassificar_passo_presenca (20260812150000) e o caso real que motivou isto
+ * (dia 12/08/2026, Fernando/TI) em docs/evolucao.
+ */
+export async function reclassificarPassoPresenca(
+  folhaId: string,
+  dia: number,
+  passoOrigem: PassoPresenca,
+  passoDestino: PassoPresenca,
+  justificativa: string
+) {
+  try {
+    const supabase = await createClient()
+    const userProfile = await getUserProfile(supabase)
+
+    const { data: folha, error: folhaError } = await supabase
+      .from('folha_ponto')
+      .select('id, escala_mensal_id, mes, ano, servidor_id')
+      .eq('id', folhaId)
+      .single()
+
+    if (folhaError || !folha) throw new Error('Folha de ponto não encontrada')
+
+    if (await isCompetencyClosed(folha.mes, folha.ano)) {
+      return { error: 'Esta competência está encerrada e todos os dados estão congelados para auditoria.' }
+    }
+
+    const { data: escala, error: escError } = await supabase
+      .from('escala_mensal')
+      .select('id, unidade_id, setor_id')
+      .eq('id', folha.escala_mensal_id)
+      .single()
+
+    if (escError || !escala) throw new Error('Escala vinculada não encontrada')
+
+    if (!hasSectorAccess(userProfile, escala.setor_id, escala.unidade_id)) {
+      return { error: 'Acesso negado para corrigir a presença desta folha.' }
+    }
+
+    if (!justificativa || justificativa.trim().length < 5) {
+      return { error: 'Justificativa obrigatória (mínimo 5 caracteres).' }
+    }
+
+    // Resolve qual escala_diaria.id forneceu o horario vencedor do passo de origem neste dia -
+    // a MESMA logica que a folha usa pra decidir o que mostrar (fonte unica, origemMarcacao.ts).
+    // Sem isso, um dia com mais de um turno (Regular + Extra/Plantao) poderia corrigir a linha
+    // errada.
+    const { data: turnosDoDia } = await supabase
+      .from('escala_diaria')
+      .select(`id, ${COLUNAS_PRESENCA_FOLHA}`)
+      .eq('escala_mensal_id', folha.escala_mensal_id)
+      .eq('dia', dia)
+
+    const marcacaoOrigem = resolverMarcacaoDoDia(turnosDoDia || [], passoOrigem)
+    if (!marcacaoOrigem.escalaDiariaId) {
+      return { error: 'Não há marcação real neste passo para mover.' }
+    }
+
+    const { data: antes } = await supabase
+      .from('escala_diaria')
+      .select(COLUNAS_PRESENCA_FOLHA)
+      .eq('id', marcacaoOrigem.escalaDiariaId)
+      .single()
+
+    const { error: rpcError } = await supabase.rpc('fn_reclassificar_passo_presenca', {
+      p_escala_diaria_id: marcacaoOrigem.escalaDiariaId,
+      p_passo_origem: passoOrigem,
+      p_passo_destino: passoDestino,
+      p_justificativa: justificativa.trim(),
+    })
+
+    if (rpcError) {
+      return { error: rpcError.message }
+    }
+
+    const { data: depois } = await supabase
+      .from('escala_diaria')
+      .select(COLUNAS_PRESENCA_FOLHA)
+      .eq('id', marcacaoOrigem.escalaDiariaId)
+      .single()
+
+    await registrarLog({
+      acao: 'PRESENCA_RECLASSIFICADA',
+      entidade: 'escala',
+      entidadeId: marcacaoOrigem.escalaDiariaId,
+      userId: userProfile.id,
+      alteracoes: calcularAlteracoes(antes, depois),
+      detalhes: {
+        dia,
+        passoOrigem,
+        passoDestino,
+        justificativa: justificativa.trim(),
+        servidorId: folha.servidor_id,
+      },
+      unidadeId: escala.unidade_id,
+      setorId: escala.setor_id,
+    })
+
+    // Fecha o loop pedido: a folha ja visivel na tela reflete a correcao sem precisar de um
+    // clique separado em "Sincronizar" - reusa a mesma funcao de sincronizacao (que ja re-deriva
+    // registros a partir de escala_diaria, preservando edicoes manuais de outros dias), sem
+    // duplicar logica de geracao.
+    const syncResult = await sincronizarFolhaPonto(folhaId)
+
+    revalidatePath(`/folha-ponto/${folhaId}`)
+
+    if (syncResult?.error) {
+      return {
+        success: true,
+        warning: `A marcação foi corrigida, mas a folha não pôde ser sincronizada automaticamente: ${syncResult.error}`,
+      }
+    }
+
+    return { success: true }
+  } catch (error: any) {
+    console.error('Erro ao reclassificar presença:', error)
     return { error: error.message }
   }
 }

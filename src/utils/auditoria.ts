@@ -168,6 +168,7 @@ export const ROTULOS_ACAO: Record<string, string> = {
   FOLHA_EDITADA: 'Folha de ponto editada',
   FOLHA_STATUS_ALTERADO: 'Status da folha alterado',
   FOLHA_REGERADA: 'Folha de ponto regerada',
+  PRESENCA_RECLASSIFICADA: 'Marcação de presença reclassificada',
   UNIDADE_EDITADA: 'Unidade editada',
   SETOR_EDITADO: 'Setor editado',
 }

@@ -8,7 +8,7 @@ import {
   Check, Loader2, Building2, Users, Calendar, Briefcase, 
   Clock, FileText, CheckSquare, X, Unlock
 } from 'lucide-react'
-import { salvarFolhaPonto, verificarDivergenciaEscala, sincronizarFolhaPonto, gerarFolhaPonto } from '../actions'
+import { salvarFolhaPonto, verificarDivergenciaEscala, sincronizarFolhaPonto, gerarFolhaPonto, reclassificarPassoPresenca } from '../actions'
 import { Modal } from '@/components/ui/Modal'
 import { createClient } from '@/utils/supabase/client'
 
@@ -150,6 +150,81 @@ export function FolhaPontoEditor({
     onConfirm: () => void,
     type: 'default' | 'danger' | 'warning'
   } | null>(null)
+
+  // Reclassificação de passo (arrastar uma batida real pro campo certo, ex.: uma "saída" que
+  // caiu em "saída intervalo" porque o servidor trabalhou direto). Ferramenta de coordenação —
+  // nunca aparece no Portal do Servidor. Mesma régua de quem já mexe em escala_diaria por
+  // validação manual (hasSectorAccess), não a regra mais estrita (só super_admin) que já existe
+  // pra digitar por cima de uma célula real — esta é mais segura que aquela: só move um horário
+  // real já existente, nunca fabrica um novo.
+  const PASSO_LABEL: Record<string, string> = {
+    entrada: 'Entrada',
+    saida_intervalo: 'Saída Intervalo',
+    retorno_intervalo: 'Retorno Intervalo',
+    saida: 'Saída',
+  }
+  // Nome do campo na folha (`saida_intervalo`) não é o mesmo texto do passo canônico que a
+  // Server Action espera (`intervalo_saida`, definido em origemMarcacao.ts) — ponto fácil de
+  // escorregar um bug de digitação.
+  const PASSO_CANONICO: Record<string, 'entrada' | 'intervalo_saida' | 'intervalo_retorno' | 'saida'> = {
+    entrada: 'entrada',
+    saida_intervalo: 'intervalo_saida',
+    retorno_intervalo: 'intervalo_retorno',
+    saida: 'saida',
+  }
+  const podeReclassificar =
+    !isPortal && isEditable &&
+    ['coordenador', 'admin', 'super_admin', 'rh', 'rh_unidade'].includes(profile?.role)
+
+  const [draggingFrom, setDraggingFrom] = useState<{ dia: number; passo: string } | null>(null)
+  const [reclassifyModal, setReclassifyModal] = useState<{
+    dia: number
+    passoOrigem: string
+    passoDestino: string
+    horario: string
+    justificativa: string
+    submitting: boolean
+  } | null>(null)
+
+  const handleDrop = (dia: number, passoDestino: string) => {
+    if (!draggingFrom || draggingFrom.dia !== dia || draggingFrom.passo === passoDestino) return
+    const registro = registros.find(r => r.dia === dia)
+    setReclassifyModal({
+      dia,
+      passoOrigem: draggingFrom.passo,
+      passoDestino,
+      horario: registro?.[draggingFrom.passo] || '',
+      justificativa: '',
+      submitting: false,
+    })
+    setDraggingFrom(null)
+  }
+
+  const confirmarReclassificacao = async () => {
+    if (!reclassifyModal || reclassifyModal.justificativa.trim().length < 5) return
+    setReclassifyModal({ ...reclassifyModal, submitting: true })
+    const res = await reclassificarPassoPresenca(
+      folha.id,
+      reclassifyModal.dia,
+      PASSO_CANONICO[reclassifyModal.passoOrigem],
+      PASSO_CANONICO[reclassifyModal.passoDestino],
+      reclassifyModal.justificativa.trim()
+    )
+    if (res.error) {
+      setReclassifyModal(null)
+      setAlertModal({ isOpen: true, title: 'Erro ao Corrigir', message: res.error, type: 'danger' })
+      return
+    }
+    setReclassifyModal(null)
+    setAlertModal({
+      isOpen: true,
+      title: 'Marcação Corrigida',
+      message: (res as any).warning || 'A batida foi movida para o passo correto — a escala e a folha já refletem a correção.',
+      type: (res as any).warning ? 'warning' : 'success',
+    })
+    router.refresh()
+    setTimeout(() => window.location.reload(), 1000)
+  }
 
   // Unpack scale meta
   const escala = folha.escala
@@ -747,6 +822,22 @@ export function FolhaPontoEditor({
                   return diff > 6
                 })()
 
+                // Arrastar-e-soltar pra reclassificar uma batida real (dia 12 do Fernando: uma
+                // "saída" real que caiu em "saída intervalo" porque ele trabalhou direto). Só
+                // arrasta quem tem origem 'real' e valor preenchido; só solta em passo vazio do
+                // MESMO dia — mover entre dias é fora de escopo.
+                const CAMPOS_PASSO: Record<string, { origem: string; valido: boolean }> = {
+                  entrada: { origem: r.origem_entrada, valido: isWorkDay && !r.afastamento && !r.feriado },
+                  saida_intervalo: { origem: r.origem_saida_intervalo, valido: isWorkDay && recordHasInterval && !r.afastamento && !r.feriado },
+                  retorno_intervalo: { origem: r.origem_retorno_intervalo, valido: isWorkDay && recordHasInterval && !r.afastamento && !r.feriado },
+                  saida: { origem: r.origem_saida, valido: isWorkDay && !r.afastamento && !r.feriado },
+                }
+                const isArrastavel = (campo: string) =>
+                  podeReclassificar && CAMPOS_PASSO[campo]?.valido && CAMPOS_PASSO[campo]?.origem === 'real' && !!r[campo]
+                const isAlvoDeSolta = (campo: string) =>
+                  podeReclassificar && CAMPOS_PASSO[campo]?.valido &&
+                  !!draggingFrom && draggingFrom.dia === r.dia && draggingFrom.passo !== campo && !r[campo]
+
                 return (
                   <tr 
                     key={r.dia} 
@@ -778,11 +869,19 @@ export function FolhaPontoEditor({
                     </td>
 
                     {/* Entrada */}
-                    <td className={`px-2 py-1.5 border-r border-zinc-200 dark:border-zinc-700 text-center ${isWorkDay ? borderClass(r.origem_entrada) : ''}`}>
+                    <td
+                      className={`px-2 py-1.5 border-r border-zinc-200 dark:border-zinc-700 text-center ${isWorkDay ? borderClass(r.origem_entrada) : ''} ${isArrastavel('entrada') ? 'cursor-grab active:cursor-grabbing' : ''} ${isAlvoDeSolta('entrada') ? 'ring-2 ring-inset ring-dashed ring-blue-400' : ''}`}
+                      draggable={isArrastavel('entrada')}
+                      onDragStart={() => setDraggingFrom({ dia: r.dia, passo: 'entrada' })}
+                      onDragEnd={() => setDraggingFrom(null)}
+                      onDragOver={(e) => { if (isAlvoDeSolta('entrada')) e.preventDefault() }}
+                      onDrop={(e) => { e.preventDefault(); handleDrop(r.dia, 'entrada') }}
+                      title={isArrastavel('entrada') ? 'Arraste para outro passo do dia para corrigir a classificação' : undefined}
+                    >
                       {isWorkDay && !r.afastamento && !r.feriado ? (
-                        <input 
-                          type="time" 
-                          value={r.entrada || ''} 
+                        <input
+                          type="time"
+                          value={r.entrada || ''}
                           onChange={(e) => handleCellChange(r.dia, 'entrada', e.target.value)}
                           disabled={isPortal || !isEditable || (r.origem_entrada === 'real' && profile?.role !== 'super_admin')}
                           className="w-full bg-transparent border-none text-center outline-none font-bold text-zinc-900 dark:text-white font-mono disabled:opacity-50"
@@ -793,11 +892,19 @@ export function FolhaPontoEditor({
                     </td>
 
                     {/* Saída Intervalo */}
-                    <td className={`px-2 py-1.5 border-r border-zinc-200 dark:border-zinc-700 text-center ${isWorkDay && recordHasInterval ? borderClass(r.origem_saida_intervalo) : ''}`}>
+                    <td
+                      className={`px-2 py-1.5 border-r border-zinc-200 dark:border-zinc-700 text-center ${isWorkDay && recordHasInterval ? borderClass(r.origem_saida_intervalo) : ''} ${isArrastavel('saida_intervalo') ? 'cursor-grab active:cursor-grabbing' : ''} ${isAlvoDeSolta('saida_intervalo') ? 'ring-2 ring-inset ring-dashed ring-blue-400' : ''}`}
+                      draggable={isArrastavel('saida_intervalo')}
+                      onDragStart={() => setDraggingFrom({ dia: r.dia, passo: 'saida_intervalo' })}
+                      onDragEnd={() => setDraggingFrom(null)}
+                      onDragOver={(e) => { if (isAlvoDeSolta('saida_intervalo')) e.preventDefault() }}
+                      onDrop={(e) => { e.preventDefault(); handleDrop(r.dia, 'saida_intervalo') }}
+                      title={isArrastavel('saida_intervalo') ? 'Arraste para outro passo do dia para corrigir a classificação' : undefined}
+                    >
                       {isWorkDay && recordHasInterval && !r.afastamento && !r.feriado ? (
-                        <input 
-                          type="time" 
-                          value={r.saida_intervalo || ''} 
+                        <input
+                          type="time"
+                          value={r.saida_intervalo || ''}
                           onChange={(e) => handleCellChange(r.dia, 'saida_intervalo', e.target.value)}
                           disabled={isPortal || !isEditable || (r.origem_saida_intervalo === 'real' && profile?.role !== 'super_admin')}
                           className="w-full bg-transparent border-none text-center outline-none font-bold text-zinc-900 dark:text-white font-mono disabled:opacity-50"
@@ -808,11 +915,19 @@ export function FolhaPontoEditor({
                     </td>
 
                     {/* Retorno Intervalo */}
-                    <td className={`px-2 py-1.5 border-r border-zinc-200 dark:border-zinc-700 text-center ${isWorkDay && recordHasInterval ? borderClass(r.origem_retorno_intervalo) : ''}`}>
+                    <td
+                      className={`px-2 py-1.5 border-r border-zinc-200 dark:border-zinc-700 text-center ${isWorkDay && recordHasInterval ? borderClass(r.origem_retorno_intervalo) : ''} ${isArrastavel('retorno_intervalo') ? 'cursor-grab active:cursor-grabbing' : ''} ${isAlvoDeSolta('retorno_intervalo') ? 'ring-2 ring-inset ring-dashed ring-blue-400' : ''}`}
+                      draggable={isArrastavel('retorno_intervalo')}
+                      onDragStart={() => setDraggingFrom({ dia: r.dia, passo: 'retorno_intervalo' })}
+                      onDragEnd={() => setDraggingFrom(null)}
+                      onDragOver={(e) => { if (isAlvoDeSolta('retorno_intervalo')) e.preventDefault() }}
+                      onDrop={(e) => { e.preventDefault(); handleDrop(r.dia, 'retorno_intervalo') }}
+                      title={isArrastavel('retorno_intervalo') ? 'Arraste para outro passo do dia para corrigir a classificação' : undefined}
+                    >
                       {isWorkDay && recordHasInterval && !r.afastamento && !r.feriado ? (
-                        <input 
-                          type="time" 
-                          value={r.retorno_intervalo || ''} 
+                        <input
+                          type="time"
+                          value={r.retorno_intervalo || ''}
                           onChange={(e) => handleCellChange(r.dia, 'retorno_intervalo', e.target.value)}
                           disabled={isPortal || !isEditable || (r.origem_retorno_intervalo === 'real' && profile?.role !== 'super_admin')}
                           className="w-full bg-transparent border-none text-center outline-none font-bold text-zinc-900 dark:text-white font-mono disabled:opacity-50"
@@ -823,11 +938,19 @@ export function FolhaPontoEditor({
                     </td>
 
                     {/* Saída */}
-                    <td className={`px-2 py-1.5 border-r border-zinc-200 dark:border-zinc-700 text-center ${isWorkDay ? borderClass(r.origem_saida) : ''}`}>
+                    <td
+                      className={`px-2 py-1.5 border-r border-zinc-200 dark:border-zinc-700 text-center ${isWorkDay ? borderClass(r.origem_saida) : ''} ${isArrastavel('saida') ? 'cursor-grab active:cursor-grabbing' : ''} ${isAlvoDeSolta('saida') ? 'ring-2 ring-inset ring-dashed ring-blue-400' : ''}`}
+                      draggable={isArrastavel('saida')}
+                      onDragStart={() => setDraggingFrom({ dia: r.dia, passo: 'saida' })}
+                      onDragEnd={() => setDraggingFrom(null)}
+                      onDragOver={(e) => { if (isAlvoDeSolta('saida')) e.preventDefault() }}
+                      onDrop={(e) => { e.preventDefault(); handleDrop(r.dia, 'saida') }}
+                      title={isArrastavel('saida') ? 'Arraste para outro passo do dia para corrigir a classificação' : undefined}
+                    >
                       {isWorkDay && !r.afastamento && !r.feriado ? (
-                        <input 
-                          type="time" 
-                          value={r.saida || ''} 
+                        <input
+                          type="time"
+                          value={r.saida || ''}
                           onChange={(e) => handleCellChange(r.dia, 'saida', e.target.value)}
                           disabled={isPortal || !isEditable || (r.origem_saida === 'real' && profile?.role !== 'super_admin')}
                           className="w-full bg-transparent border-none text-center outline-none font-bold text-zinc-900 dark:text-white font-mono disabled:opacity-50"
@@ -995,6 +1118,60 @@ export function FolhaPontoEditor({
           }
         >
           <p className="text-sm text-zinc-600 dark:text-zinc-400">{confirmModal.message}</p>
+        </Modal>
+      )}
+
+      {/* Reclassify Modal — mover batida real pra outro passo do dia */}
+      {reclassifyModal && (
+        <Modal
+          isOpen={true}
+          onClose={() => setReclassifyModal(null)}
+          title="Corrigir Classificação da Batida"
+          type="warning"
+          footer={
+            <div className="flex gap-3 w-full">
+              <button
+                onClick={() => setReclassifyModal(null)}
+                disabled={reclassifyModal.submitting}
+                className="flex-1 px-4 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-black uppercase tracking-widest text-[10px] disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmarReclassificacao}
+                disabled={reclassifyModal.submitting || reclassifyModal.justificativa.trim().length < 5}
+                className="flex-1 px-4 py-2 rounded-xl text-white font-bold text-[10px] uppercase tracking-widest bg-amber-600 hover:bg-amber-700 disabled:opacity-50"
+              >
+                {reclassifyModal.submitting ? 'Movendo...' : 'Confirmar'}
+              </button>
+            </div>
+          }
+        >
+          <div className="space-y-3">
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              Mover a batida das <strong className="font-mono text-zinc-900 dark:text-white">{reclassifyModal.horario}</strong> do
+              dia {String(reclassifyModal.dia).padStart(2, '0')} de{' '}
+              <strong>{PASSO_LABEL[reclassifyModal.passoOrigem]}</strong> para{' '}
+              <strong>{PASSO_LABEL[reclassifyModal.passoDestino]}</strong>.
+            </p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-500">
+              O horário real não muda — só a classificação. Isso corrige a escala e a folha ao
+              mesmo tempo, e fica registrado na auditoria.
+            </p>
+            <div>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">
+                Justificativa (obrigatória)
+              </label>
+              <textarea
+                value={reclassifyModal.justificativa}
+                onChange={(e) => setReclassifyModal({ ...reclassifyModal, justificativa: e.target.value })}
+                disabled={reclassifyModal.submitting}
+                rows={3}
+                placeholder="Ex.: servidor trabalhou direto no dia, sem marcar intervalo — a batida é a saída final."
+                className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-white disabled:opacity-50"
+              />
+            </div>
+          </div>
         </Modal>
       )}
     </div>

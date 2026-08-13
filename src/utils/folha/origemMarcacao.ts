@@ -42,6 +42,7 @@ export type PassoPresenca = 'entrada' | 'intervalo_saida' | 'intervalo_retorno' 
 
 /** Subconjunto de escala_diaria que este modulo precisa. */
 export interface TurnoPresenca {
+  id?: string
   presenca_entrada_em?: string | null
   presenca_intervalo_saida_em?: string | null
   presenca_intervalo_retorno_em?: string | null
@@ -57,6 +58,13 @@ export interface MarcacaoDoDia {
   horario: Date | null
   /** true quando o horario vencedor foi gravado por validacao manual do coordenador. */
   manual: boolean
+  /**
+   * id da linha de escala_diaria que forneceu o horario vencedor, ou null se nenhum turno tem
+   * o campo preenchido (mesmo criterio de `manual`). Usado por quem precisa ESCREVER de volta
+   * no passo vencedor (ex.: fn_reclassificar_passo_presenca) - sem isso so daria pra saber O
+   * QUE mostrar, nunca EM QUAL LINHA corrigir.
+   */
+  escalaDiariaId: string | null
 }
 
 /**
@@ -99,7 +107,7 @@ export function resolverMarcacaoDoDia(
 ): MarcacaoDoDia {
   const { timestamp, flag, agregacao } = CAMPOS[passo]
 
-  let vencedor: { ms: number; manual: boolean } | null = null
+  let vencedor: { ms: number; manual: boolean; escalaDiariaId: string | null } | null = null
 
   for (const turno of turnos || []) {
     const bruto = turno?.[timestamp] as string | null | undefined
@@ -112,15 +120,15 @@ export function resolverMarcacaoDoDia(
       vencedor === null || (agregacao === 'min' ? ms < vencedor.ms : ms > vencedor.ms)
 
     if (melhor) {
-      vencedor = { ms, manual: turno[flag] === true }
+      vencedor = { ms, manual: turno[flag] === true, escalaDiariaId: turno.id ?? null }
     }
   }
 
   if (vencedor === null) {
-    return { horario: null, manual: false }
+    return { horario: null, manual: false, escalaDiariaId: null }
   }
 
-  return { horario: new Date(vencedor.ms), manual: vencedor.manual }
+  return { horario: new Date(vencedor.ms), manual: vencedor.manual, escalaDiariaId: vencedor.escalaDiariaId }
 }
 
 /**

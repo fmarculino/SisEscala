@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.59.0] - 2026-08-12
+
+### Added
+- **Reclassificar passo de presença na Folha de Ponto, arrastando com o mouse.** Achado em
+  produção: dia 12/08/2026, um coordenador de TI trabalhou direto (sem marcar intervalo) e a
+  batida real das 21:09 caiu em "SAÍDA INT." em vez de "SAÍDA" — a unidade permite marcação de
+  intervalo, e o terminal só preenche o próximo passo vazio em sequência, sem saber que aquela
+  é a última batida do dia. Nova função `fn_reclassificar_passo_presenca` (migration
+  `20260812150000`) move o horário real entre os 4 passos (`entrada`/`intervalo_saida`/
+  `intervalo_retorno`/`saida`) de `escala_diaria` — nunca toca `marcacoes_ponto` (a batida
+  original continua imutável) e nunca fabrica horário, só corrige a classificação.
+  - **Mais seguro que a capacidade que já existia**: hoje um `super_admin` pode digitar por
+    cima de uma célula `origem = 'real'` na folha, mas isso (a) perde a marca de "real" e (b)
+    só grava em `folha_ponto.registros` — nunca em `escala_diaria`, então a grade e o motor de
+    compliance continuam vendo o dado errado. A ferramenta nova só **move** um valor real já
+    existente (nunca digita um novo) e grava na fonte, então mantém a marca de "real" e reflete
+    tanto na grade quanto na folha.
+  - Só disponível na Folha de Ponto (nunca no Portal do Servidor), para
+    coordenador/admin/super_admin/rh/rh_unidade — mesma régua de `hasSectorAccess`, replicada
+    como guard **dentro da própria RPC** (não só na Server Action — mesma lição já aplicada
+    nesta sessão em `fn_blocos_previstos_dia`, uma RPC `GRANT`ada a `authenticated` é alcançável
+    direto por REST).
+  - v1 só aceita soltar num passo vazio (sem swap), só move batida real (nunca um valor já
+    digitado — a RPC recusa se `presenca_<passo>_manual = true`), e só entre passos da mesma
+    linha de `escala_diaria` (não move entre turnos/categorias diferentes do mesmo dia).
+  - Exige justificativa (mínimo 5 caracteres) e fica registrado em auditoria
+    (`PRESENCA_RECLASSIFICADA`, com o diff dos 4 campos via `calcularAlteracoes`).
+  - A correção reflete na folha imediatamente — reaproveita `sincronizarFolhaPonto` (que já
+    re-deriva `registros` a partir de `escala_diaria`), sem duplicar lógica de geração.
+
+Ver [`docs/evolucao/2026-08-12-reclassificar-passo-presenca-folha-ponto.md`](docs/evolucao/2026-08-12-reclassificar-passo-presenca-folha-ponto.md).
+
 ## [1.58.2] - 2026-08-12
 
 ### Notes
