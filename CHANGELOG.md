@@ -2,6 +2,56 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.65.0] - 2026-08-13
+
+### Added
+- **Relógio REP compartilhado por múltiplos setores da mesma unidade.** `dispositivos_rep.setor_id`
+  era uma FK única e opcional — um relógio só podia ser "de um setor" ou "de toda a unidade",
+  sem meio-termo. Caso real: o relógio da LACEM vai passar a ser usado por Informática +
+  Regulação + TFD, cada setor com escala e coordenação próprias.
+  - Nova tabela `dispositivos_rep_setores` (migration `20260813130000`) — 0 linhas continua
+    significando "toda a unidade" (mesma semântica do antigo `setor_id NULL`), ≥1 linha restringe
+    ao(s) setor(es) listado(s).
+  - `fn_enfileirar_cadastros_rep`, `fn_cobertura_ponto_dispositivo` e `fn_cobertura_ponto_resumo`
+    reescritas para ler o conjunto de setores em vez de um único valor (migration `20260813140000`,
+    gerada por `scratchpad/gen_multi_setor_dispositivo.js` — cópia mecânica do corpo vigente de
+    cada função, com conferência de invariantes e reconstrução byte a byte antes/depois).
+  - Nova RPC `fn_definir_setores_dispositivo_rep`, escrita atômica (substitui o conjunto inteiro
+    numa única chamada) chamada pela sessão do usuário — preserva `criado_por_id` e recusa setor
+    de unidade diferente da do dispositivo.
+  - `DispositivoRepModal.tsx`: o `<select>` único de Setor virou lista de checkboxes por setor da
+    unidade, com "Toda a unidade" como estado especial. Aba Cobertura da Escala mostra a lista de
+    setores atendidos em vez de um nome só.
+
+### Fixed
+- **`fn_ingerir_afd` quebrava para qualquer dispositivo com setor associado** — achado só ao
+  validar a migration acima contra dados reais em produção (checkpoint), não pego por `tsc`,
+  `npm run build` nem pela reconstrução byte a byte do script gerador: `SELECT count(*),
+  min(setor_id) INTO ...` usava `min()` sobre uma coluna `uuid`, e **o Postgres não tem agregado
+  `min()`/`max()` para esse tipo** (suporta `<`/`>`/`ORDER BY`, mas não tem operator class de
+  agregação registrada). Isso derrubava toda sincronização de AFD dos dispositivos afetados
+  (LACEM e TI) entre a aplicação da migration e a correção. Trocado por duas consultas
+  (`count(*)` e, só quando igual a 1, um `SELECT` separado do valor) — sem efeito observável,
+  já que nenhum consumidor lê esse campo hoje para marcação de origem `rep` (RLS usa só
+  `unidade_id`; a alocação de batidas casa só por servidor+tempo; a aba de Pendências exclui
+  origem `rep` explicitamente).
+
+### Notes
+- **Aplicado e verificado direto em produção** (sem homologação nesta sessão). Checkpoints
+  reproduziram os dois dispositivos reais corretamente, incluindo um caso não previsto: o
+  dispositivo da TI já tinha `setor_id` preenchido antes desta mudança (não só "toda a unidade"),
+  e o backfill/agregação tratou esse caso certo também.
+- **Incidente durante a janela de deploy**: o dispositivo real da TI teve seu setor limpo (voltou
+  para "toda a unidade", inflando de 6 para 76 o número de escalados considerados candidatos
+  àquele relógio) — hipótese mais provável é uma aba aberta com o bundle antigo (campo `setor_id`
+  singular) submetendo para o servidor já novo (que lê `setor_ids`, tratando a ausência como lista
+  vazia), mesma classe de risco já documentada para o terminal `/presenca`. Restaurado via
+  `fn_definir_setores_dispositivo_rep`; código reauditado e não reproduz com o bundle atualizado.
+- Análise de impacto completa (por que a folha de ponto não depende deste campo hoje — a
+  reconciliação que ligaria relógio→folha, Fase 5, não tem nenhum chamador em `src/`) e sequência
+  de migração em
+  [`docs/planos/2026-08-13-relogio-rep-compartilhado-por-multiplos-setores.md`](docs/planos/2026-08-13-relogio-rep-compartilhado-por-multiplos-setores.md).
+
 ## [1.61.3] - 2026-08-13
 
 ### Fixed

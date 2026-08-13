@@ -4,7 +4,7 @@
 **Origem:** pergunta do usuário revisando o modal "Editar dispositivo REP" do relógio da LACEM —
 hoje só a Informática bate ali, mas Regulação vai passar a usar o mesmo relógio, e TFD (ainda nem
 cadastrado) e outros setores da unidade devem seguir. Cada um com escala própria.
-**Estado:** código pronto, **migrations ainda não aplicadas em homologação nem produção**.
+**Estado:** ✅ aplicado e verificado em produção (13/08/2026).
 **Revisado em:** 13/08/2026, a pedido do usuário — "algumas unidades e setores já estão usando o
 ponto, não podemos correr o risco de quebrar o sistema". Ver seção de impacto logo abaixo.
 
@@ -26,11 +26,31 @@ quebrado a função no primeiro uso. Corrigido no gerador, que ganhou checagem e
 (`v_setor_id` não pode sobrar em lugar nenhum do corpo final) para não deixar essa classe de erro
 passar de novo.
 
-**Falta:** aplicar as duas migrations em homologação, rodar o checkpoint (seção "Conferência
-obrigatória" abaixo) e só então em produção — nenhuma delas foi executada contra um banco real
-nesta sessão (sem acesso — produção tem a porta 5432 bloqueada por firewall, CLAUDE.md armadilha
-3). `actions.ts`/UI só funcionam depois que `20260813140000` estiver aplicada (dependem de
-`fn_definir_setores_dispositivo_rep`).
+## Verificação em produção (13/08/2026)
+
+Aplicado direto em produção pelo usuário (sem acesso a homologação nesta sessão). Checkpoints 1 e
+2 reproduziram os dois dispositivos reais corretamente — inclusive um caso não previsto nos
+comentários da migration: o dispositivo da TI já tinha `setor_id` preenchido (não só "toda a
+unidade"), e o backfill/agregação tratou esse caso certo também.
+
+⚠️ **Bug real achado no checkpoint 4, só em produção:** `fn_ingerir_afd` usava
+`SELECT count(*), min(setor_id) INTO ...` — **Postgres não tem agregado `min()`/`max()` para
+`uuid`** (o tipo suporta `<`/`>`/`ORDER BY`, mas não tem operator class de agregação registrada).
+Isso quebrava toda sincronização de AFD (LACEM e TI) desde a aplicação da migration até a
+correção. Nenhum dos testes anteriores (tsc, build, reconstrução byte a byte do script gerador)
+pegou isso — só apareceu ao rodar a consulta equivalente contra dados reais. Corrigido trocando a
+agregação por duas consultas (`count(*)` e, só se igual a 1, um segundo `SELECT` do valor); o
+gerador (`scratchpad/gen_multi_setor_dispositivo.js`) ganhou checagem para essa classe de erro não
+voltar. Reaplicado e confirmado (`pg_get_functiondef` sem o padrão do bug; `rep_sincronizacoes`
+mostrando syncs reais concluídos com sucesso depois da correção).
+
+Checkpoint 3 (`fn_definir_setores_dispositivo_rep`) rodado contra o dispositivo de teste
+(`REP-TESTE-TI`), nunca contra LACEM/TI reais: gravação de setores ok, recusa de setor de outra
+unidade ok (sem gravar nada), limpeza final ok.
+
+**Lição para a próxima migration que mexer em coluna `uuid` com `min()`/`max()`/`SUM` genérico:**
+conferir se o tipo tem o agregado antes de assumir — funciona para a maioria dos tipos base do
+Postgres, mas não para `uuid`.
 
 ---
 
