@@ -363,6 +363,29 @@ o resultado já calculado, `reenvio: true`, sem reprocessar — só o log do col
 isso de reprocessamento de verdade), mas é candidato a prioridade agora que há volume real
 medido em produção.
 
+### Cobertura de ponto — estar cadastrado no relógio não é estar no ponto (13/08/2026)
+
+Medido em produção na LACEM, agosto/2026, **40 servidores escalados**: **27** "bate e não
+registra", 10 fora do relógio, 1 sem biometria, **1 pronto para bater**. Ver
+[`docs/evolucao/2026-08-13-cobertura-de-ponto.md`](docs/evolucao/2026-08-13-cobertura-de-ponto.md).
+
+⚠️ **O caso dominante é silencioso dos dois lados.** A pessoa está cadastrada no equipamento, com
+biometria, encosta o dedo, o relógio aceita e grava no AFD — e a batida morre como órfã porque não
+existe `rep_vinculos_servidor` vigente. **Nenhuma das duas pontas reclama.** Ao diagnosticar
+"o ponto de fulano não aparece", confira o vínculo antes de suspeitar do equipamento ou do parser.
+
+Nenhuma tela respondia isso antes: "Biometria Pendente" só lista quem **já tem vínculo**, e
+"Higiene do Relógio" olha a direção inversa (quem está no relógio e não no SisEscala). A ponta que
+faltava — escala → relógio — virou a aba **Cobertura da Escala** (`fn_cobertura_ponto_dispositivo`
+classifica; `fn_cobertura_ponto_resumo` é envelope LATERAL dela; a tela não reclassifica nada).
+
+⚠️ **`fn_vincular_cadastros_por_cpf` conserta o caso dominante sem tocar no equipamento**, mas
+`p_vigente_de` decide **quais batidas passam a ter dono**: a resolução é *vigente na data da
+batida*. Um valor antigo demais faz o histórico do sistema anterior (a LACEM chegou com ~34.500
+marcações) virar ponto do SisEscala no primeiro `fn_reparse_afd_dispositivo`. Default é
+`dispositivos_rep.created_at`, nunca a primeira batida do AFD. E ela **não reprocessa nada** —
+criar vínculo e recuperar histórico são decisões separadas porque a segunda mexe em ponto passado.
+
 ## Terminal local sem sessão de coordenador (11/08/2026)
 
 O terminal `/presenca` ativa com `supabase.auth.signInWithPassword()` **rodando no navegador da

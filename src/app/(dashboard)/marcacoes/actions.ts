@@ -296,6 +296,88 @@ export async function enfileirarRemocaoUsuariosDispositivo(dispositivoId: string
 }
 
 // ============================================================================
+// Cobertura de ponto - quem está escalado e não consegue bater no relógio
+// ============================================================================
+// Medido em produção em 13/08/2026 (LACEM, agosto): dos 40 servidores escalados, 39 não tinham
+// como ter ponto registrado - e 27 deles estavam cadastrados no equipamento COM biometria,
+// batendo o dedo normalmente, com a batida morrendo como órfã por falta de vínculo. Nada na tela
+// avisava. Sem escopo de admin de propósito: coordenador precisa ver a própria unidade (as RPCs
+// barram só os papéis do Portal e filtram por escopo).
+
+export interface CoberturaResumo {
+  dispositivo_id: string
+  dispositivo_nome: string
+  unidade_nome: string
+  setor_nome: string | null
+  ativo: boolean
+  ultimo_contato_em: string | null
+  snapshot_em: string | null
+  escalados: number
+  ok: number
+  sem_vinculo: number
+  sem_biometria: number
+  fora_do_relogio: number
+  sem_cpf: number
+  sem_snapshot: number
+  nao_conseguem_bater: number
+  batidas_perdidas: number
+}
+
+export type SituacaoCobertura = 'sem_cpf' | 'sem_snapshot' | 'fora_do_relogio' | 'sem_biometria' | 'sem_vinculo' | 'ok'
+
+export interface CoberturaServidor {
+  servidor_id: string
+  servidor_nome: string
+  matricula: string | null
+  dias_com_escala: number
+  identificador_afd: string | null
+  nome_no_device: string | null
+  tem_biometria: boolean
+  tem_vinculo: boolean
+  batidas_perdidas: number
+  situacao: SituacaoCobertura
+  snapshot_em: string | null
+}
+
+export async function listarCoberturaResumo(mes?: number, ano?: number) {
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc('fn_cobertura_ponto_resumo', {
+    p_mes: mes ?? null,
+    p_ano: ano ?? null,
+  })
+  if (error) throw new Error(error.message)
+  return (data || []) as CoberturaResumo[]
+}
+
+export async function listarCoberturaDispositivo(dispositivoId: string, mes?: number, ano?: number) {
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc('fn_cobertura_ponto_dispositivo', {
+    p_dispositivo_id: dispositivoId,
+    p_mes: mes ?? null,
+    p_ano: ano ?? null,
+  })
+  if (error) throw new Error(error.message)
+  return (data || []) as CoberturaServidor[]
+}
+
+// Conserta o caso 'sem_vinculo' sem tocar no equipamento: a pessoa já está lá com biometria, o
+// que falta é a ponte no SisEscala. vigente_de fica a cargo da RPC (default = cadastro do
+// dispositivo) - é ele que decide quais batidas passam a ter dono num reprocessamento, e um valor
+// antigo demais faria o histórico do sistema anterior virar marcação nossa.
+export async function vincularCadastrosPorCpf(dispositivoId: string) {
+  await exigirAdmin()
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc('fn_vincular_cadastros_por_cpf', {
+    p_dispositivo_id: dispositivoId,
+    p_vigente_de: null,
+  })
+  if (error) return { error: error.message }
+
+  revalidatePath('/marcacoes')
+  return data as { criados: number; vigente_de: string }
+}
+
+// ============================================================================
 // Pendências (marcações do terminal fora da janela prevista)
 // ============================================================================
 

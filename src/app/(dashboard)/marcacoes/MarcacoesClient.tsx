@@ -1,17 +1,18 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Monitor, Fingerprint, ListChecks, Plus, Pencil, Trash2, ShieldCheck, UploadCloud } from 'lucide-react'
-import { listarTerminaisLocais, listarDispositivosRep, excluirTerminalLocal, excluirDispositivoRep } from './actions'
+import { Monitor, Fingerprint, ListChecks, Plus, Pencil, Trash2, ShieldCheck, UploadCloud, HeartPulse } from 'lucide-react'
+import { listarTerminaisLocais, listarDispositivosRep, excluirTerminalLocal, excluirDispositivoRep, listarCoberturaResumo } from './actions'
 import { TerminalLocalModal } from './TerminalLocalModal'
 import { DispositivoRepModal } from './DispositivoRepModal'
 import { PendenciasTab } from './PendenciasTab'
 import { BiometriaTab } from './BiometriaTab'
 import { HigieneDispositivoTab } from './HigieneDispositivoTab'
 import { ImportarPendriveTab } from './ImportarPendriveTab'
+import { CoberturaTab } from './CoberturaTab'
 import { IdCopyBadge } from './IdCopyBadge'
 
-type Aba = 'terminais' | 'dispositivos' | 'pendencias' | 'biometria' | 'higiene' | 'pendrive'
+type Aba = 'terminais' | 'dispositivos' | 'cobertura' | 'pendencias' | 'biometria' | 'higiene' | 'pendrive'
 
 interface Opcoes {
   unidades: { id: string; nome: string }[]
@@ -25,6 +26,8 @@ export function MarcacoesClient({ isAdmin, opcoes }: { isAdmin: boolean; opcoes:
   const [terminais, setTerminais] = useState<any[]>([])
   const [dispositivos, setDispositivos] = useState<any[]>([])
   const [carregandoLista, setCarregandoLista] = useState(false)
+
+  const [alertaCobertura, setAlertaCobertura] = useState<number | null>(null)
 
   const [modalTerminal, setModalTerminal] = useState<{ aberto: boolean; terminal: any | null }>({ aberto: false, terminal: null })
   const [modalDispositivo, setModalDispositivo] = useState<{ aberto: boolean; dispositivo: any | null }>({ aberto: false, dispositivo: null })
@@ -60,9 +63,19 @@ export function MarcacoesClient({ isAdmin, opcoes }: { isAdmin: boolean; opcoes:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aba, isAdmin])
 
-  const abas: { id: Aba; label: string; icon: any; visivel: boolean }[] = [
+  // O alerta de cobertura carrega junto com a página, não quando a aba é aberta: o valor dele é
+  // justamente avisar quem não ia clicar. Falha em silêncio — um erro aqui não pode derrubar o
+  // resto da tela de Marcações.
+  useEffect(() => {
+    listarCoberturaResumo()
+      .then((lista) => setAlertaCobertura(lista.reduce((s, d) => s + d.nao_conseguem_bater, 0)))
+      .catch(() => setAlertaCobertura(null))
+  }, [])
+
+  const abas: { id: Aba; label: string; icon: any; visivel: boolean; alerta?: number | null }[] = [
     { id: 'terminais', label: 'Terminais Locais', icon: Monitor, visivel: isAdmin },
     { id: 'dispositivos', label: 'Dispositivos REP', icon: Fingerprint, visivel: isAdmin },
+    { id: 'cobertura', label: 'Cobertura da Escala', icon: HeartPulse, visivel: true, alerta: alertaCobertura },
     { id: 'pendencias', label: 'Pendências', icon: ListChecks, visivel: true },
     { id: 'biometria', label: 'Biometria Pendente', icon: Fingerprint, visivel: true },
     { id: 'higiene', label: 'Higiene do Relógio', icon: ShieldCheck, visivel: isAdmin },
@@ -84,6 +97,11 @@ export function MarcacoesClient({ isAdmin, opcoes }: { isAdmin: boolean; opcoes:
           >
             <a.icon className="h-4 w-4" />
             {a.label}
+            {!!a.alerta && (
+              <span className="text-[10px] font-black bg-red-600 text-white rounded-full px-1.5 py-0.5 leading-none">
+                {a.alerta}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -227,6 +245,7 @@ export function MarcacoesClient({ isAdmin, opcoes }: { isAdmin: boolean; opcoes:
         </div>
       )}
 
+      {aba === 'cobertura' && <CoberturaTab isAdmin={isAdmin} />}
       {aba === 'pendencias' && <PendenciasTab />}
       {aba === 'biometria' && <BiometriaTab />}
       {aba === 'higiene' && isAdmin && <HigieneDispositivoTab />}
