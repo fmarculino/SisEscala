@@ -93,6 +93,11 @@ func main() {
 	systray.Run(func() { aoIniciar(cfg, dirInstalado) }, func() {})
 }
 
+// handleMutexUnico e' o mutex nomeado que garantirInstanciaUnica segura enquanto o processo esta
+// vivo. Guardado num var de pacote (em vez de descartado) porque aplicarAtualizacao precisa
+// libera-lo explicitamente ANTES de iniciar o processo novo - ver comentario la.
+var handleMutexUnico windows.Handle
+
 // garantirInstanciaUnica evita duas bandejas do mesmo app rodando ao mesmo tempo (ex.: usuario
 // clica no .exe baixado de novo depois de ja estar instalado). Mutex nomeado e o jeito padrao
 // do Windows para isso - se ja existe, so sair.
@@ -101,10 +106,23 @@ func garantirInstanciaUnica() {
 	if err != nil {
 		return
 	}
-	_, err = windows.CreateMutex(nil, false, nome)
+	h, err := windows.CreateMutex(nil, false, nome)
 	if err == windows.ERROR_ALREADY_EXISTS {
 		os.Exit(0)
 	}
+	handleMutexUnico = h
+}
+
+// liberarInstanciaUnica libera o mutex nomeado sem encerrar o processo - usado so' por
+// aplicarAtualizacao (ver comentario la) para o processo novo nao brigar pelo mutex com este
+// que ja vai sair em seguida.
+func liberarInstanciaUnica() {
+	if handleMutexUnico == 0 {
+		return
+	}
+	windows.ReleaseMutex(handleMutexUnico)
+	windows.CloseHandle(handleMutexUnico)
+	handleMutexUnico = 0
 }
 
 // rodandoViaGoRun detecta `go run` pelo caminho do binario compilado, nunca por arquivos ao
@@ -341,6 +359,10 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 	}
 	itemVerLogs := systray.AddMenuItem("Ver logs", "Abre a pasta de logs e configuracao")
 	systray.AddSeparator()
+	// Sempre visivel, nunca clicavel - so' pra quem abrir o menu ja saber de cara qual versao
+	// esta instalada, sem precisar clicar em "Verificar atualizacao" pra descobrir.
+	itemVersaoInstalada := systray.AddMenuItem("Versao instalada: v"+ciclo.Versao, "")
+	itemVersaoInstalada.Disable()
 	itemAtualizar := systray.AddMenuItem("Verificar atualizacao", "Confere se ha uma versao mais nova do coletor-rep-tray")
 	itemSair := systray.AddMenuItem("Sair", "Encerra o coletor-rep")
 
@@ -362,6 +384,10 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 		ultimaChecagem = time.Now()
 		if err != nil {
 			log.Printf("erro ao verificar atualizacao: %v", err)
+			// O titulo do item fica valendo ate a proxima checagem - diferente da notificacao
+			// (beeep), que depende do Windows entregar o toast e pode passar despercebida. Quem
+			// abrir o menu depois ve o resultado sem precisar ter visto o aviso na hora.
+			itemAtualizar.SetTitle("Verificar atualizacao (falha ao checar - ver log)")
 			if manual {
 				_ = beeep.Notify("SisEscala - Coletor", "Nao foi possivel verificar atualizacoes agora. Ver log.", nil)
 			}
@@ -373,7 +399,7 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 
 		if !temNova {
 			atualizacaoPronta = false
-			itemAtualizar.SetTitle("Verificar atualizacao")
+			itemAtualizar.SetTitle("Verificar atualizacao (voce esta atualizado)")
 			if manual {
 				_ = beeep.Notify("SisEscala - Coletor", "Voce ja esta na versao mais recente (v"+ciclo.Versao+").", nil)
 			}
@@ -417,10 +443,20 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 			return
 		}
 
+		// Libera o mutex nomeado ANTES de iniciar o processo novo - do contrario o processo novo
+		// nasce, chama garantirInstanciaUnica() e encontra o mutex ainda em maos deste processo
+		// (que so' vai solta-lo alguns instantes depois, em systray.Quit()), conclui que ja existe
+		// outra instancia rodando e sai em silencio (os.Exit(0), sem log, sem notificacao - e' um
+		// app GUI, nao escreve nada em lugar nenhum antes de configurarLog rodar). Resultado
+		// observado em campo: a bandeja some depois de "Atualizar" e o app nao reabre sozinho, so'
+		// manualmente. E' uma corrida quase garantida, nao uma falha eventual, porque Start() aqui
+		// sempre vinha ANTES do Quit() la embaixo.
+		liberarInstanciaUnica()
 		log.Printf("atualizado de v%s para v%s, reiniciando", ciclo.Versao, infoAtualizacao.Versao)
 		if err := exec.Command(exeAtual).Start(); err != nil {
 			log.Printf("erro ao relancar apos atualizar: %v", err)
 			_ = beeep.Notify("SisEscala - Coletor", "Atualizado para v"+infoAtualizacao.Versao+", mas falhou ao reiniciar sozinho. Abra o app manualmente.", nil)
+			garantirInstanciaUnica() // este processo continua rodando (nao chegou no Quit abaixo) - reocupa o mutex
 			return
 		}
 		_ = os.Remove(exeAntigo)

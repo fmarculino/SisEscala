@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.61.2] - 2026-08-13
+
+### Fixed
+- **Clicar em "Atualizar" no app de bandeja fechava o ícone e não reabria sozinho** — corrida real
+  entre `aplicarAtualizacao` (que iniciava o processo novo *antes* de sair) e
+  `garantirInstanciaUnica` (que todo processo novo roda logo no `main()`): o processo novo nascia,
+  via o mutex nomeado ainda em mãos do processo antigo (que só o solta alguns instantes depois, em
+  `systray.Quit()`), concluía que já havia outra instância rodando e saía em silêncio — sem log,
+  sem notificação, porque isso acontece antes até do log ser configurado. Resultado observado em
+  campo (teste no relógio da Informática, 13/08/2026): bandeja some depois de "Atualizar", só
+  reabre com clique manual. Corrigido liberando o mutex explicitamente antes de iniciar o processo
+  novo, e reocupando-o se o `Start()` falhar (processo antigo continua rodando normalmente nesse
+  caso). Não era uma falha eventual — o `Start()` sempre vinha antes do `Quit()`, então a corrida
+  era praticamente garantida.
+
+### Added
+- Item fixo no menu mostrando a versão instalada (`Versão instalada: vX.Y.Z`) — visível direto ao
+  abrir a bandeja, sem precisar clicar em "Verificar atualização" pra saber.
+- "Verificar atualização" agora deixa o resultado da última checagem no próprio título do item
+  (`(você está atualizado)` / `(falha ao checar - ver log)`), em vez de depender só da notificação
+  do Windows — que pode não aparecer (foco automático, permissões, app sem `AppUserModelID`
+  registrado) sem deixar rastro nenhum pro usuário.
+
+### Notes
+- `ciclo.Versao` (app de bandeja/CLI) e `dist/VERSION` foram para `0.4.1`.
+
 ## [1.61.1] - 2026-08-13
 
 ### Fixed
