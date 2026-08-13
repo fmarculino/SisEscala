@@ -2,6 +2,56 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.60.0] - 2026-08-12
+
+### Added
+- **O modal "Tratar marcação" (aba Pendências de `/marcacoes`) passa a mostrar o horário
+  previsto do dia ao lado da batida real.** Antes ele mostrava só o horário que a pessoa bateu
+  e pedia que o coordenador escolhesse o passo — sem dizer que horas aquele servidor deveria
+  ter registrado. Quem decide não tinha o outro lado da comparação na tela e precisava abrir a
+  grade em outra aba para saber se 13:31 era entrada atrasada, saída antecipada ou retorno de
+  intervalo.
+  - Uma tabela com os 4 passos (entrada / saída do intervalo / retorno do intervalo / saída),
+    o horário previsto de cada um e **a distância da batida real até ele** ("2h31 depois",
+    "4h29 antes"), com o passo mais próximo sinalizado.
+  - O previsto vem de `fn_blocos_previstos_dia` — a **mesma** função que o terminal usa para
+    decidir a janela e que a grade lê via `fn_blocos_previstos_mes` (Fase 3). Nenhuma regra
+    nova de horário foi escrita: se a tela derivasse por conta própria, voltaria a mostrar ao
+    coordenador um horário diferente do que o sistema cobrou do servidor.
+  - Fusão de blocos é respeitada de graça: num dia de Regular + Plantão contíguos, as duas
+    opções de escala apontam para o mesmo bloco, com uma entrada e uma saída — que é
+    exatamente o que o terminal cobra. Conferido contra dados reais em homologação.
+  - Em unidade com `permite_marca_intervalo = false`, os dois passos de intervalo aparecem como
+    "não marca intervalo" em vez de em branco.
+  - Turno que cruza a meia-noite mostra a data junto da hora quando o previsto cai no dia
+    seguinte ao da batida.
+  - **O sistema continua não pré-selecionando o passo.** "Mais próximo" é pista visual; a
+    escolha segue sendo do coordenador (Portaria 671/2021, vedação 2).
+  - O `<select>` de escala do dia agora mostra a faixa prevista de cada opção
+    (ex.: `Regular — MT (07:00–19:00)`), e o `<select>` de passo mostra o previsto de cada passo.
+
+- **A lista de pendências ganhou filtros e paginação.** Ela crescia sem limite e misturava o que
+  já foi resolvido com o que ainda espera decisão.
+  - Filtro por servidor e filtro de situação (**"Só pendentes" é o padrão** — o que já foi
+    tratado sai da frente, mas continua acessível).
+  - Paginação de 15 por página, com contador `x–y de z`.
+  - Página atual é reancorada quando um filtro encurta a lista, para a tela não ficar vazia com
+    resultados existentes.
+
+### Fixed
+- **`buscarEscalasCandidatas` derivava o dia da batida no fuso do processo Node, não no do
+  município.** A VPS roda em UTC: uma batida às 22:00 de 11/08 vira 12/08 em UTC e a tela
+  traria as escalas do dia seguinte. Agora converte pelo `configuracoes_globais.timezone`, a
+  mesma fonte e o mesmo `AT TIME ZONE` que `fn_marcacoes_pendentes_revisao` já usa para devolver
+  o campo `dia`. Ninguém tinha relatado — as pendências vistas até aqui foram todas diurnas.
+- **`buscarEscalasCandidatas` usava `createAdminClient()` sem nenhuma checagem de sessão.** Server
+  Action é endpoint alcançável; com o client de service role ela devolvia a escala de qualquer
+  servidor a quem soubesse o UUID, sem RLS. Agora exige usuário autenticado antes de abrir o
+  client admin. O escopo por unidade/setor continua vindo de `listarPendencias`
+  (`fn_unidade_no_escopo` dentro de `fn_marcacoes_pendentes_revisao`) — o admin client segue
+  necessário aqui porque é ele que faz o guard de `fn_blocos_previstos_dia` liberar
+  (`auth.uid() IS NULL`).
+
 ## [1.59.0] - 2026-08-12
 
 ### Added

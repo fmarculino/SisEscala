@@ -312,30 +312,104 @@ export async function listarPendencias() {
   return data || []
 }
 
-/** Escalas do servidor naquele dia que ainda podem receber a marcação pendente. */
-export async function buscarEscalasCandidatas(servidorId: string, ocorridoEmIso: string) {
-  const supabase = await createAdminClient()
-  const dataOcorrido = new Date(ocorridoEmIso)
-  const dia = dataOcorrido.getDate()
-  const mes = dataOcorrido.getMonth() + 1
-  const ano = dataOcorrido.getFullYear()
+export interface PrevistoDoBloco {
+  bloco_ordem: number
+  entrada: string | null
+  intervalo_saida: string | null
+  intervalo_retorno: string | null
+  saida: string | null
+  permite_intervalo: boolean
+}
 
-  const { data, error } = await supabase
-    .from('escala_diaria')
-    .select('id, categoria, presenca_confirmada, dicionario_turnos(codigo), escala_mensal!inner(servidor_id, mes, ano)')
-    .eq('dia', dia)
-    .eq('escala_mensal.servidor_id', servidorId)
-    .eq('escala_mensal.mes', mes)
-    .eq('escala_mensal.ano', ano)
-    .in('categoria', ['Regular', 'Plantão', 'Extra'])
+export interface EscalaCandidata {
+  id: string
+  categoria: string
+  turno_codigo: string | null
+  presenca_confirmada: boolean | null
+  previsto: PrevistoDoBloco | null
+}
+
+/**
+ * Escalas do servidor naquele dia que ainda podem receber a marcação pendente, cada uma já com o
+ * HORÁRIO PREVISTO do bloco a que pertence.
+ *
+ * O previsto vem de fn_blocos_previstos_dia — a MESMA função que o terminal usa para decidir a
+ * janela (e que a grade lê via fn_blocos_previstos_mes). Não re-derivar aqui: qualquer regra
+ * própria voltaria a mostrar ao coordenador um horário diferente do que o sistema cobrou do
+ * servidor, que foi exatamente o problema que a Fase 3 fechou.
+ *
+ * Chamada com o client admin (service_role): o guard de escopo de fn_blocos_previstos_dia
+ * (20260812130000) libera quando auth.uid() IS NULL. O escopo de quem vê a pendência já foi
+ * aplicado em listarPendencias, por fn_unidade_no_escopo dentro de fn_marcacoes_pendentes_revisao.
+ */
+export async function buscarEscalasCandidatas(
+  servidorId: string,
+  ocorridoEmIso: string,
+): Promise<{ timezone: string; escalas: EscalaCandidata[] }> {
+  const sessao = await createClient()
+  const { data: { user } } = await sessao.auth.getUser()
+  if (!user) throw new Error('Não autenticado')
+
+  const supabase = await createAdminClient()
+
+  const { data: cfg } = await supabase
+    .from('configuracoes_globais')
+    .select('valor')
+    .eq('chave', 'timezone')
+    .maybeSingle()
+  const timezone = (cfg?.valor as string) || 'America/Sao_Paulo'
+
+  // O dia tem que ser o do fuso do município, não o do processo Node (a VPS roda em UTC): uma
+  // batida às 22:00 de 11/08 vira 12/08 em UTC e traria as escalas do dia errado. É a mesma
+  // conversão que fn_marcacoes_pendentes_revisao faz com AT TIME ZONE para devolver `dia`.
+  const partes = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date(ocorridoEmIso))
+  const [ano, mes, dia] = partes.split('-').map(Number)
+
+  const [{ data, error }, { data: blocos, error: erroBlocos }] = await Promise.all([
+    supabase
+      .from('escala_diaria')
+      .select('id, categoria, presenca_confirmada, dicionario_turnos(codigo), escala_mensal!inner(servidor_id, mes, ano)')
+      .eq('dia', dia)
+      .eq('escala_mensal.servidor_id', servidorId)
+      .eq('escala_mensal.mes', mes)
+      .eq('escala_mensal.ano', ano)
+      .in('categoria', ['Regular', 'Plantão', 'Extra']),
+    supabase.rpc('fn_blocos_previstos_dia', { p_servidor_id: servidorId, p_data: partes }),
+  ])
 
   if (error) throw new Error(error.message)
-  return (data || []).map((e: any) => ({
-    id: e.id,
-    categoria: e.categoria,
-    turno_codigo: e.dicionario_turnos?.codigo || null,
-    presenca_confirmada: e.presenca_confirmada,
-  }))
+
+  // Sem previsão a tela continua funcionando — o coordenador só perde o apoio para decidir, não
+  // a capacidade de tratar a marcação.
+  if (erroBlocos) console.warn('fn_blocos_previstos_dia indisponível:', erroBlocos.message)
+
+  // Um bloco pode conter mais de uma escala_diaria (Regular + Plantão contíguos fundem num bloco
+  // só, com uma janela de entrada e uma de saída). O mapa é escala_diaria_id -> bloco.
+  const previstoPorEscala = new Map<string, PrevistoDoBloco>()
+  for (const b of (Array.isArray(blocos) ? blocos : [])) {
+    const previsto: PrevistoDoBloco = {
+      bloco_ordem: b.bloco_ordem,
+      entrada: b.inicio_previsto,
+      intervalo_saida: b.intervalo_inicio_previsto,
+      intervalo_retorno: b.intervalo_fim_previsto,
+      saida: b.fim_previsto,
+      permite_intervalo: !!b.permite_intervalo,
+    }
+    for (const edId of (b.escala_diaria_ids || [])) previstoPorEscala.set(edId, previsto)
+  }
+
+  return {
+    timezone,
+    escalas: (data || []).map((e: any) => ({
+      id: e.id,
+      categoria: e.categoria,
+      turno_codigo: e.dicionario_turnos?.codigo || null,
+      presenca_confirmada: e.presenca_confirmada,
+      previsto: previstoPorEscala.get(e.id) || null,
+    })),
+  }
 }
 
 // ============================================================================
