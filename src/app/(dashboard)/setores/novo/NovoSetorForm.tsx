@@ -21,10 +21,11 @@ export default function NovoSetorForm({ unidades, setoresExistentes, dicionario 
     return dicionario.map(d => d.nome)
   }, [dicionario])
 
-  // Filtrar setores pai apenas da unidade selecionada
+  // Filtrar setores pai da unidade selecionada — qualquer setor existente serve,
+  // inclusive um que já seja filho de outro (mesma regra da tela de edição).
   const setoresPaiDisponiveis = useMemo(() => {
     if (!selectedUnidade) return []
-    return setoresExistentes.filter(s => s.unidade_id === selectedUnidade && !s.parent_id)
+    return setoresExistentes.filter(s => s.unidade_id === selectedUnidade)
   }, [selectedUnidade, setoresExistentes])
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -150,11 +151,11 @@ export default function NovoSetorForm({ unidades, setoresExistentes, dicionario 
             </p>
           ) : setoresPaiDisponiveis.length === 0 ? (
             <p className="mt-2 text-xs text-zinc-500 italic">
-              Nenhum setor principal nesta unidade para servir como pai.
+              Nenhum setor nesta unidade para servir como pai.
             </p>
           ) : (
             <p className="mt-2 text-[10px] text-blue-600 font-bold uppercase tracking-tight">
-              Apenas setores principais da unidade selecionada são exibidos aqui.
+              Todos os setores da unidade selecionada são exibidos aqui, inclusive subsetores.
             </p>
           )}
         </div>
