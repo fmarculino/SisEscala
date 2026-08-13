@@ -2,6 +2,59 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.60.1] - 2026-08-12
+
+### Security
+- **`fn_aceitar_marcacao_pendente` não conferia nada sobre o par (marcação, escala) que recebia**
+  — gravava o horário real da batida em qualquer linha de `escala_diaria` cujo id lhe fosse
+  passado. A própria função já lia o servidor da marcação (`v_servidor`) e **descartava sem
+  usar**: a checagem foi pensada e ficou pelo caminho. Migration `20260812160000`, gerada por
+  `scratchpad/gen_guard_aceitar.js` (cópia mecânica da versão vigente + dois trechos inseridos,
+  abortando se o resto não voltar byte a byte).
+  - Era o que dava consequência real ao bug de fuso da v1.60.0: a tela listava as escalas do dia
+    seguinte para batida noturna, e um clique gravaria o horário real na linha errada com
+    `origem = 'terminal'` — registro de ponto falso, no dia errado, com aparência de batida
+    legítima. A tela foi corrigida; o guard existe porque a RPC é `GRANT`ada a `authenticated` e
+    alcançável direto por REST, sem passar por tela nenhuma.
+  - **Quatro guards, todos antes de qualquer escrita:** (1) servidor da escala = servidor da
+    marcação; (2) data da escala entre a véspera e o dia local da batida, nunca posterior;
+    (3) categoria ≠ Sobreaviso; (4) competência não encerrada.
+  - **Os itens 3 e 4 só existiam em `fn_validar_presenca_manual`.** A aba Pendências de
+    `/marcacoes` chama `fn_aceitar_marcacao_pendente` **direto**, escapando dos dois — dava para
+    gravar presença em mês congelado. Sobreaviso a constraint `chk_sobreaviso_sem_presenca` já
+    barrava, mas com erro cru.
+  - `fn_validar_presenca_manual` e `fn_aceitar_tentativa_recusada` **não foram tocadas** — herdam
+    os guards por delegarem a esta, mesmo padrão de `fn_confirmar_presenca_manual_bulk`.
+  - **O guard não checa se a batida cai na janela prevista, de propósito.** Pendência é, por
+    definição, batida fora da janela — plausibilidade rejeitaria justamente o caso de uso.
+    Decidir a que passo uma batida distante pertence é juízo do coordenador (Art. 82, parágrafo
+    único). O guard barra o impossível, nunca o incomum.
+
+### Notes
+- **Auditoria de produção (12/08/2026, somente leitura): nenhum dado foi corrompido.** 27 linhas
+  em `marcacoes_tratamentos` (11 `vincular_escala` + 16 `desconsiderar`); das 11 com escala
+  vinculada, **0 com dia divergente e 0 com servidor divergente**. A exposição era pequena porque
+  as unidades em operação hoje não têm escala noturna — não porque a função se defendesse: das
+  58.154 marcações da base, 86 (0,1%) têm hora local ≥ 21:00, e das 74 pendências abertas apenas
+  2 (ambas de 12/08, 21:26 e 21:57, ainda sem tratamento).
+- **Simulação do guard sobre os dados reais antes de escrever o SQL:** os 11 tratamentos
+  existentes passariam todos; das 74 pendências, 73 continuam com escala elegível em D ou D−1. A
+  única exceção não é causada pelo guard — é uma batida cujo servidor não tem escala nenhuma em
+  08/2026 (`Sem escala agendada para hoje`), que a tela já recusa hoje.
+- **A janela D−1 precisa continuar valendo**, e é isso que impede um guard mais apertado: as
+  jornadas `18H ÀS 06H` e `19H ÀS 07H` cruzam a meia-noite, então a batida das 06:05 do dia D é a
+  saída legítima do turno de D−1. Já o **dia posterior é impossível**: dos 27 turnos ancorados o
+  mais cedo começa 07:00 e das 17 jornadas a mais cedo é `07H` — nenhuma começa de madrugada.
+  Ambos os números medidos em produção nesta data.
+- **Considerado e descartado: definir `TZ=America/Sao_Paulo` no container do Coolify.** Corrigiria
+  a classe inteira de uma vez, mas mudaria em silêncio o comportamento de toda data derivada em
+  ~40 pontos do código de folha de ponto e portal, num sistema de ponto em produção, sem teste
+  automatizado que cubra a diferença. O custo de verificação não se justifica para uma classe de
+  bug que a auditoria mediu como tendo causado zero dano. O padrão do projeto
+  (`configuracoes_globais.timezone` explícito) continua sendo a regra.
+
+⚠️ **Migration ainda não aplicada.** Validar em homologação antes de produção.
+
 ## [1.60.0] - 2026-08-12
 
 ### Added

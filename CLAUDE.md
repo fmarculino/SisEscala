@@ -928,6 +928,42 @@ retroativamente as marcações que deveriam ter sido criadas desde o início.
 `sync` de verdade. Um exemplo ilustrativo em markdown não é evidência do formato real; só o
 byte cru é.
 
+### 12. O processo Node roda em UTC — `new Date(iso).getDate()` mente
+
+Não há `Dockerfile` nem `TZ` em lugar nenhum do repo, e o container do Coolify sobe em UTC.
+Confirmado empiricamente desde a **v1.2.8** (folha mostrando `10:59` onde o real era `07:59` —
+exatamente UTC−3).
+
+Consequência: **toda data de domínio derivada de um timestamp com `.getDate()`/`.getMonth()`/
+`.getFullYear()` no servidor sai errada por 3 horas.** Uma batida às 22:00 de 11/08 é dia 12 para
+o Node. O padrão correto, já usado em `folha-ponto/actions.ts` e `consultar-escala/actions.ts`, é
+converter explicitamente pelo `configuracoes_globais.timezone`:
+
+```ts
+const nowLocal = new Date(new Date().toLocaleString('en-US', { timeZone: timezone }))
+// ou, para extrair só a data de um ISO:
+new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year:'numeric', month:'2-digit', day:'2-digit' })
+```
+
+`new Date(ano, mes, 0).getDate()` (contar dias do mês) e `setDate(getDate() + 1)` (aritmética)
+são imunes — não confunda os dois casos.
+
+⚠️ **Definir `TZ=America/Sao_Paulo` no container foi considerado e descartado** em 12/08/2026:
+mudaria em silêncio ~40 derivações de data num sistema de ponto em produção, sem teste que cubra
+a diferença. Se alguém reabrir essa decisão, o custo é a verificação, não a mudança.
+
+**O que tornou isso perigoso não foi o offset, foi a RPC confiar no input.**
+`fn_aceitar_marcacao_pendente` recebia `(p_marcacao_id, p_escala_diaria_id)` e não conferia
+relação nenhuma entre os dois — nem servidor, nem dia. Ela até lia `m.servidor_id` para
+`v_servidor` e **descartava sem usar**. Fechado em `20260812160000` com quatro guards antes de
+qualquer escrita (servidor · data em `[D−1, D]` · não-Sobreaviso · competência aberta), gerado
+por `scratchpad/gen_guard_aceitar.js`. Auditoria de produção na mesma data: **zero** tratamentos
+com dia ou servidor divergente — nenhum dado foi corrompido.
+
+Lição transferível: **quando uma tela filtra as opções, a RPC ainda precisa recusar as
+inválidas.** Tela corrigida não protege quem chama a RPC direto — e todas elas são `GRANT`adas
+a `authenticated`.
+
 ## Papéis de RH: Geral vs da Unidade (12/08/2026)
 
 `role = 'rh'` ("RH Geral") enxerga tudo; `role = 'rh_unidade'` ("RH da Unidade") é escopado por

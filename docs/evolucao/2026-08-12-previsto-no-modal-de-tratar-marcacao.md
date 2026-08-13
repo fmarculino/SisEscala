@@ -125,6 +125,90 @@ sessão, um coordenador cujo acesso vem só de setor vinculado cairia no buraco 
 `fn_unidade_no_escopo` (que só olha `profile_unidades`). O escopo real de quem vê a pendência
 já foi aplicado antes, em `listarPendencias`.
 
+## O que a auditoria de produção encontrou (12/08/2026, somente leitura)
+
+Autorizada pelo usuário depois de ler o item 1 acima. A pergunta era: o bug de fuso chegou a
+gravar horário real no dia errado?
+
+**Não.** `marcacoes_tratamentos` tem 27 linhas (11 `vincular_escala` + 16 `desconsiderar`); das
+11 com escala vinculada, **0 com dia divergente e 0 com servidor divergente**.
+
+A exposição era pequena, mas não por defesa do código:
+
+| medida | valor |
+|---|---|
+| marcações na base | 58.154 |
+| com hora local ≥ 21:00 (a faixa que o offset deslocava) | 86 — 0,1% |
+| pendências abertas | 74 |
+| pendências com hora local ≥ 21:00 | **2** — 12/08 às 21:26 e 21:57, ainda sem tratamento |
+
+As duas são de hoje, do mesmo coordenador de TI que trabalhou até tarde (o caso que originou a
+v1.59.0). O motivo real de nada ter acontecido é que **nenhuma unidade em operação tem escala
+noturna** — não é que a função se recusasse a escrever errado.
+
+## A correção definitiva: o guard vai para dentro da RPC
+
+Porque a tela corrigida não protege quem não passa pela tela.
+
+`fn_aceitar_marcacao_pendente` recebia `p_marcacao_id` e `p_escala_diaria_id` e não conferia
+**nenhuma** relação entre os dois. Ela já lia o servidor da marcação:
+
+```sql
+SELECT m.ocorrido_em, m.servidor_id INTO v_ocorrido, v_servidor ...
+-- v_servidor nunca mais aparece no corpo inteiro
+```
+
+A variável é lida e descartada. A checagem foi pensada e ficou pelo caminho.
+
+Migration `20260812160000`, gerada por `scratchpad/gen_guard_aceitar.js` — cópia mecânica da
+versão vigente (`20260808100000`) com dois trechos inseridos, abortando se, removidos os trechos,
+o corpo não voltar byte a byte ao original (armadilha 1).
+
+### Os quatro guards, todos antes de qualquer escrita
+
+| # | guard | por quê |
+|---|---|---|
+| 1 | servidor da escala = servidor da marcação | não existe caso legítimo do contrário |
+| 2 | data da escala ∈ [dia local da batida − 1, dia local da batida] | ver abaixo |
+| 3 | categoria ≠ Sobreaviso | armadilha 6 |
+| 4 | competência não encerrada | |
+
+Os itens **3 e 4 só existiam em `fn_validar_presenca_manual`**. A aba Pendências de `/marcacoes`
+chama `fn_aceitar_marcacao_pendente` **direto**, escapando dos dois — dava para gravar presença
+em mês congelado. Sobreaviso a constraint `chk_sobreaviso_sem_presenca` já barrava, mas com erro
+cru de banco.
+
+### Por que a janela é [D−1, D] e não algo mais apertado
+
+Medido em produção nesta data:
+
+- **Posterior é impossível** → bloqueado. Dos 27 turnos ancorados, o mais cedo começa **07:00**
+  (inícios distintos: 07, 11, 12, 13, 14, 15, 16, 17, 19h). Das 17 jornadas, a mais cedo é
+  `07H ÀS …`. Nenhuma começa de madrugada, então batida do dia D nunca é a entrada do turno de
+  D+1 — que é exatamente a forma que o bug de fuso produzia.
+- **D−1 precisa continuar valendo.** As jornadas `18H ÀS 06H` e `19H ÀS 07H` cruzam a meia-noite:
+  a batida das 06:05 do dia D é a saída legítima do turno de D−1. É o mesmo alcance do "cursor de
+  ontem" de `fn_confirmar_presenca`.
+
+### O que o guard deliberadamente não faz
+
+Não checa se a batida cai **dentro da janela prevista**. Pendência é, por definição, batida fora
+da janela — um guard de plausibilidade rejeitaria justamente o caso de uso. A que passo uma
+batida distante pertence é juízo do coordenador (Art. 82, parágrafo único). O guard barra o
+impossível, nunca o incomum.
+
+`fn_validar_presenca_manual` e `fn_aceitar_tentativa_recusada` **não foram tocadas** — herdam os
+guards por delegarem a esta, mesmo padrão de `fn_confirmar_presenca_manual_bulk`.
+
+### Considerado e descartado: `TZ=America/Sao_Paulo` no container
+
+Resolveria a classe inteira de uma vez. Descartado: mudaria em silêncio o comportamento de toda
+data derivada em ~40 pontos de `folha-ponto/actions.ts` e `consultar-escala/actions.ts`, num
+sistema de ponto em produção, sem nenhum teste automatizado que cubra a diferença. O custo de
+verificação não se justifica para uma classe de bug que a auditoria acabou de medir como tendo
+causado zero dano. O padrão do projeto — `configuracoes_globais.timezone` explícito, como
+`folha-ponto` já faz — continua sendo a regra.
+
 ## Verificação
 
 - `npx tsc --noEmit` e `npm run build` — limpos.
@@ -134,4 +218,10 @@ já foi aplicado antes, em `listarPendencias`.
 - Homologação não tem nenhuma unidade com `permite_marca_intervalo = true`, então o ramo de
   intervalo preenchido não foi exercitado contra dado real — só o ramo "não marca intervalo",
   que é o de toda a SMS hoje.
-- Produção não foi consultada.
+- **Guard simulado em JS sobre produção antes de o SQL ser escrito**: os 11 tratamentos
+  existentes passariam todos (0 recusados); das 74 pendências, 73 continuam com escala elegível
+  em D ou D−1. A única exceção não é causada pelo guard — é a batida de EMELLY GONÇALVES
+  (11/08, `Sem escala agendada para hoje`), cujo servidor não tem **nenhuma** escala em 08/2026,
+  caso que a tela já recusa hoje.
+- ⚠️ **A migration `20260812160000` ainda NÃO foi aplicada.** Validar em homologação antes de
+  produção. A conferência pós-aplicação está no cabeçalho do próprio arquivo.
