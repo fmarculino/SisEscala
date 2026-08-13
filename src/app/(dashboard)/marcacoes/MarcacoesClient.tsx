@@ -20,6 +20,45 @@ interface Opcoes {
   coordenadores: { id: string; full_name: string; role: string }[]
 }
 
+const CLASSES_STATUS_COLETA = {
+  verde: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20',
+  ambar: 'text-amber-600 bg-amber-50 dark:bg-amber-900/20',
+  vermelho: 'text-red-600 bg-red-50 dark:bg-red-900/20',
+}
+
+function formatarDuracao(desde: string): { texto: string; horas: number } {
+  const ms = Date.now() - new Date(desde).getTime()
+  const minutos = Math.floor(ms / 60000)
+  const horas = Math.floor(minutos / 60)
+  const dias = Math.floor(horas / 24)
+  if (dias >= 1) return { texto: `${dias} dia${dias > 1 ? 's' : ''}`, horas }
+  if (horas >= 1) return { texto: `${horas}h`, horas }
+  return { texto: `${Math.max(minutos, 1)} min`, horas }
+}
+
+// Dispositivo "somente pendrive" nao tem heartbeat (fn_ingerir_afd via importarPendriveAfd nunca
+// atualiza ultimo_contato_em - so' fn_autenticar_dispositivo_rep, usada pelas rotas do coletor via
+// token, atualiza) - por isso usa a ultima sincronizacao por canal pendrive como sinal, nao
+// "online/offline". Dispositivo pull/fallback usa o contato do coletor (ciclo de ~5 min).
+function statusColetaDispositivo(d: any): { texto: string; classe: string } {
+  if (d.modo_operacao === 'usb') {
+    if (!d.ultima_coleta_pendrive) {
+      return { texto: 'Coleta por pendrive nunca realizada', classe: CLASSES_STATUS_COLETA.vermelho }
+    }
+    const { texto, horas } = formatarDuracao(d.ultima_coleta_pendrive)
+    if (horas < 72) return { texto: `Última coleta há ${texto}`, classe: CLASSES_STATUS_COLETA.verde }
+    if (horas < 168) return { texto: `Coleta não realizada há ${texto}`, classe: CLASSES_STATUS_COLETA.ambar }
+    return { texto: `Coleta não realizada há ${texto}`, classe: CLASSES_STATUS_COLETA.vermelho }
+  }
+
+  if (!d.ultimo_contato_em) return { texto: 'Nunca conectado', classe: CLASSES_STATUS_COLETA.vermelho }
+  const minutosDesde = (Date.now() - new Date(d.ultimo_contato_em).getTime()) / 60000
+  if (minutosDesde <= 10) return { texto: 'Online', classe: CLASSES_STATUS_COLETA.verde }
+  const { texto, horas } = formatarDuracao(d.ultimo_contato_em)
+  if (horas < 24) return { texto: `Offline há ${texto}`, classe: CLASSES_STATUS_COLETA.ambar }
+  return { texto: `Offline há ${texto}`, classe: CLASSES_STATUS_COLETA.vermelho }
+}
+
 export function MarcacoesClient({ isAdmin, opcoes }: { isAdmin: boolean; opcoes: Opcoes }) {
   const [aba, setAba] = useState<Aba>(isAdmin ? 'terminais' : 'pendencias')
 
@@ -194,9 +233,13 @@ export function MarcacoesClient({ isAdmin, opcoes }: { isAdmin: boolean; opcoes:
               {dispositivos.map((d) => (
                 <div key={d.id} className="flex items-center justify-between p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
                   <div>
-                    <p className="text-sm font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+                    <p className="text-sm font-bold text-zinc-900 dark:text-white flex items-center gap-2 flex-wrap">
                       {d.nome}
                       {!d.ativo && <span className="text-[10px] font-bold text-red-600 bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full">DESATIVADO</span>}
+                      {d.ativo && (() => {
+                        const s = statusColetaDispositivo(d)
+                        return <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${s.classe}`}>{s.texto}</span>
+                      })()}
                     </p>
                     <p className="text-xs text-zinc-500">
                       {d.unidades?.nome}

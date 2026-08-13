@@ -23,6 +23,21 @@ All notable changes to this project will be documented in this file.
     unidade, com "Toda a unidade" como estado especial. Aba Cobertura da Escala mostra a lista de
     setores atendidos em vez de um nome só.
 
+- **Indicador de status de coleta na aba Dispositivos REP** — badge por dispositivo em
+  `MarcacoesClient.tsx`, sem migration (reaproveita `dispositivos_rep.ultimo_contato_em` e
+  `rep_sincronizacoes`, já existentes).
+  - **Pull/fallback**: `Online` (contato ≤10 min — o coletor sincroniza a cada 5 min) →
+    `Offline há Xh` (âmbar, <24h) → `Offline há X dias` (vermelho, ≥24h); nunca conectado também
+    vermelho.
+  - **Somente pendrive**: sem heartbeat — `fn_ingerir_afd` (via `importarPendriveAfd`) nunca
+    atualiza `ultimo_contato_em`, só `fn_autenticar_dispositivo_rep` (rotas do coletor por token)
+    atualiza. Sinal passa a ser a última sincronização concluída com `canal = 'pendrive'`:
+    `Última coleta há X` (verde, <3 dias) → `Coleta não realizada há X` (âmbar 3–7 dias, vermelho
+    >7 dias); nunca coletado também vermelho.
+  - `listarDispositivosRep` ganhou uma segunda consulta (não agregada via RPC — pendrive é
+    esporádico o bastante para trazer as linhas e reduzir no cliente) para achar a última
+    `concluida_em` por dispositivo com `canal = 'pendrive'`.
+
 ### Fixed
 - **`fn_ingerir_afd` quebrava para qualquer dispositivo com setor associado** — achado só ao
   validar a migration acima contra dados reais em produção (checkpoint), não pego por `tsc`,

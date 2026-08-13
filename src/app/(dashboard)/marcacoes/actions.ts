@@ -157,7 +157,27 @@ export async function listarDispositivosRep() {
     .order('created_at', { ascending: false })
 
   if (error) throw new Error(error.message)
-  return data || []
+
+  // Dispositivo "somente pendrive" nao tem heartbeat - fn_ingerir_afd (chamada por
+  // importarPendriveAfd) nunca atualiza ultimo_contato_em, so' fn_autenticar_dispositivo_rep
+  // (usada pelas rotas do coletor via token) atualiza. O sinal de "esta sendo coletado" pra ele
+  // e' a ultima sincronizacao concluida por canal pendrive, nao o contato do coletor.
+  const { data: syncsPendrive } = await supabase
+    .from('rep_sincronizacoes')
+    .select('dispositivo_id, concluida_em')
+    .eq('canal', 'pendrive')
+    .eq('status', 'concluida')
+    .order('concluida_em', { ascending: false })
+
+  const ultimaColetaPendrive = new Map<string, string>()
+  for (const s of syncsPendrive || []) {
+    if (!ultimaColetaPendrive.has(s.dispositivo_id)) ultimaColetaPendrive.set(s.dispositivo_id, s.concluida_em)
+  }
+
+  return (data || []).map((d: any) => ({
+    ...d,
+    ultima_coleta_pendrive: ultimaColetaPendrive.get(d.id) || null,
+  }))
 }
 
 function lerCamposDispositivo(formData: FormData) {
