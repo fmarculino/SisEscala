@@ -51,6 +51,15 @@ export async function updateSession(request: NextRequest) {
     '/api/avisos-ponto',   // despachar (CRON_SECRET) e webhook (WHATSAPP_WEBHOOK_SECRET)
     '/api/rep',            // chamada pelo coletor-rep — token de dispositivo + assinatura HMAC
     '/api/presenca-local', // chamada pelo terminal local — token de dispositivo ou cookie assinado
+    '/api/coletor-rep',    // tray-version/tray-download sao publicas por natureza (o app de
+                           // bandeja nao tem sessao de navegador); download/download-cli tem
+                           // checagem propria de admin/super_admin dentro da rota (createClient +
+                           // profiles.role), entao ficar fora do redirect daqui nao os deixa
+                           // abertos. Mesmo bug ja documentado e corrigido para /api/version em
+                           // 09/08/2026 (comentario acima) - essas rotas nasceram depois (Fase 4,
+                           // 11/08/2026) e nunca entraram nesta lista. Confirmado em producao em
+                           // 13/08/2026: curl em tray-version e tray-download devolvia 307 para
+                           // /login, e e' por isso que "Verificar atualizacao" nunca funcionou.
   ]
 
   if (

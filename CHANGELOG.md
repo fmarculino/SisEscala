@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.61.1] - 2026-08-13
+
+### Fixed
+- **`/api/coletor-rep/tray-version` e `/api/coletor-rep/tray-download` redirecionavam para
+  `/login` (HTTP 307) em toda chamada sem sessão de navegador** — exatamente o mesmo bug já
+  documentado e corrigido para `/api/version` em 09/08/2026 (middleware trata request sem `user`
+  como "manda pro login"), mas as rotas do coletor-rep nasceram depois (Fase 4, 11/08/2026) e
+  nunca entraram na lista de rotas públicas. Era por isso que "Verificar atualização" nunca
+  funcionava de verdade em produção: o app de bandeja não tem sessão nenhuma, `http.Get` seguia o
+  redirect até a página HTML de login, e o `json.Decode` estourava com `invalid character '<'`
+  (o log melhorado da v1.61.0 já ia mostrar o HTML do login na próxima ocorrência, mas a causa era
+  esta). Confirmado ao vivo com `curl`: os dois endpoints devolviam 307 para `/login`. Adicionado
+  `/api/coletor-rep` à lista de rotas públicas do middleware — `download`/`download-cli` continuam
+  protegidas por checagem própria de `admin`/`super_admin` dentro da rota, então não ficam abertas.
+
 ## [1.61.0] - 2026-08-13
 
 ### Fixed
