@@ -147,9 +147,12 @@ export async function listarDispositivosRep() {
       // senha_rep NAO entra aqui de proposito - a lista alimenta o estado do componente client,
       // e nao ha motivo para o valor em texto claro trafegar ate o navegador so para preencher
       // uma lista. O modal de edicao nunca preenche o campo de senha de volta (ver DispositivoRepModal).
-      'id, nome, unidade_id, setor_id, numero_serie, endereco_ip, modo_operacao, ativo, '
+      'id, nome, unidade_id, numero_serie, endereco_ip, modo_operacao, ativo, '
       + 'usuario_rep, porta, usa_https, '
-      + 'ultimo_nsr, ultimo_contato_em, deriva_segundos, created_at, unidades(nome), setores(dicionario_setores(nome))'
+      + 'ultimo_nsr, ultimo_contato_em, deriva_segundos, created_at, unidades(nome), '
+      // Lista de setores atendidos (0 linhas = "toda a unidade" - mesma semantica do antigo
+      // setor_id IS NULL, ver docs/planos/2026-08-13-relogio-rep-compartilhado-por-multiplos-setores.md).
+      + 'dispositivos_rep_setores(setor_id, setores(dicionario_setores(nome)))'
     )
     .order('created_at', { ascending: false })
 
@@ -160,7 +163,15 @@ export async function listarDispositivosRep() {
 function lerCamposDispositivo(formData: FormData) {
   const nome = String(formData.get('nome') || '').trim()
   const unidade_id = String(formData.get('unidade_id') || '')
-  const setor_id = String(formData.get('setor_id') || '') || null
+  // Lista de setores atendidos, nao mais um so - ver
+  // docs/planos/2026-08-13-relogio-rep-compartilhado-por-multiplos-setores.md. [] = "toda a
+  // unidade" (mesma semantica do antigo setor_id NULL). Gravada a parte, via
+  // fn_definir_setores_dispositivo_rep - nao e coluna de dispositivos_rep.
+  let setor_ids: string[] = []
+  try {
+    const raw = JSON.parse(String(formData.get('setor_ids') || '[]'))
+    if (Array.isArray(raw)) setor_ids = raw.filter((x) => typeof x === 'string' && x)
+  } catch { /* formato invalido vira lista vazia - RPC nao recebe lixo */ }
   const numero_serie = String(formData.get('numero_serie') || '').trim() || null
   const endereco_ip = String(formData.get('endereco_ip') || '').trim() || null
   const modo_operacao = String(formData.get('modo_operacao') || 'pull')
@@ -168,12 +179,12 @@ function lerCamposDispositivo(formData: FormData) {
   const senha_rep = String(formData.get('senha_rep') || '').trim() || null
   const porta = Number(formData.get('porta') || 443) || 443
   const usa_https = formData.get('usa_https') !== 'false'
-  return { nome, unidade_id, setor_id, numero_serie, endereco_ip, modo_operacao, usuario_rep, senha_rep, porta, usa_https }
+  return { nome, unidade_id, setor_ids, numero_serie, endereco_ip, modo_operacao, usuario_rep, senha_rep, porta, usa_https }
 }
 
 export async function criarDispositivoRep(formData: FormData) {
   await exigirAdmin()
-  const campos = lerCamposDispositivo(formData)
+  const { setor_ids, ...campos } = lerCamposDispositivo(formData)
   if (!campos.nome || !campos.unidade_id) {
     return { error: 'Nome e unidade são obrigatórios.' }
   }
@@ -182,13 +193,22 @@ export async function criarDispositivoRep(formData: FormData) {
   const { data, error } = await supabase.from('dispositivos_rep').insert(campos).select('id').single()
   if (error) return { error: error.message }
 
+  // Sessao do usuario (nao admin client): fn_definir_setores_dispositivo_rep confere o papel
+  // por auth.uid() e grava criado_por_id de quem realmente fez a alteracao.
+  const sessao = await createClient()
+  const { error: erroSetores } = await sessao.rpc('fn_definir_setores_dispositivo_rep', {
+    p_dispositivo_id: data.id,
+    p_setor_ids: setor_ids,
+  })
+  if (erroSetores) return { error: erroSetores.message }
+
   revalidatePath('/marcacoes')
   return { id: data.id }
 }
 
 export async function atualizarDispositivoRep(id: string, formData: FormData) {
   await exigirAdmin()
-  const campos: any = lerCamposDispositivo(formData)
+  const { setor_ids, ...campos }: any = lerCamposDispositivo(formData)
   if (!campos.nome || !campos.unidade_id) {
     return { error: 'Nome e unidade são obrigatórios.' }
   }
@@ -203,6 +223,13 @@ export async function atualizarDispositivoRep(id: string, formData: FormData) {
     .update({ ...campos, ativo, updated_at: new Date().toISOString() })
     .eq('id', id)
   if (error) return { error: error.message }
+
+  const sessao = await createClient()
+  const { error: erroSetores } = await sessao.rpc('fn_definir_setores_dispositivo_rep', {
+    p_dispositivo_id: id,
+    p_setor_ids: setor_ids,
+  })
+  if (erroSetores) return { error: erroSetores.message }
 
   revalidatePath('/marcacoes')
   return { success: true }
@@ -308,7 +335,7 @@ export interface CoberturaResumo {
   dispositivo_id: string
   dispositivo_nome: string
   unidade_nome: string
-  setor_nome: string | null
+  setores_nomes: string | null
   ativo: boolean
   ultimo_contato_em: string | null
   snapshot_em: string | null

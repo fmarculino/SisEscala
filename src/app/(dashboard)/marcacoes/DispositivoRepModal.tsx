@@ -16,7 +16,9 @@ interface DispositivoRep {
   id: string
   nome: string
   unidade_id: string
-  setor_id: string | null
+  // Setores atendidos - [] ou ausente = "toda a unidade" (mesma semantica do antigo setor_id
+  // NULL). Ver docs/planos/2026-08-13-relogio-rep-compartilhado-por-multiplos-setores.md.
+  dispositivos_rep_setores?: { setor_id: string }[]
   numero_serie: string | null
   endereco_ip: string | null
   modo_operacao: string
@@ -41,7 +43,9 @@ export function DispositivoRepModal({
 }) {
   const [nome, setNome] = useState(dispositivo?.nome || '')
   const [unidadeId, setUnidadeId] = useState(dispositivo?.unidade_id || '')
-  const [setorId, setSetorId] = useState(dispositivo?.setor_id || '')
+  const [setorIds, setSetorIds] = useState<string[]>(
+    (dispositivo?.dispositivos_rep_setores || []).map((x) => x.setor_id)
+  )
   const [numeroSerie, setNumeroSerie] = useState(dispositivo?.numero_serie || '')
   const [enderecoIp, setEnderecoIp] = useState(dispositivo?.endereco_ip || '')
   const [modoOperacao, setModoOperacao] = useState(dispositivo?.modo_operacao || 'pull')
@@ -72,7 +76,7 @@ export function DispositivoRepModal({
     const formData = new FormData()
     formData.set('nome', nome)
     formData.set('unidade_id', unidadeId)
-    formData.set('setor_id', setorId)
+    formData.set('setor_ids', JSON.stringify(setorIds))
     formData.set('numero_serie', numeroSerie)
     formData.set('endereco_ip', enderecoIp)
     formData.set('modo_operacao', modoOperacao)
@@ -158,33 +162,61 @@ export function DispositivoRepModal({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-zinc-600 dark:text-zinc-400 mb-1">Unidade</label>
-              <select
-                value={unidadeId}
-                onChange={(e) => { setUnidadeId(e.target.value); setSetorId('') }}
-                required
-                className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm"
-              >
-                <option value="">Selecione…</option>
-                {opcoes.unidades.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-zinc-600 dark:text-zinc-400 mb-1">
-                Setor <span className="font-normal text-zinc-400">(opcional)</span>
-              </label>
-              <select
-                value={setorId}
-                onChange={(e) => setSetorId(e.target.value)}
-                disabled={!unidadeId}
-                className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm disabled:opacity-50"
-              >
-                <option value="">Toda a unidade</option>
-                {setoresDaUnidade.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
-              </select>
-            </div>
+          <div>
+            <label className="block text-xs font-semibold text-zinc-600 dark:text-zinc-400 mb-1">Unidade</label>
+            <select
+              value={unidadeId}
+              onChange={(e) => { setUnidadeId(e.target.value); setSetorIds([]) }}
+              required
+              className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm"
+            >
+              <option value="">Selecione…</option>
+              {opcoes.unidades.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-zinc-600 dark:text-zinc-400 mb-1">
+              Setores atendidos
+            </label>
+            {!unidadeId ? (
+              <p className="text-xs text-zinc-400">Selecione a unidade primeiro.</p>
+            ) : (
+              <>
+                <label className="flex items-center gap-2 text-sm mb-2">
+                  <input
+                    type="checkbox"
+                    checked={setorIds.length === 0}
+                    onChange={(e) => setSetorIds(e.target.checked ? [] : setoresDaUnidade.map((s) => s.id))}
+                  />
+                  Toda a unidade
+                </label>
+                {setorIds.length === 0 ? (
+                  <p className="text-[11px] text-zinc-400">
+                    Qualquer servidor escalado nesta unidade é candidato a usar este relógio.
+                    Desmarque acima para escolher setores específicos (ex.: quando vários setores
+                    dividem o mesmo relógio, mas nem todos da unidade).
+                  </p>
+                ) : (
+                  <div className="max-h-40 overflow-y-auto rounded-lg border border-zinc-300 dark:border-zinc-700 p-2 space-y-1">
+                    {setoresDaUnidade.map((s) => (
+                      <label key={s.id} className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={setorIds.includes(s.id)}
+                          onChange={(e) => {
+                            setSetorIds((prev) =>
+                              e.target.checked ? [...prev, s.id] : prev.filter((id) => id !== s.id)
+                            )
+                          }}
+                        />
+                        {s.nome}
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">

@@ -278,7 +278,7 @@ export function CoberturaTab({ isAdmin }: { isAdmin: boolean }) {
                         )}
                       </p>
                       <p className="text-xs text-zinc-500">
-                        {d.unidade_nome}{d.setor_nome ? ` — ${d.setor_nome}` : ''}
+                        {d.unidade_nome}{d.setores_nomes ? ` — ${d.setores_nomes}` : ''}
                       </p>
                       <div className="flex flex-wrap gap-1.5 mt-2">
                         {chips.map((c) => (

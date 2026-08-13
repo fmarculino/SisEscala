@@ -199,7 +199,13 @@ export function MarcacoesClient({ isAdmin, opcoes }: { isAdmin: boolean; opcoes:
                       {!d.ativo && <span className="text-[10px] font-bold text-red-600 bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full">DESATIVADO</span>}
                     </p>
                     <p className="text-xs text-zinc-500">
-                      {d.unidades?.nome}{d.setores?.dicionario_setores?.nome ? ` — ${d.setores.dicionario_setores.nome}` : ''}
+                      {d.unidades?.nome}
+                      {(() => {
+                        const nomes = (d.dispositivos_rep_setores || [])
+                          .map((x: any) => x.setores?.dicionario_setores?.nome)
+                          .filter(Boolean)
+                        return nomes.length > 0 ? ` — ${nomes.join(', ')}` : ''
+                      })()}
                       {d.endereco_ip ? ` · ${d.endereco_ip}` : ''}
                     </p>
                     <p className="text-[11px] text-zinc-400">
