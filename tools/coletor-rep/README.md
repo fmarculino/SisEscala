@@ -99,7 +99,7 @@ coletor-rep cadastros           aplica a fila de push de identidade real no rel�
 coletor-rep cadastros-testar    cria um usuário de teste no relógio e lista biometria (diagnóstico — GRAVA um registro de teste, ver aviso acima)
 coletor-rep remocao-testar      cria um usuário de teste e o APAGA — descobre qual formato de `remove_users.fcgi` este relógio aceita, sem tocar em cadastro real
 coletor-rep higiene             lê todos os usuários do relógio e reporta ao SisEscala (Fase 7b) — só leitura, seguro rodar sempre
-coletor-rep higiene-remover     aplica no relógio quem foi selecionado na tela de higiene — GRAVA/APAGA no equipamento; rode `remocao-testar` antes (ver abaixo)
+coletor-rep higiene-remover     aplica no relógio quem foi selecionado na tela de higiene — GRAVA/APAGA no equipamento; num relógio novo, rode `remocao-testar` antes (ver abaixo)
 coletor-rep terminal abrir      abre a tela de presença local no navegador (uma vez)
 ```
 
@@ -108,12 +108,15 @@ Lê `config.yaml` do diretório de trabalho atual (ou o caminho passado em `--co
 
 ### `remove_users.fcgi`: formato descoberto em campo, não presumido
 
-O corpo `{"users":[{"pis":N}]}` (aproximação por simetria com `load_users.fcgi`) foi **reprovado
-contra hardware real** em 13/08/2026 na LACEM: o equipamento recusou as 31 remoções da fila com
-`'users' em formato incorreto`. Desde então `rep.RemoverUsuario` não chuta um formato só — na
-primeira remoção de cada execução ela tenta os candidatos de `formatosRemocao`
-(`rep/client.go`) em ordem e **confirma por relistagem** qual deles realmente apagou o cadastro,
-guardando o vencedor para o resto do lote.
+O corpo certo é **`{"users":[N]}`** — array de **números** com o `pis`, confirmado contra hardware
+real em 13/08/2026 na LACEM. A aproximação por simetria com `load_users.fcgi`
+(`{"users":[{"pis":N}]}`) tinha sido recusada no mesmo dia, nas 31 remoções da fila, com
+`'users' em formato incorreto`.
+
+A varredura fica: `rep.RemoverUsuario` não chuta um formato só — na primeira remoção de cada
+execução ela tenta os candidatos de `formatosRemocao` (`rep/client.go`), o confirmado primeiro, e
+**confirma por relistagem** qual deles realmente apagou o cadastro, guardando o vencedor para o
+resto do lote. É o que faz um modelo/firmware diferente ser descoberto em vez de falhar.
 
 Duas defesas que não podem sair daí:
 

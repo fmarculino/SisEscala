@@ -26,12 +26,13 @@
 // ListarUsuariosComBiometria para devolver a lista inteira, não filtrada — reaproveita a mesma
 // paginação já confirmada, então herda a confiança dela.
 //
-// ❌ RemoverUsuario (mesma leva) foi REPROVADA contra hardware real em 13/08/2026 (LACEM): o
-// corpo `{"users":[{"pis":N}]}`, aproximação por simetria com load_users.fcgi, foi recusado com
-// "'users' em formato incorreto" nas 31 remoções da fila. Desde então a função não chuta um
-// formato só: tenta candidatos em ordem e confirma por relistagem qual REALMENTE apagou o
-// cadastro (descobrirFormatoRemocao). Continua fora do ciclo automático e do menu da bandeja —
-// é a única chamada que apaga dado de equipamento de produção.
+// ✅ RemoverUsuario (mesma leva) CONFIRMADA contra hardware real em 13/08/2026 (LACEM), no
+// segundo formato tentado: o corpo é `{"users":[N]}` — array de NÚMEROS com o `pis`. O original
+// `{"users":[{"pis":N}]}`, aproximação por simetria com load_users.fcgi, tinha sido recusado no
+// mesmo dia com "'users' em formato incorreto" nas 31 remoções da fila. A varredura de candidatos
+// (descobrirFormatoRemocao) fica, com o formato confirmado em primeiro: é o que faz um modelo
+// diferente de relógio ser descoberto em vez de simplesmente falhar. Continua fora do ciclo
+// automático e do menu da bandeja — é a única chamada que apaga dado de equipamento de produção.
 package rep
 
 import (
@@ -396,24 +397,28 @@ type formatoRemocao struct {
 	Corpo func(u UsuarioDispositivo) (map[string]interface{}, bool)
 }
 
-// Ordem deliberada, do mais provavel para o menos:
+// Ordem deliberada, do CONFIRMADO para o hipotetico:
 //
-// A mensagem real do equipamento em 13/08/2026 (LACEM, 31 remocoes) foi
+// ✅ `users:[pis]` (array de NUMEROS, nao de objetos) CONFIRMADO contra hardware real em
+// 13/08/2026 na LACEM: removeu o usuario de teste e a relistagem provou que so' ele saiu do
+// cadastro. Fica em primeiro para que a remocao real nunca comece experimentando candidato em
+// cima de cadastro de servidor — o resto da lista so' e' alcancado num equipamento onde este
+// formato falhar (outro modelo/firmware), que e' o caso para o qual a descoberta existe.
+//
+// A pista que levou ate ele: a recusa das 31 remocoes no mesmo dia foi
 // "'users' em formato incorreto" — o device NOMEIA o campo `users`, nao um campo interno do
 // objeto. Compare com "'cpf' em formato incorreto" (12/08/2026, CriarUsuario com CPF de digito
-// verificador invalido), onde o campo nomeado era o de dentro do objeto. Isso aponta para o TIPO
-// dos elementos de `users` estar errado — array de numeros, nao de objetos —, por isso os
-// candidatos de array simples vem primeiro. `code` primeiro entre eles porque e' o campo que mais
-// parece um id interno na resposta de load_users.fcgi deste device (que nao tem campo "id").
+// verificador invalido), onde o campo nomeado era o de dentro do objeto. Era o TIPO dos elementos
+// que estava errado, e a confirmacao em campo bateu com isso.
 var formatosRemocao = []formatoRemocao{
+	{"users:[pis]", true, func(u UsuarioDispositivo) (map[string]interface{}, bool) {
+		return map[string]interface{}{"users": []interface{}{u.Pis}}, true
+	}},
 	{"users:[code]", true, func(u UsuarioDispositivo) (map[string]interface{}, bool) {
 		if !u.CodeConhecido {
 			return nil, false
 		}
 		return map[string]interface{}{"users": []interface{}{u.Code}}, true
-	}},
-	{"users:[pis]", true, func(u UsuarioDispositivo) (map[string]interface{}, bool) {
-		return map[string]interface{}{"users": []interface{}{u.Pis}}, true
 	}},
 	{"users:[registration]", true, func(u UsuarioDispositivo) (map[string]interface{}, bool) {
 		if !u.RegistrationConh {
@@ -433,8 +438,8 @@ var formatosRemocao = []formatoRemocao{
 		return map[string]interface{}{"users": []map[string]interface{}{{"cpf": u.Pis}}}, true
 	}},
 	{"users:[{pis}]", true, func(u UsuarioDispositivo) (map[string]interface{}, bool) {
-		// Formato original (12/08/2026), o unico que ja se sabe REPROVADO contra hardware real.
-		// Fica por ultimo so' para nao descartar a hipotese de a falha ter sido outra coisa.
+		// Formato original (12/08/2026), REPROVADO contra hardware real em 13/08/2026 neste
+		// modelo. Fica por ultimo, so' para outro equipamento que porventura espere objeto.
 		return map[string]interface{}{"users": []map[string]interface{}{{"pis": u.Pis}}}, true
 	}},
 	{"users:[pis] (sem mode)", false, func(u UsuarioDispositivo) (map[string]interface{}, bool) {
@@ -444,12 +449,12 @@ var formatosRemocao = []formatoRemocao{
 
 // RemoverUsuario tira um usuario do rele (remove_users.fcgi).
 //
-// ⚠️ O formato do corpo desta chamada NAO e' conhecido: a aproximacao por simetria com
-// load_users.fcgi (`{"users":[{"pis":N}]}`) foi REPROVADA contra hardware real em 13/08/2026 na
-// LACEM — o equipamento respondeu "'users' em formato incorreto" para as 31 remocoes. Por isso a
-// primeira remocao de cada processo passa por descobrirFormatoRemocao, que tenta os candidatos
-// acima e CONFIRMA por relistagem qual deles realmente apagou o cadastro; da segunda em diante o
-// formato ja esta em cache no cliente.
+// O formato aceito por este modelo e' `users:[pis]`, confirmado em campo (ver a lista acima) - e'
+// o primeiro candidato tentado. A primeira remocao de cada processo ainda passa por
+// descobrirFormatoRemocao, que CONFIRMA por relistagem que o cadastro realmente saiu antes de
+// fixar o formato; da segunda em diante o formato ja esta em cache no cliente. Isso e' o que
+// permite ligar o coletor num modelo/firmware diferente sem descobrir o problema em cima de
+// cadastro de servidor.
 //
 // Recebe o usuario inteiro (como veio de ListarUsuarios), nao so' o identificador, porque os
 // candidatos precisam de `code`/`registration`, que so' existem no snapshot do device.

@@ -1,6 +1,13 @@
-# Remoção de cadastro no relógio: formato reprovado em campo (LACEM, 13/08/2026)
+# Remoção de cadastro no relógio: formato reprovado e confirmado em campo (LACEM, 13/08/2026)
 
-**Versões:** app `1.62.0` · coletor `0.4.3`
+**Versões:** app `1.62.0` · coletor `0.4.4`
+
+> **Desfecho (mesmo dia):** o formato aceito é **`{"users":[N]}`** — array de **números** com o
+> `pis`. Confirmado no equipamento removendo o usuário de teste, com a relistagem provando que só
+> ele saiu: `1 remocao(oes) aceitas pelo rele (formato users:[pis])` → `1 removido(s), 0 nao
+> efetivado(s)`. Ele passou a ser o **primeiro** candidato de `formatosRemocao`, para que a
+> remoção real nunca comece experimentando em cima de cadastro de servidor. O resto da lista só é
+> alcançado num equipamento onde este formato falhar.
 
 ## O que aconteceu
 
@@ -35,7 +42,7 @@ deixou de chutar um formato só.
 
 | peça | onde |
 |---|---|
-| candidatos em ordem (array de `code`/`pis`/`registration`, depois objetos, depois sem `mode=671`) | `formatosRemocao`, `rep/client.go` |
+| candidatos em ordem (o confirmado `users:[pis]` primeiro; depois `code`/`registration`, objetos, e sem `mode=671`) | `formatosRemocao`, `rep/client.go` |
 | descoberta com confirmação por relistagem | `descobrirFormatoRemocao` — cache em `Client.formatoRemocao`, uma varredura por execução |
 | conferência final do lote | `ciclo.HigienizarRemocoes` relista e só então confirma no SisEscala |
 | teste em cadastro descartável | `coletor-rep remocao-testar` (CLI) |
@@ -60,7 +67,7 @@ Fora isso, `higiene-remover` continua **só na CLI** (nunca no ciclo automático
 bandeja) e a fila do SisEscala continua recusando quem tem `rep_vinculos_servidor` vigente para
 servidor Ativo — a UI filtrar não é o que protege.
 
-## Como validar em campo
+## Como validar num relógio novo
 
 Numa máquina dentro da rede da unidade, ao lado do `config.yaml` instalado:
 
@@ -73,5 +80,6 @@ e nunca toca na fila real. Se nenhum candidato funcionar, a saída lista o que c
 é isso que decide o próximo passo. Só depois disso rodar `coletor-rep-cli higiene-remover` sobre a
 fila de verdade.
 
-Quando um formato for confirmado, ele pode ser fixado como único em `formatosRemocao` — mas a
-confirmação por relistagem fica, independente disso.
+O formato confirmado **não** foi fixado como único: continua sendo o primeiro de uma lista. Fixar
+economizaria uma hipótese e custaria a única defesa que existe quando o parque deixar de ser um
+modelo só — e a confirmação por relistagem fica de qualquer jeito.

@@ -324,18 +324,20 @@ usuário**, que é dado gerenciável pela mesma família de API já validada na 
 | coletor aplica remoções | `GET`/`POST /api/rep/v1/remocoes` ← `coletor-rep higiene-remover` |
 | tela | aba "Higiene do Relógio" em `/marcacoes` (admin/super_admin) |
 
-❌ **`rep.RemoverUsuario` (`remove_users.fcgi`) foi REPROVADA contra hardware real em
-13/08/2026** (LACEM, primeira rodada de campo do `higiene-remover`): o corpo
-`{"users": [{"pis": ...}]}` — aproximação por simetria com `load_users.fcgi`, nunca confirmada —
-foi recusado nas **31** remoções da fila com `'users' em formato incorreto`. O device nomeia o
-campo **`users`**, não um campo de dentro do objeto (compare com `'cpf' em formato incorreto`, da
-Fase 7, onde o inválido era o valor de um campo interno) — ou seja, o **tipo dos elementos** é que
-está errado: array de números, não de objetos.
+✅ **`rep.RemoverUsuario` (`remove_users.fcgi`) CONFIRMADA contra hardware real em 13/08/2026**
+(LACEM) — mas só depois de ser **reprovada** no mesmo dia. O corpo `{"users": [{"pis": ...}]}`
+(aproximação por simetria com `load_users.fcgi`, nunca confirmada) foi recusado nas **31**
+remoções da primeira rodada de campo com `'users' em formato incorreto`. O device nomeia o campo
+**`users`**, não um campo de dentro do objeto (compare com `'cpf' em formato incorreto`, da Fase
+7, onde o inválido era o valor de um campo interno) — era o **tipo dos elementos**: array de
+números, não de objetos. O formato certo é **`{"users": [pis]}`**, validado removendo o usuário de
+teste e conferindo por relistagem que só ele saiu.
 
-Como o formato certo continua sendo hipótese, `RemoverUsuario` **não chuta um formato só**: a
-primeira remoção de cada execução varre os candidatos de `formatosRemocao` (`rep/client.go`,
-ordem do mais provável ao menos) e **confirma por relistagem** qual deles realmente apagou o
-cadastro; o vencedor fica em cache para o resto do lote. Duas defesas que não podem sair daí:
+A varredura de candidatos **fica**, com o formato confirmado em primeiro lugar: `RemoverUsuario`
+não chuta um formato só, e a primeira remoção de cada execução percorre `formatosRemocao`
+(`rep/client.go`) **confirmando por relistagem** qual realmente apagou o cadastro — é o que faz um
+modelo/firmware diferente ser descoberto em vez de falhar em cima de cadastro de servidor. O
+vencedor fica em cache para o resto do lote. Duas defesas que não podem sair daí:
 
 - **`ok` do relógio não é remoção.** Se a relistagem mostrar o cadastro ainda lá, a fila do
   SisEscala é fechada como **falha**. Marcar como aplicada deixaria a tela dizendo que o relógio

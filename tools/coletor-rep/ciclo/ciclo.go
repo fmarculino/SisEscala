@@ -20,7 +20,7 @@ import (
 	"github.com/sms-maraba/sisescala-coletor-rep/sisescala"
 )
 
-const Versao = "0.4.3"
+const Versao = "0.4.4"
 
 func hostname() string {
 	h, err := os.Hostname()
