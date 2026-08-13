@@ -33,6 +33,7 @@ que faltava era escala → relógio, justamente a que diz se a folha do mês vai
 | classificação por servidor (fonte única) | `fn_cobertura_ponto_dispositivo` |
 | resumo por relógio (envelope LATERAL) | `fn_cobertura_ponto_resumo` |
 | conserto do caso dominante | `fn_vincular_cadastros_por_cpf` |
+| conserto do `fora_do_relogio` | `fn_enfileirar_cadastros_por_escala` |
 | tela | aba **Cobertura da Escala** em `/marcacoes` |
 | alerta | contador vermelho no rótulo da aba, carregado junto com a página |
 
@@ -70,6 +71,31 @@ nunca a primeira batida vista no AFD.
 **Criar vínculo e recuperar histórico são duas decisões diferentes.** A função não reprocessa
 nada: batida já ingerida continua órfã até alguém rodar `fn_reparse_afd_dispositivo` de propósito,
 porque isso mexe em ponto passado.
+
+## O `fora_do_relogio` tinha uma causa que ninguém veria
+
+Perguntado no mesmo dia, olhando a grade de agosto: **Gabriela Santos Moreno** e **Izabella
+Borges Carvalho** estão escaladas, batem ponto no terminal do computador todo dia, e não estão no
+relógio. Por que o "Sincronizar cadastros" nunca as levou?
+
+Porque `fn_enfileirar_cadastros_rep` (Fase 7) escolhe candidato **por lotação** —
+`servidores.unidade_id = dispositivo.unidade_id`, mais o setor quando o relógio é de setor. Quem
+está **escalado** na unidade mas lotado em outro lugar nunca entra por ali, e o botão responde
+"0 enfileirados" sem dizer que aquela pessoa existia e ficou de fora. Clicar de novo não muda
+nada, para sempre.
+
+Duas peças saíram disso:
+
+- `fn_cobertura_ponto_dispositivo` passou a devolver `fila_status`, `fila_erro` e
+  `lotacao_compativel`. São eles que separam as três causas de continuar fora do relógio —
+  *na fila, esperando o coletor* · *o envio falhou, com a mensagem* · *lotação divergente, o botão
+  não pega* — e a tela imprime a frase certa em vez de mandar todo mundo para o mesmo botão.
+- `fn_enfileirar_cadastros_por_escala` enfileira exatamente quem a tela mostra como
+  `fora_do_relogio`, ou seja **por escala**. É a mesma escolha do guard de
+  `fn_blocos_previstos_dia` (checa por escala, não por lotação, para não quebrar servidor
+  externo/emprestado). Não substitui a função da Fase 7 — é um segundo caminho, para o caso que
+  aquele não alcança — e continua sem escrever no equipamento: enfileirar é intenção, quem aplica
+  é o coletor.
 
 ## O que ainda não responde
 

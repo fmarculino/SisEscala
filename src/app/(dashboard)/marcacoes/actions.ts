@@ -337,27 +337,52 @@ export interface CoberturaServidor {
   batidas_perdidas: number
   situacao: SituacaoCobertura
   snapshot_em: string | null
+  fila_status: 'pendente' | 'enviado' | 'falhou' | null
+  fila_erro: string | null
+  lotacao_compativel: boolean
 }
 
-export async function listarCoberturaResumo(mes?: number, ano?: number) {
+// Estas duas DEVOLVEM o erro em vez de lançar. Server Action que lança tem a mensagem apagada em
+// produção ("An error occurred in the Server Components render... omitted in production builds"),
+// e foi exatamente o que aconteceu na primeira subida desta tela: a causa real ficou invisível e
+// só o digest sobrou. Valor devolvido não é redigido.
+// Forma explícita em vez de união discriminada: o consumidor sempre tem `dados` para usar, e o
+// `error` é só o motivo de ele vir vazio. Union com `error?: never` obriga estreitamento em todo
+// ponto de uso e não paga o custo aqui.
+export interface Resultado<T> { dados: T; error: string | null }
+
+function erroLegivel(error: { message: string; code?: string }): string {
+  // PGRST202 = função não está no schema cache do PostgREST. Na prática significa uma de duas
+  // coisas, e as duas se resolvem fora do app - por isso vale nomear em vez de repassar o texto.
+  if (error.code === 'PGRST202' || /Could not find the function/i.test(error.message)) {
+    return 'As funções de cobertura ainda não existem neste banco. Aplique a migration '
+      + '20260813000000_add_cobertura_ponto_rep.sql (e, se ela já foi aplicada, recarregue o '
+      + `schema cache do PostgREST). Detalhe: ${error.message}`
+  }
+  return error.message
+}
+
+export async function listarCoberturaResumo(mes?: number, ano?: number): Promise<Resultado<CoberturaResumo[]>> {
   const supabase = await createClient()
   const { data, error } = await supabase.rpc('fn_cobertura_ponto_resumo', {
     p_mes: mes ?? null,
     p_ano: ano ?? null,
   })
-  if (error) throw new Error(error.message)
-  return (data || []) as CoberturaResumo[]
+  if (error) return { dados: [], error: erroLegivel(error) }
+  return { dados: (data || []) as CoberturaResumo[], error: null }
 }
 
-export async function listarCoberturaDispositivo(dispositivoId: string, mes?: number, ano?: number) {
+export async function listarCoberturaDispositivo(
+  dispositivoId: string, mes?: number, ano?: number,
+): Promise<Resultado<CoberturaServidor[]>> {
   const supabase = await createClient()
   const { data, error } = await supabase.rpc('fn_cobertura_ponto_dispositivo', {
     p_dispositivo_id: dispositivoId,
     p_mes: mes ?? null,
     p_ano: ano ?? null,
   })
-  if (error) throw new Error(error.message)
-  return (data || []) as CoberturaServidor[]
+  if (error) return { dados: [], error: erroLegivel(error) }
+  return { dados: (data || []) as CoberturaServidor[], error: null }
 }
 
 // Conserta o caso 'sem_vinculo' sem tocar no equipamento: a pessoa já está lá com biometria, o
@@ -375,6 +400,23 @@ export async function vincularCadastrosPorCpf(dispositivoId: string) {
 
   revalidatePath('/marcacoes')
   return data as { criados: number; vigente_de: string }
+}
+
+// Enfileira para o relógio quem está ESCALADO ali e não está cadastrado - inclusive quem está
+// lotado em outra unidade/setor, caso que o botão "Sincronizar cadastros" (escolha por lotação)
+// nunca alcança. Foi o que deixou Gabriela e Izabella batendo só no terminal do computador.
+export async function enfileirarCadastrosPorEscala(dispositivoId: string, mes?: number, ano?: number) {
+  await exigirAdmin()
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc('fn_enfileirar_cadastros_por_escala', {
+    p_dispositivo_id: dispositivoId,
+    p_mes: mes ?? null,
+    p_ano: ano ?? null,
+  })
+  if (error) return { error: error.message }
+
+  revalidatePath('/marcacoes')
+  return data as { enfileirados: number; ja_na_fila: number }
 }
 
 // ============================================================================

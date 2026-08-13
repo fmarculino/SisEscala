@@ -19,7 +19,18 @@
 -- Esta migration cria SOMENTE funcoes de leitura + uma acao de vinculo que nao toca no
 -- equipamento. Nenhuma tabela nova, nenhum dado alterado por ela mesma.
 --
--- IDEMPOTENTE: so CREATE OR REPLACE FUNCTION. Seguro rodar nos dois ambientes.
+-- IDEMPOTENTE: DROP FUNCTION IF EXISTS + CREATE. Seguro rodar nos dois ambientes, e seguro
+-- REAPLICAR depois de mudar a assinatura.
+--
+-- ⚠️ O DROP nao e enfeite: `CREATE OR REPLACE FUNCTION` NAO consegue alterar a lista de colunas de
+-- um RETURNS TABLE. Reaplicar esta migration depois de acrescentar uma coluna morre com
+-- "42P13: cannot change return type of existing function" — aconteceu em 13/08/2026, ao reaplicar
+-- com as tres colunas novas de diagnostico (fila_status/fila_erro/lotacao_compativel). Toda vez
+-- que uma destas funcoes ganhar ou perder coluna de saida, o DROP correspondente tem que existir.
+--
+-- Os DROPs sao sem CASCADE de proposito: se algum dia uma delas passar a ter dependente de
+-- verdade (view, funcao SQL com corpo parseado), o erro e' preferivel a derrubar o dependente em
+-- silencio. A ordem abaixo respeita quem chama quem.
 
 
 -- ============================================================================
@@ -38,7 +49,12 @@
 -- fn_unidade_alcancavel_por_setor — fn_unidade_no_escopo sozinha reprova coordenador cujo acesso
 -- vem inteiramente de setor vinculado (CLAUDE.md, pendencia 3 da Fase 5).
 
-CREATE OR REPLACE FUNCTION public.fn_cobertura_ponto_dispositivo(
+-- Dependentes primeiro (secoes 2 e 4 chamam esta): drop na ordem inversa da criacao.
+DROP FUNCTION IF EXISTS public.fn_enfileirar_cadastros_por_escala(uuid, integer, integer);
+DROP FUNCTION IF EXISTS public.fn_cobertura_ponto_resumo(integer, integer);
+DROP FUNCTION IF EXISTS public.fn_cobertura_ponto_dispositivo(uuid, integer, integer);
+
+CREATE FUNCTION public.fn_cobertura_ponto_dispositivo(
     p_dispositivo_id uuid,
     p_mes            integer DEFAULT NULL,
     p_ano            integer DEFAULT NULL
@@ -54,7 +70,13 @@ RETURNS TABLE (
     tem_vinculo        boolean,
     batidas_perdidas   integer,
     situacao           text,
-    snapshot_em        timestamptz
+    snapshot_em        timestamptz,
+    -- Por que quem esta 'fora_do_relogio' continua fora. Sem estes tres campos a unica orientacao
+    -- possivel na tela e "use Sincronizar cadastros", que para o caso de lotacao divergente e
+    -- conselho ERRADO: o botao nao pega essa pessoa por mais que se clique (ver secao 4).
+    fila_status        text,
+    fila_erro          text,
+    lotacao_compativel boolean
 )
 LANGUAGE plpgsql
 STABLE
@@ -71,19 +93,27 @@ DECLARE
     v_ano         integer;
     v_snapshot_em timestamptz;
 BEGIN
-    v_role := (SELECT public.get_my_role());
-    -- Denylist, nao allowlist: a allowlist de fn_pode_acionar_sobreaviso deixou 'rh' e
-    -- 'rh_unidade' de fora por dois meses sem ninguem perceber (CLAUDE.md). Ver cobertura e
-    -- visibilidade, nao autoridade — so os papeis do Portal ficam fora.
-    IF v_role IS NULL OR v_role IN ('servidor'::public.user_role, 'comum'::public.user_role) THEN
-        RAISE EXCEPTION 'Sem permissao para ver a cobertura de ponto.'
-            USING ERRCODE = 'insufficient_privilege';
+    -- auth.uid() NULL = service_role ou SQL direto (Studio, script de conferencia): passa direto,
+    -- mesmo padrao ja adotado no guard de fn_blocos_previstos_dia (CLAUDE.md). Sem isso as
+    -- consultas de CONFERENCIA no fim deste arquivo reprovariam por falta de permissao e dariam a
+    -- impressao de que a migration esta quebrada.
+    IF auth.uid() IS NOT NULL THEN
+        v_role := (SELECT public.get_my_role());
+        -- Denylist, nao allowlist: a allowlist de fn_pode_acionar_sobreaviso deixou 'rh' e
+        -- 'rh_unidade' de fora por dois meses sem ninguem perceber (CLAUDE.md). Ver cobertura e
+        -- visibilidade, nao autoridade — so os papeis do Portal ficam fora.
+        IF v_role IS NULL OR v_role IN ('servidor'::public.user_role, 'comum'::public.user_role) THEN
+            RAISE EXCEPTION 'Sem permissao para ver a cobertura de ponto.'
+                USING ERRCODE = 'insufficient_privilege';
+        END IF;
     END IF;
 
     SELECT d.unidade_id, d.setor_id INTO v_unidade_id, v_setor_id
       FROM public.dispositivos_rep d
      WHERE d.id = p_dispositivo_id
-       AND (public.fn_unidade_no_escopo(d.unidade_id) OR public.fn_unidade_alcancavel_por_setor(d.unidade_id));
+       AND (auth.uid() IS NULL
+            OR public.fn_unidade_no_escopo(d.unidade_id)
+            OR public.fn_unidade_alcancavel_por_setor(d.unidade_id));
 
     IF v_unidade_id IS NULL THEN
         RAISE EXCEPTION 'Dispositivo inexistente ou fora do seu escopo.'
@@ -116,7 +146,7 @@ BEGIN
          GROUP BY em.servidor_id
     ),
     base AS (
-        SELECT s.id, s.nome, s.matricula, e.dias,
+        SELECT s.id, s.nome, s.matricula, e.dias, s.unidade_id, s.setor_id,
                -- identificador_afd E o CPF preenchido a 12 posicoes (CLAUDE.md armadilha 10).
                -- CPF vazio nao vira identificador nenhum: NULL para nao casar com lpad('',12).
                NULLIF(regexp_replace(COALESCE(s.cpf, ''), '\D', '', 'g'), '') AS cpf_digitos
@@ -165,8 +195,22 @@ BEGIN
                WHEN r.vinculo_id IS NULL                                           THEN 'sem_vinculo'
                ELSE 'ok'
            END,
-           v_snapshot_em
+           v_snapshot_em,
+           fila.status,
+           fila.erro,
+           -- fn_enfileirar_cadastros_rep (o botao "Sincronizar cadastros") escolhe por LOTACAO
+           -- do servidor, nao por escala. Quem esta escalado aqui mas lotado em outro lugar nunca
+           -- entra por aquele caminho - e essa e a resposta para "cliquei e nada aconteceu".
+           (r.unidade_id = v_unidade_id AND (v_setor_id IS NULL OR r.setor_id = v_setor_id))
       FROM resolvido r
+      LEFT JOIN LATERAL (
+          SELECT f.status, f.erro
+            FROM public.rep_cadastros_fila f
+           WHERE f.dispositivo_id = p_dispositivo_id
+             AND f.servidor_id = r.id
+           ORDER BY (f.status = 'pendente') DESC, f.created_at DESC
+           LIMIT 1
+      ) fila ON true
       -- Batida que o equipamento registrou e que NAO virou marcacao de ninguem. E a prova de que
       -- a pessoa esta tentando bater: alerta com evidencia, nao inferencia a partir do cadastro.
       LEFT JOIN LATERAL (
@@ -200,11 +244,16 @@ GRANT EXECUTE ON FUNCTION public.fn_cobertura_ponto_dispositivo(uuid, integer, i
 -- ============================================================================
 -- 2. RESUMO POR DISPOSITIVO (a tela de alerta com dezenas/centenas de relogios)
 -- ============================================================================
--- Envelope LATERAL da funcao acima: herda a classificacao E o escopo. Como a de cima levanta
--- excecao para dispositivo fora do escopo, aqui a lista de dispositivos ja vem filtrada pelo
--- mesmo par de checagens — nunca chega a chamar para um device que reprovaria.
+-- Envelope LATERAL da funcao acima: herda a classificacao E o escopo.
+--
+-- ⚠️ O filtro de escopo fica num CTE **MATERIALIZED**, nao num WHERE ao lado do LATERAL. A funcao
+-- de cima LEVANTA EXCECAO para dispositivo fora do escopo, e um WHERE nao garante rodar antes do
+-- LATERAL — o planejador escolhe. Bastaria existir um relogio fora do escopo do caller para a
+-- consulta inteira estourar, para todo mundo que nao seja admin com acesso a tudo. MATERIALIZED
+-- forca a filtragem a acontecer primeiro.
 
-CREATE OR REPLACE FUNCTION public.fn_cobertura_ponto_resumo(
+-- Ja derrubada no topo da secao 1 (depende de fn_cobertura_ponto_dispositivo).
+CREATE FUNCTION public.fn_cobertura_ponto_resumo(
     p_mes integer DEFAULT NULL,
     p_ano integer DEFAULT NULL
 )
@@ -231,6 +280,13 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $fn$
+    WITH dispositivos AS MATERIALIZED (
+        SELECT d.id, d.nome, d.unidade_id, d.setor_id, d.ativo, d.ultimo_contato_em
+          FROM public.dispositivos_rep d
+         WHERE auth.uid() IS NULL           -- service_role/SQL direto, ver guard da funcao acima
+            OR public.fn_unidade_no_escopo(d.unidade_id)
+            OR public.fn_unidade_alcancavel_por_setor(d.unidade_id)
+    )
     SELECT d.id,
            d.nome,
            un.nome,
@@ -247,12 +303,11 @@ AS $fn$
            count(*) FILTER (WHERE c.situacao = 'sem_snapshot')::integer,
            count(*) FILTER (WHERE c.situacao <> 'ok')::integer,
            COALESCE(sum(c.batidas_perdidas), 0)::integer
-      FROM public.dispositivos_rep d
+      FROM dispositivos d
       JOIN public.unidades un ON un.id = d.unidade_id
       LEFT JOIN public.setores se ON se.id = d.setor_id
       LEFT JOIN public.dicionario_setores ds ON ds.id = se.dicionario_setor_id
       LEFT JOIN LATERAL public.fn_cobertura_ponto_dispositivo(d.id, p_mes, p_ano) c ON true
-     WHERE public.fn_unidade_no_escopo(d.unidade_id) OR public.fn_unidade_alcancavel_por_setor(d.unidade_id)
      GROUP BY d.id, d.nome, un.nome, ds.nome, d.ativo, d.ultimo_contato_em
      ORDER BY count(*) FILTER (WHERE c.situacao <> 'ok') DESC, d.nome
 $fn$;
@@ -282,7 +337,9 @@ GRANT EXECUTE ON FUNCTION public.fn_cobertura_ponto_resumo(integer, integer) TO 
 -- fn_reparse_afd_dispositivo de proposito. Criar vinculo e recuperar historico sao duas decisoes
 -- diferentes e a segunda mexe em ponto passado.
 
-CREATE OR REPLACE FUNCTION public.fn_vincular_cadastros_por_cpf(
+DROP FUNCTION IF EXISTS public.fn_vincular_cadastros_por_cpf(uuid, timestamptz);
+
+CREATE FUNCTION public.fn_vincular_cadastros_por_cpf(
     p_dispositivo_id uuid,
     p_vigente_de     timestamptz DEFAULT NULL
 )
@@ -296,16 +353,23 @@ DECLARE
     v_vigente_de timestamptz;
     v_criados    integer := 0;
 BEGIN
-    v_role := (SELECT public.get_my_role());
-    IF v_role NOT IN ('super_admin'::public.user_role, 'admin'::public.user_role) THEN
-        RAISE EXCEPTION 'Apenas administradores podem criar vinculos de relogio.'
-            USING ERRCODE = 'insufficient_privilege';
+    -- Escrita: allowlist de propriedade, nao denylist. auth.uid() NULL segue passando (a funcao e
+    -- GRANTada a service_role de proposito), mas aqui isso e' o caminho de servidor confiavel, nao
+    -- um bypass de tela.
+    IF auth.uid() IS NOT NULL THEN
+        v_role := (SELECT public.get_my_role());
+        IF v_role IS NULL OR v_role NOT IN ('super_admin'::public.user_role, 'admin'::public.user_role) THEN
+            RAISE EXCEPTION 'Apenas administradores podem criar vinculos de relogio.'
+                USING ERRCODE = 'insufficient_privilege';
+        END IF;
     END IF;
 
     IF NOT EXISTS (
         SELECT 1 FROM public.dispositivos_rep d
          WHERE d.id = p_dispositivo_id
-           AND (public.fn_unidade_no_escopo(d.unidade_id) OR public.fn_unidade_alcancavel_por_setor(d.unidade_id))
+           AND (auth.uid() IS NULL
+                OR public.fn_unidade_no_escopo(d.unidade_id)
+                OR public.fn_unidade_alcancavel_por_setor(d.unidade_id))
     ) THEN
         RAISE EXCEPTION 'Dispositivo inexistente ou fora do seu escopo.'
             USING ERRCODE = 'insufficient_privilege';
@@ -361,6 +425,88 @@ REVOKE ALL ON FUNCTION public.fn_vincular_cadastros_por_cpf(uuid, timestamptz) F
 GRANT EXECUTE ON FUNCTION public.fn_vincular_cadastros_por_cpf(uuid, timestamptz) TO authenticated, service_role;
 
 
+-- ============================================================================
+-- 4. ENFILEIRAR CADASTRO POR ESCALA (o conserto do 'fora_do_relogio')
+-- ============================================================================
+-- fn_enfileirar_cadastros_rep (Fase 7, o botao "Sincronizar cadastros" do modal do dispositivo)
+-- escolhe candidato por LOTACAO: servidores.unidade_id = dispositivo.unidade_id, e o setor quando
+-- o relogio e' de setor. Quem esta ESCALADO na unidade mas lotado em outro lugar nunca entra por
+-- ali - e o botao devolve "0 enfileirados" sem dizer que aquela pessoa existia e ficou de fora.
+--
+-- Caso real (13/08/2026, LACEM): GABRIELA SANTOS MORENO e IZABELLA BORGES CARVALHO estavam na
+-- escala do mes e batiam ponto no terminal do computador todo dia, sem nunca terem sido mandadas
+-- ao relogio.
+--
+-- Esta funcao enfileira exatamente quem a tela de Cobertura mostra como 'fora_do_relogio' - ou
+-- seja, por ESCALA. Mesma escolha ja feita no guard de fn_blocos_previstos_dia (CLAUDE.md): checa
+-- por escala, nao por lotacao, para nao quebrar servidor externo/emprestado. Nao substitui a
+-- funcao da Fase 7; e um segundo caminho, para o caso que aquele nao alcanca.
+--
+-- Nao escreve no equipamento: enfileirar e' intencao. Quem aplica continua sendo o coletor
+-- (`coletor-rep cadastros` ou "Sincronizar cadastros agora" no menu da bandeja).
+
+-- Ja derrubada no topo da secao 1 (chama fn_cobertura_ponto_dispositivo).
+CREATE FUNCTION public.fn_enfileirar_cadastros_por_escala(
+    p_dispositivo_id uuid,
+    p_mes            integer DEFAULT NULL,
+    p_ano            integer DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+DECLARE
+    v_role         public.user_role;
+    v_enfileirados integer := 0;
+    v_ja_na_fila   integer := 0;
+BEGIN
+    IF auth.uid() IS NOT NULL THEN
+        v_role := (SELECT public.get_my_role());
+        IF v_role IS NULL OR v_role NOT IN ('super_admin'::public.user_role, 'admin'::public.user_role) THEN
+            RAISE EXCEPTION 'Apenas administradores podem enfileirar cadastros para o rele.'
+                USING ERRCODE = 'insufficient_privilege';
+        END IF;
+    END IF;
+
+    -- A checagem de escopo do dispositivo vem de graca: fn_cobertura_ponto_dispositivo levanta
+    -- excecao para dispositivo fora do escopo do caller antes de devolver qualquer linha.
+    WITH alvo AS (
+        SELECT c.servidor_id, c.fila_status
+          FROM public.fn_cobertura_ponto_dispositivo(p_dispositivo_id, p_mes, p_ano) c
+         WHERE c.situacao = 'fora_do_relogio'   -- 'sem_cpf' e situacao propria: nao cai aqui
+    ), inseridos AS (
+        INSERT INTO public.rep_cadastros_fila (dispositivo_id, servidor_id, criado_por_id)
+        SELECT p_dispositivo_id, a.servidor_id, auth.uid()
+          FROM alvo a
+         WHERE NOT EXISTS (
+             SELECT 1 FROM public.rep_cadastros_fila f
+              WHERE f.dispositivo_id = p_dispositivo_id
+                AND f.servidor_id = a.servidor_id
+                AND f.status = 'pendente'
+         )
+        RETURNING 1
+    )
+    SELECT (SELECT count(*) FROM inseridos),
+           (SELECT count(*) FROM alvo WHERE fila_status = 'pendente')
+      INTO v_enfileirados, v_ja_na_fila;
+
+    RETURN jsonb_build_object(
+        'enfileirados', v_enfileirados,
+        'ja_na_fila', v_ja_na_fila
+    );
+END;
+$fn$;
+
+COMMENT ON FUNCTION public.fn_enfileirar_cadastros_por_escala(uuid, integer, integer) IS
+    'Enfileira para o rele quem esta ESCALADO na unidade do dispositivo e nao esta cadastrado la, '
+    'inclusive quem esta lotado em outra unidade/setor - caso que fn_enfileirar_cadastros_rep '
+    '(escolha por lotacao) nunca alcanca. Nao escreve no equipamento.';
+
+REVOKE ALL ON FUNCTION public.fn_enfileirar_cadastros_por_escala(uuid, integer, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_enfileirar_cadastros_por_escala(uuid, integer, integer) TO authenticated, service_role;
+
+
 -- CONFERENCIA APOS APLICAR
 --
 --   1) O resumo tem que reproduzir a contagem medida na mao em 13/08/2026 (LACEM, 08/2026):
@@ -380,7 +526,15 @@ GRANT EXECUTE ON FUNCTION public.fn_vincular_cadastros_por_cpf(uuid, timestamptz
 --
 --   SELECT nome, created_at FROM public.dispositivos_rep WHERE nome ILIKE '%lacem%';
 --
---   4) Depois de rodar fn_vincular_cadastros_por_cpf, nenhum vinculo pode ter ficado duplicado:
+--   4) O caso que motivou a secao 4: quem esta escalado, fora do relogio, e por que continua
+--      fora. lotacao_compativel = false explica "cliquei em Sincronizar cadastros e nao veio":
+--
+--   SELECT servidor_nome, matricula, dias_com_escala, fila_status, fila_erro, lotacao_compativel
+--     FROM public.fn_cobertura_ponto_dispositivo(
+--            (SELECT id FROM public.dispositivos_rep WHERE nome ILIKE '%lacem%'), 8, 2026)
+--    WHERE situacao = 'fora_do_relogio' ORDER BY servidor_nome;
+--
+--   5) Depois de rodar fn_vincular_cadastros_por_cpf, nenhum vinculo pode ter ficado duplicado:
 --
 --   SELECT dispositivo_id, servidor_id, count(*)
 --     FROM public.rep_vinculos_servidor WHERE vigente_ate IS NULL

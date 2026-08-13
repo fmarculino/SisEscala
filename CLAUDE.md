@@ -379,6 +379,24 @@ Nenhuma tela respondia isso antes: "Biometria Pendente" só lista quem **já tem
 faltava — escala → relógio — virou a aba **Cobertura da Escala** (`fn_cobertura_ponto_dispositivo`
 classifica; `fn_cobertura_ponto_resumo` é envelope LATERAL dela; a tela não reclassifica nada).
 
+⚠️ **`CREATE OR REPLACE FUNCTION` não altera a lista de colunas de um `RETURNS TABLE`.** Reaplicar
+uma migration depois de acrescentar uma coluna de saída morre com `42P13: cannot change return
+type of existing function` — aconteceu em 13/08/2026 com `fn_cobertura_ponto_dispositivo`. Quem
+devolve `TABLE(...)` precisa de `DROP FUNCTION IF EXISTS` **antes** do `CREATE`, com a assinatura
+exata e os dependentes derrubados primeiro; sem `CASCADE`, para um dependente de verdade dar erro
+em vez de sumir em silêncio. Isso não vale só para esta migration: é a diferença entre
+"idempotente" e "reaplicável depois de mudar a assinatura".
+
+⚠️ **`fn_enfileirar_cadastros_rep` (o botão "Sincronizar cadastros") escolhe por LOTAÇÃO, não por
+escala.** Quem está escalado na unidade mas lotado em outro lugar **nunca** entra por ali, e o
+botão devolve "0 enfileirados" sem dizer que aquela pessoa ficou de fora — clicar de novo não muda
+nada, para sempre. Foi o caso de duas servidoras da LACEM que batiam ponto no terminal todo dia
+sem nunca terem chegado ao relógio. Por isso `fn_enfileirar_cadastros_por_escala` (13/08/2026)
+existe em paralelo, enfileirando por **escala** (mesma escolha do guard de
+`fn_blocos_previstos_dia`, para não quebrar servidor externo). A tela distingue as três causas de
+continuar fora do relógio por `fila_status`/`fila_erro`/`lotacao_compativel` — mandar todas para o
+mesmo botão seria conselho errado em uma delas.
+
 ⚠️ **`fn_vincular_cadastros_por_cpf` conserta o caso dominante sem tocar no equipamento**, mas
 `p_vigente_de` decide **quais batidas passam a ter dono**: a resolução é *vigente na data da
 batida*. Um valor antigo demais faz o histórico do sistema anterior (a LACEM chegou com ~34.500

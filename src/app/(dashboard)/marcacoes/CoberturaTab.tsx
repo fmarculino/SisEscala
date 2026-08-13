@@ -6,7 +6,7 @@ import {
   Link2, Fingerprint, UserX, IdCard, CloudOff,
 } from 'lucide-react'
 import {
-  listarCoberturaResumo, listarCoberturaDispositivo, vincularCadastrosPorCpf,
+  listarCoberturaResumo, listarCoberturaDispositivo, vincularCadastrosPorCpf, enfileirarCadastrosPorEscala,
   type CoberturaResumo, type CoberturaServidor, type SituacaoCobertura,
 } from './actions'
 
@@ -42,8 +42,8 @@ const SITUACOES: Record<SituacaoCobertura, {
   },
   fora_do_relogio: {
     rotulo: 'Fora do relógio',
-    descricao: 'Não está cadastrado no equipamento — não tem como bater.',
-    acao: 'Abra o dispositivo em "Dispositivos REP" e use "Sincronizar cadastros" para empurrar a identidade.',
+    descricao: 'Não está cadastrado no equipamento — não tem como bater. Pode estar batendo no terminal do computador e ninguém perceber que ele nunca chegou ao relógio.',
+    acao: 'Use "Enfileirar cadastro(s)" ao abrir o relógio abaixo: escolhe por escala, então pega também quem está lotado em outra unidade.',
     cor: 'red',
     icone: UserX,
     ordem: 2,
@@ -105,12 +105,16 @@ export function CoberturaTab({ isAdmin }: { isAdmin: boolean }) {
   const [carregandoDetalhe, setCarregandoDetalhe] = useState(false)
   const [processando, setProcessando] = useState(false)
 
-  async function recarregar() {
+  // limparDetalhe = false depois de uma ação: os totais mudaram, mas o painel aberto continua
+  // aberto e é recarregado à parte (carregarDetalhe) - descartar tudo faria a lista que a pessoa
+  // está lendo piscar para "nenhum servidor" no meio da operação.
+  async function recarregar(limparDetalhe = true) {
     setCarregando(true)
     setErro(null)
-    setDetalhe({})
+    if (limparDetalhe) setDetalhe({})
     try {
-      setResumo(await listarCoberturaResumo(mes, ano))
+      const res = await listarCoberturaResumo(mes, ano)
+      if (res.error) { setErro(res.error); setResumo([]) } else { setResumo(res.dados) }
     } catch (e: any) {
       setErro(e.message || 'Falha ao carregar a cobertura.')
     } finally {
@@ -118,22 +122,27 @@ export function CoberturaTab({ isAdmin }: { isAdmin: boolean }) {
     }
   }
 
+  const recarregarResumo = () => recarregar(false)
+
   useEffect(() => { recarregar() /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [mes, ano])
 
-  async function alternarDispositivo(id: string) {
-    if (expandido === id) { setExpandido(null); return }
-    setExpandido(id)
-    if (detalhe[id]) return
+  async function carregarDetalhe(id: string) {
     setCarregandoDetalhe(true)
     try {
-      setDetalhe((atual) => ({ ...atual, [id]: [] }))
-      const lista = await listarCoberturaDispositivo(id, mes, ano)
-      setDetalhe((atual) => ({ ...atual, [id]: lista }))
+      const res = await listarCoberturaDispositivo(id, mes, ano)
+      if (res.error) setErro(res.error)
+      else setDetalhe((atual) => ({ ...atual, [id]: res.dados }))
     } catch (e: any) {
       setErro(e.message || 'Falha ao carregar os servidores deste relógio.')
     } finally {
       setCarregandoDetalhe(false)
     }
+  }
+
+  async function alternarDispositivo(id: string) {
+    if (expandido === id) { setExpandido(null); return }
+    setExpandido(id)
+    if (!detalhe[id]) await carregarDetalhe(id)
   }
 
   async function handleVincular(d: CoberturaResumo) {
@@ -156,7 +165,34 @@ export function CoberturaTab({ isAdmin }: { isAdmin: boolean }) {
       `${res.criados} vínculo(s) criado(s) em "${d.dispositivo_nome}", vigentes desde ` +
       `${new Date(res.vigente_de).toLocaleString('pt-BR')}. As próximas batidas dessas pessoas já viram registro.`
     )
-    recarregar()
+    carregarDetalhe(d.dispositivo_id)
+    recarregarResumo()
+  }
+
+  async function handleEnfileirar(d: CoberturaResumo) {
+    if (!confirm(
+      `Enfileirar ${d.fora_do_relogio} servidor(es) escalado(s) para serem cadastrados em "${d.dispositivo_nome}"?\n\n` +
+      `Inclui quem está escalado aqui mas lotado em outra unidade/setor — esses o botão ` +
+      `"Sincronizar cadastros" do dispositivo nunca alcança, porque ele escolhe por lotação.\n\n` +
+      `Isto não escreve no equipamento agora: quem aplica é o coletor, no próximo ` +
+      `"Sincronizar cadastros agora" da bandeja (ou "coletor-rep cadastros").`
+    )) return
+
+    setProcessando(true)
+    setErro(null)
+    setAviso(null)
+    const res = await enfileirarCadastrosPorEscala(d.dispositivo_id, mes, ano)
+    setProcessando(false)
+    if ('error' in res && res.error) { setErro(res.error); return }
+    if (!('enfileirados' in res)) return
+
+    setAviso(
+      `${res.enfileirados} cadastro(s) enfileirado(s) para "${d.dispositivo_nome}"` +
+      (res.ja_na_fila > 0 ? ` (${res.ja_na_fila} já estava(m) na fila)` : '') +
+      '. Rode o coletor na máquina da unidade para aplicar no equipamento.'
+    )
+    carregarDetalhe(d.dispositivo_id)
+    recarregarResumo()
   }
 
   const totalNaoBatem = resumo.reduce((s, d) => s + d.nao_conseguem_bater, 0)
@@ -176,7 +212,7 @@ export function CoberturaTab({ isAdmin }: { isAdmin: boolean }) {
             }}
             className="text-sm font-bold px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900"
           />
-          <button onClick={recarregar} className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500" title="Atualizar">
+          <button onClick={() => recarregar()} className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500" title="Atualizar">
             <RefreshCw className="h-4 w-4" />
           </button>
         </div>
@@ -284,6 +320,24 @@ export function CoberturaTab({ isAdmin }: { isAdmin: boolean }) {
                         </div>
                       )}
 
+                      {isAdmin && d.fora_do_relogio > 0 && (
+                        <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-red-50 dark:bg-red-900/10">
+                          <p className="text-xs text-red-700 dark:text-red-400 flex-1 min-w-[240px]">
+                            <strong>{d.fora_do_relogio} escalado(s) não estão cadastrados no relógio.</strong>{' '}
+                            Enfileira por <em>escala</em> — inclusive quem está lotado em outra unidade
+                            ou setor, que o botão "Sincronizar cadastros" do dispositivo não alcança
+                            porque escolhe por lotação.
+                          </p>
+                          <button
+                            onClick={() => handleEnfileirar(d)}
+                            disabled={processando}
+                            className="flex items-center gap-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-4 py-2 rounded-xl text-sm font-bold"
+                          >
+                            <UserX className="h-4 w-4" /> Enfileirar {d.fora_do_relogio} cadastro(s)
+                          </button>
+                        </div>
+                      )}
+
                       {carregandoDetalhe && !detalhe[d.dispositivo_id]?.length ? (
                         <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-zinc-400" /></div>
                       ) : (detalhe[d.dispositivo_id]?.length || 0) === 0 ? (
@@ -317,6 +371,23 @@ export function CoberturaTab({ isAdmin }: { isAdmin: boolean }) {
                                         <span className="text-red-600 font-bold"> · {s.batidas_perdidas} batida(s) perdida(s) em 30 dias</span>
                                       )}
                                     </p>
+                                    {s.situacao === 'fora_do_relogio' && (
+                                      <p className="text-[11px] text-zinc-500">
+                                        {s.fila_status === 'pendente' ? (
+                                          <>Na fila desde já — falta o coletor rodar "Sincronizar cadastros agora" na máquina da unidade.</>
+                                        ) : s.fila_status === 'falhou' ? (
+                                          <span className="text-red-600">O envio ao relógio falhou: {s.fila_erro || 'sem detalhe'}</span>
+                                        ) : !s.lotacao_compativel ? (
+                                          <span className="text-amber-600">
+                                            Escalado aqui, mas lotado em outra unidade/setor — o botão
+                                            "Sincronizar cadastros" do dispositivo nunca pega esta pessoa.
+                                            Use "Enfileirar cadastro(s)" acima.
+                                          </span>
+                                        ) : (
+                                          <>Ainda não foi enfileirado para este relógio.</>
+                                        )}
+                                      </p>
+                                    )}
                                   </div>
                                   <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full shrink-0 ${CLASSES_CHIP[meta.cor]}`}>
                                     {meta.rotulo}

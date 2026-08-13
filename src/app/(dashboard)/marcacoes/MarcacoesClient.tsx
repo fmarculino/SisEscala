@@ -68,7 +68,7 @@ export function MarcacoesClient({ isAdmin, opcoes }: { isAdmin: boolean; opcoes:
   // resto da tela de Marcações.
   useEffect(() => {
     listarCoberturaResumo()
-      .then((lista) => setAlertaCobertura(lista.reduce((s, d) => s + d.nao_conseguem_bater, 0)))
+      .then((res) => setAlertaCobertura(res.error ? null : res.dados.reduce((s, d) => s + d.nao_conseguem_bater, 0)))
       .catch(() => setAlertaCobertura(null))
   }, [])
 
