@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.58.2] - 2026-08-12
+
+### Notes
+- **Migrations `20260812130000` e `20260812140000` (v1.58.1) confirmadas em produção** — as 7
+  linhas da LACEM ficaram com os campos de intervalo `NULL` (entrada/saída reais preservadas),
+  busca ampla sobre todas as unidades sem `permite_marca_intervalo` não achou mais nenhuma
+  marcação remanescente, e `fn_blocos_previstos_dia` continuou respondendo normalmente via
+  service role (sem regressão no caminho legítimo). O caminho negativo do guard (coordenador
+  autenticado fora de escopo) não foi verificado nesta sessão — só é testável com sessão de
+  usuário real no navegador, service role sempre bypassa por desenho.
+
 ## [1.58.1] - 2026-08-12
 
 ### Security

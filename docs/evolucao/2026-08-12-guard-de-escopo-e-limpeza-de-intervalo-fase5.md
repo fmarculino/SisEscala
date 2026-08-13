@@ -79,5 +79,14 @@ futuro) — só os dois campos de intervalo são zerados, entrada e saída reais
 - `npx tsc --noEmit` limpo (mudança é só SQL).
 - Diff programático confirmou a função de `fn_blocos_previstos_dia` idêntica fora do guard
   inserido.
-- Migrations **não aplicadas** nesta sessão — usuário aplica em homologação e depois produção,
-  como de praxe neste projeto.
+- **Migrations aplicadas e confirmadas em produção em 12/08/2026** (via PostgREST, service role
+  key, mesma técnica de leitura já usada nesta sessão):
+  1. As 7 linhas da LACEM ficaram com `presenca_intervalo_saida_em`/`presenca_intervalo_retorno_em`
+     `NULL`; entrada/saída reais intactas.
+  2. Busca ampla sobre todas as unidades sem `permite_marca_intervalo`: zero marcações de
+     intervalo remanescentes.
+  3. `fn_blocos_previstos_dia` chamada via service role para um servidor real continuou
+     respondendo normalmente — sem regressão no caminho legítimo (bypass funcionando).
+  - **Não verificado nesta sessão**: o caminho negativo do guard (um coordenador autenticado
+    tentando consultar um servidor fora do próprio escopo) — service role sempre bypassa por
+    desenho, então só é testável com uma sessão de usuário real no navegador.
