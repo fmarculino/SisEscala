@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.58.1] - 2026-08-12
+
+### Security
+- **`fn_blocos_previstos_dia` ganhou guard de escopo** — era `SECURITY DEFINER` com `GRANT` para
+  `authenticated` e nunca validava se quem chama tem acesso ao servidor consultado, permitindo
+  que qualquer usuário autenticado consultasse a projeção de presença de qualquer servidor da
+  base sabendo só o UUID. Migration `20260812130000` (gerada por `scratchpad/gen_escopo_blocos.js`,
+  cópia mecânica da versão vigente + inserção pontual). Checa por **escala** do servidor no
+  mês/ano consultado (`fn_unidade_no_escopo` OR `fn_unidade_alcancavel_por_setor`), não pela
+  lotação atual — preserva o caso de "Servidor Externo" (v1.2.4). `service_role` (`auth.uid() IS
+  NULL`) continua sem restrição — hoje o único caminho real de toda a cadeia de reconciliação
+  (`fn_alocar_marcacoes_dia` → `fn_projecao_marcacoes_dia` → `fn_conferir_reconciliacao`), sem
+  nenhum caller de aplicação ainda. `fn_blocos_previstos_mes` e o resto da cadeia **não foram
+  tocados** — herdam a proteção por serem envelopes desta função. Fecha a pendência 3 da Fase 5
+  do módulo REP.
+
+### Fixed
+- **7 marcações de intervalo sintéticas na LACEM** (unidade com `permite_marca_intervalo =
+  false`, artefatos da regressão de `20260804080000` já corrigida) foram zeradas — só os campos
+  de intervalo, entrada/saída reais preservadas. Migration `20260812140000`, por id explícito
+  (nunca por critério amplo). A nota anterior no CLAUDE.md registrava 103 ocorrências; reconferido
+  em produção antes de decidir, o número real era 7 — a nota estava desatualizada. Fecha a
+  pendência 1 da Fase 5 do módulo REP.
+
 ## [1.58.0] - 2026-08-12
 
 ### Added

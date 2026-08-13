@@ -190,25 +190,36 @@ sessão que fez essa reestruturação:
 
 ### Pendências que bloqueiam a Fase 5
 
-1. 103 marcações de intervalo existem em unidades com `permite_marca_intervalo = false`
-   (artefatos da regressão de `20260804080000`). A reconciliação as **apagaria** — decisão
-   explícita necessária, não pode ser efeito colateral.
+1. ~~103 marcações de intervalo em unidades com `permite_marca_intervalo = false`~~ **Resolvido
+   em 12/08/2026.** O número estava desatualizado — reconferido antes de decidir, a contagem real
+   em produção era **7**, não 103, todas na LACEM, agosto/2026 (padrão clássico de horário
+   sintético: campos de intervalo em `:00:00` exato, entrada/saída com segundos reais de
+   terminal). Usuário decidiu limpar antes de ligar a reconciliação (migration `20260812140000`,
+   `UPDATE` por **id explícito**, nunca por critério amplo — só os dois campos de intervalo, nunca
+   entrada/saída). Confira `fn_unidade_no_escopo`/`fn_unidade_alcancavel_por_setor` antes de
+   assumir que uma contagem antiga deste arquivo ainda vale — sempre reconfira contra produção.
 2. As três regras de intervalo divergentes (armadilha 9) só convergem na Fase 8.
-3. `fn_blocos_previstos_dia` e `fn_blocos_previstos_mes` são `SECURITY DEFINER` com `GRANT` para
-   `authenticated` e **não validam acesso ao setor**. `fn_unidade_no_escopo(uuid)` já existe e é o
-   helper certo. ⚠️ Pôr a checagem em `fn_blocos_previstos_dia` **propaga** para
-   `fn_alocar_marcacoes_dia` → `fn_projecao_marcacoes_dia` → `fn_conferir_reconciliacao`: precisa
-   de bypass para `service_role` (`auth.uid() IS NULL`). `fn_reconciliar_marcacoes_dia`, a única
-   que escreve, já é `service_role` apenas.
+3. ~~`fn_blocos_previstos_dia` sem checagem de escopo~~ **Resolvido em 12/08/2026**, migration
+   `20260812130000` (gerada por `scratchpad/gen_escopo_blocos.js`, mesmo padrão de cópia mecânica
+   da armadilha 1). Guard único em `fn_blocos_previstos_dia`: `auth.uid() IS NULL` bypassa
+   (service_role — hoje o único caminho real de `fn_alocar_marcacoes_dia` →
+   `fn_projecao_marcacoes_dia` → `fn_conferir_reconciliacao`, sem nenhum caller de aplicação
+   ainda); caso contrário exige `EXISTS` de `escala_mensal` do servidor naquele mês/ano com
+   `fn_unidade_no_escopo(unidade_id) OR fn_unidade_alcancavel_por_setor(unidade_id)`. **Checa por
+   escala, não por lotação do servidor** — de propósito, para não quebrar "Servidor Externo"
+   (v1.2.4): quem gerencia a escala que recebeu o externo continua vendo, mesmo fora da lotação
+   dele. `fn_blocos_previstos_mes`/`fn_alocar_marcacoes_dia`/`fn_projecao_marcacoes_dia`/
+   `fn_conferir_reconciliacao` **não foram tocadas** — herdam a proteção por serem envelopes
+   LATERAL desta função, exatamente como a pendência original previa.
    ⚠️ **`fn_unidade_no_escopo` em si só verifica `profile_unidades`, nunca `profile_setores`** —
    um coordenador cujo acesso vem inteiramente de setor vinculado (sem a unidade-pai vinculada
    também, ex.: o piloto da TI) passa `p_unidade_id IS NULL` mas falha em qualquer chamada real,
    mesmo tendo acesso legítimo pelo próprio setor. Descoberto e contornado em 12/08/2026
-   (`fn_unidade_alcancavel_por_setor`, migration `20260812050000`) só para
-   `importacao_rh_pendentes` — `fn_unidade_no_escopo` em si **não** foi corrigida, por prudência
-   com o módulo REP que a usa e não foi auditado nessa sessão. Antes de usar
-   `fn_unidade_no_escopo` sozinha em código novo, some `OR fn_unidade_alcancavel_por_setor(...)`
-   ou confirme que quem vai chamar sempre tem `profile_unidades` preenchido.
+   (`fn_unidade_alcancavel_por_setor`, migration `20260812050000`), usado desde então também no
+   guard de `fn_blocos_previstos_dia` acima — `fn_unidade_no_escopo` em si **continua não
+   corrigida**. Antes de usar `fn_unidade_no_escopo` sozinha em código novo, some
+   `OR fn_unidade_alcancavel_por_setor(...)` ou confirme que quem vai chamar sempre tem
+   `profile_unidades` preenchido.
 
 ✅ **Não é mais pendência:** a policy `WITH CHECK (true)` de `logs_tentativas_presenca` foi
 fechada por `20260807130000`. O plano do REP ainda a listava como aberta.
