@@ -45,6 +45,15 @@ All notable changes to this project will be documented in this file.
   "Toda a unidade" (banner — qualquer setor marcado aqui se sobrepõe a ele). `MarcacoesClient.tsx`
   passa a lista de dispositivos já carregada para o modal; nenhuma consulta nova.
 
+- **Filtros de unidade/setor (aba Pendências) e de relógio (aba Biometria Pendente)** — pedido do
+  usuário: pra quem tem escopo amplo (RH Geral, admin) a lista vem inteira e fica grande demais
+  pra rolar. Pendências filtra no **servidor**: `fn_marcacoes_pendentes_revisao` já aceitava
+  `p_unidade_id`/`p_setor_id`, só não eram usados (`listarPendencias` passava `null` fixo) — troca
+  de filtro agora refaz a consulta em vez de só esconder linha na tela, o que é o que resolve de
+  verdade uma lista grande. Biometria filtra no **cliente**: a lista já vem com
+  `dispositivo_nome`, e o volume por relógio é bem menor (só quem tem vínculo sem biometria), não
+  compensa ida a mais ao banco.
+
 ### Fixed
 - **`fn_ingerir_afd` quebrava para qualquer dispositivo com setor associado** — achado só ao
   validar a migration acima contra dados reais em produção (checkpoint), não pego por `tsc`,

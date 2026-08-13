@@ -149,6 +149,16 @@ em `/marcacoes` (`importarPendriveAfd` em `marcacoes/actions.ts`, que chama a me
 `service_role`**: a action usa `createAdminClient()` só para essa chamada, não `createClient()`
 (que teria `auth.getUser()` funcionando mas falharia com permissão negada na RPC).
 
+- ⚠️ **Pendência (13/08/2026): fluxo de pendrive nunca foi testado ponta a ponta contra hardware
+  real** — nem a coleta (`afd-exportar`) nem o envio de cadastros por esse canal (a fila de
+  cadastro/Fase 7 hoje só roda pelo coletor online, via `/api/rep/v1/pendencias`; não existe
+  ainda um caminho "enfileirar cadastro → aplicar por pendrive" simétrico ao de coleta). Falta
+  também decidir **como higienizar** (apagar cadastro de) um relógio que só recebe pendrive: a
+  Fase 7b (`remove_users.fcgi`, confirmada em 13/08/2026 na LACEM) só foi validada no caminho
+  online, onde o coletor aplica a remoção na hora — um dispositivo pendrive-only não tem coletor
+  rodando continuamente pra aplicar nada, então `rep_remocoes_fila` precisaria de um jeito de sair
+  do banco e chegar ao equipamento fisicamente, como o AFD já faz na direção inversa.
+
 - ⚠️ **Atalho de dev do `cmd/tray` não pode detectar `go run` pela presença de `config.yaml`
   no diretório de trabalho.** Era exatamente esse teste que fazia todo usuário real nunca se
   auto-instalar de verdade: o Explorer do Windows abre um `.exe` com CWD = pasta do próprio
