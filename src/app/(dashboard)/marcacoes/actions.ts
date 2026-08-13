@@ -304,9 +304,9 @@ export async function enfileirarCadastrosRep(dispositivoId: string) {
   return data as { enfileirados: number; sem_cpf: number; ja_vinculados: number }
 }
 
-export async function listarPendenciasBiometria() {
+export async function listarPendenciasBiometria(dispositivoId?: string | null) {
   const supabase = await createClient()
-  const { data, error } = await supabase.rpc('fn_pendencias_biometria', { p_dispositivo_id: null })
+  const { data, error } = await supabase.rpc('fn_pendencias_biometria', { p_dispositivo_id: dispositivoId || null })
   if (error) throw new Error(error.message)
   return data || []
 }
@@ -470,13 +470,15 @@ export async function enfileirarCadastrosPorEscala(dispositivoId: string, mes?: 
 // Pendências (marcações do terminal fora da janela prevista)
 // ============================================================================
 
-export async function listarPendencias() {
+export async function listarPendencias(unidadeId?: string | null, setorId?: string | null) {
   // fn_marcacoes_pendentes_revisao já filtra por fn_unidade_no_escopo internamente - coordenador
-  // e admin veem só o que está no escopo deles, sem checagem adicional aqui.
+  // e admin veem só o que está no escopo deles, sem checagem adicional aqui. unidadeId/setorId são
+  // um filtro A MAIS em cima disso - útil pra quem tem escopo amplo (RH Geral, admin) e a lista
+  // fica grande demais pra rolar inteira.
   const supabase = await createClient()
   const { data, error } = await supabase.rpc('fn_marcacoes_pendentes_revisao', {
-    p_unidade_id: null,
-    p_setor_id: null,
+    p_unidade_id: unidadeId || null,
+    p_setor_id: setorId || null,
     p_desde: null,
   })
   if (error) throw new Error(error.message)

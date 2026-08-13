@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Loader2, Fingerprint, RefreshCw } from 'lucide-react'
 import { listarPendenciasBiometria } from './actions'
 
@@ -23,6 +23,7 @@ export function BiometriaTab() {
   const [pendencias, setPendencias] = useState<Pendencia[]>([])
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
+  const [filtroDispositivo, setFiltroDispositivo] = useState('')
 
   async function recarregar() {
     setCarregando(true)
@@ -38,7 +39,14 @@ export function BiometriaTab() {
 
   useEffect(() => { recarregar() }, [])
 
+  const dispositivos = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const p of pendencias) m.set(p.dispositivo_id, p.dispositivo_nome)
+    return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1], 'pt-BR'))
+  }, [pendencias])
+
   const porDispositivo = pendencias.reduce<Record<string, { nome: string; itens: Pendencia[] }>>((acc, p) => {
+    if (filtroDispositivo && p.dispositivo_id !== filtroDispositivo) return acc
     if (!acc[p.dispositivo_id]) acc[p.dispositivo_id] = { nome: p.dispositivo_nome, itens: [] }
     acc[p.dispositivo_id].itens.push(p)
     return acc
@@ -58,10 +66,23 @@ export function BiometriaTab() {
 
       {erro && <p className="text-xs text-red-600 font-medium">{erro}</p>}
 
+      {!carregando && dispositivos.length > 1 && (
+        <select
+          value={filtroDispositivo}
+          onChange={(e) => setFiltroDispositivo(e.target.value)}
+          className="rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-1.5 text-sm"
+        >
+          <option value="">Todos os relógios ({dispositivos.length})</option>
+          {dispositivos.map(([id, nome]) => <option key={id} value={id}>{nome}</option>)}
+        </select>
+      )}
+
       {carregando ? (
         <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-zinc-400" /></div>
       ) : pendencias.length === 0 ? (
         <p className="text-sm text-zinc-400 text-center py-10">Nenhuma pendência de biometria no seu escopo.</p>
+      ) : Object.keys(porDispositivo).length === 0 ? (
+        <p className="text-sm text-zinc-400 text-center py-10">Nenhuma pendência para o relógio selecionado.</p>
       ) : (
         <div className="space-y-4">
           {Object.entries(porDispositivo).map(([dispositivoId, grupo]) => (

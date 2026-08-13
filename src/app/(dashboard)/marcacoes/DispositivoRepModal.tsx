@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Modal } from '@/components/ui/Modal'
 import { Loader2, KeyRound, Download, Users } from 'lucide-react'
 import { criarDispositivoRep, atualizarDispositivoRep, gerarTokenDispositivoRep, enfileirarCadastrosRep } from './actions'
@@ -34,12 +34,17 @@ export function DispositivoRepModal({
   onSaved,
   opcoes,
   dispositivo,
+  outrosDispositivos,
 }: {
   isOpen: boolean
   onClose: () => void
   onSaved: () => void
   opcoes: Opcoes
   dispositivo: DispositivoRep | null
+  // Lista completa de dispositivos (o proprio incluso - filtrado abaixo) para avisar sobre
+  // sobreposicao de setor entre relogios da mesma unidade. So aviso, nunca bloqueio: um setor
+  // atendido por dois relogios pode ser legitimo (ex.: duas entradas fisicas).
+  outrosDispositivos?: any[]
 }) {
   const [nome, setNome] = useState(dispositivo?.nome || '')
   const [unidadeId, setUnidadeId] = useState(dispositivo?.unidade_id || '')
@@ -67,6 +72,26 @@ export function DispositivoRepModal({
   const [resultadoCadastros, setResultadoCadastros] = useState<{ enfileirados: number; sem_cpf: number; ja_vinculados: number } | null>(null)
 
   const setoresDaUnidade = opcoes.setores.filter((s) => s.unidade_id === unidadeId)
+
+  // Sobreposicao com outros relogios da MESMA unidade - so aviso, nunca bloqueio (CLAUDE.md:
+  // um setor coberto por dois relogios pode ser intencional, ex. duas entradas fisicas).
+  const { setoresUsadosPorOutros, dispositivosTodaUnidade } = useMemo(() => {
+    const usados = new Map<string, string[]>()
+    const todaUnidade: string[] = []
+    for (const d of outrosDispositivos || []) {
+      if (d.id === dispositivoId || d.unidade_id !== unidadeId) continue
+      const setoresDoD: string[] = (d.dispositivos_rep_setores || []).map((x: any) => x.setor_id)
+      if (setoresDoD.length === 0) {
+        todaUnidade.push(d.nome)
+        continue
+      }
+      for (const sid of setoresDoD) {
+        if (!usados.has(sid)) usados.set(sid, [])
+        usados.get(sid)!.push(d.nome)
+      }
+    }
+    return { setoresUsadosPorOutros: usados, dispositivosTodaUnidade: todaUnidade }
+  }, [outrosDispositivos, unidadeId, dispositivoId])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -183,6 +208,13 @@ export function DispositivoRepModal({
               <p className="text-xs text-zinc-400">Selecione a unidade primeiro.</p>
             ) : (
               <>
+                {dispositivosTodaUnidade.length > 0 && (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400 mb-2">
+                    ⚠️ {dispositivosTodaUnidade.join(', ')} já cobre{dispositivosTodaUnidade.length === 1 ? '' : 'm'} toda
+                    esta unidade — qualquer setor selecionado aqui vai se sobrepor. Pode ser
+                    intencional (dois relógios pro mesmo pessoal); se não for, confira antes de salvar.
+                  </p>
+                )}
                 <label className="flex items-center gap-2 text-sm mb-2">
                   <input
                     type="checkbox"
@@ -199,7 +231,9 @@ export function DispositivoRepModal({
                   </p>
                 ) : (
                   <div className="max-h-40 overflow-y-auto rounded-lg border border-zinc-300 dark:border-zinc-700 p-2 space-y-1">
-                    {setoresDaUnidade.map((s) => (
+                    {setoresDaUnidade.map((s) => {
+                      const outrosComEsteSetor = setoresUsadosPorOutros.get(s.id)
+                      return (
                       <label key={s.id} className="flex items-center gap-2 text-sm">
                         <input
                           type="checkbox"
@@ -211,8 +245,14 @@ export function DispositivoRepModal({
                           }}
                         />
                         {s.nome}
+                        {outrosComEsteSetor && (
+                          <span className="text-[10px] text-amber-600 dark:text-amber-400">
+                            já em {outrosComEsteSetor.join(', ')}
+                          </span>
+                        )}
                       </label>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
               </>

@@ -289,13 +289,14 @@ export function MarcacoesClient({ isAdmin, opcoes }: { isAdmin: boolean; opcoes:
               onSaved={recarregarDispositivos}
               opcoes={opcoes}
               dispositivo={modalDispositivo.dispositivo}
+              outrosDispositivos={dispositivos}
             />
           )}
         </div>
       )}
 
       {aba === 'cobertura' && <CoberturaTab isAdmin={isAdmin} />}
-      {aba === 'pendencias' && <PendenciasTab />}
+      {aba === 'pendencias' && <PendenciasTab opcoes={opcoes} />}
       {aba === 'biometria' && <BiometriaTab />}
       {aba === 'higiene' && isAdmin && <HigieneDispositivoTab />}
       {aba === 'pendrive' && isAdmin && <ImportarPendriveTab />}

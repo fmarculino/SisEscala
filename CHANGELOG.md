@@ -38,6 +38,13 @@ All notable changes to this project will be documented in this file.
     esporádico o bastante para trazer as linhas e reduzir no cliente) para achar a última
     `concluida_em` por dispositivo com `canal = 'pendrive'`.
 
+- **Aviso de setor sobreposto entre relógios da mesma unidade** em `DispositivoRepModal.tsx` — só
+  aviso, nunca bloqueio: um setor coberto por dois relógios pode ser intencional (ex.: duas
+  entradas físicas para o mesmo pessoal). Dois casos: setor específico já marcado em outro
+  dispositivo da unidade (anotado ao lado do checkbox), e outro dispositivo da unidade já em
+  "Toda a unidade" (banner — qualquer setor marcado aqui se sobrepõe a ele). `MarcacoesClient.tsx`
+  passa a lista de dispositivos já carregada para o modal; nenhuma consulta nova.
+
 ### Fixed
 - **`fn_ingerir_afd` quebrava para qualquer dispositivo com setor associado** — achado só ao
   validar a migration acima contra dados reais em produção (checkpoint), não pego por `tsc`,
@@ -56,12 +63,19 @@ All notable changes to this project will be documented in this file.
   reproduziram os dois dispositivos reais corretamente, incluindo um caso não previsto: o
   dispositivo da TI já tinha `setor_id` preenchido antes desta mudança (não só "toda a unidade"),
   e o backfill/agregação tratou esse caso certo também.
-- **Incidente durante a janela de deploy**: o dispositivo real da TI teve seu setor limpo (voltou
-  para "toda a unidade", inflando de 6 para 76 o número de escalados considerados candidatos
-  àquele relógio) — hipótese mais provável é uma aba aberta com o bundle antigo (campo `setor_id`
-  singular) submetendo para o servidor já novo (que lê `setor_ids`, tratando a ausência como lista
-  vazia), mesma classe de risco já documentada para o terminal `/presenca`. Restaurado via
-  `fn_definir_setores_dispositivo_rep`; código reauditado e não reproduz com o bundle atualizado.
+- **Incidente durante a verificação em produção**: o dispositivo real da TI teve seu setor limpo
+  (voltou para "toda a unidade", inflando de 6 para 76 o número de escalados considerados
+  candidatos àquele relógio). **Causa real, corrigida depois de uma primeira hipótese errada**: o
+  checkpoint 3 (`fn_definir_setores_dispositivo_rep`) foi desenhado pra rodar contra
+  `numero_serie = 'REP-TESTE-TI'`, seguindo o padrão de "dispositivo de teste seguro" já usado em
+  migrations anteriores (`20260808090000`, `20260812000000`, `20260812010000`) — mas nesse
+  ambiente `REP-TESTE-TI` **é o próprio número de série do relógio real da TI**, não um
+  dispositivo separado. O passo de limpeza do checkpoint (`ARRAY[]::uuid[]`) rodou contra o
+  dispositivo de produção. A hipótese inicial ("aba com bundle antigo") estava errada e foi
+  corrigida depois de reexaminar a tela de edição do dispositivo. Restaurado via
+  `fn_definir_setores_dispositivo_rep`. Lição: `numero_serie = 'REP-TESTE-TI'` não é garantia de
+  dispositivo descartável — confirmar pelo `nome`/`endereco_ip` antes de qualquer escrita de
+  teste em produção.
 - Análise de impacto completa (por que a folha de ponto não depende deste campo hoje — a
   reconciliação que ligaria relógio→folha, Fase 5, não tem nenhum chamador em `src/`) e sequência
   de migração em

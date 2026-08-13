@@ -279,25 +279,37 @@ function TratarPendenciaModal({
   )
 }
 
-export function PendenciasTab() {
+interface Opcoes {
+  unidades: { id: string; nome: string }[]
+  setores: { id: string; unidade_id: string; nome: string }[]
+}
+
+export function PendenciasTab({ opcoes }: { opcoes?: Opcoes }) {
   const [pendencias, setPendencias] = useState<Pendencia[]>([])
   const [carregando, setCarregando] = useState(true)
   const [selecionada, setSelecionada] = useState<Pendencia | null>(null)
 
+  // Unidade/setor filtram no SERVIDOR (fn_marcacoes_pendentes_revisao) - quem tem escopo amplo
+  // (RH Geral, admin) pode ter a lista grande demais pra trazer inteira e filtrar so' na tela.
+  // Servidor/situacao continuam filtrando no CLIENTE, em cima do que ja foi carregado.
+  const [filtroUnidade, setFiltroUnidade] = useState('')
+  const [filtroSetor, setFiltroSetor] = useState('')
   const [filtroServidor, setFiltroServidor] = useState('')
   const [filtroSituacao, setFiltroSituacao] = useState<'pendentes' | 'tratadas' | 'todas'>('pendentes')
   const [pagina, setPagina] = useState(1)
 
+  const setoresDaUnidade = (opcoes?.setores || []).filter((s) => s.unidade_id === filtroUnidade)
+
   async function recarregar() {
     setCarregando(true)
     try {
-      setPendencias(await listarPendencias())
+      setPendencias(await listarPendencias(filtroUnidade || null, filtroSetor || null))
     } finally {
       setCarregando(false)
     }
   }
 
-  useEffect(() => { recarregar() }, [])
+  useEffect(() => { recarregar() }, [filtroUnidade, filtroSetor])
 
   const servidores = useMemo(() => {
     const m = new Map<string, string>()
@@ -341,6 +353,30 @@ export function PendenciasTab() {
           <RefreshCw className="h-4 w-4" />
         </button>
       </div>
+
+      {opcoes && opcoes.unidades.length > 1 && (
+        <div className="flex flex-wrap items-center gap-3">
+          <select
+            value={filtroUnidade}
+            onChange={(e) => { setFiltroUnidade(e.target.value); setFiltroSetor(''); setFiltroServidor(''); setPagina(1) }}
+            className="rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-1.5 text-sm"
+          >
+            <option value="">Todas as unidades</option>
+            {opcoes.unidades.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
+          </select>
+
+          {filtroUnidade && setoresDaUnidade.length > 0 && (
+            <select
+              value={filtroSetor}
+              onChange={(e) => { setFiltroSetor(e.target.value); setFiltroServidor(''); setPagina(1) }}
+              className="rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-1.5 text-sm"
+            >
+              <option value="">Todos os setores</option>
+              {setoresDaUnidade.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
+            </select>
+          )}
+        </div>
+      )}
 
       {!carregando && pendencias.length > 0 && (
         <div className="flex flex-wrap items-center gap-3">
