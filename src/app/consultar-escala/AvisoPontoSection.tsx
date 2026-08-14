@@ -50,12 +50,15 @@ export function AvisoPontoSection() {
    * Ordenado do menos ao mais incômodo. `resumo_diario` é o padrão do banco e vem destacado:
    * uma mensagem com todas as batidas do dia é registro melhor que quatro fragmentos soltos —
    * é uma peça só, que a pessoa consegue achar depois.
+   *
+   * "Entrada e saída" e "Todas as batidas" foram desativados em 14/08/2026 — o número usado
+   * pelo aviso foi restringido pela Meta/WhatsApp por volume de mensagem. `fn_definir_modo_
+   * aviso_ponto` (migration 20260814130000) recusa esses dois valores mesmo se alguém chamar a
+   * RPC direto; não é só a tela que os escondeu.
    */
   const MODOS: { chave: string; titulo: string; detalhe: string; volume: string }[] = [
     { chave: 'resumo_semanal', titulo: 'Resumo semanal', detalhe: 'Toda segunda-feira, com os registros da semana anterior e o link da sua folha.', volume: '~4 por mês' },
     { chave: 'resumo_diario', titulo: 'Resumo diário (recomendado)', detalhe: 'Uma mensagem ao fim do expediente, com todas as batidas do dia.', volume: '~22 por mês' },
-    { chave: 'entrada_saida', titulo: 'Entrada e saída', detalhe: 'Uma mensagem ao entrar e outra ao sair. Não avisa nas batidas de intervalo.', volume: '~44 por mês' },
-    { chave: 'todas', titulo: 'Todas as batidas', detalhe: 'Confirmação imediata de cada registro, inclusive as de intervalo.', volume: 'até 88 por mês' },
   ]
 
   async function salvarModo(modo: string) {
@@ -215,8 +218,8 @@ export function AvisoPontoSection() {
               Com que frequência você quer receber
             </p>
             <p className="text-[11px] text-zinc-500 mt-0.5">
-              Registro fora do horário previsto avisa <b>sempre</b>, em qualquer opção — é quando
-              você mais precisa saber.
+              Registro fora do horário previsto também entra no resumo do dia, junto com os
+              demais.
             </p>
           </div>
 
