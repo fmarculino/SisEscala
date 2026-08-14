@@ -63,6 +63,12 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Printf("pendentes=%d enviados=%d falhas=%d\n", resultado.Pendentes, resultado.Enviados, resultado.Falhas)
+	case "cadastros-exportar":
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "Uso: coletor-rep cadastros-exportar <caminho-do-arquivo-de-saida>")
+			os.Exit(1)
+		}
+		rodarCadastrosExportar(cfg, os.Args[2])
 	case "cadastros-testar":
 		rodarCadastrosTestar(cfg)
 	case "remocao-testar":
@@ -111,6 +117,9 @@ Uso:
   coletor-rep afd-raw             so imprime a resposta crua do relogio (diagnostico, nao grava nada)
   coletor-rep afd-exportar <arq>  exporta so o AFD novo (desde a ultima exportacao) para um arquivo .sisrep - unidade sem rede ate o SisEscala, ver README
   coletor-rep cadastros           aplica a fila de push de identidade real no rele (Fase 7) - GRAVA no equipamento
+  coletor-rep cadastros-exportar <arq>  exporta a fila de push de identidade (Fase 7) para um
+                                   arquivo texto no formato que o menu "Receber usuarios" do
+                                   equipamento aceita - unidade sem rede ate o SisEscala, ver README
   coletor-rep cadastros-testar    cria UM usuario de teste no rele e lista biometria (diagnostico - GRAVA no equipamento, ver aviso)
   coletor-rep remocao-testar      cria UM usuario de teste e o APAGA - descobre qual formato de remove_users.fcgi este rele aceita, sem tocar em cadastro real
   coletor-rep higiene             le todos os usuarios do rele e reporta ao SisEscala (Fase 7b) - so' leitura, seguro rodar sempre
@@ -331,6 +340,99 @@ func rodarAfdExportar(cfg *config.Config, caminhoCfg, caminhoSaida string) {
 	fmt.Printf("Exportado: %s (NSR %d a %d, %d linha(s), %d bytes)\n",
 		caminhoSaida, estado.UltimoNsrExportado+1, nsrMax, len(linhas), len(bruto))
 	fmt.Println("Leve este arquivo ate uma maquina com acesso ao SisEscala e importe em Marcacoes -> Importar por Pendrive.")
+}
+
+// rodarCadastrosExportar busca a fila de push de identidade (Fase 7, mesma fonte que o comando
+// "cadastros" online usa) e grava num arquivo texto CSV ';' - descoberto em 14/08/2026 examinando
+// o par exportar/importar do menu "Enviar usuarios"/"Receber usuarios" do proprio equipamento
+// (REP-iDClass-CEI), confirmado por um ciclo real de exportar+importar sem erro no rele:
+//
+//	cpf;nome;administrador;matricula;rfid;codigo;senha;barras;digitais
+//
+// So GERA o arquivo - nao toca no rele (essa maquina pode nao ter rede ate ele) nem confirma nada
+// no SisEscala (essa maquina pode nao ter rede ate o SisEscala tambem, e mesmo tendo, a aplicacao
+// de verdade so acontece depois, fisicamente, no equipamento - confirmar antes seria inventar
+// sucesso, o mesmo erro que a confirmacao de AFD ja evita).
+//
+// "digitais" fica sempre vazio - biometria continua so' podendo ser cadastrada presencialmente no
+// equipamento (nunca por API, ver CLAUDE.md), e o campo aceita vazio (confirmado: 19 dos 67
+// usuarios do export de teste nao tinham biometria e vieram assim mesmo).
+//
+// cpf/matricula replicam EXATAMENTE a mesma conversao que CriarUsuario (rep/client.go) ja faz
+// para o caminho online — nao inventa uma segunda regra para o mesmo dado. Formato numerico (sem
+// zero a esquerda) e' o oposto da convencao do AFD (identificador_afd, 12 digitos com zero de
+// preenchimento, armadilha 10 do CLAUDE.md) - confirmado batendo com o "cpf" real visto no export
+// do proprio equipamento (ex.: CPF terminado em ...094233 comecando com zero saiu como
+// "1533094233", sem o zero).
+//
+// Nao fecha o loop de confirmacao sozinho: depois de aplicar no rele com "Receber usuarios",
+// quando esse relogio tiver rede, rode "coletor-rep higiene" (reporta o snapshot ao SisEscala) e
+// use fn_vincular_cadastros_por_cpf (ja existe, tela /marcacoes) para criar o rep_vinculos_servidor
+// a partir do CPF batido - o mesmo mecanismo que ja resolve o caso dominante de "bate e nao
+// registra" (CLAUDE.md, "Cobertura de ponto"). rep_cadastros_fila continua "pendente" ate la; rodar
+// este comando de novo antes disso so reexporta a mesma lista, o que e' seguro (reaplicar no rele
+// nao gerou erro no teste real).
+func rodarCadastrosExportar(cfg *config.Config, caminhoSaida string) {
+	if cfg.DispositivoRep == nil {
+		fmt.Fprintln(os.Stderr, "Secao dispositivo_rep ausente no config.yaml.")
+		os.Exit(1)
+	}
+	d := cfg.DispositivoRep
+	sc := sisescala.NovoClient(cfg.SisEscala.URL, d.ID, d.Token)
+
+	pendentes, err := sc.ListarCadastrosPendentes()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Falha ao listar cadastros pendentes: %v\n", err)
+		os.Exit(1)
+	}
+	if len(pendentes) == 0 {
+		fmt.Println("Nenhum cadastro pendente para exportar.")
+		return
+	}
+
+	linhas := []string{"cpf;nome;administrador;matricula;rfid;codigo;senha;barras;digitais"}
+	pulados := 0
+
+	for _, p := range pendentes {
+		matriculaLimpa := strings.TrimPrefix(strings.ToUpper(p.Matricula), "T")
+		matriculaNum, err := strconv.ParseInt(matriculaLimpa, 10, 64)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "aviso: matricula %q (%s) nao e numerica apos remover prefixo - pulando\n", p.Matricula, p.Nome)
+			pulados++
+			continue
+		}
+
+		cpfStr := p.IdentificadorAFD
+		if len(cpfStr) > 11 {
+			cpfStr = cpfStr[len(cpfStr)-11:]
+		}
+		cpfNum, err := strconv.ParseInt(cpfStr, 10, 64)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "aviso: identificador_afd %q (%s) nao produziu cpf numerico - pulando\n", p.IdentificadorAFD, p.Nome)
+			pulados++
+			continue
+		}
+
+		nome := strings.ReplaceAll(p.Nome, ";", " ")
+		linhas = append(linhas, fmt.Sprintf("%d;%s;0;%d;0;0;;;", cpfNum, nome, matriculaNum))
+	}
+
+	if len(linhas) == 1 {
+		fmt.Fprintln(os.Stderr, "Nenhum cadastro pendente pode ser exportado (todos pulados por erro de formato).")
+		os.Exit(1)
+	}
+
+	conteudo := strings.Join(linhas, "\n") + "\n"
+	if err := os.WriteFile(caminhoSaida, []byte(conteudo), 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "Falha ao gravar %s: %v\n", caminhoSaida, err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Exportado: %s (%d cadastro(s), %d pulado(s) por erro de formato)\n", caminhoSaida, len(linhas)-1, pulados)
+	fmt.Println(`Leve este arquivo ate o relogio e aplique pelo menu do equipamento: "Receber usuarios".`)
+	fmt.Println("Nada foi confirmado no SisEscala por este comando - depois de aplicar no rele,")
+	fmt.Println(`quando este relogio tiver rede, rode "coletor-rep higiene" e depois vincule por CPF`)
+	fmt.Println("na tela /marcacoes para fechar o loop.")
 }
 
 // rodarCadastrosTestar cria UM usuario de teste diretamente no rele (nome bem marcado, para
