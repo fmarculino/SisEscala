@@ -3,11 +3,20 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { autoCloseExpiredScalesAndTimesheets } from '@/utils/autoClose'
-import { Calendar, Plus, ChevronRight, Layers, Filter, Eye, EyeOff, Search, Loader2, Building2, Check, ShieldCheck, FileText } from 'lucide-react'
+import { Calendar, Plus, ChevronRight, Layers, Filter, Eye, EyeOff, Search, Loader2, Building2, Check, ShieldCheck, FileText, UserSearch, UserCheck, X, AlertCircle } from 'lucide-react'
 import Link from 'next/link'
 import { Modal } from '@/components/ui/Modal'
 import { applyAccessFilters, hasSectorAccess, hasUnitAccess } from '@/utils/permissions'
 import { useCallback } from 'react'
+
+function formatCpf(cpf: string | null) {
+  if (!cpf) return ''
+  const clean = cpf.replace(/\D/g, '')
+  if (clean.length === 11) {
+    return clean.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')
+  }
+  return cpf
+}
 
 export default function EscalasPage() {
   const supabase = createClient()
@@ -15,6 +24,18 @@ export default function EscalasPage() {
   const [escalas, setEscalas] = useState<any[]>([])
   const [showInactive, setShowInactive] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
+  const [searchServidor, setSearchServidor] = useState('')
+  const [serverSearchResult, setServerSearchResult] = useState<{
+    isSearching: boolean
+    matchedServidores: any[]
+    globalEscalas: any[]
+    hasSearched: boolean
+  }>({
+    isSearching: false,
+    matchedServidores: [],
+    globalEscalas: [],
+    hasSearched: false
+  })
   const [filterUnidade, setFilterUnidade] = useState('todas')
   const [filterMes, setFilterMes] = useState(String(new Date().getMonth() + 1))
   const [filterAno, setFilterAno] = useState(String(new Date().getFullYear()))
@@ -107,7 +128,87 @@ export default function EscalasPage() {
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchTerm, filterUnidade, filterMes, filterAno, filterStatus, showInactive])
+  }, [searchTerm, searchServidor, filterUnidade, filterMes, filterAno, filterStatus, showInactive])
+
+  // Global search effect when user types in searchServidor (incremental)
+  useEffect(() => {
+    const term = searchServidor.trim()
+    if (term.length < 2) {
+      setServerSearchResult({
+        isSearching: false,
+        matchedServidores: [],
+        globalEscalas: [],
+        hasSearched: false
+      })
+      return
+    }
+
+    setServerSearchResult(prev => ({ ...prev, isSearching: true }))
+
+    const timer = setTimeout(async () => {
+      try {
+        const cleanCpf = term.replace(/\D/g, '')
+        let servQuery = supabase
+          .from('servidores')
+          .select('id, nome, cpf, matricula, cargo')
+
+        if (cleanCpf && cleanCpf.length >= 3) {
+          servQuery = servQuery.or(`nome.ilike.%${term}%,matricula.ilike.%${term}%,cpf.ilike.%${cleanCpf}%`)
+        } else {
+          servQuery = servQuery.or(`nome.ilike.%${term}%,matricula.ilike.%${term}%`)
+        }
+
+        const { data: matchedServs } = await servQuery.limit(10)
+
+        if (!matchedServs || matchedServs.length === 0) {
+          setServerSearchResult({
+            isSearching: false,
+            matchedServidores: [],
+            globalEscalas: [],
+            hasSearched: true
+          })
+          return
+        }
+
+        const servIds = matchedServs.map(s => s.id)
+        const { data: globEsc } = await supabase
+          .from('escala_mensal')
+          .select('id, mes, ano, status, ativo, unidade_id, setor_id, unidades(nome), setores(dicionario_setores(nome)), servidores(id, nome, cpf, matricula)')
+          .in('servidor_id', servIds)
+
+        const mappedGlobEsc = (globEsc || []).map((e: any) => {
+          const sectorData = Array.isArray(e.setores) ? e.setores[0] : e.setores
+          const dictData = sectorData ? (Array.isArray(sectorData.dicionario_setores) 
+            ? sectorData.dicionario_setores[0] 
+            : sectorData.dicionario_setores) : null
+            
+          return {
+            ...e,
+            setores: sectorData ? {
+              nome: dictData?.nome || 'SETOR SEM NOME'
+            } : null
+          }
+        })
+
+        setServerSearchResult({
+          isSearching: false,
+          matchedServidores: matchedServs,
+          globalEscalas: mappedGlobEsc,
+          hasSearched: true
+        })
+      } catch (err) {
+        console.error('Erro ao buscar servidor globalmente:', err)
+        setServerSearchResult({
+          isSearching: false,
+          matchedServidores: [],
+          globalEscalas: [],
+          hasSearched: true
+        })
+      }
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [searchServidor, supabase])
 
   // Trigger fetchEscalas when period filters change
   useEffect(() => {
@@ -120,7 +221,7 @@ export default function EscalasPage() {
     setLoading(true)
     let query = supabase
       .from('escala_mensal')
-      .select('*, servidores(nome), unidades(nome), setores(dicionario_setores(nome))')
+      .select('*, servidores(id, nome, cpf, matricula), unidades(nome), setores(dicionario_setores(nome))')
       .order('ano', { ascending: false })
       .order('mes', { ascending: false })
 
@@ -225,6 +326,24 @@ export default function EscalasPage() {
     const matchesStatus = filterStatus === 'todos' || 
       (filterStatus === 'fechada' && e.status === 'Fechada') ||
       (filterStatus === 'previsao' && e.status !== 'Fechada')
+
+    // Incremental Servidor Filter (Nome, CPF ou Matrícula)
+    let matchesServidor = true
+    if (searchServidor.trim()) {
+      const servTermLower = searchServidor.trim().toLowerCase()
+      const cleanCpfSearch = searchServidor.replace(/\D/g, '')
+
+      const servNome = (e.servidores?.nome || '').toLowerCase()
+      const servMatricula = (e.servidores?.matricula || '').toLowerCase()
+      const servCpf = (e.servidores?.cpf || '').replace(/\D/g, '')
+      const rawServCpf = (e.servidores?.cpf || '').toLowerCase()
+
+      const matchName = servNome.includes(servTermLower)
+      const matchMatricula = servMatricula.includes(servTermLower)
+      const matchCpf = cleanCpfSearch ? servCpf.includes(cleanCpfSearch) : rawServCpf.includes(servTermLower)
+
+      matchesServidor = matchName || matchMatricula || matchCpf
+    }
     
     // Security layer in memory (Secondary check)
     let rolePermitted = true
@@ -239,7 +358,7 @@ export default function EscalasPage() {
       rolePermitted = e.servidor_id === linkedServidorId
     }
 
-    return matchesSearch && matchesUnidade && matchesAtivo && matchesStatus && rolePermitted
+    return matchesSearch && matchesUnidade && matchesAtivo && matchesStatus && matchesServidor && rolePermitted
   })
 
   const meses = [
@@ -310,79 +429,174 @@ export default function EscalasPage() {
       </div>
 
       {/* Filters Bar */}
-      <div className="bg-white dark:bg-zinc-900 p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm flex flex-wrap items-center gap-4">
-        <div className="flex-1 min-w-[200px] relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
-          <input 
-            type="text" 
-            placeholder="Buscar por unidade ou setor..."
-            className="w-full pl-10 pr-4 py-2 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+      <div className="bg-white dark:bg-zinc-900 p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-3">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex-1 min-w-[200px] relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
+            <input 
+              type="text" 
+              placeholder="Buscar por unidade ou setor..."
+              className="w-full pl-10 pr-8 py-2 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+            {searchTerm && (
+              <button 
+                onClick={() => setSearchTerm('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Building2 className="h-4 w-4 text-zinc-400" />
+            <select 
+              className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+              value={filterUnidade}
+              onChange={(e) => setFilterUnidade(e.target.value)}
+            >
+              <option value="todas">Todas as Unidades</option>
+              {unidades.map(u => (
+                <option key={u.id} value={u.id}>{u.nome}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Calendar className="h-4 w-4 text-zinc-400" />
+            <select 
+              className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+              value={filterMes}
+              onChange={(e) => setFilterMes(e.target.value)}
+            >
+              {meses.map(m => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+            <select 
+              className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+              value={filterAno}
+              onChange={(e) => setFilterAno(e.target.value)}
+            >
+              {anos.map(a => (
+                <option key={a.value} value={a.value}>{a.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <FileText className="h-4 w-4 text-zinc-400" />
+            <select 
+              className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+            >
+              <option value="todos">Todos os Status</option>
+              <option value="previsao">Previsão</option>
+              <option value="fechada">Fechada</option>
+            </select>
+          </div>
+
+          <button 
+            onClick={() => setShowInactive(!showInactive)}
+            className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all border ${
+              showInactive 
+                ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800 text-amber-600' 
+                : 'bg-zinc-50 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400'
+            }`}
+          >
+            {showInactive ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+            {showInactive ? 'Ocultar Inativas' : 'Mostrar Inativas'}
+          </button>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Building2 className="h-4 w-4 text-zinc-400" />
-          <select 
-            className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-medium"
-            value={filterUnidade}
-            onChange={(e) => setFilterUnidade(e.target.value)}
-          >
-            <option value="todas">Todas as Unidades</option>
-            {unidades.map(u => (
-              <option key={u.id} value={u.id}>{u.nome}</option>
-            ))}
-          </select>
+        {/* Linha dedicada de filtro por Servidor (Destaque da busca incremental) */}
+        <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800 flex items-center gap-3">
+          <div className="flex-1 relative">
+            <UserSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-500" />
+            <input 
+              type="text" 
+              placeholder="Buscar servidor por nome, CPF ou matrícula (busca incremental)..."
+              className="w-full pl-10 pr-10 py-2 bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800/60 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-blue-900/50 dark:placeholder:text-blue-300/40 text-blue-950 dark:text-blue-100 font-medium"
+              value={searchServidor}
+              onChange={(e) => setSearchServidor(e.target.value)}
+            />
+            {searchServidor ? (
+              <button 
+                onClick={() => setSearchServidor('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                title="Limpar busca de servidor"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            ) : null}
+          </div>
+          {searchServidor.trim() && (
+            <span className="text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/40 px-3 py-1.5 rounded-lg whitespace-nowrap hidden sm:inline-block">
+              Filtrando por servidor
+            </span>
+          )}
         </div>
-
-        <div className="flex items-center gap-2">
-          <Calendar className="h-4 w-4 text-zinc-400" />
-          <select 
-            className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-medium"
-            value={filterMes}
-            onChange={(e) => setFilterMes(e.target.value)}
-          >
-            {meses.map(m => (
-              <option key={m.value} value={m.value}>{m.label}</option>
-            ))}
-          </select>
-          <select 
-            className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-medium"
-            value={filterAno}
-            onChange={(e) => setFilterAno(e.target.value)}
-          >
-            {anos.map(a => (
-              <option key={a.value} value={a.value}>{a.label}</option>
-            ))}
-          </select>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <FileText className="h-4 w-4 text-zinc-400" />
-          <select 
-            className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-medium"
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-          >
-            <option value="todos">Todos os Status</option>
-            <option value="previsao">Previsão</option>
-            <option value="fechada">Fechada</option>
-          </select>
-        </div>
-
-        <button 
-          onClick={() => setShowInactive(!showInactive)}
-          className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all border ${
-            showInactive 
-              ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800 text-amber-600' 
-              : 'bg-zinc-50 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400'
-          }`}
-        >
-          {showInactive ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-          {showInactive ? 'Ocultar Inativas' : 'Mostrar Inativas'}
-        </button>
       </div>
+
+      {/* Servidor Search Global Diagnosis Banner */}
+      {searchServidor.trim().length >= 2 && serverSearchResult.hasSearched && (
+        <div className="space-y-3">
+          {/* Scenario 1: Server exists in database, but is NOT in any scale globally */}
+          {serverSearchResult.matchedServidores.length > 0 && serverSearchResult.globalEscalas.length === 0 && (
+            <div className="p-4 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-2xl flex items-start gap-3 text-amber-800 dark:text-amber-300 text-sm">
+              <AlertCircle className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+              <div>
+                <p className="font-bold">Servidor localizado no cadastro, porém NÃO ESTÁ INSERIDO em nenhuma escala de serviço:</p>
+                <div className="mt-1.5 flex flex-wrap gap-2">
+                  {serverSearchResult.matchedServidores.map(s => (
+                    <span key={s.id} className="bg-amber-100 dark:bg-amber-900/50 px-2.5 py-0.5 rounded-md font-semibold text-xs border border-amber-300 dark:border-amber-700">
+                      {s.nome} {s.matricula ? `(Mat: ${s.matricula})` : ''} {s.cpf ? `(CPF: ${formatCpf(s.cpf)})` : ''}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Scenario 2: Server has scales in other months/years, but none match current active filter */}
+          {serverSearchResult.matchedServidores.length > 0 && 
+           serverSearchResult.globalEscalas.length > 0 && 
+           groupedKeys.length === 0 && 
+           (filterMes !== 'todos' || filterAno !== 'todos') && (
+            <div className="p-4 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-blue-900 dark:text-blue-200 text-sm">
+              <div className="flex items-start gap-3">
+                <UserCheck className="h-5 w-5 shrink-0 text-blue-600 dark:text-blue-400 mt-0.5" />
+                <div>
+                  <p className="font-bold">Servidor localizado em escala(s) de OUTRO PERÍODO:</p>
+                  <p className="text-xs mt-0.5 opacity-90">
+                    O servidor possui {serverSearchResult.globalEscalas.length} escala(s) em outros meses ou anos.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setFilterMes('todos')
+                  setFilterAno('todos')
+                }}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 shadow-md shadow-blue-500/20"
+              >
+                Ver em Todos os Meses
+              </button>
+            </div>
+          )}
+
+          {/* Scenario 3: No server found in database at all */}
+          {serverSearchResult.matchedServidores.length === 0 && (
+            <div className="p-4 bg-zinc-100 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 rounded-2xl flex items-center gap-3 text-zinc-600 dark:text-zinc-400 text-sm">
+              <AlertCircle className="h-5 w-5 shrink-0 text-zinc-400" />
+              <span>Nenhum servidor cadastrado encontrado contendo <strong>"{searchServidor}"</strong>.</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* List */}
       <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-xl overflow-hidden">
@@ -399,13 +613,36 @@ export default function EscalasPage() {
             if (!item) return null
             const isAtiva = item.ativo !== false
 
+            // Find matching servers for this card if searchServidor is typed
+            let matchingServersInCard: any[] = []
+            if (searchServidor.trim()) {
+              const servTermLower = searchServidor.trim().toLowerCase()
+              const cleanCpfSearch = searchServidor.replace(/\D/g, '')
+
+              const matchingItemsInScale = filteredEscalas.filter(e => {
+                if (e.unidade_id !== uId || e.setor_id !== sId || e.mes !== parseInt(mes) || e.ano !== parseInt(ano) || !e.servidores) {
+                  return false
+                }
+                const servNome = (e.servidores.nome || '').toLowerCase()
+                const servMatricula = (e.servidores.matricula || '').toLowerCase()
+                const servCpf = (e.servidores.cpf || '').replace(/\D/g, '')
+                const rawServCpf = (e.servidores.cpf || '').toLowerCase()
+
+                return servNome.includes(servTermLower) || servMatricula.includes(servTermLower) || (cleanCpfSearch ? servCpf.includes(cleanCpfSearch) : rawServCpf.includes(servTermLower))
+              })
+
+              matchingServersInCard = Array.from(
+                new Map(matchingItemsInScale.map(e => [e.servidores.id, e.servidores])).values()
+              )
+            }
+
             return (
-              <div key={key} className={`flex items-center justify-between p-6 hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-all group ${!isAtiva ? 'opacity-60 bg-zinc-50/50 dark:bg-zinc-900/50' : ''}`}>
+              <div key={key} className={`flex flex-col sm:flex-row sm:items-center justify-between p-6 hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-all group gap-4 ${!isAtiva ? 'opacity-60 bg-zinc-50/50 dark:bg-zinc-900/50' : ''}`}>
                 <Link
                   href={`/escalas/unidade/${uId}?setor=${sId}&mes=${mes}&ano=${ano}`}
-                  className="flex-1 flex items-center space-x-8"
+                  className="flex-1 flex items-start sm:items-center space-x-6 sm:space-x-8"
                 >
-                  <div className="text-center w-20 border-r border-zinc-200 dark:border-zinc-800 pr-6">
+                  <div className="text-center w-20 border-r border-zinc-200 dark:border-zinc-800 pr-6 shrink-0">
                     <span className={`block text-3xl font-black uppercase tracking-tighter ${isAtiva ? 'text-blue-600' : 'text-zinc-500'}`}>
                       {new Date(parseInt(ano), parseInt(mes) - 1).toLocaleString('pt-BR', { month: 'short' }).replace('.', '')}
                     </span>
@@ -413,8 +650,8 @@ export default function EscalasPage() {
                       {ano}
                     </span>
                   </div>
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
                       <h3 className="text-lg font-black text-zinc-900 dark:text-white uppercase tracking-tight">
                         {item.unidades?.nome}
                       </h3>
@@ -422,10 +659,12 @@ export default function EscalasPage() {
                         <span className="text-[10px] font-black uppercase bg-red-100 dark:bg-red-900/30 text-red-600 px-2 py-0.5 rounded-full">Inativa</span>
                       )}
                     </div>
-                    <div className="flex items-center text-sm font-bold text-blue-600 dark:text-blue-400">
-                      <Layers className="mr-1.5 h-4 w-4" />
-                      {item.setores?.nome}
-                      <span className="mx-3 text-zinc-300 dark:text-zinc-700">|</span>
+                    <div className="flex flex-wrap items-center text-sm font-bold text-blue-600 dark:text-blue-400 gap-2">
+                      <div className="flex items-center">
+                        <Layers className="mr-1.5 h-4 w-4" />
+                        {item.setores?.nome}
+                      </div>
+                      <span className="text-zinc-300 dark:text-zinc-700">|</span>
                       <span className={`px-2 py-0.5 text-[10px] font-black uppercase rounded ${
                         item.status === 'Fechada' 
                           ? 'bg-zinc-100 dark:bg-zinc-805 text-zinc-500' 
@@ -434,10 +673,25 @@ export default function EscalasPage() {
                         {item.status === 'Fechada' ? 'Fechada' : 'Previsão'}
                       </span>
                     </div>
+
+                    {/* Badge do Servidor Localizado */}
+                    {searchServidor.trim() && matchingServersInCard.length > 0 && (
+                      <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                        <span className="text-[11px] font-extrabold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 px-2.5 py-0.5 rounded-lg flex items-center gap-1.5 shadow-xs">
+                          <UserCheck className="h-3.5 w-3.5 text-emerald-600" />
+                          Servidor localizado ({matchingServersInCard.length}):
+                        </span>
+                        {matchingServersInCard.map((s: any) => (
+                          <span key={s.id} className="text-xs font-bold text-zinc-900 dark:text-white bg-zinc-100 dark:bg-zinc-800 px-2.5 py-0.5 rounded-lg border border-zinc-200 dark:border-zinc-700">
+                            {s.nome} {s.matricula ? `• Mat: ${s.matricula}` : ''} {s.cpf ? `• CPF: ${formatCpf(s.cpf)}` : ''}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </Link>
                 
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-4 self-end sm:self-center">
                   <button 
                     onClick={() => toggleAtivo(uId, sId, parseInt(mes), parseInt(ano), isAtiva)}
                     className={`p-2 rounded-xl transition-all ${

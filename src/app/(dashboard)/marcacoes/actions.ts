@@ -598,13 +598,51 @@ export async function buscarEscalasCandidatas(
 
 const DELIMITADOR_SISREP = '---\n'
 
+// Uma linha de AFD começa com NSR (9 dígitos) seguido do tipo de registro (1 dígito, 1..9) — é o
+// único traço estrutural que distingue um AFD cru de um arquivo qualquer, e o mesmo campo que
+// fn_parse_linha_afd lê nas posições 1..10. Serve de guarda para aceitar arquivo SEM cabeçalho
+// sem transformar o campo de upload em "aceita qualquer coisa".
+const PRIMEIRA_LINHA_AFD = /^\d{9}[1-9]/
+
+// `coletor-rep afd-exportar` sempre começa o arquivo por esta marca (ver rodarAfdExportar em
+// tools/coletor-rep/cmd/cli/main.go). Decidir o formato pelo INÍCIO do arquivo, e não por
+// "achei/não achei o delimitador em algum lugar dos 2000 primeiros bytes", é o que impede um AFD
+// cru que por acaso contenha `---\n` de ser truncado como se tivesse cabeçalho.
+const MARCA_SISREP = 'SISREP-'
+
 function parseArquivoSisrep(buffer: Buffer): { cabecalho: Record<string, string>; corpo: Buffer } {
-  // O cabeçalho é sempre curto e ASCII (poucas linhas "chave: valor") — procurar o delimitador só
-  // nos primeiros bytes evita casar por acaso com uma sequência igual dentro do corpo binário.
+  // O cabeçalho é sempre curto e ASCII (poucas linhas "chave: valor") — ler só os primeiros bytes
+  // basta e evita decodificar o corpo inteiro duas vezes.
   const inicioBusca = buffer.subarray(0, 2000).toString('latin1')
+
+  if (!inicioBusca.startsWith(MARCA_SISREP)) {
+    // Relógio sem NENHUMA rede: nem o coletor alcança o equipamento, então o AFD sai pela porta
+    // USB do próprio relógio (exportação fiscal obrigatória do REP-C) e chega aqui CRU, sem o
+    // cabeçalho que só `coletor-rep afd-exportar` escreve. É byte a byte o mesmo conteúdo que
+    // get_afd.fcgi devolveria — recusar seria perder a única coleta possível nessas unidades.
+    // Sem cabeçalho não há `dispositivo_id` para conferir: a escolha do dispositivo no formulário
+    // passa a ser a única fonte, e por isso a tela avisa explicitamente.
+    // Alguns exportadores gravam BOM. Ele não é parte do AFD e faria a guarda recusar um arquivo
+    // legítimo. Aqui o buffer foi decodificado como latin1, então um BOM UTF-8 aparece como os
+    // três bytes crus (\xEF\xBB\xBF), não como ﻿ — os dois são descartados só para o teste;
+    // o buffer em si não é tocado (a linha tipo 1 que o carrega vira um registro com parse_erro
+    // no banco, nunca uma marcação perdida).
+    const primeiraLinha = (inicioBusca.split(/\r?\n/).find((l) => l.trim() !== '') || '')
+      .replace(/^(﻿|\xEF\xBB\xBF)/, '')
+    if (!PRIMEIRA_LINHA_AFD.test(primeiraLinha)) {
+      throw new Error(
+        'Arquivo não reconhecido: não tem cabeçalho .sisrep nem começa com uma linha de AFD '
+        + '(9 dígitos de NSR + tipo de registro). Confira se é mesmo o arquivo exportado do relógio.'
+      )
+    }
+    return { cabecalho: {}, corpo: buffer }
+  }
+
+  // A partir daqui o arquivo se declarou .sisrep: a ausência do delimitador é corrupção
+  // (truncado no pendrive, por exemplo), não "outro formato" — recusar é o certo.
   const posDelimitador = inicioBusca.indexOf(DELIMITADOR_SISREP)
   if (posDelimitador === -1) {
-    throw new Error('Arquivo não parece um .sisrep válido (delimitador de cabeçalho não encontrado).')
+    throw new Error('Arquivo .sisrep incompleto: delimitador de cabeçalho não encontrado.')
   }
 
   const cabecalho: Record<string, string> = {}
@@ -626,7 +664,7 @@ export async function importarPendriveAfd(dispositivoId: string, formData: FormD
   if (!dispositivoId) return { error: 'Escolha o dispositivo de origem do arquivo.' }
 
   const arquivo = formData.get('arquivo')
-  if (!(arquivo instanceof File)) return { error: 'Selecione um arquivo .sisrep.' }
+  if (!(arquivo instanceof File)) return { error: 'Selecione o arquivo .sisrep ou o AFD exportado pelo relógio.' }
 
   let cabecalho: Record<string, string>
   let corpo: Buffer

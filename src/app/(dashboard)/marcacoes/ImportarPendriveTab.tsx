@@ -63,6 +63,13 @@ export function ImportarPendriveTab() {
         depois não duplica nada.
       </p>
 
+      <p className="text-sm text-zinc-500">
+        <b>Relógio sem rede nenhuma</b> (nem o coletor alcança o equipamento): use a exportação de
+        AFD do próprio relógio para pendrive e envie esse arquivo aqui do mesmo jeito. Ele vem sem
+        cabeçalho, então <b>não há como conferir de qual equipamento veio</b> — o dispositivo
+        escolhido acima é a única fonte, confira antes de importar.
+      </p>
+
       {carregandoDispositivos ? (
         <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-zinc-400" /></div>
       ) : dispositivos.length === 0 ? (
@@ -86,11 +93,11 @@ export function ImportarPendriveTab() {
 
           <div>
             <label className="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-1">
-              Arquivo .sisrep
+              Arquivo .sisrep ou AFD exportado pelo relógio
             </label>
             <input
               type="file"
-              accept=".sisrep"
+              accept=".sisrep,.txt,.afd"
               onChange={(e) => setArquivo(e.target.files?.[0] || null)}
               className="w-full text-sm text-zinc-600 dark:text-zinc-400 file:mr-3 file:py-2 file:px-3 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 dark:file:bg-blue-900/30 dark:file:text-blue-300 hover:file:bg-blue-100"
             />

@@ -2,12 +2,14 @@
 
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
+import { useRouter } from 'next/navigation'
 import { 
   Save, Loader2, Info, Zap, Lock, Unlock, FileText, Plus, UserPlus, Users, 
   CheckCircle, Trash2, Globe, X, Copy, Check, Clock, Navigation2, Send, CheckSquare,
   Shield, ShieldCheck, ShieldAlert, AlertTriangle, LayoutTemplate,
-  ChevronLeft, ChevronRight, Sparkles
+  ChevronLeft, ChevronRight, Sparkles, ExternalLink
 } from 'lucide-react'
+import { gerarFolhaPonto } from '@/app/(dashboard)/folha-ponto/actions'
 import { ScalePrintView } from '@/components/ScalePrintView'
 import { Modal } from '@/components/ui/Modal'
 import React from 'react'
@@ -68,12 +70,57 @@ export function ScaleGrid({
   configsGlobais,
   userProfile
 }: ScaleGridProps) {
+  const router = useRouter()
   // Initialize Supabase client once
   const [supabase] = useState(() => createClient())
   const [loading, setLoading] = useState(false)
+  const [navigatingFolhaId, setNavigatingFolhaId] = useState<string | null>(null)
   const [isTotalsCollapsed, setIsTotalsCollapsed] = useState(false)
   const [servidoresEventos, setServidoresEventos] = useState<any[]>([])
   const [jornadasTemporarias, setJornadasTemporarias] = useState<any[]>([])
+
+  const handleNavigateToFolha = async (em: any) => {
+    if (!em?.servidor_id) return
+    setNavigatingFolhaId(em.servidor_id)
+    try {
+      // 1. Procurar se já existe folha_ponto no banco de dados para esta escala mensal
+      const { data: folha } = await supabase
+        .from('folha_ponto')
+        .select('id')
+        .eq('escala_mensal_id', em.id)
+        .maybeSingle()
+
+      if (folha?.id) {
+        router.push(`/folha-ponto/${folha.id}`)
+        return
+      }
+
+      // 2. Se a folha ainda não foi criada no banco, chamar a action para gerar/obter em rascunho
+      const res = await gerarFolhaPonto(em.servidor_id, em.mes || mes, em.ano || ano, true, em.id)
+
+      if (res?.success && (res.folha_id || (res as any).folhaId)) {
+        const targetId = res.folha_id || (res as any).folhaId
+        router.push(`/folha-ponto/${targetId}`)
+      } else if (res?.error) {
+        setAlertModal({
+          isOpen: true,
+          title: 'Escala em Rascunho',
+          message: `${res.error}\n\nDica: Clique no botão verde "Salvar Previsão" no canto superior direito para gravar a escala no banco e gerar a folha de ponto.`,
+          type: 'warning'
+        })
+      }
+    } catch (err: any) {
+      console.error('Erro ao navegar para folha de ponto:', err)
+      setAlertModal({
+        isOpen: true,
+        title: 'Erro',
+        message: 'Não foi possível carregar a folha de ponto deste servidor.',
+        type: 'danger'
+      })
+    } finally {
+      setNavigatingFolhaId(null)
+    }
+  }
 
   const fetchServidoresEventos = useCallback(async () => {
     if (escalaMensalInicial.length === 0) return
@@ -3321,9 +3368,19 @@ export function ScaleGrid({
                       {catIdx === 0 && (
                         <td rowSpan={4} className="sticky left-0 z-10 bg-white dark:bg-zinc-900 p-2 border border-zinc-200 dark:border-zinc-700 font-bold align-top text-zinc-900 dark:text-zinc-100">
                           <div className="flex items-start justify-between gap-1 max-w-full">
-                            <span className="leading-tight break-words text-[11px] font-bold text-zinc-900 dark:text-zinc-100 pr-1">
-                              {em.servidores?.nome}
-                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleNavigateToFolha(em)}
+                              disabled={navigatingFolhaId === em.servidor_id}
+                              className="leading-tight break-words text-[11px] font-bold text-zinc-900 dark:text-zinc-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline text-left transition-colors cursor-pointer group/name flex items-center gap-1.5 pr-1"
+                              title={`Clique para abrir a Folha de Ponto de ${em.servidores?.nome} (${(em.mes || mes).toString().padStart(2, '0')}/${em.ano || ano})`}
+                            >
+                              {navigatingFolhaId === em.servidor_id ? (
+                                <Loader2 className="h-3 w-3 animate-spin text-blue-500 shrink-0" />
+                              ) : null}
+                              <span>{em.servidores?.nome}</span>
+                              <ExternalLink className="h-3 w-3 opacity-0 group-hover/name:opacity-100 text-blue-500 transition-opacity shrink-0" />
+                            </button>
                             <div className="flex items-center gap-1 shrink-0 mt-0.5">
                               {!isComum && (
                                 <button
