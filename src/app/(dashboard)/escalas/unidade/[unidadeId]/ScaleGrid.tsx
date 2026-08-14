@@ -2660,6 +2660,12 @@ export function ScaleGrid({
             let saiManual = existing?.presenca_saida_manual || false
             let intSaiManual = existing?.presenca_intervalo_saida_manual || false
             let intVoltaManual = existing?.presenca_intervalo_retorno_manual || false
+            // Justificativa/confirmação são por LINHA (não por passo, ver
+            // 20260807070000). Preservam o que já existe — se a linha já tinha sido validada
+            // pelo modal de verdade (fn_confirmar_presenca_manual, com justificativa digitada
+            // pelo coordenador), este save não pode sobrescrever isso com o texto automático.
+            let justificativaManual = existing?.justificativa_manual || null
+            let confirmacaoManual = existing?.confirmacao_manual || false
 
             if (isLocalValidated) {
               conf = true
@@ -2739,6 +2745,19 @@ export function ScaleGrid({
                 const hhmm = getShiftForecastTime(turnoId, 'intervalo_retorno', em.servidor_id, categoria, day)
                 if (hhmm) { intVolta = `${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${hhmm}:00-03:00`; intVoltaManual = true }
               }
+
+              // Justificativa automática, não digitada pelo coordenador. O ponto desta flag
+              // (validar dias passados ao aplicar template) é exatamente dispensar justificar
+              // cada marcação uma a uma — isso é o que separa este caminho do modal de
+              // validação manual "de verdade" (fn_confirmar_presenca_manual), que exige
+              // justificativa digitada por ser uma decisão pontual do coordenador. Aqui a
+              // decisão é uma só (aplicar o template) e vale para todo o lote de uma vez.
+              if (entManual || saiManual || intSaiManual || intVoltaManual) {
+                confirmacaoManual = true
+                if (!justificativaManual) {
+                  justificativaManual = 'Ajuste automático — presença aplicada a partir do horário previsto ao validar dias passados no Aplicar Template.'
+                }
+              }
             }
 
             // Hora informada pelo coordenador. Vale para qualquer turno que a aceite — inclusive
@@ -2765,6 +2784,8 @@ export function ScaleGrid({
               presenca_saida_manual: saiManual,
               presenca_intervalo_saida_manual: intSaiManual,
               presenca_intervalo_retorno_manual: intVoltaManual,
+              justificativa_manual: justificativaManual,
+              confirmacao_manual: confirmacaoManual,
               presenca_confirmada: conf,
               confirmado_por_id: confBy
             }
