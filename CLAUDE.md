@@ -129,6 +129,19 @@ Esquecer de subir um dos dois deixa o app achando que já está atualizado (ou, 
 escrever `dist/VERSION` com o mesmo número → `npm run build` → conferir
 `find .next/standalone -iname VERSION -path "*coletor-rep*"` → commitar os três juntos.
 
+⚠️ **`cmd/tray` precisa compilar com `-ldflags="-H=windowsgui"` (documentado no `README.md` do
+coletor, ignorado uma vez em 14/08/2026 ao recompilar rápido pra testar `cadastros-exportar`).**
+Sem essa flag o binário sai no subsystem console (3) em vez de GUI (2) — não é só cosmético
+("janela pisca e some"): fechar essa janela de console mata o processo inteiro, porque não há
+console separado do processo, e derruba o app de bandeja em produção. `cmd/cli` é o oposto —
+**não** leva essa flag, porque é feito pra imprimir no terminal. Conferir depois de compilar:
+
+```powershell
+$b = [System.IO.File]::ReadAllBytes("dist\coletor-rep-tray.exe")
+$off = [BitConverter]::ToInt32($b, 0x3C) + 4 + 20
+[BitConverter]::ToUInt16($b, $off + 68)   # 2 = GUI (certo) | 3 = console (esqueceu a flag)
+```
+
 **Update do app de bandeja é "avisa e espera clique", nunca automático** — decisão explícita do
 usuário, mesma cautela já registrada para o Smart App Control bloquear o `.exe` sem aviso.
 `cmd/tray/main.go` checa `ciclo.VersaoDisponivel` no máximo 1x/dia (não a cada ciclo de 5 min),
@@ -185,8 +198,20 @@ em `/marcacoes` (`importarPendriveAfd` em `marcacoes/actions.ts`, que chama a me
   CPF em `/marcacoes` (`fn_vincular_cadastros_por_cpf`, já existente) — não criei confirmação nova,
   reusei a que já resolve o caso dominante de "Cobertura de ponto".
 
-  ⚠️ **Ainda não testado**: aplicar esse CSV de volta via "Receber usuários" com uma identidade
-  **nova** (o teste real foi reimportar o que já existia). "Marcações (legado)" ao lado de "Enviar
+  ✅ **Confirmado em 14/08/2026, hardware real (REP-iDClass-CEI)**: `cadastros-exportar` gerou o
+  CSV, aplicado via "Receber usuários" no equipamento com um usuário de **teste novo**
+  ("SISESCALA TESTE - PODE APAGAR", matrícula 900000) somado aos 67 reais já existentes — o
+  teste entrou junto, os 67 continuaram intactos. Confirma duas coisas: o formato do
+  `cadastros-exportar` é aceito de volta pelo device, e "Receber usuários" é **aditivo**, não
+  substitui a lista inteira (testado apensando ao `usuarios` real exportado antes, exatamente
+  por essa dúvida — testar com um CSV de 1 linha só teria arriscado apagar os 67 reais se fosse
+  substituição). Usuário de teste removido pela interface do equipamento depois, mesma convenção
+  de `cadastros-testar`/`remocao-testar`.
+
+  ⚠️ **Ainda não testado**: importar de volta em `/marcacoes` → "Importar por Pendrive" um AFD
+  cru exportado pelo próprio menu do relógio ("Enviar marcações") — o código já trata esse caso
+  (`parseArquivoSisrep` em `marcacoes/actions.ts` aceita `.sisrep` OU AFD sem cabeçalho), só
+  falta alguém passar um arquivo de verdade por ali. "Marcações (legado)" ao lado de "Enviar
   marcações" continua sem explicação — pode ser um segundo formato de AFD que nunca foi
   examinado.
 
