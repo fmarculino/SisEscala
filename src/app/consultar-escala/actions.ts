@@ -6,6 +6,7 @@ import { unstable_cache, revalidatePath } from 'next/cache'
 import { autoCloseExpiredScalesAndTimesheets, isCompetencyClosed } from '@/utils/autoClose'
 import { resolverMarcacaoDoDia, COLUNAS_PRESENCA_FOLHA } from '@/utils/folha/origemMarcacao'
 import { podePreAssinalarIntervalo } from '@/utils/folha/preAssinalacao'
+import { resolverFaltaAutomatica, isFaltaDefinitiva } from '@/utils/folha/faltaAutomatica'
 import { TERMO_ATIVACAO, TERMO_DESATIVACAO, TERMO_VERSAO } from '@/utils/avisoPonto'
 
 
@@ -822,8 +823,7 @@ export async function salvarFolhaPontoServidor(folhaId: string, registros: any[]
         totalHorasNormais += horasNormaisDiarias
       }
 
-      const isFalta = r.observacao && r.observacao.toUpperCase().includes('FALTA')
-      if (isFalta) {
+      if (isFaltaDefinitiva(r.observacao)) {
         totalFaltas++
       }
 
@@ -1034,6 +1034,17 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
       .eq('chave', 'folha_ponto_variacao_minutos')
       .single()
     const maxVar = configVar?.valor ? parseInt(configVar.valor as string, 10) : 15
+
+    // Prazo (dias uteis apos o FIM DO MES) para justificar um dia sem nenhuma marcacao antes
+    // dele virar falta definitiva. Ver src/utils/folha/faltaAutomatica.ts.
+    const { data: configPrazoJustificativa } = await supabase
+      .from('configuracoes_globais')
+      .select('valor')
+      .eq('chave', 'justificativa_prazo_dias_uteis')
+      .maybeSingle()
+    const prazoJustificativaDiasUteis = configPrazoJustificativa?.valor
+      ? parseInt(configPrazoJustificativa.valor as string, 10)
+      : 3
 
     // Pre-assinalacao do intervalo so vale onde a unidade NAO exige que o servidor marque o
     // intervalo no ponto. Onde exige, o horario tem de vir de batida. Ver preAssinalacao.ts.
@@ -1308,7 +1319,27 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
           registro.observacao = registroExistente.observacao
         }
 
-        if (registro.observacao.includes('FALTA')) {
+        // Falta automatica: dia sem nenhuma observacao ainda e sem NENHUMA marcacao (real ou
+        // manual) de entrada nem saida. Ver src/utils/folha/faltaAutomatica.ts.
+        if (!registro.observacao) {
+          const diaJaPassou = (folha.ano < currentYear) ||
+            (folha.ano === currentYear && folha.mes < currentMonth) ||
+            (folha.ano === currentYear && folha.mes === currentMonth && day < currentDay)
+          const temMarcacao = hasRealEntrada || isManualEntrada || hasRealSaida || isManualSaida
+          const faltaObservacao = resolverFaltaAutomatica({
+            diaJaPassou,
+            temMarcacao,
+            fimDoMes: new Date(folha.ano, folha.mes, 0),
+            hoje: new Date(currentYear, currentMonth - 1, currentDay),
+            feriados: feriadosSet,
+            prazoDiasUteis: prazoJustificativaDiasUteis
+          })
+          if (faltaObservacao) {
+            registro.observacao = faltaObservacao
+          }
+        }
+
+        if (isFaltaDefinitiva(registro.observacao)) {
           totalFaltas++
         }
 
@@ -1496,6 +1527,17 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
       .eq('chave', 'folha_ponto_variacao_minutos')
       .single()
     const maxVar = configVar?.valor ? parseInt(configVar.valor as string, 10) : 15
+
+    // Prazo (dias uteis apos o FIM DO MES) para justificar um dia sem nenhuma marcacao antes
+    // dele virar falta definitiva. Ver src/utils/folha/faltaAutomatica.ts.
+    const { data: configPrazoJustificativa } = await supabase
+      .from('configuracoes_globais')
+      .select('valor')
+      .eq('chave', 'justificativa_prazo_dias_uteis')
+      .maybeSingle()
+    const prazoJustificativaDiasUteis = configPrazoJustificativa?.valor
+      ? parseInt(configPrazoJustificativa.valor as string, 10)
+      : 3
 
     // Pre-assinalacao do intervalo so vale onde a unidade NAO exige que o servidor marque o
     // intervalo no ponto. Onde exige, o horario tem de vir de batida. Ver preAssinalacao.ts.
@@ -1829,7 +1871,27 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
           registro.observacao = registroExistente.observacao
         }
 
-        if (registro.observacao.includes('FALTA')) {
+        // Falta automatica: dia sem nenhuma observacao ainda e sem NENHUMA marcacao (real ou
+        // manual) de entrada nem saida. Ver src/utils/folha/faltaAutomatica.ts.
+        if (!registro.observacao) {
+          const diaJaPassou = (ano < currentYear) ||
+            (ano === currentYear && mes < currentMonth) ||
+            (ano === currentYear && mes === currentMonth && day < currentDay)
+          const temMarcacao = hasRealEntrada || isManualEntrada || hasRealSaida || isManualSaida
+          const faltaObservacao = resolverFaltaAutomatica({
+            diaJaPassou,
+            temMarcacao,
+            fimDoMes: new Date(ano, mes, 0),
+            hoje: new Date(currentYear, currentMonth - 1, currentDay),
+            feriados: feriadosSet,
+            prazoDiasUteis: prazoJustificativaDiasUteis
+          })
+          if (faltaObservacao) {
+            registro.observacao = faltaObservacao
+          }
+        }
+
+        if (isFaltaDefinitiva(registro.observacao)) {
           totalFaltas++
         }
 

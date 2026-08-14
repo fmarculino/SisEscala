@@ -7,6 +7,7 @@ import { hasSectorAccess, UserProfile, applyAccessFilters, isAccessUnrestricted 
 import { autoCloseExpiredScalesAndTimesheets, isCompetencyClosed } from '@/utils/autoClose'
 import { resolverMarcacaoDoDia, COLUNAS_PRESENCA_FOLHA, type PassoPresenca } from '@/utils/folha/origemMarcacao'
 import { podePreAssinalarIntervalo } from '@/utils/folha/preAssinalacao'
+import { resolverFaltaAutomatica, isFaltaDefinitiva } from '@/utils/folha/faltaAutomatica'
 
 // Helper: Get user profile with unit/sector permissions
 async function getUserProfile(supabase: any): Promise<UserProfile> {
@@ -313,6 +314,17 @@ export async function executeGerarFolhaPonto(
       .single()
     const maxVar = configVar?.valor ? parseInt(configVar.valor as string, 10) : 15
 
+    // Prazo (dias uteis apos o FIM DO MES) para justificar um dia sem nenhuma marcacao antes
+    // dele virar falta definitiva. Ver src/utils/folha/faltaAutomatica.ts.
+    const { data: configPrazoJustificativa } = await supabase
+      .from('configuracoes_globais')
+      .select('valor')
+      .eq('chave', 'justificativa_prazo_dias_uteis')
+      .maybeSingle()
+    const prazoJustificativaDiasUteis = configPrazoJustificativa?.valor
+      ? parseInt(configPrazoJustificativa.valor as string, 10)
+      : 3
+
     // Pre-assinalacao do intervalo so vale onde a unidade NAO exige que o servidor marque o
     // intervalo no ponto. Onde exige, o horario tem de vir de batida. Ver preAssinalacao.ts.
     const { data: unidadeIntervalo } = await supabase
@@ -346,7 +358,7 @@ export async function executeGerarFolhaPonto(
       .gte('data', startDate)
       .lte('data', endDate)
 
-    const feriadosSet = new Set(feriados?.map((f: any) => f.data) || [])
+    const feriadosSet: Set<string> = new Set(feriados?.map((f: any) => f.data) || [])
 
     // Fetch pontos facultativos
     const { data: pontosFacultativos } = await supabase
@@ -668,7 +680,27 @@ export async function executeGerarFolhaPonto(
           registro.observacao = registroExistente.observacao
         }
 
-        if (registro.observacao.includes('FALTA')) {
+        // Falta automatica: dia sem nenhuma observacao ainda e sem NENHUMA marcacao (real ou
+        // manual) de entrada nem saida. Ver src/utils/folha/faltaAutomatica.ts.
+        if (!registro.observacao) {
+          const diaJaPassou = (resolvedAno < currentYear) ||
+            (resolvedAno === currentYear && resolvedMes < currentMonth) ||
+            (resolvedAno === currentYear && resolvedMes === currentMonth && day < currentDay)
+          const temMarcacao = hasRealEntrada || isManualEntrada || hasRealSaida || isManualSaida
+          const faltaObservacao = resolverFaltaAutomatica({
+            diaJaPassou,
+            temMarcacao,
+            fimDoMes: new Date(resolvedAno, resolvedMes, 0),
+            hoje: new Date(currentYear, currentMonth - 1, currentDay),
+            feriados: feriadosSet,
+            prazoDiasUteis: prazoJustificativaDiasUteis
+          })
+          if (faltaObservacao) {
+            registro.observacao = faltaObservacao
+          }
+        }
+
+        if (isFaltaDefinitiva(registro.observacao)) {
           totalFaltas++
         }
 
@@ -1002,7 +1034,7 @@ export async function sincronizarFolhaPonto(folhaId: string) {
       .gte('data', startDate)
       .lte('data', endDate)
 
-    const feriadosSet = new Set(feriados?.map(f => f.data) || [])
+    const feriadosSet: Set<string> = new Set(feriados?.map(f => f.data) || [])
 
     // Fetch absences
     const { data: afastamentos } = await supabase
@@ -1049,6 +1081,17 @@ export async function sincronizarFolhaPonto(folhaId: string) {
       .eq('chave', 'folha_ponto_variacao_minutos')
       .single()
     const maxVar = configVar?.valor ? parseInt(configVar.valor as string, 10) : 15
+
+    // Prazo (dias uteis apos o FIM DO MES) para justificar um dia sem nenhuma marcacao antes
+    // dele virar falta definitiva. Ver src/utils/folha/faltaAutomatica.ts.
+    const { data: configPrazoJustificativa } = await supabase
+      .from('configuracoes_globais')
+      .select('valor')
+      .eq('chave', 'justificativa_prazo_dias_uteis')
+      .maybeSingle()
+    const prazoJustificativaDiasUteis = configPrazoJustificativa?.valor
+      ? parseInt(configPrazoJustificativa.valor as string, 10)
+      : 3
 
     // Pre-assinalacao do intervalo so vale onde a unidade NAO exige que o servidor marque o
     // intervalo no ponto. Onde exige, o horario tem de vir de batida. Ver preAssinalacao.ts.
@@ -1329,7 +1372,27 @@ export async function sincronizarFolhaPonto(folhaId: string) {
           registro.observacao = registroExistente.observacao
         }
 
-        if (registro.observacao.includes('FALTA')) {
+        // Falta automatica: dia sem nenhuma observacao ainda e sem NENHUMA marcacao (real ou
+        // manual) de entrada nem saida. Ver src/utils/folha/faltaAutomatica.ts.
+        if (!registro.observacao) {
+          const diaJaPassou = (folha.ano < currentYear) ||
+            (folha.ano === currentYear && folha.mes < currentMonth) ||
+            (folha.ano === currentYear && folha.mes === currentMonth && day < currentDay)
+          const temMarcacao = hasRealEntrada || isManualEntrada || hasRealSaida || isManualSaida
+          const faltaObservacao = resolverFaltaAutomatica({
+            diaJaPassou,
+            temMarcacao,
+            fimDoMes: new Date(folha.ano, folha.mes, 0),
+            hoje: new Date(currentYear, currentMonth - 1, currentDay),
+            feriados: feriadosSet,
+            prazoDiasUteis: prazoJustificativaDiasUteis
+          })
+          if (faltaObservacao) {
+            registro.observacao = faltaObservacao
+          }
+        }
+
+        if (isFaltaDefinitiva(registro.observacao)) {
           totalFaltas++
         }
 
@@ -1640,8 +1703,7 @@ export async function salvarFolhaPonto(folhaId: string, registros: any[], status
         totalHorasNormais += horasNormaisDiarias
       }
       
-      const isFalta = r.observacao && r.observacao.toUpperCase().includes('FALTA')
-      if (isFalta) {
+      if (isFaltaDefinitiva(r.observacao)) {
         totalFaltas++
       }
 

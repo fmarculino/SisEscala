@@ -11,6 +11,7 @@ import {
 import { salvarFolhaPonto, verificarDivergenciaEscala, sincronizarFolhaPonto, gerarFolhaPonto, reclassificarPassoPresenca } from '../actions'
 import { Modal } from '@/components/ui/Modal'
 import { createClient } from '@/utils/supabase/client'
+import { isFaltaDefinitiva } from '@/utils/folha/faltaAutomatica'
 
 function formatMinutesToTimeStr(totalMinutes: number): string {
   const h = Math.floor(totalMinutes / 60) % 24
@@ -454,7 +455,7 @@ export function FolhaPontoEditor({
       if (r.turno_codigo) {
         normais += (jornada?.horas_totais || 8)
       }
-      if (r.observacao && r.observacao.toUpperCase().includes('FALTA')) {
+      if (isFaltaDefinitiva(r.observacao)) {
         faltas++
       }
       if (r.hora_extra_minutos && r.hora_extra_minutos > 0) {
