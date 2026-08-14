@@ -159,6 +159,37 @@ em `/marcacoes` (`importarPendriveAfd` em `marcacoes/actions.ts`, que chama a me
   rodando continuamente pra aplicar nada, então `rep_remocoes_fila` precisaria de um jeito de sair
   do banco e chegar ao equipamento fisicamente, como o AFD já faz na direção inversa.
 
+  ✅ **Formato confirmado em 14/08/2026** (REP-iDClass-CEI, ciclo real de exportar pelo menu do
+  equipamento → reimportar sem erro): "Enviar/Receber usuários" usa **texto CSV `;` com
+  cabeçalho**, não nada proprietário:
+
+  ```
+  cpf;nome;administrador;matricula;rfid;codigo;senha;barras;digitais
+  76107426272;Luciede de Jesus Alves;0;58534;0;0;;;<base64 do template, quando tem>
+  ```
+
+  `cpf` sai **sem zero à esquerda** (device trata como número) — é o oposto de `identificador_afd`
+  do AFD, que é sempre 12 dígitos com zero de preenchimento (armadilha 10). `digitais` pode vir
+  vazio (confirmado: 19 de 67 usuários do teste não tinham biometria). `empregador` é o mesmo
+  formato CSV, uma linha só, campos `cpforcnpj;cei;endereco;cpfcnpj;razao;cpfresp` — cadastro de
+  empresa/CEI, sem equivalente hoje no schema do SisEscala, fora de escopo por ora.
+  `usuarios.dat`/`digitais.dat` (binários, o segundo com assinatura `ICRS21`) são cache interno e
+  container proprietário de biometria — não usados, biometria continua só presencial.
+
+  **Implementado:** `coletor-rep-cli cadastros-exportar <arquivo>` gera esse CSV a partir de
+  `rep_cadastros_fila` (mesma fonte do comando `cadastros` online), replicando a exata mesma
+  conversão cpf/matrícula que `CriarUsuario` (`rep/client.go`) já fazia para o caminho online — sem
+  regra nova para o mesmo dado. Só gera o arquivo: não toca no relógio nem confirma nada no
+  SisEscala (a aplicação de verdade acontece fisicamente, depois, via "Receber usuários"). Fechar o
+  loop depois de aplicar é rodar `coletor-rep higiene` (quando o relógio tiver rede) e vincular por
+  CPF em `/marcacoes` (`fn_vincular_cadastros_por_cpf`, já existente) — não criei confirmação nova,
+  reusei a que já resolve o caso dominante de "Cobertura de ponto".
+
+  ⚠️ **Ainda não testado**: aplicar esse CSV de volta via "Receber usuários" com uma identidade
+  **nova** (o teste real foi reimportar o que já existia). "Marcações (legado)" ao lado de "Enviar
+  marcações" continua sem explicação — pode ser um segundo formato de AFD que nunca foi
+  examinado.
+
 - ⚠️ **Atalho de dev do `cmd/tray` não pode detectar `go run` pela presença de `config.yaml`
   no diretório de trabalho.** Era exatamente esse teste que fazia todo usuário real nunca se
   auto-instalar de verdade: o Explorer do Windows abre um `.exe` com CWD = pasta do próprio
@@ -179,7 +210,13 @@ em `/marcacoes` (`importarPendriveAfd` em `marcacoes/actions.ts`, que chama a me
   ativo ("Ativado", não avaliação) — o único caminho é desligar nas Configurações do Windows.
   Uma nota anterior aqui dizia que isso era **irreversível sem reinstalar o Windows** — builds
   mais recentes do Windows 11 já trouxeram a opção de reativar sem reinstalar; confira a versão
-  antes de assumir uma coisa ou outra.
+  antes de assumir uma coisa ou outra. Confirmado em 14/08/2026 na máquina de dev (build 26200,
+  Windows 11 Pro): `HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy` →
+  `VerifiedAndReputablePolicyState = 1` (Ativado, não avaliação) — bate com o comportamento
+  descrito acima. Não dá para alternar por registro/PowerShell (o Windows valida a troca por um
+  serviço protegido); só pela UI (Segurança do Windows → Controle de aplicativos e navegador →
+  Configurações do Smart App Control → Desativar), e o próprio diálogo de confirmação mostra se
+  dá para reativar sem reinstalar — não presuma, leia o texto que aparece na hora.
 - `get_system_information.fcgi` (deriva de relógio no heartbeat) continua aproximação — não
   confirmado contra hardware real.
 - `sync` sempre pede o AFD a partir do NSR 1 (não lê `dispositivos_rep.ultimo_nsr` antes) e
