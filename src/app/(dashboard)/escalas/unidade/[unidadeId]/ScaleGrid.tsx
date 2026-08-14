@@ -2652,6 +2652,14 @@ export function ScaleGrid({
             let intVolta = existing?.presenca_intervalo_retorno_em || null
             let conf = existing?.presenca_confirmada || false
             let confBy = existing?.confirmado_por_id || null
+            // Flags de origem por passo. Preservam o valor existente por padrao — so viram
+            // true quando ESTE save fabrica o horario a partir do previsto (nunca de uma
+            // batida real), para a folha nao rotular como "Real" o que foi confirmado pela
+            // grade sem marcacao. Ver CLAUDE.md, "presenca_*_manual" / origemMarcacao.ts.
+            let entManual = existing?.presenca_entrada_manual || false
+            let saiManual = existing?.presenca_saida_manual || false
+            let intSaiManual = existing?.presenca_intervalo_saida_manual || false
+            let intVoltaManual = existing?.presenca_intervalo_retorno_manual || false
 
             if (isLocalValidated) {
               conf = true
@@ -2664,20 +2672,41 @@ export function ScaleGrid({
               // escala_diaria. Usa o bloco do banco quando a célula já existe lá.
               const blocoSalvar = blocoDaCelula(em.servidor_id, categoria, day)
               if (blocoSalvar) {
-                if (localPresence?.entrada && !ent) ent = blocoSalvar.inicio_previsto
-                if (localPresence?.saida && !sai) sai = blocoSalvar.fim_previsto
-                if (localPresence?.intervalo_saida && !intSai) intSai = blocoSalvar.intervalo_inicio_previsto
-                if (localPresence?.intervalo_retorno && !intVolta) intVolta = blocoSalvar.intervalo_fim_previsto
+                if (localPresence?.entrada && !ent) { ent = blocoSalvar.inicio_previsto; entManual = true }
+                if (localPresence?.saida && !sai) { sai = blocoSalvar.fim_previsto; saiManual = true }
+                if (localPresence?.intervalo_saida && !intSai) { intSai = blocoSalvar.intervalo_inicio_previsto; intSaiManual = true }
+                if (localPresence?.intervalo_retorno && !intVolta) { intVolta = blocoSalvar.intervalo_fim_previsto; intVoltaManual = true }
               }
 
               const t = turnos.find(x => x.id === turnoId)
               if (t && (!ent || !sai)) {
-                const startHour = getShiftStartHour(t.codigo, Number(t.horas_computadas))
-                const endHourVal = getShiftEndHour(t.codigo, Number(t.horas_computadas))
+                let startHour = getShiftStartHour(t.codigo, Number(t.horas_computadas))
+                let endHourVal = getShiftEndHour(t.codigo, Number(t.horas_computadas))
+
+                // Regular: o nome da jornada manda sobre a ancora do codigo do turno — mesma
+                // prioridade de getShiftForecastTime (~linha 1864) e da fonte unica em SQL
+                // (fn_blocos_previstos_dia). Sem isto, Regular usando um codigo que TAMBEM e
+                // ancora de plantao no dicionario (ex.: "MT" = 07:00-19:00, 12h) herdava o
+                // horario do plantao em vez do da propria jornada — bug relatado em 14/08/2026
+                // com jornada "08H AS 17H" virando 07:00-19:00 na folha. CLAUDE.md armadilha 4.
+                if (categoria === 'Regular' && em.jornada_id) {
+                  const jornadaReg = jornadas.find((j: any) => j.id === em.jornada_id)
+                  if (jornadaReg?.nome) {
+                    const matchStart = jornadaReg.nome.match(/^([0-9]+)/)
+                    if (matchStart) startHour = parseInt(matchStart[1], 10)
+                    const matchEnd = jornadaReg.nome.match(/(?:ÀS|AS|as|às)\s*([0-9]+)/)
+                    if (matchEnd) {
+                      let parsedEnd = parseInt(matchEnd[1], 10)
+                      if (parsedEnd < startHour) parsedEnd += 24
+                      endHourVal = parsedEnd
+                    }
+                  }
+                }
 
                 if (localPresence?.entrada && !ent) {
                   // Construct entry ISO
                   ent = `${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(startHour).padStart(2, '0')}:00:00-03:00`
+                  entManual = true
                 }
 
                 if (localPresence?.saida && !sai) {
@@ -2691,6 +2720,7 @@ export function ScaleGrid({
                   const endMonth = dateObj.getMonth() + 1
                   const endDay = dateObj.getDate()
                   sai = `${endYear}-${String(endMonth).padStart(2, '0')}-${String(endDay).padStart(2, '0')}T${String(endHourValNorm).padStart(2, '0')}:00:00-03:00`
+                  saiManual = true
                 }
               }
 
@@ -2703,11 +2733,11 @@ export function ScaleGrid({
               // 4 segmentos como confirmados na hora, mas nada de intervalo ia pro banco ao salvar.
               if (localPresence?.intervalo_saida && !intSai) {
                 const hhmm = getShiftForecastTime(turnoId, 'intervalo_saida', em.servidor_id, categoria, day)
-                if (hhmm) intSai = `${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${hhmm}:00-03:00`
+                if (hhmm) { intSai = `${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${hhmm}:00-03:00`; intSaiManual = true }
               }
               if (localPresence?.intervalo_retorno && !intVolta) {
                 const hhmm = getShiftForecastTime(turnoId, 'intervalo_retorno', em.servidor_id, categoria, day)
-                if (hhmm) intVolta = `${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${hhmm}:00-03:00`
+                if (hhmm) { intVolta = `${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${hhmm}:00-03:00`; intVoltaManual = true }
               }
             }
 
@@ -2731,6 +2761,10 @@ export function ScaleGrid({
               presenca_saida_em: sai,
               presenca_intervalo_saida_em: intSai,
               presenca_intervalo_retorno_em: intVolta,
+              presenca_entrada_manual: entManual,
+              presenca_saida_manual: saiManual,
+              presenca_intervalo_saida_manual: intSaiManual,
+              presenca_intervalo_retorno_manual: intVoltaManual,
               presenca_confirmada: conf,
               confirmado_por_id: confBy
             }

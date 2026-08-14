@@ -54,7 +54,15 @@ function isTurnoDiurno(codigo: string, slots?: string[]): boolean {
  * o turno diurno começa quando a noite terminaria (18H ÀS 06H + MT → 06:00, não 07:00). Sem
  * isso a grade calcularia interjornada sobre um horário que o terminal não cobra mais.
  */
-function getShiftStartHour(codigo: string, fimJornadaNoturna?: number | null, slots?: string[]): number {
+function getShiftStartHour(codigo: string, fimJornadaNoturna?: number | null, slots?: string[], isRegular?: boolean, jornadaNome?: string | null): number {
+  // Regular: o nome da jornada manda, igual a fn_blocos_previstos_dia (SQL) e
+  // ScaleGrid.tsx getShiftForecastTime. Um código como "MT" também existe como âncora de
+  // plantão de 12h no dicionário — sem essa checagem, todo Regular que usa esse código herda
+  // a hora do plantão em vez da própria jornada (CLAUDE.md armadilha 4).
+  if (isRegular && jornadaNome) {
+    const m = jornadaNome.match(/^([0-9]+)/)
+    if (m) return parseInt(m[1], 10)
+  }
   if (fimJornadaNoturna != null && isTurnoDiurno(codigo, slots)) return fimJornadaNoturna
   const c = codigo.toUpperCase().trim()
   // Prioridade: se contém M, começa às 07h
@@ -72,7 +80,19 @@ function getShiftStartHour(codigo: string, fimJornadaNoturna?: number | null, sl
  * Mapeia um código de turno para o horário de FIM (em horas desde meia-noite do dia).
  * Valores > 24 indicam que o turno termina no dia seguinte.
  */
-function getShiftEndHour(codigo: string, horasComputadas?: number, fimJornadaNoturna?: number | null, slots?: string[]): number {
+function getShiftEndHour(codigo: string, horasComputadas?: number, fimJornadaNoturna?: number | null, slots?: string[], isRegular?: boolean, jornadaNome?: string | null): number {
+  // Regular: mesma prioridade de getShiftStartHour — o nome da jornada manda sobre a âncora
+  // do código do turno. Ver comentário lá.
+  if (isRegular && jornadaNome) {
+    const mStart = jornadaNome.match(/^([0-9]+)/)
+    const mEnd = jornadaNome.match(/(?:ÀS|AS|as|às)\s*([0-9]+)/)
+    if (mEnd) {
+      let end = parseInt(mEnd[1], 10)
+      const start = mStart ? parseInt(mStart[1], 10) : end
+      if (end < start) end += 24
+      return end
+    }
+  }
   // Âncora espelho: o fim segue o início deslocado pela duração, e não a tabela fixa abaixo
   // (que assume turno diurno em jornada diurna). MT em jornada 18H ÀS 06H: 06:00 + 12h = 18:00.
   if (fimJornadaNoturna != null && isTurnoDiurno(codigo, slots) && horasComputadas) {
@@ -140,7 +160,9 @@ export function checkInterjornada(
         turno.codigo,
         turno.horas_computadas ? Number(turno.horas_computadas) : undefined,
         cat === 'Regular' ? null : fimNoturno,
-        turno.slots
+        turno.slots,
+        cat === 'Regular',
+        jornadaNome
       )
       if (endHour > latestEndHour) latestEndHour = endHour
     }
@@ -151,8 +173,8 @@ export function checkInterjornada(
       if (!turnoId) continue
       const turno = turnos.find(t => t.id === turnoId)
       if (!turno) continue
-      
-      const startHour = getShiftStartHour(turno.codigo, cat === 'Regular' ? null : fimNoturno, turno.slots)
+
+      const startHour = getShiftStartHour(turno.codigo, cat === 'Regular' ? null : fimNoturno, turno.slots, cat === 'Regular', jornadaNome)
       if (startHour < earliestStartNextDay) earliestStartNextDay = startHour
     }
 
