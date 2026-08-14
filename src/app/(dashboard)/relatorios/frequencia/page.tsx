@@ -40,7 +40,7 @@ export default async function FrequenciaPage({ searchParams }: Props) {
   
   const { data: profile } = await supabase
     .from('profiles')
-    .select('*, profile_unidades(unidade_id), profile_setores(setor_id)')
+    .select('*, profile_unidades(unidade_id), setores_no_escopo')
     .eq('id', user?.id)
     .single()
 
@@ -51,7 +51,7 @@ export default async function FrequenciaPage({ searchParams }: Props) {
   const userProfile = profile ? {
     ...profile,
     permitted_unidades: (profile as any).profile_unidades?.map((pu: any) => pu.unidade_id) || [],
-    permitted_setores: (profile as any).profile_setores?.map((ps: any) => ps.setor_id) || []
+    permitted_setores: (profile as any).setores_no_escopo || []
   } as UserProfile : null
 
   // Fetch Master Data

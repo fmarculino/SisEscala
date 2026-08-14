@@ -21,7 +21,7 @@ async function getAuthProfile() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('*, profile_unidades(unidade_id), profile_setores(setor_id)')
+    .select('*, profile_unidades(unidade_id), setores_no_escopo')
     .eq('id', user.id)
     .single()
 
@@ -31,7 +31,7 @@ async function getAuthProfile() {
     ...profile,
     userId: user.id,
     permitted_unidades: profile.profile_unidades?.map((pu: any) => pu.unidade_id) || [],
-    permitted_setores: profile.profile_setores?.map((ps: any) => ps.setor_id) || [],
+    permitted_setores: profile.setores_no_escopo || [],
   }
 }
 

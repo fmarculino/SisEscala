@@ -578,7 +578,7 @@ export default function AuditoriaPage() {
       if (user) {
         const { data: prof } = await supabase
           .from('profiles')
-          .select('*, profile_unidades(unidade_id), profile_setores(setor_id)')
+          .select('*, profile_unidades(unidade_id), setores_no_escopo')
           .eq('id', user.id)
           .single()
         
@@ -586,7 +586,7 @@ export default function AuditoriaPage() {
           const profile: UserProfile = {
             ...prof,
             permitted_unidades: prof.profile_unidades?.map((pu: any) => pu.unidade_id) || [],
-            permitted_setores: prof.profile_setores?.map((ps: any) => ps.setor_id) || []
+            permitted_setores: prof.setores_no_escopo || []
           } as UserProfile
           setUserProfile(profile)
           

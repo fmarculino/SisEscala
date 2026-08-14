@@ -15,7 +15,7 @@ export default async function DashboardLayout({
   if (user) {
     const { data } = await supabase
       .from('profiles')
-      .select('*, profile_unidades(unidade_id), profile_setores(setor_id)')
+      .select('*, profile_unidades(unidade_id), setores_no_escopo')
       .eq('id', user.id)
       .single()
     
@@ -24,7 +24,7 @@ export default async function DashboardLayout({
       profile = {
         ...data,
         permitted_unidades: data.profile_unidades?.map((pu: any) => pu.unidade_id) || [],
-        permitted_setores: data.profile_setores?.map((ps: any) => ps.setor_id) || []
+        permitted_setores: data.setores_no_escopo || []
       }
     }
   }

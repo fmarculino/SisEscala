@@ -142,7 +142,7 @@ async function validarLotacaoNoEscopo(
 
   const { data: profile, error } = await supabase
     .from('profiles')
-    .select('role, acesso_todas_unidades, acesso_todos_setores, profile_setores(setor_id)')
+    .select('role, acesso_todas_unidades, acesso_todos_setores, setores_no_escopo')
     .eq('id', user.id)
     .single()
 
@@ -153,7 +153,7 @@ async function validarLotacaoNoEscopo(
     return null
   }
 
-  const permitidos = (profile.profile_setores || []).map((ps: any) => ps.setor_id)
+  const permitidos = ((profile as any).setores_no_escopo || [])
   if (permitidos.includes(setorId)) return null
 
   return 'Você não tem permissão para lotar um servidor neste setor. Só é possível gravar nos setores ' +

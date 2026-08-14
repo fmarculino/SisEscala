@@ -26,14 +26,14 @@ export default function NovaEscalaPage() {
 
       const { data: prof } = await supabase
         .from('profiles')
-        .select('*, profile_unidades(unidade_id), profile_setores(setor_id)')
+        .select('*, profile_unidades(unidade_id), setores_no_escopo')
         .eq('id', user.id)
         .single()
       
       if (!prof) return
 
       const permitted_unidades = prof.profile_unidades?.map((pu: any) => pu.unidade_id) || []
-      const permitted_setores = prof.profile_setores?.map((ps: any) => ps.setor_id) || []
+      const permitted_setores = prof.setores_no_escopo || []
       const isSuperAdmin = prof.role === 'super_admin'
       // RH Geral enxerga tudo por definição do papel, mesmo que acesso_todas_unidades não
       // esteja marcado no perfil (o bypass dele vive no papel, não na flag — ver applyAccessFilters).

@@ -25,14 +25,14 @@ export default async function UnidadeEscalaPage({
 
   const { data: profileRaw } = await supabase
     .from('profiles')
-    .select('*, profile_unidades(unidade_id), profile_setores(setor_id)')
+    .select('*, profile_unidades(unidade_id), setores_no_escopo')
     .eq('id', user.id)
     .single()
 
   const profile = profileRaw ? {
     ...profileRaw,
     permitted_unidades: profileRaw.profile_unidades?.map((pu: any) => pu.unidade_id) || [],
-    permitted_setores: profileRaw.profile_setores?.map((ps: any) => ps.setor_id) || []
+    permitted_setores: profileRaw.setores_no_escopo || []
   } : null
 
   // Permission Check

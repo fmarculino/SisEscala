@@ -9,7 +9,7 @@ export default async function UnidadesPage() {
   // Fetch profile with permissions
   const { data: profile } = await supabase
     .from('profiles')
-    .select('*, profile_unidades(unidade_id), profile_setores(setor_id)')
+    .select('*, profile_unidades(unidade_id), setores_no_escopo')
     .eq('id', user?.id)
     .single()
 
@@ -17,7 +17,7 @@ export default async function UnidadesPage() {
   const userProfile = profile ? {
     ...profile,
     permitted_unidades: profile.profile_unidades?.map((pu: any) => pu.unidade_id) || [],
-    permitted_setores: profile.profile_setores?.map((ps: any) => ps.setor_id) || []
+    permitted_setores: profile.setores_no_escopo || []
   } : null
 
   return <UnidadesClient userProfile={userProfile} />
