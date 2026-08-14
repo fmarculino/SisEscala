@@ -120,6 +120,18 @@ export function hasUnitAccess(profile: UserProfile | null, unidadeId: string) {
 }
 
 /**
+ * Verifica se o perfil tem acesso irrestrito (sem limite de unidade/setor) — a mesma
+ * condição que faz applyAccessFilters devolver a query sem filtro nenhum. Telas que buscam
+ * "tudo" quando nenhum filtro é escolhido devem usar isto para exigir um filtro manual desses
+ * perfis, já que são os únicos capazes de gerar uma busca sem limite de escopo.
+ */
+export function isAccessUnrestricted(profile: UserProfile | null): boolean {
+  if (!profile) return false
+  if (profile.role === 'super_admin' || profile.role === 'rh') return true
+  return profile.acesso_todas_unidades && profile.acesso_todos_setores
+}
+
+/**
  * Verifica se o usuário tem acesso a um setor específico.
  */
 export function hasSectorAccess(profile: UserProfile | null, setorId: string, unidadeId?: string) {

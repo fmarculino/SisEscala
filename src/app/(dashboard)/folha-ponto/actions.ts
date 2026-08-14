@@ -3,7 +3,7 @@
 import { createClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { registrarLog, calcularAlteracoes, calcularAlteracoesFolha } from '@/utils/auditoria'
-import { hasSectorAccess, UserProfile, applyAccessFilters } from '@/utils/permissions'
+import { hasSectorAccess, UserProfile, applyAccessFilters, isAccessUnrestricted } from '@/utils/permissions'
 import { autoCloseExpiredScalesAndTimesheets, isCompetencyClosed } from '@/utils/autoClose'
 import { resolverMarcacaoDoDia, COLUNAS_PRESENCA_FOLHA, type PassoPresenca } from '@/utils/folha/origemMarcacao'
 import { podePreAssinalarIntervalo } from '@/utils/folha/preAssinalacao'
@@ -141,6 +141,15 @@ export async function getServidoresFolhaPonto(mes: number, ano: number, unidadeI
       }
     }
 
+    // Perfis irrestritos (super_admin/rh, ou acesso_todas_unidades + acesso_todos_setores)
+    // sao os unicos capazes de buscar TODAS as escalas da cidade de uma vez sem nenhum filtro
+    // — ja causou estouro de URI em producao com 206 escalas so em um mes. A tela exige
+    // Unidade antes de chamar esta action para esses perfis; esta e a defesa em profundidade
+    // caso a action seja chamada direto sem passar pela tela (armadilha 12 do CLAUDE.md).
+    if (isAccessUnrestricted(userProfile) && !unidadeId) {
+      return { error: 'Selecione uma unidade para carregar as folhas de ponto.' }
+    }
+
     // 1. Fetch active scales in this sector/unit/month/year to find all servers who have scales for this period
     let queryEscalas = supabase
       .from('escala_mensal')
@@ -165,12 +174,15 @@ export async function getServidoresFolhaPonto(mes: number, ano: number, unidadeI
       return { servidores: [] }
     }
 
-    // 2. Fetch existing sheets for these specific scales
-    const scaleIds = escalasMes.map(e => e.id)
+    // 2. Fetch existing sheets for this month/year. Filtra por mes/ano (colunas proprias de
+    // folha_ponto) em vez de .in('escala_mensal_id', scaleIds): sem unidade/setor selecionado,
+    // escalasMes pode ter centenas de linhas (206 so em agosto/2026), e uma URI com centenas de
+    // UUIDs no .in() estoura o limite do gateway Supabase (erro "URI too long request_id: ...").
     const { data: folhas, error: folhaError } = await supabase
       .from('folha_ponto')
       .select('id, status, servidor_id, escala_mensal_id, total_horas_normais, total_horas_extras_50, total_horas_extras_100, total_faltas, cargo')
-      .in('escala_mensal_id', scaleIds)
+      .eq('mes', mes)
+      .eq('ano', ano)
 
     if (folhaError) throw folhaError
 

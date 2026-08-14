@@ -5,7 +5,7 @@ import { createClient } from '@/utils/supabase/client'
 import { FileText, Loader2, Search, Building2, Layers, Calendar, ChevronRight, Play, RefreshCw, AlertCircle, Printer } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { applyAccessFilters } from '@/utils/permissions'
+import { applyAccessFilters, isAccessUnrestricted } from '@/utils/permissions'
 import { getServidoresFolhaPonto, gerarFolhaPonto, gerarFolhasEmLote, getFolhasPontoPrintData } from './actions'
 import { Modal } from '@/components/ui/Modal'
 import { formatSectorsHierarchy } from '@/utils/sectors'
@@ -67,6 +67,7 @@ export default function FolhaPontoPage() {
   const [unidades, setUnidades] = useState<any[]>([])
   const [setores, setSetores] = useState<any[]>([])
   const [profile, setProfile] = useState<any>(null)
+  const [isUnrestricted, setIsUnrestricted] = useState(false)
 
   // Server timesheet data
   const [servidoresData, setServidoresData] = useState<any[]>([])
@@ -124,6 +125,7 @@ export default function FolhaPontoPage() {
               permitted_setores: prof.profile_setores?.map((ps: any) => ps.setor_id) || []
             }
             setProfile(userProfile)
+            setIsUnrestricted(isAccessUnrestricted(userProfile))
 
             // Fetch units & sectors
             let unitsQuery = supabase.from('unidades').select('id, nome').order('nome')
@@ -167,8 +169,15 @@ export default function FolhaPontoPage() {
   // Auto filter sectors based on unit choice
   const filteredSetores = setores.filter(s => s.unidade_id === selectedUnidade)
 
-  // Fetch timesheet servers when unit/sector/date is selected (unit and sector are optional)
+  // Fetch timesheet servers when unit/sector/date is selected (unit and sector are optional
+  // para perfis restritos — ja escopados por applyAccessFilters. Perfis irrestritos precisam
+  // escolher uma Unidade antes: sem isso a busca nao tem limite de escopo nenhum, ver
+  // isAccessUnrestricted em src/utils/permissions.ts).
   const fetchServidores = useCallback(async () => {
+    if (isUnrestricted && !selectedUnidade) {
+      setServidoresData([])
+      return
+    }
     setLoadingServidores(true)
     const res = await getServidoresFolhaPonto(mes, ano, selectedUnidade || undefined, selectedSetor || undefined)
     setLoadingServidores(false)
@@ -182,11 +191,14 @@ export default function FolhaPontoPage() {
     } else if (res.servidores) {
       setServidoresData(res.servidores)
     }
-  }, [mes, ano, selectedUnidade, selectedSetor])
+  }, [mes, ano, selectedUnidade, selectedSetor, isUnrestricted])
 
   useEffect(() => {
+    // Espera o perfil carregar (e isUnrestricted ser calculado) antes de disparar a busca —
+    // senao um perfil irrestrito dispararia a busca sem limite antes da guarda acima existir.
+    if (loading) return
     fetchServidores()
-  }, [fetchServidores])
+  }, [fetchServidores, loading])
 
   // Reset selected sector if it does not belong to the newly selected unit
   const handleUnidadeChange = (unidadeId: string) => {
@@ -257,6 +269,8 @@ export default function FolhaPontoPage() {
 
     return matchesSearch && matchesEscalaStatus && matchesFolhaStatus
   })
+
+  const requiresUnidadeSelection = isUnrestricted && !selectedUnidade
 
   const itemsPerPage = 10
   const totalItems = filteredServidores.length
@@ -707,7 +721,13 @@ export default function FolhaPontoPage() {
 
       {/* Main List Table */}
       <div className="bg-white dark:bg-zinc-900 rounded-[2rem] border border-zinc-200 dark:border-zinc-800 shadow-xl overflow-hidden">
-        {loadingServidores ? (
+        {requiresUnidadeSelection ? (
+          <div className="p-20 text-center text-zinc-500">
+            <Building2 className="mx-auto h-16 w-16 opacity-10 mb-6" />
+            <p className="text-xl font-black uppercase tracking-tight">Selecione uma unidade</p>
+            <p className="text-sm mt-2">Seu perfil tem acesso a múltiplas unidades. Escolha uma unidade no filtro acima para carregar as folhas de ponto.</p>
+          </div>
+        ) : loadingServidores ? (
           <div className="p-20 text-center">
             <Loader2 className="h-10 w-10 animate-spin mx-auto text-blue-500 opacity-50 mb-4" />
             <p className="text-zinc-500 text-sm font-bold uppercase tracking-widest">Carregando servidores...</p>
