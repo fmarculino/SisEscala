@@ -3,6 +3,7 @@ import { ServidoresClient } from './ServidoresClient'
 import { AcessoNegado } from '@/components/AcessoNegado'
 
 import { applyAccessFilters } from '@/utils/permissions'
+import { formatSectorsHierarchy } from '@/utils/sectors'
 
 export default async function ServidoresPage() {
   const supabase = await createClient()
@@ -52,22 +53,29 @@ export default async function ServidoresPage() {
 
   let sectorsQuery = supabase
     .from('setores')
-    .select('id, unidade_id, dicionario_setores(nome)')
-  
+    .select('id, unidade_id, parent_id, dicionario_setores(nome)')
+
   sectorsQuery = applyAccessFilters(sectorsQuery, userProfile, { setorField: 'id' })
   const { data: sectorsRaw } = await sectorsQuery
-  
-  const setores = sectorsRaw?.map(s => {
+
+  const setoresFlat = sectorsRaw?.map(s => {
     // Handle potential array return for dictionary name
-    const dictData = Array.isArray(s.dicionario_setores) 
-      ? s.dicionario_setores[0] 
+    const dictData = Array.isArray(s.dicionario_setores)
+      ? s.dicionario_setores[0]
       : s.dicionario_setores
-      
+
     return {
-      ...s,
+      id: s.id,
+      unidade_id: s.unidade_id,
+      parent_id: s.parent_id,
       nome: dictData?.nome || 'SETOR SEM NOME'
     }
   }) || []
+
+  // Em árvore (pai -> filhos, com recuo "↳") em vez de lista plana: com nomes repetidos em
+  // ramos diferentes (ex.: duas ENGENHARIA na SMS, uma em cada polo), a lista plana não dava
+  // pra saber qual setor era de qual — o filtro parecia funcionar mas escolhia às cegas.
+  const setores = formatSectorsHierarchy(setoresFlat)
 
   return (
     <ServidoresClient 

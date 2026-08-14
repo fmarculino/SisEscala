@@ -28,7 +28,7 @@ interface Unidade {
 interface Setor {
   id: string
   nome: string
-  unidade_id: string
+  unidade_id: string | null
 }
 
 interface ServidoresClientProps {
