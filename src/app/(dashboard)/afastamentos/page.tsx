@@ -496,6 +496,61 @@ export default function AfastamentosPage() {
     setCustomSlots([])
   }
 
+  // Exclusão restrita a quem tem visão/gestão cross-unidade (Administrador Geral, RH Geral,
+  // RH da Unidade) — não para coordenador/Diretor. O botão sumiu em 28/05/2026 (v1.1.0, commit
+  // 9857cb2) quando "Editar" substituiu "Excluir" sem motivo documentado (sem nota no
+  // CLAUDE.md/docs, sem restrição de RLS específica em servidores_eventos) — reintroduzido em
+  // 14/08/2026 a pedido do usuário, já com o escopo de papéis que ele definiu.
+  const podeExcluirAfastamento = profile && ['super_admin', 'rh', 'rh_unidade'].includes(profile.role)
+
+  const handleDeleteAfastamento = (id: string) => {
+    const item = afastamentos.find(a => a.id === id)
+    if (!item) return
+
+    setConfirmModal({
+      isOpen: true,
+      title: 'Excluir Afastamento',
+      message: `Deseja realmente excluir o afastamento (${item.tipos_eventos?.nome}) de ${item.servidores?.nome}? O servidor poderá voltar a ser alocado nos dias correspondentes.`,
+      type: 'danger',
+      onConfirm: async () => {
+        setSaving(true)
+        try {
+          const { error } = await supabase
+            .from('servidores_eventos')
+            .delete()
+            .eq('id', id)
+
+          if (error) throw error
+
+          logAction('REMOVER_AFASTAMENTO', {
+            afastamento_id: id,
+            servidor_nome: item.servidores?.nome,
+            tipo_afastamento: item.tipos_eventos?.nome
+          })
+
+          await fetchAfastamentos()
+
+          setAlertModal({
+            isOpen: true,
+            title: 'Excluído com Sucesso',
+            message: 'O afastamento foi excluído e os dias correspondentes foram liberados para alocação.',
+            type: 'success'
+          })
+        } catch (error: any) {
+          setAlertModal({
+            isOpen: true,
+            title: 'Erro ao Excluir',
+            message: error.message,
+            type: 'danger'
+          })
+        } finally {
+          setSaving(false)
+          setConfirmModal(null)
+        }
+      }
+    })
+  }
+
   const executeUpdate = async (id: string, userId?: string, slotsValue: string[] | null = null) => {
     setSaving(true)
     try {
@@ -1336,6 +1391,15 @@ export default function AfastamentosPage() {
                                 title="Editar afastamento"
                               >
                                 <Edit2 className="h-4 w-4" />
+                              </button>
+                            )}
+                            {podeExcluirAfastamento && editingId !== a.id && (
+                              <button
+                                onClick={() => handleDeleteAfastamento(a.id)}
+                                className="p-1.5 text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all cursor-pointer"
+                                title="Excluir afastamento"
+                              >
+                                <Trash2 className="h-4 w-4" />
                               </button>
                             )}
                           </div>
