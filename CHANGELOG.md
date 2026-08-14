@@ -2,6 +2,43 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.66.0] - 2026-08-14
+
+### Added
+- **Importação por pendrive passa a aceitar o AFD cru exportado pelo próprio relógio**, além do
+  `.sisrep` gerado por `coletor-rep afd-exportar`. Motivação: unidade em que **nem o coletor**
+  alcança o equipamento (CEI, avaliado em 14/08). O `.sisrep` só existe quando alguma máquina
+  consegue falar com o relógio por IP; sem isso, a única coleta possível é a exportação fiscal
+  pela porta USB do próprio REP-C, que produz o AFD **sem cabeçalho nenhum**. `parseArquivoSisrep`
+  recusava esse arquivo com "não parece um .sisrep válido", deixando a unidade sem caminho de
+  coleta.
+  - O formato passa a ser decidido pelo **início** do arquivo (marca `SISREP-`), não mais por
+    "achei `---` em algum lugar dos 2000 primeiros bytes" — assim um AFD cru que por acaso
+    contenha essa sequência não é truncado como se tivesse cabeçalho.
+  - Arquivo sem cabeçalho só é aceito se a primeira linha não vazia tiver forma de AFD (9 dígitos
+    de NSR + tipo de registro 1..9), com tolerância a BOM. Texto solto e PDF continuam recusados.
+  - Arquivo que se declara `.sisrep` mas não traz o delimitador passa a ser recusado como
+    **incompleto** (truncado na cópia), em vez de cair no caminho de outro formato.
+  - ⚠️ AFD cru não carrega `dispositivo_id`: a escolha do dispositivo no formulário passa a ser a
+    única fonte, e a aba avisa isso explicitamente. O `.sisrep` continua conferindo o cabeçalho e
+    avisando quando ele aponta para outro dispositivo.
+
+### Notes
+- **Ingestão inalterada e sem migration.** Continua a mesma `fn_ingerir_afd` com
+  `p_canal: 'pendrive'`, idempotente por (`dispositivo_id`, `nsr`) — reenviar o mesmo arquivo não
+  duplica nada. Nada fora do import por pendrive foi tocado: nenhuma RPC, nenhuma mudança no
+  coletor, na reconciliação ou em outra tela.
+- **Verificado por simulação** sobre a linha de AFD real confirmada em campo (NSR 8, a mesma da
+  migration `20260811190000`): `.sisrep` e AFD cru extraem o identificador `011111211111`; CRLF,
+  LF e BOM passam; `.sisrep` truncado, texto solto e PDF são recusados; AFD cru contendo `---`
+  atravessa intacto. `npx tsc --noEmit` e `npm run build` limpos.
+- **Decisão do CEI (14/08/2026): garantir rede até o relógio**, com o pendrive reservado à
+  contingência — o pendrive anda numa direção só (traz marcação, não leva cadastro), e o quadro da
+  unidade ainda está sendo cadastrado no SisEscala. Guia de implantação em
+  [`docs/planos/2026-08-14-implantacao-cei.md`](docs/planos/2026-08-14-implantacao-cei.md).
+- Fica pendente confirmar, no menu do próprio relógio, se ele importa cadastro por USB. Se não
+  importar, não há caminho de software para tornar o pendrive bidirecional.
+
 ## [1.65.0] - 2026-08-13
 
 ### Added
