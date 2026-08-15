@@ -1285,7 +1285,7 @@ export default function AfastamentosPage() {
                     <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-zinc-500 dark:text-zinc-400">Localização</th>
                     <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-zinc-500 dark:text-zinc-400">Afastamento</th>
                     <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-zinc-500 dark:text-zinc-400">Período</th>
-                    <th className="px-6 py-4 text-center text-[10px] font-black uppercase tracking-widest text-zinc-500 dark:text-zinc-400 w-24">Ações</th>
+                    <th className="sticky right-0 z-10 px-6 py-4 text-center text-[10px] font-black uppercase tracking-widest text-zinc-500 dark:text-zinc-400 w-24 bg-zinc-50 dark:bg-zinc-800/50 border-l border-zinc-200 dark:border-zinc-800 shadow-[-4px_0_6px_-4px_rgba(0,0,0,0.15)]">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
@@ -1305,11 +1305,11 @@ export default function AfastamentosPage() {
                     </tr>
                   ) : (
                     paginatedAfastamentos.map(a => (
-                      <tr 
-                        key={a.id} 
-                        className={`transition-colors ${
-                          editingId === a.id 
-                            ? 'bg-amber-50/40 dark:bg-amber-950/10 border-l-4 border-l-amber-500' 
+                      <tr
+                        key={a.id}
+                        className={`group transition-colors ${
+                          editingId === a.id
+                            ? 'bg-amber-50/40 dark:bg-amber-950/10 border-l-4 border-l-amber-500'
                             : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/30'
                         }`}
                       >
@@ -1378,7 +1378,11 @@ export default function AfastamentosPage() {
                           </div>
                         </td>
 
-                        <td className="px-6 py-4 text-center whitespace-nowrap">
+                        <td className={`sticky right-0 z-10 px-6 py-4 text-center whitespace-nowrap border-l border-zinc-200 dark:border-zinc-800 shadow-[-4px_0_6px_-4px_rgba(0,0,0,0.15)] transition-colors ${
+                          editingId === a.id
+                            ? 'bg-amber-50 dark:bg-amber-950/40'
+                            : 'bg-white dark:bg-zinc-900 group-hover:bg-zinc-50 dark:group-hover:bg-zinc-800'
+                        }`}>
                           <div className="flex justify-center items-center gap-2">
                             {editingId === a.id ? (
                               <span className="text-[10px] font-black uppercase text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-2 py-1 rounded-md">
