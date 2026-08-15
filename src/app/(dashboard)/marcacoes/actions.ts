@@ -3,6 +3,7 @@
 import { createClient, createAdminClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { randomUUID, createHash } from 'crypto'
+import { formatSectorsHierarchy } from '@/utils/sectors'
 
 async function exigirAdmin() {
   const supabase = await createClient()
@@ -26,7 +27,7 @@ export async function listarOpcoesFormulario() {
 
   const [{ data: unidades }, { data: setores }, { data: coordenadores }] = await Promise.all([
     supabase.from('unidades').select('id, nome').order('nome'),
-    supabase.from('setores').select('id, unidade_id, dicionario_setores(nome)').eq('ativo', true),
+    supabase.from('setores').select('id, unidade_id, parent_id, dicionario_setores(nome)').eq('ativo', true),
     supabase
       .from('profiles')
       .select('id, full_name, role')
@@ -36,11 +37,15 @@ export async function listarOpcoesFormulario() {
 
   return {
     unidades: unidades || [],
-    setores: (setores || []).map((s: any) => ({
+    // Nomes ja saem com recuo/marcador de hierarquia (mesmo criterio de formatSectorsHierarchy
+    // usado em servidores/novo) — quem consome so filtra por unidade_id e mapeia `nome` direto
+    // pro <option>, sem precisar saber que existe arvore por baixo.
+    setores: formatSectorsHierarchy((setores || []).map((s: any) => ({
       id: s.id,
       unidade_id: s.unidade_id,
+      parent_id: s.parent_id,
       nome: s.dicionario_setores?.nome || '(sem nome)',
-    })),
+    }))),
     coordenadores: coordenadores || [],
   }
 }

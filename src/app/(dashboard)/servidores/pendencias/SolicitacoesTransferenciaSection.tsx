@@ -28,7 +28,7 @@ interface SolicitacoesTransferenciaSectionProps {
   erro: string | null
   isSuperAdmin: boolean
   unidades: { id: string; nome: string }[]
-  setores: { id: string; unidade_id: string; nome: string }[]
+  setores: { id: string; unidade_id: string | null; nome: string }[]
 }
 
 export function SolicitacoesTransferenciaSection({
@@ -93,7 +93,7 @@ function LinhaSolicitacao({
   solicitacao: SolicitacaoTransferencia
   isSuperAdmin: boolean
   unidades: { id: string; nome: string }[]
-  setores: { id: string; unidade_id: string; nome: string }[]
+  setores: { id: string; unidade_id: string | null; nome: string }[]
   onResolvida: () => void
 }) {
   const isDestinoIndefinido = !solicitacao.unidadeDestinoId

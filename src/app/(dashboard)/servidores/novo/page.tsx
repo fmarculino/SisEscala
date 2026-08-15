@@ -271,7 +271,7 @@ export default function NovoServidorPage() {
 
         {/* Tab 1: Cadastro Principal */}
         <div className={formTab === 'principal' ? 'grid grid-cols-1 gap-6 sm:grid-cols-6 animate-in fade-in' : 'hidden'}>
-          <div className="sm:col-span-2">
+          <div className="sm:col-span-6">
             <label htmlFor="nome" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
               Nome Completo
             </label>
@@ -291,7 +291,7 @@ export default function NovoServidorPage() {
               duplo (o segundo vínculo é a MESMA pessoa, com o MESMO CPF, marcando "vínculo
               adicional" abaixo — CPF obrigatório não conflita com isso). */}
           <CampoDocumento
-            className="sm:col-span-2"
+            className="sm:col-span-3"
             id="cpf"
             label="CPF *"
             tipo="cpf"
@@ -301,11 +301,7 @@ export default function NovoServidorPage() {
             required
           />
 
-          <div className="sm:col-span-6">
-            <PendenciaRhCpfBanner cpf={currentCpf} modo="novo" onSelecionar={setPendenciaRhId} />
-          </div>
-
-          <div className="sm:col-span-2">
+          <div className="sm:col-span-3">
             <label htmlFor="matricula" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
               Matrícula
             </label>
@@ -321,6 +317,10 @@ export default function NovoServidorPage() {
             <p className="mt-1 text-[10px] text-zinc-500 leading-normal">
               Deixe em branco para gerar uma matrícula temporária automática (ex: T2600001).
             </p>
+          </div>
+
+          <div className="sm:col-span-6">
+            <PendenciaRhCpfBanner cpf={currentCpf} modo="novo" onSelecionar={setPendenciaRhId} />
           </div>
 
           <div className="sm:col-span-6 space-y-4 pt-2">

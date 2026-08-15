@@ -32,7 +32,7 @@ interface PendenteRh {
 }
 
 interface Unidade { id: string; nome: string }
-interface Setor { id: string; unidade_id: string; nome: string }
+interface Setor { id: string; unidade_id: string | null; nome: string }
 interface Cargo { id: string; nome: string }
 
 interface ImportacaoRhSectionProps {

@@ -1,6 +1,7 @@
 import { createClient } from '@/utils/supabase/server'
 import { ShieldAlert } from 'lucide-react'
 import { PendenciasCadastroClient } from './PendenciasCadastroClient'
+import { formatSectorsHierarchy } from '@/utils/sectors'
 
 export default async function PendenciasCadastroPage() {
   const supabase = await createClient()
@@ -81,7 +82,7 @@ export default async function PendenciasCadastroPage() {
       profile?.acesso_todas_unidades
         ? supabase.from('unidades').select('id, nome').order('nome')
         : supabase.from('unidades').select('id, nome').in('id', permittedUnidades.length ? permittedUnidades : ['00000000-0000-0000-0000-000000000000']).order('nome'),
-      supabase.from('setores').select('id, unidade_id, dicionario_setores(nome)').order('id'),
+      supabase.from('setores').select('id, unidade_id, parent_id, dicionario_setores(nome)').order('id'),
       supabase.from('cargos').select('id, nome').eq('ativo', true).order('nome'),
     ])
 
@@ -100,10 +101,12 @@ export default async function PendenciasCadastroPage() {
       }
     })
 
-    const setoresRh = (setoresRes.data || []).map((s: any) => {
+    // Hierarquico so pra alimentar os <select> do formulario (ImportacaoRhSection) - aqui nao
+    // ha rotulo de texto solto que herdaria o prefixo "↳ " por engano, como acontece la embaixo.
+    const setoresRh = formatSectorsHierarchy((setoresRes.data || []).map((s: any) => {
       const dictData = Array.isArray(s.dicionario_setores) ? s.dicionario_setores[0] : s.dicionario_setores
-      return { id: s.id, unidade_id: s.unidade_id, nome: dictData?.nome || 'SETOR SEM NOME' }
-    })
+      return { id: s.id, unidade_id: s.unidade_id, parent_id: s.parent_id, nome: dictData?.nome || 'SETOR SEM NOME' }
+    }))
 
     return (
       <PendenciasCadastroClient
@@ -165,7 +168,7 @@ export default async function PendenciasCadastroPage() {
     supabase.from('servidores').select('id', { count: 'exact', head: true }).is('pis_pasep', null),
     buscarPendentesRh(),
     supabase.from('unidades').select('id, nome').order('nome'),
-    supabase.from('setores').select('id, unidade_id, dicionario_setores(nome)').order('id'),
+    supabase.from('setores').select('id, unidade_id, parent_id, dicionario_setores(nome)').order('id'),
     supabase.from('cargos').select('id, nome').eq('ativo', true).order('nome'),
     // servidores(nome, matricula) é FK simples (sem ambiguidade); unidade/setor de
     // origem/destino são DUAS FKs pra mesma tabela (armadilha 8b do CLAUDE.md) - resolvidas por
@@ -213,13 +216,18 @@ export default async function PendenciasCadastroPage() {
     }
   })
 
-  const setoresRh = (setoresRes.data || []).map((s: any) => {
+  // Nomes SEM prefixo de hierarquia - vira `setorOrigemNome`/`setorDestinoNome` (texto solto na
+  // lista de transferencias), onde um "↳ " colado no rotulo ficaria fora de lugar.
+  const setoresRhFlat = (setoresRes.data || []).map((s: any) => {
     const dictData = Array.isArray(s.dicionario_setores) ? s.dicionario_setores[0] : s.dicionario_setores
-    return { id: s.id, unidade_id: s.unidade_id, nome: dictData?.nome || 'SETOR SEM NOME' }
+    return { id: s.id, unidade_id: s.unidade_id, parent_id: s.parent_id, nome: dictData?.nome || 'SETOR SEM NOME' }
   })
+  // Mesma lista, com recuo/marcador de arvore - so pros <select> (ImportacaoRhSection,
+  // SolicitacoesTransferenciaSection).
+  const setoresRh = formatSectorsHierarchy(setoresRhFlat)
 
   const nomeUnidadePorId = new Map((unidadesRes.data || []).map((u: any) => [u.id, u.nome]))
-  const nomeSetorPorId = new Map(setoresRh.map((s) => [s.id, s.nome]))
+  const nomeSetorPorId = new Map(setoresRhFlat.map((s) => [s.id, s.nome]))
   const nomePerfilPorId = new Map((profilesRes.data || []).map((p: any) => [p.id, p.full_name]))
 
   const solicitacoesTransferencia = (solicitacoesTransferenciaRes.data || []).map((s: any) => {

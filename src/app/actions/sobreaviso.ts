@@ -3,6 +3,7 @@
 import { createClient, createAdminClient } from '@/utils/supabase/server'
 import { sendWhatsAppMessageAction } from './communication'
 import { revalidatePath } from 'next/cache'
+import { formatSectorsHierarchy } from '@/utils/sectors'
 
 /**
  * Acionamento de sobreaviso — Fases 4 a 6 do plano
@@ -89,21 +90,23 @@ export async function getDestinosSobreaviso(): Promise<DestinoUnidade[]> {
   const admin = await createAdminClient()
   const [{ data: unidades }, { data: setores }] = await Promise.all([
     admin.from('unidades').select('id, nome').eq('ativo', true).order('nome'),
-    admin.from('setores').select('id, unidade_id, dicionario_setores(nome)').eq('ativo', true)
+    admin.from('setores').select('id, unidade_id, parent_id, dicionario_setores(nome)').eq('ativo', true)
   ])
 
-  const porUnidade = new Map<string, { id: string; nome: string }[]>()
+  const porUnidade = new Map<string, { id: string; unidade_id: string; parent_id: string | null; nome: string }[]>()
   for (const s of (setores || []) as any[]) {
     const dict = s.dicionario_setores
     const nome = (Array.isArray(dict) ? dict[0]?.nome : dict?.nome) || 'Setor sem nome'
     if (!porUnidade.has(s.unidade_id)) porUnidade.set(s.unidade_id, [])
-    porUnidade.get(s.unidade_id)!.push({ id: s.id, nome })
+    porUnidade.get(s.unidade_id)!.push({ id: s.id, unidade_id: s.unidade_id, parent_id: s.parent_id, nome })
   }
 
   return ((unidades || []) as any[]).map(u => ({
     id: u.id,
     nome: u.nome,
-    setores: (porUnidade.get(u.id) || []).sort((a, b) => a.nome.localeCompare(b.nome))
+    // Cada unidade ja e o proprio grupo -- ordena/recua em arvore dentro dela, mesmo criterio de
+    // formatSectorsHierarchy usado nos demais seletores de setor (marcacoes, pendencias de RH).
+    setores: formatSectorsHierarchy(porUnidade.get(u.id) || []).map(s => ({ id: s.id, nome: s.nome }))
   }))
 }
 

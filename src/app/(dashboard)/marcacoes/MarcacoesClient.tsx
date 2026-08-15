@@ -16,7 +16,7 @@ type Aba = 'terminais' | 'dispositivos' | 'cobertura' | 'pendencias' | 'biometri
 
 interface Opcoes {
   unidades: { id: string; nome: string }[]
-  setores: { id: string; unidade_id: string; nome: string }[]
+  setores: { id: string; unidade_id: string | null; nome: string }[]
   coordenadores: { id: string; full_name: string; role: string }[]
 }
 

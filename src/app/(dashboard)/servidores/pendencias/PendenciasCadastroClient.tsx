@@ -68,7 +68,7 @@ interface PendenciasCadastroClientProps {
   pendentesRh: PendenteRh[]
   erroPendentesRh: string | null
   unidades: { id: string; nome: string }[]
-  setores: { id: string; unidade_id: string; nome: string }[]
+  setores: { id: string; unidade_id: string | null; nome: string }[]
   cargos: { id: string; nome: string }[]
   solicitacoesTransferencia: {
     id: string

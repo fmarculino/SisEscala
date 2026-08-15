@@ -281,7 +281,7 @@ function TratarPendenciaModal({
 
 interface Opcoes {
   unidades: { id: string; nome: string }[]
-  setores: { id: string; unidade_id: string; nome: string }[]
+  setores: { id: string; unidade_id: string | null; nome: string }[]
 }
 
 export function PendenciasTab({ opcoes }: { opcoes?: Opcoes }) {
