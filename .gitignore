@@ -54,3 +54,10 @@ tools/coletor-rep/config.yaml
 tools/coletor-rep/cmd/**/*.exe
 # tools/coletor-rep/dist/*.exe NAO e ignorado - e o binario pre-compilado que a rota de
 # download em /api/coletor-rep/download serve, precisa estar versionado.
+
+# relogio/: arquivos crus exportados de um REP real por pendrive (CPF, nome e template
+# biometrico em base64 de servidores de verdade) para descobrir o formato de
+# cadastros-exportar (14/08/2026). Dado pessoal sensivel (LGPD), nunca deveria ter sido
+# commitado - dois commits ja subiram para o origin antes deste .gitignore existir, precisa
+# de reescrita de historico + force-push separado disso aqui.
+relogio/
