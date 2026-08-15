@@ -124,9 +124,18 @@ export default function NovoServidorPage() {
     loadData()
   }, [])
 
-  const filteredSetores = selectedUnidade 
+  const filteredSetores = selectedUnidade
     ? setores.filter(s => s.unidade_id === selectedUnidade)
     : setores
+
+  // Troca de unidade pode deixar o setor selecionado fora da nova lista filtrada — limpa para
+  // não manter um setor_id que não aparece mais nas opções visíveis.
+  useEffect(() => {
+    if (selectedSetor && !filteredSetores.some(s => s.id === selectedSetor)) {
+      setSelectedSetor('')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedUnidade, setores])
 
   // Valor final do cargo para salvar
   const cargoFinal = useMemo(() => {
@@ -151,12 +160,21 @@ export default function NovoServidorPage() {
   const [currentCpf, setCurrentCpf] = useState('')
   const [pendenciaRhId, setPendenciaRhId] = useState<string | null>(null)
 
+  // Controlados para sobreviver ao reset nativo que o React 19 aplica em todo <form action>
+  // sempre que a action termina (mesmo devolvendo erro, sem lançar exceção) — sem isso, um
+  // reenvio após "CPF já cadastrado"/pendência do RH apaga estes campos e troca a mensagem do
+  // rodapé para "Selecione o setor", parecendo que o sistema perdeu o que estava fazendo.
+  const [currentNome, setCurrentNome] = useState('')
+  const [currentMatricula, setCurrentMatricula] = useState('')
+  const [currentEmail, setCurrentEmail] = useState('')
+  const [selectedSetor, setSelectedSetor] = useState('')
+
   const dialog = useDialog()
 
   const sharePinWhatsApp = async () => {
     if (!currentPin) return
     const phone = currentTelefone
-    const nome = (document.getElementById('nome') as HTMLInputElement)?.value || 'Servidor'
+    const nome = currentNome || 'Servidor'
     const message = `Olá *${nome}*, seu PIN de acesso ao Portal do Servidor SisEscala é: *${currentPin}*`
 
     try {
@@ -262,6 +280,8 @@ export default function NovoServidorPage() {
               name="nome"
               type="text"
               required
+              value={currentNome}
+              onChange={(e) => setCurrentNome(e.target.value)}
               className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white sm:text-sm"
             />
           </div>
@@ -294,6 +314,8 @@ export default function NovoServidorPage() {
               name="matricula"
               type="text"
               placeholder="Ex: 987654"
+              value={currentMatricula}
+              onChange={(e) => setCurrentMatricula(e.target.value)}
               className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white sm:text-sm font-mono"
             />
             <p className="mt-1 text-[10px] text-zinc-500 leading-normal">
@@ -464,6 +486,8 @@ export default function NovoServidorPage() {
             <select
               id="setor_id"
               name="setor_id"
+              value={selectedSetor}
+              onChange={(e) => setSelectedSetor(e.target.value)}
               className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white sm:text-sm"
             >
               <option value="">Selecione o setor...</option>
@@ -489,6 +513,8 @@ export default function NovoServidorPage() {
                   name="email"
                   type="email"
                   placeholder="email@servidor.com"
+                  value={currentEmail}
+                  onChange={(e) => setCurrentEmail(e.target.value)}
                   className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800"
                 />
               </div>
