@@ -975,23 +975,6 @@ export default function ConfigPage() {
                   as unidades — o botão fica escondido, mas o recurso não é removido.
                 </p>
               </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-black text-zinc-400 uppercase tracking-widest block">Janela de Variação de Horários Fictícios</label>
-                <div className="relative">
-                  <input 
-                    type="number" 
-                    min="1" max="60"
-                    className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold transition-all pr-12"
-                    value={getConfig('folha_ponto_variacao_minutos')?.valor !== undefined ? String(getConfig('folha_ponto_variacao_minutos')?.valor) : '15'}
-                    onChange={(e) => updateConfig('folha_ponto_variacao_minutos', parseInt(e.target.value) || 15)}
-                  />
-                  <div className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-zinc-400 uppercase">min</div>
-                </div>
-                <p className="text-[11px] text-zinc-400 leading-normal mt-1">
-                  Variação máxima (ex: 15min) adicionada ou subtraída dos horários oficiais ao preencher de forma fictícia os horários sem presença real.
-                </p>
-              </div>
             </div>
           </div>
         </div>

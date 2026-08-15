@@ -1027,14 +1027,6 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
     const globalIntervaloMinutos = globalJornadaDetails?.intervalo_minutos ?? 60
     const globalHorasNormaisDiarias = globalJornadaDetails?.horas_totais ?? 8
 
-    // Fetch tolerance
-    const { data: configVar } = await supabase
-      .from('configuracoes_globais')
-      .select('valor')
-      .eq('chave', 'folha_ponto_variacao_minutos')
-      .single()
-    const maxVar = configVar?.valor ? parseInt(configVar.valor as string, 10) : 15
-
     // Prazo (dias uteis apos o FIM DO MES) para justificar um dia sem nenhuma marcacao antes
     // dele virar falta definitiva. Ver src/utils/folha/faltaAutomatica.ts.
     const { data: configPrazoJustificativa } = await supabase
@@ -1519,14 +1511,6 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
     if (escala.status === 'Em Andamento' && !forcarRascunho) {
       return { error: 'A escala está Em Andamento. A folha deve ser gerada como Rascunho.' }
     }
-
-    // Fetch config for tolerance
-    const { data: configVar } = await supabase
-      .from('configuracoes_globais')
-      .select('valor')
-      .eq('chave', 'folha_ponto_variacao_minutos')
-      .single()
-    const maxVar = configVar?.valor ? parseInt(configVar.valor as string, 10) : 15
 
     // Prazo (dias uteis apos o FIM DO MES) para justificar um dia sem nenhuma marcacao antes
     // dele virar falta definitiva. Ver src/utils/folha/faltaAutomatica.ts.
