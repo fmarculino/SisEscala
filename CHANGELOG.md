@@ -2,6 +2,80 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.0] - 2026-08-14
+
+Salto de versão major: correção de dois bugs de produção com impacto direto em dado de ponto
+(folha travando para perfis de RH/Admin, e horário de Regular sendo calculado como plantão de
+12h), início do módulo de cadastro do relógio REP por pendrive, e faltas automáticas na folha —
+mudança de comportamento visível para todo servidor, não só ajuste incremental.
+
+### Fixed
+- **Folha de Ponto travava ("URI too long") para Administrador Geral e RH Geral sem filtro de
+  Unidade.** `getServidoresFolhaPonto` montava `.in('escala_mensal_id', scaleIds)` com uma escala
+  de cada servidor do mês inteiro — 206 escalas só em agosto/2026 já estourava o limite de URI do
+  gateway do Supabase. Corrigido filtrando `folha_ponto` por `mes`/`ano` (colunas próprias da
+  tabela) em vez de lista de IDs, e a tela passa a **exigir Unidade antes de buscar** para os
+  perfis que conseguem gerar essa busca sem limite (`isAccessUnrestricted`, novo helper em
+  `permissions.ts`) — coordenador e RH da Unidade, já escopados, continuam com a busca automática
+  de sempre.
+- **Turno Regular usando um código também ancorado como plantão herdava o horário do plantão.**
+  Uma jornada Regular "08H ÀS 17H" atribuída com o código de turno "MT" (mesmo registro usado
+  para plantão de 12h no dicionário) virava 07:00–19:00 na folha em vez de 08:00–17:00 — a SQL
+  (`fn_blocos_previstos_dia`) já priorizava corretamente o nome da jornada, mas duas cópias em
+  JavaScript (`complianceEngine.ts`, `ScaleGrid.tsx`/`handleSave`) ignoravam a categoria e sempre
+  aplicavam a âncora do código. Corrigido nos dois lugares; **116 linhas de agosto/2026 em 20
+  servidores** (a maioria com o mesmo padrão) foram identificadas por auditoria em produção e
+  corrigidas — horário recalculado a partir do previsto correto, marcado como ajuste manual com
+  justificativa automática (nunca mais um horário fabricado se passando por batida real).
+- **`coletor-rep-tray.exe` fechava o app inteiro se a janela de console fosse fechada.** Build sem
+  a flag `-ldflags="-H=windowsgui"` documentada no `README.md` do coletor — corrigido (v0.4.6),
+  com verificação por leitura direta do PE header (subsystem GUI, não console).
+
+### Added
+- **Faltas automáticas na folha de ponto.** Dia com turno previsto, sem afastamento/feriado/
+  facultativo e **sem nenhuma marcação** (real ou manual) de entrada nem saída passa a virar
+  `FALTA - AGUARDANDO JUSTIFICATIVA` — e só vira falta definitiva depois do prazo em dias úteis
+  configurado (`justificativa_prazo_dias_uteis`, campo que já existia na tela de Configurações
+  sem nunca ter sido lido em lugar nenhum). Nunca sobrescreve observação já preenchida
+  manualmente, nem roda sobre competência fechada. Fonte única em
+  `src/utils/folha/faltaAutomatica.ts`, aplicada nas 4 cópias de geração de folha e nos 3 lugares
+  que recontam faltas a partir do que já foi salvo.
+- **Exportação de cadastro do relógio REP por pendrive** (`coletor-rep-cli cadastros-exportar`).
+  Formato descoberto examinando o par exportar/importar do próprio menu do equipamento (CSV `;`
+  com cabeçalho, `cpf;nome;administrador;matricula;rfid;codigo;senha;barras;digitais`) e
+  confirmado num ciclo real de exportar → aplicar via "Receber usuários" em hardware (REP-iDClass-
+  CEI), com um usuário de teste somado aos 67 reais já existentes — aditivo, não substitui a
+  lista. `digitais` sempre vazio: biometria continua exigindo alguém presencial no equipamento.
+- **Exclusão de afastamentos restaurada**, restrita a Administrador Geral, RH Geral e RH da
+  Unidade — tinha sido substituída por "editar" em maio/2026 sem nenhum motivo de conformidade
+  documentado.
+- **Hierarquia de setores no filtro de Servidores** (`formatSectorsHierarchy`, mesma função já
+  usada na Folha de Ponto): setores com o mesmo nome em ramos diferentes (ex.: duas "ENGENHARIA"
+  em polos distintos) agora aparecem com recuo sob o pai certo, em vez de duas linhas idênticas
+  soltas na lista.
+
+### Changed
+- **Aviso de ponto por WhatsApp perde os modos "Entrada e saída" e "Todas as batidas"** — o
+  número usado pelo recurso foi restringido pela Meta por volume de mensagem. Só restam "Resumo
+  diário" (padrão) e "Resumo semanal"; os 7 servidores que estavam num dos dois modos removidos
+  foram migrados para resumo diário. A batida fora do horário previsto deixa de furar o modo
+  escolhido com mensagem individual imediata — continua aparecendo no resumo do dia, só não gera
+  mais aviso na hora.
+
+### Security
+- Uma pasta com CPF, nome e template biométrico reais de servidores (exportados de um relógio REP
+  físico durante o teste de `cadastros-exportar`) foi commitada por engano e chegou a subir para
+  o GitHub. Removida do histórico do repositório (reescrita + force-push) e adicionada ao
+  `.gitignore`.
+
+### Notes
+- **Banco de horas: estudo documentado, não implementado.**
+  [`docs/planos/2026-08-14-estudo-faltas-automaticas-e-banco-de-horas.md`](docs/planos/2026-08-14-estudo-faltas-automaticas-e-banco-de-horas.md)
+  mapeia o que existe hoje (`carga_horaria_semanal` cadastrada mas nunca usada em cálculo nenhum)
+  e as decisões que dependem de RH/jurídico antes de qualquer código — nem todo vínculo da SMS é
+  CLT, então o regime de compensação de horas pode variar por tipo de vínculo.
+- `npx tsc --noEmit` limpo em toda a rodada.
+
 ## [1.66.0] - 2026-08-14
 
 ### Added

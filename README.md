@@ -1,4 +1,4 @@
-# SisEscala 📅[![Version](https://img.shields.io/badge/version-1.48.0-green.svg)](https://github.com/fmarculino/SisEscala)
+# SisEscala 📅[![Version](https://img.shields.io/badge/version-2.0.0-green.svg)](https://github.com/fmarculino/SisEscala)
 [![Next.js](https://img.shields.io/badge/framework-Next.js%2015-black.svg)](https://nextjs.org/)
 [![Supabase](https://img.shields.io/badge/backend-Supabase-green.svg)](https://supabase.com/)
 [![Tailwind CSS](https://img.shields.io/badge/styling-Tailwind%20CSS-38B2AC.svg)](https://tailwindcss.com/)
@@ -48,6 +48,7 @@ O sistema foca em **governança, segurança jurídica e eficiência operacional*
 - **Fallback Inteligente de Contingência**: Transição automática ou assistida para **WhatsApp Web / App (`wa.me`)** caso ocorra qualquer instabilidade ou erro na API do WhatsApp.
 - **Governança de Comunicação (`/configuracoes`)**: Painel visual de gestão de credenciais e parâmetros de WhatsApp e Servidor de E-mail (SMTP) armazenados em `configuracoes_globais`, com modais de teste em tempo real antes de salvar.
 - **Notificação de Acionamento e PIN**: Envio automático de acionamentos de sobreaviso (`ScaleGrid.tsx`) e PIN de acesso do servidor (`/servidores`).
+- **Aviso de Ponto por WhatsApp (Opt-in)**: O servidor escolhe receber um resumo diário ou semanal das próprias batidas — frequência limitada a esses dois modos para controlar o volume de mensagem enviado pelo número institucional.
 
 ### 📄 Ficha Cadastral em PDF, Webcam & Dados Bancários
 - **Ficha Cadastral Timbrada (`FichaServidorPrintView.tsx`)**: Gerador de Ficha Cadastral em PDF/Impressão com timbre oficial da Prefeitura de Marabá / SMS, foto 3x4, dados funcionais/pessoais/bancários e assinaturas físicas e digitais do servidor e RH.
@@ -79,6 +80,7 @@ O sistema foca em **governança, segurança jurídica e eficiência operacional*
 ### 📅 Gestão de Afastamentos & Eventos
 - **Administração de Ausências**: Painel dedicado para cadastro de Férias, Atestados Médicos, Licenças Maternidade/Paternidade e Prêmio.
 - **Sincronização com o Grid**: Regra automática que limpa turnos diários planejados concorrentes (sem presença confirmada) no período do evento, impedindo a alocação indevida de servidores afastados.
+- **Exclusão Restrita**: Remoção de afastamento cadastrado indevidamente, disponível para Administrador Geral, RH Geral e RH da Unidade.
 
 ### ⚖️ Compliance Legal (Motor de Regras)
 - **Validação de Interjornada**: Alerta automático para períodos de descanso inferiores a 11 horas.
@@ -102,6 +104,14 @@ O sistema foca em **governança, segurança jurídica e eficiência operacional*
 - **Janela de Tolerância**: Bloqueio de batidas fora do horário permitido para evitar fraudes.
 - **Auditoria Forense**: Trilha de auditoria detalhada para todas as batidas e ajustes manuais.
 - **Geolocalização em Setores com Fallback**: Configuração opcional de coordenadas geográficas (`latitude`, `longitude` e `raio_geofence`) específicas para setores físicos descentralizados. Quando não preenchida, o sistema herda automaticamente a geolocalização da unidade principal.
+- **Faltas Automáticas na Folha de Ponto (v2.0.0)**: Dia com turno previsto e nenhuma marcação (real ou manual) de entrada/saída vira pendência de justificativa e, se ninguém regularizar dentro do prazo configurável, falta definitiva — sem depender de alguém digitar "FALTA" na observação.
+
+### 🕐 Relógio de Ponto Físico (REP)
+- **Integração com Equipamento REP-C Certificado**: Coleta de AFD assinado (Portaria 671/2021) por sincronização online contínua ou por coletor local instalado na unidade.
+- **Coleta e Cadastro por Pendrive (v2.0.0)**: Para unidades sem rede até o relógio — exportação/importação de marcações e, agora, de cadastro de identidade (`coletor-rep-cli cadastros-exportar`), no mesmo formato CSV que o próprio equipamento usa para importar por USB.
+- **Higiene de Cadastros do Dispositivo**: Leitura de tudo que está cadastrado no relógio, com remoção segura (confirmada por relistagem) de quem sobrou de sistema anterior e não corresponde a nenhum servidor ativo.
+- **Cobertura da Escala**: Painel que cruza quem está escalado com quem realmente consegue bater ponto no equipamento — identifica o caso silencioso de servidor cadastrado e com biometria, mas sem vínculo no SisEscala, cuja batida vira órfã sem ninguém perceber.
+- **App de Bandeja para a Unidade**: Aplicativo local (`.exe`, auto-instalável, sem privilégio de administrador) que mantém o ciclo de sincronização rodando na máquina da unidade, com aviso de atualização disponível.
 
 ### ✈️ Gestão de Diárias e Pernoites (Planejado)
 - **Deslocamento a Serviço**: Módulo desenhado para controle orçamentário e logístico de servidores que viajam com frequência (motoristas, TI, campanhas de saúde externa).
