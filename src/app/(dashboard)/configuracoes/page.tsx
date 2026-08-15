@@ -960,6 +960,23 @@ export default function ConfigPage() {
               </div>
 
               <div className="space-y-2">
+                <label className="text-xs font-black text-zinc-400 uppercase tracking-widest block">Terminal Clássico de Presença (/presenca)</label>
+                <select
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold transition-all"
+                  value={getConfig('terminal_classico_habilitado')?.valor !== undefined ? String(getConfig('terminal_classico_habilitado')?.valor) : 'true'}
+                  onChange={(e) => updateConfig('terminal_classico_habilitado', e.target.value === 'true')}
+                >
+                  <option value="true">Habilitado</option>
+                  <option value="false">Desabilitado</option>
+                </select>
+                <p className="text-[11px] text-zinc-400 leading-normal mt-1">
+                  Mostra ou esconde os botões &quot;Confirmar Presença&quot; (menu lateral e tela de login) que levam ao terminal
+                  clássico com login de coordenador. Desative depois de instalar o app coletor com o Terminal Local em todas
+                  as unidades — o botão fica escondido, mas o recurso não é removido.
+                </p>
+              </div>
+
+              <div className="space-y-2">
                 <label className="text-xs font-black text-zinc-400 uppercase tracking-widest block">Janela de Variação de Horários Fictícios</label>
                 <div className="relative">
                   <input 

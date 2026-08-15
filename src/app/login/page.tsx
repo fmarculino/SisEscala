@@ -12,6 +12,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [headerLogoUrl, setHeaderLogoUrl] = useState<string>('')
+  const [terminalClassicoHabilitado, setTerminalClassicoHabilitado] = useState(true)
   const supabase = createClient()
 
   useEffect(() => {
@@ -23,6 +24,15 @@ export default function LoginPage() {
         .single()
       if (data?.valor) {
         setHeaderLogoUrl(data.valor)
+      }
+
+      const { data: terminalData } = await supabase
+        .from('configuracoes_globais')
+        .select('valor')
+        .eq('chave', 'terminal_classico_habilitado')
+        .single()
+      if (terminalData && terminalData.valor === false) {
+        setTerminalClassicoHabilitado(false)
       }
     }
     fetchHeaderLogo()
@@ -141,12 +151,14 @@ export default function LoginPage() {
               🗓️ Sou Servidor: Consultar Escala
             </Link>
             
-            <Link
-              href="/presenca"
-              className="flex w-full justify-center items-center rounded-md border border-emerald-200 bg-emerald-50/50 py-2 px-4 text-sm font-bold text-emerald-700 shadow-sm hover:bg-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 dark:border-emerald-900/30 dark:bg-emerald-900/10 dark:text-emerald-400 dark:hover:bg-emerald-900/20 transition-all duration-200"
-            >
-              ✅ Confirmação de Presença
-            </Link>
+            {terminalClassicoHabilitado && (
+              <Link
+                href="/presenca"
+                className="flex w-full justify-center items-center rounded-md border border-emerald-200 bg-emerald-50/50 py-2 px-4 text-sm font-bold text-emerald-700 shadow-sm hover:bg-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 dark:border-emerald-900/30 dark:bg-emerald-900/10 dark:text-emerald-400 dark:hover:bg-emerald-900/20 transition-all duration-200"
+              >
+                ✅ Confirmação de Presença
+              </Link>
+            )}
           </div>
         </div>
       </div>
