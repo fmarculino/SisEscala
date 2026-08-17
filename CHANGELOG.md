@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 ## [2.0.3] - 2026-08-17
 
 ### Fixed
+- **Cursor de AFD nunca sairia de 1 enquanto o NSR 1 não tivesse chegado** (migration
+  `20260817160000`, corrigindo a `20260817150000` do mesmo dia). A versão original abria com um guard
+  "se não existe o NSR 1, peça o arquivo todo", que embutia a suposição de que todo AFD começa em 1 —
+  premissa tirada dos 3 dispositivos que tinham dado real na hora.
+  - Exposto na recuperação de ~268 mil registros do REP iDClass - SMS: o menor NSR apareceu como
+    3001 e depois 501, **descendo**, porque a fila offline reenvia lote em ordem de nome de arquivo
+    (`os.ReadDir` sobre `lote_id`, que é hash), não de NSR. Enquanto o NSR 1 não chegasse, o guard
+    disparava em todo ciclo e o equipamento remontava o arquivo inteiro a cada 5 minutos — o ganho
+    da coleta incremental era zero. (O piso real acabou sendo 1; o guard travaria de todo modo, e
+    travaria para sempre num modelo que comece acima disso.)
+  - A correção é uma **remoção**: o cálculo por trecho contíguo já tratava os dois casos, e passa a
+    ancorar no **menor NSR do dispositivo** em vez de exigir que ele seja 1. Nunca houve risco de
+    perder marcação — errar o cursor para baixo só rebaixa dado que já existe, e reingerir é de
+    graça. Validado em homologação contra 5 cenários, incluindo regressão dos dispositivos com piso
+    em 1 e o trailer `999999999`.
 - **Fila offline do coletor se multiplicava sozinha, e isso travava o menu da bandeja**
   (coletor v0.5.2). `fila.Gravar` abria o arquivo com `O_APPEND`, mas o arquivo é nomeado pelo
   `lote_id` — que é hash determinístico do próprio conteúdo — e `fila.Pendentes` lê **cada linha

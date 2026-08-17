@@ -255,7 +255,16 @@ em `/marcacoes` (`importarPendriveAfd` em `marcacoes/actions.ts`, que chama a me
   diagnosticar "instalado e não comunica", confira `rep_sincronizacoes` antes de suspeitar de
   rede ou credencial.
   O cursor vem de `GET /api/rep/v1/estado` → `fn_cursor_afd_dispositivo` (migration
-  `20260817150000`), e **não é `ultimo_nsr + 1`**: é o fim do trecho **contíguo** de NSR mais 1.
+  `20260817150000`, **corrigida pela `20260817160000` no mesmo dia**), e **não é `ultimo_nsr + 1`**:
+  é o fim do trecho **contíguo** de NSR a partir do **menor NSR do dispositivo**, mais 1.
+  ⚠️ A primeira versão ancorava no **NSR 1** (`se não existe NSR 1, peça tudo`), embutindo a
+  suposição de que todo AFD começa em 1 — tirada dos 3 dispositivos que tinham dado real na hora.
+  Ela travaria devolvendo 1 para sempre em qualquer relógio cujo piso seja maior, e travava também
+  durante recuperação grande: **a fila offline reenvia lote em ordem de nome de arquivo**
+  (`os.ReadDir` sobre `lote_id`, que é hash), **não de NSR**, então o "menor NSR" de um dispositivo
+  em recuperação vai *descendo* e o AFD fica cheio de buracos transitórios (medido na SMS: piso
+  aparente 3001 → 501 → 1 em minutos). Cursor baixo durante recuperação é correto e passa; não
+  confunda com cursor travado.
   `ultimo_nsr` é o maior NSR de cada lote, então um NSR do meio que nunca chegue ficaria para
   trás **para sempre** com cursor ingênuo — batida descartada em silêncio, e o autoconserto que
   existia (repedir o arquivo inteiro todo ciclo) tinha acabado de ser removido. Lacuna puxa o
@@ -477,6 +486,26 @@ minutos — sem corromper nada (o atalho de idempotência por lote de `fn_ingeri
 resultado já calculado, `reenvio: true`, sem reprocessar; só o log do coletor não distinguia isso
 de reprocessamento de verdade). Virou prioridade quando o mesmo comportamento **impediu** o REP
 iDClass - SMS de sincronizar uma única vez — ver a seção do cursor de NSR acima.
+
+### SMS (17/08/2026) — ~250 mil marcações órfãs desde 2021, e o risco que elas criam
+
+O REP da SMS (10.110.0.20) é reaproveitado e chegou com **268.556 registros de AFD**, o mais antigo
+de **abril/2021** — sete vezes o volume da LACEM. Ingeridos por inteiro (regra "nunca descartar
+batida"), gerando **~250 mil `marcacoes_ponto` todas órfãs**, porque `rep_vinculos_servidor` está
+vazio para esse dispositivo. Órfã é inerte: sem `servidor_id` nada projeta em `escala_diaria`.
+
+⚠️ **É aqui que a armadilha 10 do `p_vigente_de` fica cara.** Ao criar os vínculos, um
+`p_vigente_de` antigo demais transformaria **cinco anos de ponto de outro sistema** em ponto do
+SisEscala — não na hora (criar vínculo não reprocessa nada), mas no primeiro
+`fn_reparse_afd_dispositivo`, que re-resolve autoria pelo vínculo *vigente na data da batida*. Use
+o default (`dispositivos_rep.created_at` = 14/08/2026) e **nunca** a data da primeira batida do AFD.
+A LACEM tinha ~34.500 marcações nessa situação; aqui é 7x isso.
+
+ℹ️ Observação registrada, ainda **não tratada**: a cadeia de hash de `rep_afd_registros` é montada
+na **ordem de chegada** (`v_hash_ant` vem do maior NSR já presente), e a fila offline reenvia em
+ordem de hash de `lote_id`. Numa recuperação grande a cadeia deixa de acompanhar a ordem de NSR.
+Não afeta o artefato legal — `linha_bruta` é gravada exatamente como veio do equipamento — mas a
+cadeia não serve como prova de sequência contínua nesses trechos.
 
 ### Implantação do LACEM (13/08/2026) — primeira unidade fora do piloto
 
