@@ -40,7 +40,7 @@ jobs:
 
   coletor-rep:
     name: Coletor REP (Go)
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -57,14 +57,8 @@ jobs:
 
       - name: Build CLI (Windows target)
         working-directory: tools/coletor-rep
-        env:
-          GOOS: windows
-          GOARCH: amd64
         run: go build -o dist/coletor-rep-cli.exe ./cmd/cli
 
       - name: Build Tray (Windows GUI target)
         working-directory: tools/coletor-rep
-        env:
-          GOOS: windows
-          GOARCH: amd64
         run: go build -ldflags="-H=windowsgui" -o dist/coletor-rep-tray.exe ./cmd/tray
