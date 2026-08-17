@@ -99,6 +99,14 @@ function getAfastamentoNome(tiposEventos: any): string | null {
 
 function getAfastamentoObservacao(af: any): string {
   const baseName = getAfastamentoNome(af.tipos_eventos) || af.observacao || 'Afastado'
+  if (af.periodo_tipo === 'horas' || af.hora_inicio) {
+    const hIni = af.hora_inicio?.substring(0, 5) || '--:--'
+    const hFim = af.hora_fim?.substring(0, 5) || '--:--'
+    const durMin = af.minutos_afastamento || 0
+    const durStr = durMin > 0 ? ` (${Math.floor(durMin / 60)}h${String(durMin % 60).padStart(2, '0')}m)` : ''
+    const regStr = af.regime_abono === 'a_compensar' ? ' [A Compensar]' : ''
+    return `${baseName}: ${hIni} às ${hFim}${durStr}${regStr}`
+  }
   if (af.slots && af.slots.length > 0) {
     return `${baseName} (${af.slots.join(', ')})`
   }
@@ -107,6 +115,10 @@ function getAfastamentoObservacao(af: any): string {
 
 function isShiftOverlappingAfastamento(afastamento: any, shift: any): boolean {
   if (!afastamento) return false
+  if (afastamento.periodo_tipo === 'horas' || afastamento.hora_inicio) {
+    // Afastamento por horas não anula o turno inteiro
+    return false
+  }
   if (!afastamento.slots || afastamento.slots.length === 0) return true
   if (!shift || !shift.dicionario_turnos) return false
   const shiftSlots = (shift.dicionario_turnos as any).slots || []
@@ -373,7 +385,7 @@ export async function executeGerarFolhaPonto(
     // Fetch absences (afastamentos)
     const { data: afastamentos } = await supabase
       .from('servidores_eventos')
-      .select('data_inicio, data_fim, observacao, slots, tipos_eventos(nome)')
+      .select('data_inicio, data_fim, observacao, slots, periodo_tipo, hora_inicio, hora_fim, minutos_afastamento, regime_abono, tipos_eventos(nome)')
       .eq('servidor_id', servidorId)
       .lte('data_inicio', endDate)
       .gte('data_fim', startDate)
@@ -1031,7 +1043,7 @@ export async function sincronizarFolhaPonto(folhaId: string) {
     // Fetch absences
     const { data: afastamentos } = await supabase
       .from('servidores_eventos')
-      .select('data_inicio, data_fim, observacao, slots, tipos_eventos(nome)')
+      .select('data_inicio, data_fim, observacao, slots, periodo_tipo, hora_inicio, hora_fim, minutos_afastamento, regime_abono, tipos_eventos(nome)')
       .eq('servidor_id', folha.servidor_id)
       .or(`data_inicio.lte.${endDate},data_fim.gte.${startDate}`)
 

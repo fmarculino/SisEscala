@@ -206,6 +206,12 @@ export interface Database {
           data_inicio: string
           data_fim: string
           observacao: string | null
+          slots: string[] | null
+          periodo_tipo: string | null
+          hora_inicio: string | null
+          hora_fim: string | null
+          minutos_afastamento: number | null
+          regime_abono: string | null
           criado_por: string | null
           created_at: string
           updated_at: string
@@ -217,6 +223,12 @@ export interface Database {
           data_inicio: string
           data_fim: string
           observacao?: string | null
+          slots?: string[] | null
+          periodo_tipo?: string | null
+          hora_inicio?: string | null
+          hora_fim?: string | null
+          minutos_afastamento?: number | null
+          regime_abono?: string | null
           criado_por?: string | null
           created_at?: string
           updated_at?: string
@@ -228,6 +240,12 @@ export interface Database {
           data_inicio?: string
           data_fim?: string
           observacao?: string | null
+          slots?: string[] | null
+          periodo_tipo?: string | null
+          hora_inicio?: string | null
+          hora_fim?: string | null
+          minutos_afastamento?: number | null
+          regime_abono?: string | null
           criado_por?: string | null
           created_at?: string
           updated_at?: string

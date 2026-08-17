@@ -34,6 +34,11 @@ interface ServidorEvento {
   data_fim: string
   observacao: string | null
   slots: string[] | null
+  periodo_tipo?: string | null
+  hora_inicio?: string | null
+  hora_fim?: string | null
+  minutos_afastamento?: number | null
+  regime_abono?: string | null
   servidores: {
     id: string
     nome: string
@@ -68,8 +73,11 @@ export default function AfastamentosPage() {
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [observacao, setObservacao] = useState('')
-  const [selectedPeriodo, setSelectedPeriodo] = useState<'integral' | 'M' | 'T' | 'N' | 'custom'>('integral')
+  const [selectedPeriodo, setSelectedPeriodo] = useState<'integral' | 'M' | 'T' | 'N' | 'custom' | 'horas'>('integral')
   const [customSlots, setCustomSlots] = useState<string[]>([])
+  const [horaInicio, setHoraInicio] = useState('')
+  const [horaFim, setHoraFim] = useState('')
+  const [regimeAbono, setRegimeAbono] = useState<'abonado' | 'a_compensar'>('abonado')
 
   // Search & List Filters
   const [searchTerm, setSearchTerm] = useState('')
@@ -291,6 +299,16 @@ export default function AfastamentosPage() {
     }
   }, [supabase])
 
+  // Helper para cálculo de minutos
+  const duracaoMinutosHoras = useMemo(() => {
+    if (selectedPeriodo !== 'horas' || !horaInicio || !horaFim) return 0
+    const [h1, m1] = horaInicio.split(':').map(Number)
+    const [h2, m2] = horaFim.split(':').map(Number)
+    const t1 = h1 * 60 + (m1 || 0)
+    const t2 = h2 * 60 + (m2 || 0)
+    return t2 > t1 ? t2 - t1 : 0
+  }, [selectedPeriodo, horaInicio, horaFim])
+
   // Register new absence
   const handleAddAfastamento = async () => {
     if (!selectedServidor || !selectedTipo || !startDate || !endDate) {
@@ -301,6 +319,27 @@ export default function AfastamentosPage() {
         type: 'warning'
       })
       return
+    }
+
+    if (selectedPeriodo === 'horas') {
+      if (!horaInicio || !horaFim) {
+        setAlertModal({
+          isOpen: true,
+          title: 'Horário Obrigatório',
+          message: 'Por favor, informe a hora de início e a hora de término da ausência.',
+          type: 'warning'
+        })
+        return
+      }
+      if (duracaoMinutosHoras <= 0) {
+        setAlertModal({
+          isOpen: true,
+          title: 'Horário Inválido',
+          message: 'A hora de término deve ser posterior à hora de início.',
+          type: 'warning'
+        })
+        return
+      }
     }
 
     const start = new Date(startDate + 'T00:00:00')
@@ -326,6 +365,12 @@ export default function AfastamentosPage() {
       else if (selectedPeriodo === 'T') slotsValue = ['T']
       else if (selectedPeriodo === 'N') slotsValue = ['N']
       else if (selectedPeriodo === 'custom') slotsValue = customSlots.length > 0 ? customSlots : null
+
+      // Se for afastamento por horas, não bloqueia a escala diária (servidor trabalha parte do dia)
+      if (selectedPeriodo === 'horas') {
+        await executeInsertion(user?.id, null)
+        return
+      }
 
       // 1. Validar se o servidor possui alguma escala prevista no período com conflito de slots
       const { data: monthlyScales } = await supabase
@@ -406,16 +451,22 @@ export default function AfastamentosPage() {
   const executeInsertion = async (userId?: string, slotsValue: string[] | null = null) => {
     setSaving(true)
     try {
+      const isHoras = selectedPeriodo === 'horas'
       const { error } = await supabase
         .from('servidores_eventos')
         .insert({
           servidor_id: selectedServidor,
           tipo_evento_id: selectedTipo,
           data_inicio: startDate,
-          data_fim: endDate,
+          data_fim: isHoras ? startDate : endDate,
           observacao: observacao || null,
           criado_por: userId || null,
-          slots: slotsValue
+          slots: isHoras ? null : slotsValue,
+          periodo_tipo: isHoras ? 'horas' : (slotsValue ? 'slot' : 'integral'),
+          hora_inicio: isHoras ? horaInicio : null,
+          hora_fim: isHoras ? horaFim : null,
+          minutos_afastamento: isHoras ? duracaoMinutosHoras : null,
+          regime_abono: isHoras ? regimeAbono : 'abonado'
         })
 
       if (error) throw error
@@ -428,8 +479,11 @@ export default function AfastamentosPage() {
         servidor_nome: serverName,
         tipo_afastamento: typeName,
         data_inicio: startDate,
-        data_fim: endDate,
-        slots: slotsValue
+        data_fim: isHoras ? startDate : endDate,
+        periodo_tipo: isHoras ? 'horas' : 'integral',
+        hora_inicio: isHoras ? horaInicio : null,
+        hora_fim: isHoras ? horaFim : null,
+        slots: isHoras ? null : slotsValue
       })
 
       setStartDate('')
@@ -438,13 +492,18 @@ export default function AfastamentosPage() {
       setSelectedServidor('')
       setSelectedPeriodo('integral')
       setCustomSlots([])
+      setHoraInicio('')
+      setHoraFim('')
+      setRegimeAbono('abonado')
 
       await fetchAfastamentos()
 
       setAlertModal({
         isOpen: true,
         title: 'Cadastrado com Sucesso',
-        message: `O afastamento de ${serverName} foi registrado. As escalas vigentes e planejadas foram atualizadas automaticamente.`,
+        message: isHoras 
+          ? `O comparecimento/ausência de ${serverName} (${horaInicio} às ${horaFim}) foi registrado com sucesso.`
+          : `O afastamento de ${serverName} foi registrado. As escalas vigentes e planejadas foram atualizadas automaticamente.`,
         type: 'success'
       })
 
@@ -471,15 +530,27 @@ export default function AfastamentosPage() {
     setEndDate(a.data_fim)
     setObservacao(a.observacao || '')
     
-    if (!a.slots || a.slots.length === 0) {
+    if (a.periodo_tipo === 'horas' || a.hora_inicio) {
+      setSelectedPeriodo('horas')
+      setHoraInicio(a.hora_inicio?.substring(0, 5) || '')
+      setHoraFim(a.hora_fim?.substring(0, 5) || '')
+      setRegimeAbono((a.regime_abono as any) || 'abonado')
+      setCustomSlots([])
+    } else if (!a.slots || a.slots.length === 0) {
       setSelectedPeriodo('integral')
       setCustomSlots([])
+      setHoraInicio('')
+      setHoraFim('')
     } else if (a.slots.length === 1 && (a.slots[0] === 'M' || a.slots[0] === 'T' || a.slots[0] === 'N')) {
       setSelectedPeriodo(a.slots[0] as any)
       setCustomSlots([])
+      setHoraInicio('')
+      setHoraFim('')
     } else {
       setSelectedPeriodo('custom')
       setCustomSlots(a.slots)
+      setHoraInicio('')
+      setHoraFim('')
     }
   }
 
@@ -494,13 +565,11 @@ export default function AfastamentosPage() {
     setObservacao('')
     setSelectedPeriodo('integral')
     setCustomSlots([])
+    setHoraInicio('')
+    setHoraFim('')
+    setRegimeAbono('abonado')
   }
 
-  // Exclusão restrita a quem tem visão/gestão cross-unidade (Administrador Geral, RH Geral,
-  // RH da Unidade) — não para coordenador/Diretor. O botão sumiu em 28/05/2026 (v1.1.0, commit
-  // 9857cb2) quando "Editar" substituiu "Excluir" sem motivo documentado (sem nota no
-  // CLAUDE.md/docs, sem restrição de RLS específica em servidores_eventos) — reintroduzido em
-  // 14/08/2026 a pedido do usuário, já com o escopo de papéis que ele definiu.
   const podeExcluirAfastamento = profile && ['super_admin', 'rh', 'rh_unidade'].includes(profile.role)
 
   const handleDeleteAfastamento = (id: string) => {
@@ -554,15 +623,21 @@ export default function AfastamentosPage() {
   const executeUpdate = async (id: string, userId?: string, slotsValue: string[] | null = null) => {
     setSaving(true)
     try {
+      const isHoras = selectedPeriodo === 'horas'
       const { error } = await supabase
         .from('servidores_eventos')
         .update({
           servidor_id: selectedServidor,
           tipo_evento_id: selectedTipo,
           data_inicio: startDate,
-          data_fim: endDate,
+          data_fim: isHoras ? startDate : endDate,
           observacao: observacao || null,
-          slots: slotsValue,
+          slots: isHoras ? null : slotsValue,
+          periodo_tipo: isHoras ? 'horas' : (slotsValue ? 'slot' : 'integral'),
+          hora_inicio: isHoras ? horaInicio : null,
+          hora_fim: isHoras ? horaFim : null,
+          minutos_afastamento: isHoras ? duracaoMinutosHoras : null,
+          regime_abono: isHoras ? regimeAbono : 'abonado',
           updated_at: new Date().toISOString()
         })
         .eq('id', id)
@@ -578,8 +653,11 @@ export default function AfastamentosPage() {
         servidor_nome: serverName,
         tipo_afastamento: typeName,
         data_inicio: startDate,
-        data_fim: endDate,
-        slots: slotsValue
+        data_fim: isHoras ? startDate : endDate,
+        periodo_tipo: isHoras ? 'horas' : 'integral',
+        hora_inicio: isHoras ? horaInicio : null,
+        hora_fim: isHoras ? horaFim : null,
+        slots: isHoras ? null : slotsValue
       })
 
       cancelEditing()
@@ -617,6 +695,27 @@ export default function AfastamentosPage() {
       return
     }
 
+    if (selectedPeriodo === 'horas') {
+      if (!horaInicio || !horaFim) {
+        setAlertModal({
+          isOpen: true,
+          title: 'Horário Obrigatório',
+          message: 'Por favor, informe a hora de início e a hora de término da ausência.',
+          type: 'warning'
+        })
+        return
+      }
+      if (duracaoMinutosHoras <= 0) {
+        setAlertModal({
+          isOpen: true,
+          title: 'Horário Inválido',
+          message: 'A hora de término deve ser posterior à hora de início.',
+          type: 'warning'
+        })
+        return
+      }
+    }
+
     const start = new Date(startDate + 'T00:00:00')
     const end = new Date(endDate + 'T00:00:00')
 
@@ -641,6 +740,12 @@ export default function AfastamentosPage() {
       else if (selectedPeriodo === 'N') slotsValue = ['N']
       else if (selectedPeriodo === 'custom') slotsValue = customSlots.length > 0 ? customSlots : null
       
+      // Se for afastamento por horas, não bloqueia a escala diária
+      if (selectedPeriodo === 'horas') {
+        await executeUpdate(editingId, user?.id, null)
+        return
+      }
+
       // 1. Validar se o servidor possui alguma escala prevista no período com conflito de slots
       const { data: monthlyScales } = await supabase
         .from('escala_mensal')
@@ -828,7 +933,17 @@ export default function AfastamentosPage() {
       const searchDescription = searchTerm ? `"${searchTerm}"` : 'Nenhum'
 
       const tableRows = absencesToPrint.map((a) => {
-        const periodSlots = (!a.slots || a.slots.length === 0) ? 'Dia Inteiro' : `Períodos: ${a.slots.join(', ')}`
+        const isHoras = a.periodo_tipo === 'horas' || a.hora_inicio
+        let periodSlots = (!a.slots || a.slots.length === 0) ? 'Dia Inteiro' : `Períodos: ${a.slots.join(', ')}`
+        if (isHoras) {
+          const hIni = a.hora_inicio?.substring(0, 5) || '--:--'
+          const hFim = a.hora_fim?.substring(0, 5) || '--:--'
+          const durMin = a.minutos_afastamento || 0
+          const durStr = `${Math.floor(durMin / 60)}h${String(durMin % 60).padStart(2, '0')}m`
+          const regStr = a.regime_abono === 'a_compensar' ? 'A Compensar' : 'Abonado'
+          periodSlots = `Horas: ${hIni} às ${hFim} (${durStr}) — ${regStr}`
+        }
+
         const dateInicio = new Date(a.data_inicio + 'T00:00:00').toLocaleDateString('pt-BR')
         const dateFim = new Date(a.data_fim + 'T00:00:00').toLocaleDateString('pt-BR')
         
@@ -849,7 +964,7 @@ export default function AfastamentosPage() {
               <div class="text-[8px] text-zinc-500 font-normal mt-0.5">${periodSlots}</div>
             </td>
             <td class="py-3 px-3 text-[10px] text-zinc-800 font-bold whitespace-nowrap">
-              De: ${dateInicio}<br/>Até: ${dateFim}
+              ${isHoras ? dateInicio : `De: ${dateInicio}<br/>Até: ${dateFim}`}
             </td>
             <td class="py-3 px-3 text-[9px] text-zinc-500 italic max-w-[200px] break-words">
               ${a.observacao || 'Sem observações'}
@@ -1064,7 +1179,7 @@ export default function AfastamentosPage() {
                 onChange={e => {
                   const val = e.target.value as any
                   setSelectedPeriodo(val)
-                  if (val === 'integral') setCustomSlots([])
+                  if (val === 'integral' || val === 'horas') setCustomSlots([])
                   else if (val === 'M') setCustomSlots(['M'])
                   else if (val === 'T') setCustomSlots(['T'])
                   else if (val === 'N') setCustomSlots(['N'])
@@ -1073,12 +1188,82 @@ export default function AfastamentosPage() {
                 className="w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-sm mb-1"
               >
                 <option value="integral">Dia Inteiro (Integral)</option>
+                <option value="horas">Por Horário / Horas (Ex: Consulta, Declaração de Comparecimento)</option>
                 <option value="M">Meio Período - Manhã (M)</option>
                 <option value="T">Meio Período - Tarde (T)</option>
                 <option value="N">Meio Período - Noite (N)</option>
                 <option value="custom">Personalizado (Múltiplos Períodos)</option>
               </select>
             </div>
+
+            {selectedPeriodo === 'horas' && (
+              <div className="bg-blue-50/60 dark:bg-blue-950/20 p-4 rounded-xl border border-blue-200 dark:border-blue-800/60 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="block text-[10px] font-black uppercase tracking-widest text-blue-700 dark:text-blue-400">Horário da Ausência</span>
+                  {duracaoMinutosHoras > 0 && (
+                    <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-blue-600 text-white shadow-sm">
+                      Duração: {Math.floor(duracaoMinutosHoras / 60)}h{String(duracaoMinutosHoras % 60).padStart(2, '0')}m ({duracaoMinutosHoras} min)
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Hora Início</label>
+                    <input
+                      type="time"
+                      value={horaInicio}
+                      onChange={e => setHoraInicio(e.target.value)}
+                      className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500 font-bold text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Hora Término</label>
+                    <input
+                      type="time"
+                      value={horaFim}
+                      onChange={e => setHoraFim(e.target.value)}
+                      className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500 font-bold text-sm"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Regime de Compensação / Abono</label>
+                  <div className="grid grid-cols-2 gap-2 mt-1">
+                    <label className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer select-none text-xs font-bold transition-all ${
+                      regimeAbono === 'abonado' 
+                        ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500 text-emerald-700 dark:text-emerald-300' 
+                        : 'bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="regimeAbono"
+                        value="abonado"
+                        checked={regimeAbono === 'abonado'}
+                        onChange={() => setRegimeAbono('abonado')}
+                        className="text-emerald-600"
+                      />
+                      <span>Abonado (Declaração / Atestado)</span>
+                    </label>
+                    <label className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer select-none text-xs font-bold transition-all ${
+                      regimeAbono === 'a_compensar' 
+                        ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-500 text-amber-700 dark:text-amber-300' 
+                        : 'bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="regimeAbono"
+                        value="a_compensar"
+                        checked={regimeAbono === 'a_compensar'}
+                        onChange={() => setRegimeAbono('a_compensar')}
+                        className="text-amber-600"
+                      />
+                      <span>A Compensar (Saída Pessoal)</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {selectedPeriodo === 'custom' && (
               <div className="bg-zinc-50 dark:bg-zinc-800/40 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 space-y-3">
@@ -1108,26 +1293,41 @@ export default function AfastamentosPage() {
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-4">
+            {selectedPeriodo === 'horas' ? (
               <div>
-                <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Data Início</label>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Data da Ausência / Comparecimento</label>
                 <input
                   type="date"
                   value={startDate}
-                  onChange={e => setStartDate(e.target.value)}
+                  onChange={e => {
+                    setStartDate(e.target.value)
+                    setEndDate(e.target.value)
+                  }}
                   className="w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-sm"
                 />
               </div>
-              <div>
-                <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Data Fim</label>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={e => setEndDate(e.target.value)}
-                  className="w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-sm"
-                />
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Data Início</label>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={e => setStartDate(e.target.value)}
+                    className="w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Data Fim</label>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={e => setEndDate(e.target.value)}
+                    className="w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-sm"
+                  />
+                </div>
               </div>
-            </div>
+            )}
 
             <div>
               <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Observações / Detalhes</label>
@@ -1355,9 +1555,24 @@ export default function AfastamentosPage() {
                             {a.tipos_eventos?.nome}
                           </span>
                           <div className="mt-1 flex flex-wrap gap-1 items-center">
-                            <span className="text-[9px] font-bold text-zinc-500 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-800/80 px-1.5 py-0.5 rounded">
-                              {(!a.slots || a.slots.length === 0) ? 'Dia Inteiro' : `Período: ${a.slots.join(', ')}`}
-                            </span>
+                            {a.periodo_tipo === 'horas' || a.hora_inicio ? (
+                              <>
+                                <span className="text-[9px] font-black text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-900/40 px-2 py-0.5 rounded">
+                                  {a.hora_inicio?.substring(0, 5)} às {a.hora_fim?.substring(0, 5)} ({Math.floor((a.minutos_afastamento || 0) / 60)}h{String((a.minutos_afastamento || 0) % 60).padStart(2, '0')}m)
+                                </span>
+                                <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded ${
+                                  a.regime_abono === 'a_compensar'
+                                    ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
+                                    : 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
+                                }`}>
+                                  {a.regime_abono === 'a_compensar' ? 'A Compensar' : 'Abonado'}
+                                </span>
+                              </>
+                            ) : (
+                              <span className="text-[9px] font-bold text-zinc-500 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-800/80 px-1.5 py-0.5 rounded">
+                                {(!a.slots || a.slots.length === 0) ? 'Dia Inteiro' : `Período: ${a.slots.join(', ')}`}
+                              </span>
+                            )}
                           </div>
                           {a.observacao && (
                             <span 
@@ -1370,12 +1585,20 @@ export default function AfastamentosPage() {
                         </td>
 
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-xs font-black text-zinc-700 dark:text-zinc-300">
-                            De: {new Date(a.data_inicio + 'T00:00:00').toLocaleDateString('pt-BR')}
-                          </div>
-                          <div className="text-xs font-black text-zinc-700 dark:text-zinc-300">
-                            Até: {new Date(a.data_fim + 'T00:00:00').toLocaleDateString('pt-BR')}
-                          </div>
+                          {a.periodo_tipo === 'horas' || a.hora_inicio ? (
+                            <div className="text-xs font-black text-blue-700 dark:text-blue-400">
+                              {new Date(a.data_inicio + 'T00:00:00').toLocaleDateString('pt-BR')} (Horas)
+                            </div>
+                          ) : (
+                            <>
+                              <div className="text-xs font-black text-zinc-700 dark:text-zinc-300">
+                                De: {new Date(a.data_inicio + 'T00:00:00').toLocaleDateString('pt-BR')}
+                              </div>
+                              <div className="text-xs font-black text-zinc-700 dark:text-zinc-300">
+                                Até: {new Date(a.data_fim + 'T00:00:00').toLocaleDateString('pt-BR')}
+                              </div>
+                            </>
+                          )}
                         </td>
 
                         <td className={`sticky right-0 z-10 px-6 py-4 text-center whitespace-nowrap border-l border-zinc-200 dark:border-zinc-800 shadow-[-4px_0_6px_-4px_rgba(0,0,0,0.15)] transition-colors ${
