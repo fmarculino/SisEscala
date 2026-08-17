@@ -195,7 +195,11 @@ func rodarAfdRaw(cfg *config.Config) {
 		os.Exit(1)
 	}
 	d := cfg.DispositivoRep
-	rc := rep.NovoClient(d.Endereco, d.Porta, d.UsaHTTPS, d.UsuarioRep, d.SenhaRep, d.CertFingerprint)
+	// Pede sempre do NSR 1, ou seja o arquivo inteiro: precisa do teto folgado de get_afd.fcgi,
+	// senao este comando falha por timeout exatamente no relogio de alto volume onde ele e' mais
+	// necessario.
+	rc := rep.NovoClient(d.Endereco, d.Porta, d.UsaHTTPS, d.UsuarioRep, d.SenhaRep, d.CertFingerprint).
+		ComTimeoutAFD(d.TimeoutAfdSegundos)
 
 	if err := rc.Login(); err != nil {
 		fmt.Fprintf(os.Stderr, "Falha no login: %v\n", err)
@@ -284,7 +288,10 @@ func rodarAfdExportar(cfg *config.Config, caminhoCfg, caminhoSaida string) {
 		os.Exit(1)
 	}
 	d := cfg.DispositivoRep
-	rc := rep.NovoClient(d.Endereco, d.Porta, d.UsaHTTPS, d.UsuarioRep, d.SenhaRep, d.CertFingerprint)
+	// A PRIMEIRA exportacao de um relogio ja usado traz o arquivo inteiro (estado local zerado),
+	// entao vale o mesmo teto folgado de get_afd.fcgi usado pelo sync.
+	rc := rep.NovoClient(d.Endereco, d.Porta, d.UsaHTTPS, d.UsuarioRep, d.SenhaRep, d.CertFingerprint).
+		ComTimeoutAFD(d.TimeoutAfdSegundos)
 
 	caminhoEstado := arquivoEstadoPendrive(caminhoCfg)
 	estado := lerEstadoPendrive(caminhoEstado)

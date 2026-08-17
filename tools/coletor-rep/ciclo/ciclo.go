@@ -20,7 +20,7 @@ import (
 	"github.com/sms-maraba/sisescala-coletor-rep/sisescala"
 )
 
-const Versao = "0.4.6"
+const Versao = "0.5.0"
 
 func hostname() string {
 	h, err := os.Hostname()
@@ -41,6 +41,44 @@ func loteIDDeterministico(dispositivoID string, linhas []string) string {
 	}
 	soma := h.Sum(nil)
 	return fmt.Sprintf("%x-%x-%x-%x-%x", soma[0:4], soma[4:6], soma[6:8], soma[8:10], soma[10:16])
+}
+
+// cursorDeColeta decide de qual NSR pedir o AFD nesta rodada.
+//
+// A fonte de verdade é SEMPRE o SisEscala (`fn_cursor_afd_dispositivo` via GET /api/rep/v1/estado)
+// — é o único lado que sabe o que de fato foi ingerido. O cache local só entra quando o servidor
+// está inacessível, exatamente o momento em que a fila offline existe para juntar dado: sem ele, um
+// servidor fora do ar rebaixaria a coleta para "arquivo inteiro" justamente num relógio onde o
+// arquivo inteiro é o que não cabe no timeout.
+//
+// Toda falha de decisão cai para o NSR 1, ou seja para o comportamento antigo: baixar demais.
+// Errar para cima (pedir NSR maior que o devido) seria a única forma de PERDER marcação, porque o
+// relógio simplesmente não devolveria as linhas anteriores e nada no sistema reclamaria — a
+// assimetria é deliberada.
+func cursorDeColeta(cfg *config.Config, sc *sisescala.Client, dispositivoID string) int64 {
+	estado, err := sc.EstadoIngestao()
+	if err == nil {
+		if erroCache := fila.GravarCursor(cfg.Fila.Diretorio, dispositivoID, estado.ProximoNsr); erroCache != nil {
+			log.Printf("aviso: falha ao gravar cursor local (segue normal, so' perde o fallback offline): %v", erroCache)
+		}
+		ultimo := "nenhum"
+		if estado.UltimoNsr != nil {
+			ultimo = strconv.FormatInt(*estado.UltimoNsr, 10)
+		}
+		log.Printf("cursor do SisEscala: pedindo AFD a partir do NSR %d (ultimo ingerido: %s)",
+			estado.ProximoNsr, ultimo)
+		return estado.ProximoNsr
+	}
+
+	if local, ok := fila.LerCursor(cfg.Fila.Diretorio, dispositivoID); ok {
+		log.Printf("aviso: nao foi possivel consultar o cursor no SisEscala (%v); usando o ultimo "+
+			"conhecido localmente: NSR %d", err, local)
+		return local
+	}
+
+	log.Printf("aviso: nao foi possivel consultar o cursor no SisEscala (%v) e nao ha cursor local; "+
+		"pedindo o AFD inteiro a partir do NSR 1", err)
+	return 1
 }
 
 // Sync reenvia primeiro o que ficou na fila offline, depois busca o AFD novo do relógio.
@@ -69,17 +107,24 @@ func Sync(cfg *config.Config) error {
 		}
 	}
 
-	rc := rep.NovoClient(d.Endereco, d.Porta, d.UsaHTTPS, d.UsuarioRep, d.SenhaRep, d.CertFingerprint)
+	rc := rep.NovoClient(d.Endereco, d.Porta, d.UsaHTTPS, d.UsuarioRep, d.SenhaRep, d.CertFingerprint).
+		ComTimeoutAFD(d.TimeoutAfdSegundos)
 
-	// TODO(operacional): o "ultimo NSR aceito" vive no SisEscala (dispositivos_rep.ultimo_nsr),
-	// nao neste binario. Esta primeira versao sempre pede a partir do NSR 1 e deixa a
-	// idempotencia de fn_ingerir_afd (UNIQUE dispositivo_id+nsr) descartar o que ja foi
-	// ingerido — funciona, mas reenvia o arquivo inteiro do relogio a cada ciclo. Antes de
-	// ligar em producao com relogios de alto volume, troque por uma leitura previa do
-	// ultimo_nsr (nova rota GET, ou consulta direta) para pedir so o incremento.
-	bruto, err := rc.GetAFD(1)
+	// Coleta INCREMENTAL. Antes desta versao o coletor pedia sempre a partir do NSR 1 e confiava
+	// na idempotencia de fn_ingerir_afd para descartar o repetido — funcionava, mas fazia o
+	// equipamento remontar o arquivo inteiro a cada 5 minutos. Em relogio reaproveitado (dezenas
+	// de milhares de linhas) isso deixou de ser desperdicio e passou a ser falha total: o REP
+	// iDClass - SMS ficou de 14/08 a 17/08/2026 com ZERO sincronizacoes, todo ciclo morrendo em
+	// "context deadline exceeded ... while reading body".
+	//
+	// O cursor e' do SisEscala (fn_cursor_afd_dispositivo), NAO deste binario: e' o fim do trecho
+	// contiguo de NSR ja ingerido + 1, entao lacuna no meio puxa o cursor para tras em vez de
+	// deixar um NSR para sempre atras. Ver a migration 20260817150000.
+	proximoNsr := cursorDeColeta(cfg, sc, d.ID)
+
+	bruto, err := rc.GetAFD(proximoNsr)
 	if err != nil {
-		return fmt.Errorf("falha ao buscar AFD do relogio: %w", err)
+		return fmt.Errorf("falha ao buscar AFD do relogio a partir do NSR %d: %w", proximoNsr, err)
 	}
 
 	afdUTF8, err := rep.DecodificarLatin1(bruto)
@@ -93,6 +138,13 @@ func Sync(cfg *config.Config) error {
 		return nil
 	}
 
+	log.Printf("AFD recebido a partir do NSR %d: %d linha(s), %d bytes", proximoNsr, len(linhas), len(bruto))
+
+	// sha256 do que foi RECEBIDO nesta transferencia. Com coleta incremental isso deixa de ser o
+	// sha do arquivo completo do relogio e passa a ser o do trecho — que e' o que faz sentido
+	// registrar em rep_sincronizacoes.arquivo_sha256: a procedencia do artefato transferido. A
+	// integridade do dado em si nao depende disso; ela vive na cadeia de hash por NSR de
+	// rep_afd_registros, que e' continua entre sincronizacoes.
 	arquivoSHA256 := rep.SHA256Hex(bruto)
 	const tamanhoLote = 500
 	for inicio := 0; inicio < len(linhas); inicio += tamanhoLote {

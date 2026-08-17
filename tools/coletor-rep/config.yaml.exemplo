@@ -13,6 +13,11 @@ dispositivo_rep:
   usuario_rep: admin
   senha_rep: "senha-de-administrador-do-relogio"
   cert_fingerprint: ""   # opcional: sha256 hex do certificado do relogio, para pinning de TLS
+  # Opcional - quanto esperar por get_afd.fcgi (SO por ele; as outras chamadas seguem em 30s,
+  # para relogio fora do ar falhar rapido). Ausente ou 0 usa o padrao de 600s. Aumente so se o
+  # log acusar "context deadline exceeded ... while reading body" na PRIMEIRA coleta de um
+  # relogio com historico grande - o dia a dia e incremental e nao chega perto disso.
+  timeout_afd_segundos: 0
 
 # Presente se esta maquina TAMBEM abre a tela de presenca local (terminal). Remova a secao
 # para desativar `terminal abrir`.

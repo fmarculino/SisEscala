@@ -244,10 +244,35 @@ em `/marcacoes` (`importarPendriveAfd` em `marcacoes/actions.ts`, que chama a me
   dá para reativar sem reinstalar — não presuma, leia o texto que aparece na hora.
 - `get_system_information.fcgi` (deriva de relógio no heartbeat) continua aproximação — não
   confirmado contra hardware real.
-- `sync` sempre pede o AFD a partir do NSR 1 (não lê `dispositivos_rep.ultimo_nsr` antes) e
-  confia na idempotência de `fn_ingerir_afd` para descartar o que já foi ingerido — funciona,
-  mas reenvia o arquivo inteiro do relógio a cada ciclo. Antes de ligar em relógio de alto
-  volume, trocar por uma leitura prévia do `ultimo_nsr`.
+- ✅ **`sync` passou a ser incremental em 17/08/2026 (v0.5.0).** Antes pedia o AFD sempre a
+  partir do NSR 1 e confiava na idempotência de `fn_ingerir_afd`. Isso não era só desperdício:
+  no **REP iDClass - SMS** (10.110.0.20) era falha **total** — de 14/08 a 17/08/2026 o
+  dispositivo ficou com `rep_sincronizacoes = 0` e `rep_afd_registros = 0`, todo ciclo morrendo
+  em `context deadline exceeded ... while reading body` (30s de timeout contra um equipamento
+  que leva mais que isso para montar ~40 mil linhas) e recomeçando do zero 5 min depois. O
+  relógio comunicava o tempo todo — `login.fcgi` e `get_system_information.fcgi` respondiam na
+  mesma rodada. **Sync que nunca completa uma vez não deixa rastro nenhum no banco**: ao
+  diagnosticar "instalado e não comunica", confira `rep_sincronizacoes` antes de suspeitar de
+  rede ou credencial.
+  O cursor vem de `GET /api/rep/v1/estado` → `fn_cursor_afd_dispositivo` (migration
+  `20260817150000`), e **não é `ultimo_nsr + 1`**: é o fim do trecho **contíguo** de NSR mais 1.
+  `ultimo_nsr` é o maior NSR de cada lote, então um NSR do meio que nunca chegue ficaria para
+  trás **para sempre** com cursor ingênuo — batida descartada em silêncio, e o autoconserto que
+  existia (repedir o arquivo inteiro todo ciclo) tinha acabado de ser removido. Lacuna puxa o
+  cursor para trás; reingerir é de graça. Toda falha de decisão cai para o NSR 1: errar o cursor
+  **para cima** é a única forma de perder marcação, então a assimetria é deliberada.
+  `get_afd.fcgi` ganhou timeout próprio (10 min, `timeout_afd_segundos` no `config.yaml`);
+  as demais chamadas continuam em 30s de propósito, para relógio fora do ar falhar rápido.
+- ⚠️ **`HTTP 401: "Timestamp fora da janela permitida (anti-replay)"` é relógio da máquina, nunca
+  token.** A checagem de desvio (`repDeviceAuth.ts`, 5 min) roda **antes** da validação do token,
+  então esse erro específico não diz nada sobre credencial — token superado dá
+  `"Dispositivo ou token inválido"`. O coletor assina com `time.Now().UnixMilli()`, epoch
+  absoluto: fuso do Windows errado desloca o epoch mesmo com a hora de parede parecendo certa
+  (`tzutil /g` deve dar `SA Eastern Standard Time`). E não afeta só o heartbeat — `EnviarLote`,
+  `pendencias` e `biometria` usam o mesmo HMAC, então **nada** daquela unidade chega ao SisEscala
+  enquanto o relógio da máquina estiver fora. O dado não se perde (vai para a fila offline e é
+  reenviado), mas a tela fica silenciosamente vazia. Visto em campo em 17/08/2026 na máquina do
+  RH da SMS, aparentemente logo depois do boot, antes do `w32time` corrigir.
 - No Windows, abrir URL com `cmd /c start` **corta tudo depois de um `&`** (separador de
   comando do `cmd.exe`) — quebrava a URL de ativação do terminal local, que tem
   `?terminal_id=...&token=...`. `terminal/terminal.go` usa
@@ -427,13 +452,12 @@ aplicada a `cadastros`/`cadastros-testar`.
 inteira, não filtrada — reaproveita a mesma paginação já confirmada, então herda a confiança dela
 (`ListarUsuariosComBiometria` virou um filtro em cima de `ListarUsuarios`).
 
-⚠️ **Confirmado com dado real (log da LACEN, 12/08/2026): `sync` reprocessa as ~36 mil linhas do
-AFD inteiro a cada ciclo de 5 minutos**, não só na primeira vez — o item já registrado acima como
-pendência ("Antes de ligar em relógio de alto volume, trocar por leitura prévia do
-`ultimo_nsr`"). Não corrompe nada (o atalho de idempotência por lote de `fn_ingerir_afd` devolve
-o resultado já calculado, `reenvio: true`, sem reprocessar — só o log do coletor não distingue
-isso de reprocessamento de verdade), mas é candidato a prioridade agora que há volume real
-medido em produção.
+✅ **Resolvido em 17/08/2026 (v0.5.0).** A nota anterior aqui registrava, com dado real do log da
+LACEN (12/08/2026), que `sync` reprocessava as ~36 mil linhas do AFD inteiro a cada ciclo de 5
+minutos — sem corromper nada (o atalho de idempotência por lote de `fn_ingerir_afd` devolvia o
+resultado já calculado, `reenvio: true`, sem reprocessar; só o log do coletor não distinguia isso
+de reprocessamento de verdade). Virou prioridade quando o mesmo comportamento **impediu** o REP
+iDClass - SMS de sincronizar uma única vez — ver a seção do cursor de NSR acima.
 
 ### Implantação do LACEM (13/08/2026) — primeira unidade fora do piloto
 

@@ -114,6 +114,39 @@ func (c *Client) EnviarLote(loteID string, linhas []string, arquivoSHA256, colet
 	return &resultado, nil
 }
 
+// EstadoIngestao é o que GET /api/rep/v1/estado devolve: de qual NSR este dispositivo deve pedir
+// o AFD. UltimoNsr vem só para o log — quem manda é ProximoNsr.
+type EstadoIngestao struct {
+	ProximoNsr int64  `json:"proximo_nsr"`
+	UltimoNsr  *int64 `json:"ultimo_nsr"`
+}
+
+// EstadoIngestao pergunta ao SisEscala o cursor de coleta deste dispositivo (fim do trecho
+// contíguo de NSR + 1, ver fn_cursor_afd_dispositivo). É o que permite pedir só o incremento ao
+// relógio em vez do arquivo inteiro a cada ciclo.
+//
+// Um ProximoNsr < 1 é tratado como resposta inválida em vez de ser usado: cursor grande demais é
+// a única forma de PERDER marcação (o relógio simplesmente não devolveria as linhas anteriores),
+// então qualquer dúvida aqui tem que virar erro e deixar o chamador cair para o fallback.
+func (c *Client) EstadoIngestao() (*EstadoIngestao, error) {
+	respBytes, status, err := c.chamar(http.MethodGet, "/api/rep/v1/estado", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("falha ao consultar estado de ingestao (HTTP %d): %s", status, string(respBytes))
+	}
+
+	var estado EstadoIngestao
+	if err := json.Unmarshal(respBytes, &estado); err != nil {
+		return nil, fmt.Errorf("resposta invalida do SisEscala: %s", string(respBytes))
+	}
+	if estado.ProximoNsr < 1 {
+		return nil, fmt.Errorf("cursor invalido devolvido pelo SisEscala (proximo_nsr=%d)", estado.ProximoNsr)
+	}
+	return &estado, nil
+}
+
 // CadastroPendente é um item da fila de push de identidade (Fase 7 — ver
 // fn_cadastros_pendentes_dispositivo). identificador_afd já vem pronto no formato de 12
 // dígitos que o AFD usa (CPF com zero de preenchimento à esquerda).

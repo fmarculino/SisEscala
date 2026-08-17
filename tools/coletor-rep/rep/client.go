@@ -50,12 +50,32 @@ import (
 	"time"
 )
 
+// timeoutPadrao vale para as chamadas PEQUENAS (login, get_system_information, load_users,
+// add_users, remove_users): todas respondem em menos de um segundo num relogio saudavel, entao um
+// timeout curto e' desejavel — e' o que faz equipamento fora do ar falhar rapido em vez de
+// segurar o ciclo.
+//
+// timeoutAFDPadrao e' o de get_afd.fcgi, que e' outra ordem de grandeza: o equipamento monta o
+// arquivo inteiro antes de responder, e num relogio reaproveitado sao dezenas de milhares de
+// linhas. Os 30s que valiam para tudo eram exatamente a causa do REP iDClass - SMS nunca ter
+// completado uma sincronizacao entre 14/08 e 17/08/2026. A coleta incremental (cursor de NSR)
+// resolve o caso do dia a dia, mas a PRIMEIRA coleta de um relogio ja usado continua sendo o
+// arquivo inteiro — e' ela que precisa deste teto folgado para o dispositivo conseguir arrancar.
+const (
+	timeoutPadrao    = 30 * time.Second
+	timeoutAFDPadrao = 10 * time.Minute
+)
+
 type Client struct {
-	baseURL    string
-	httpClient *http.Client
-	usuario    string
-	senha      string
-	sessao     string
+	baseURL string
+	// httpClient serve as chamadas pequenas; httpClientAFD so' get_afd.fcgi. Compartilham o mesmo
+	// Transport, entao TLS/pinning e reuso de conexao sao identicos nos dois - a unica diferenca
+	// deliberada e' o Timeout.
+	httpClient    *http.Client
+	httpClientAFD *http.Client
+	usuario       string
+	senha         string
+	sessao        string
 
 	// formatoRemocao guarda qual corpo de remove_users.fcgi este equipamento aceitou nesta
 	// execucao - descoberto na primeira remocao (ver descobrirFormatoRemocao) e reusado depois,
@@ -85,15 +105,25 @@ func NovoClient(endereco string, porta int, usaHTTPS bool, usuario, senha, certF
 		}
 	}
 
+	transporte := &http.Transport{TLSClientConfig: tlsConfig}
+
 	return &Client{
-		baseURL: baseURL,
-		httpClient: &http.Client{
-			Timeout:   30 * time.Second,
-			Transport: &http.Transport{TLSClientConfig: tlsConfig},
-		},
-		usuario: usuario,
-		senha:   senha,
+		baseURL:       baseURL,
+		httpClient:    &http.Client{Timeout: timeoutPadrao, Transport: transporte},
+		httpClientAFD: &http.Client{Timeout: timeoutAFDPadrao, Transport: transporte},
+		usuario:       usuario,
+		senha:         senha,
 	}
+}
+
+// ComTimeoutAFD ajusta so' o teto de get_afd.fcgi (config `timeout_afd_segundos`). Valor <= 0
+// mantem timeoutAFDPadrao — chave ausente no config.yaml nao pode virar "timeout zero", que em Go
+// significaria ESPERAR PARA SEMPRE e prenderia o ciclo da bandeja num relogio travado.
+func (c *Client) ComTimeoutAFD(segundos int) *Client {
+	if segundos > 0 {
+		c.httpClientAFD.Timeout = time.Duration(segundos) * time.Second
+	}
+	return c
 }
 
 func (c *Client) chamar(caminho string, payload map[string]interface{}) (map[string]interface{}, error) {
@@ -144,8 +174,11 @@ func (c *Client) Login() error {
 	return nil
 }
 
-// GetAFD busca os registros de AFD a partir de initialNsr (inclusive) — sempre incremental,
-// nunca o arquivo inteiro do zero em produção (ver comentário em rodarSync sobre isso).
+// GetAFD busca os registros de AFD a partir de initialNsr (inclusive). Este pacote nunca decide o
+// initialNsr: no ciclo automático ele vem do cursor que o SisEscala mantém
+// (fn_cursor_afd_dispositivo, via ciclo.Sync); em `afd-exportar` vem do estado local do pendrive; em
+// `afd-raw` é sempre 1 de propósito, por ser diagnóstico. Usa httpClientAFD, não httpClient — ver o
+// comentário dos dois timeouts no topo do arquivo.
 func (c *Client) GetAFD(initialNsr int64) ([]byte, error) {
 	if c.sessao == "" {
 		if err := c.Login(); err != nil {
@@ -164,7 +197,7 @@ func (c *Client) GetAFD(initialNsr int64) ([]byte, error) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClientAFD.Do(req)
 	if err != nil {
 		return nil, err
 	}

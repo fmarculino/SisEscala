@@ -145,5 +145,9 @@ dispositivo_rep:
   usuario_rep: "${dispositivo.usuario_rep || 'admin'}"
   senha_rep: "${dispositivo.senha_rep || 'PREENCHA_A_SENHA_DE_ADMIN_DO_RELOGIO'}"
   cert_fingerprint: ""
+  # Descomente e aumente SO se o coletor-rep.log acusar "context deadline exceeded ... while
+  # reading body" na primeira coleta (relogio com historico grande demora para montar o AFD).
+  # Ausente usa 600s. Vale so para get_afd.fcgi; as outras chamadas seguem em 30s.
+  # timeout_afd_segundos: 900
 `
 }

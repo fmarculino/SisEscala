@@ -2,6 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.1] - 2026-08-17
+
+### Fixed
+- **Relógio REP recém-instalado nunca sincronizava nada** (REP iDClass - SMS, 10.110.0.20,
+  instalado em 14/08/2026). Em 17/08/2026 o dispositivo tinha `rep_sincronizacoes = 0` e
+  `rep_afd_registros = 0`: o `sync` pedia o AFD **sempre a partir do NSR 1**, o equipamento leva
+  mais de 30s (o timeout do coletor) para montar as ~40 mil linhas de um relógio reaproveitado, e
+  todo ciclo morria em `context deadline exceeded ... while reading body` para recomeçar do zero 5
+  minutos depois. O relógio comunicava o tempo todo — `login.fcgi` e `get_system_information.fcgi`
+  respondiam na mesma rodada; só a coleta do AFD não cabia no tempo.
+  - Coleta agora é **incremental**: `GET /api/rep/v1/estado` devolve o cursor de NSR
+    (`fn_cursor_afd_dispositivo`, migration `20260817150000`) e o coletor pede só o incremento.
+    Também deixa de reprocessar as ~36 mil linhas da LACEM a cada 5 minutos (pendência aberta
+    desde 12/08/2026).
+  - O cursor é o fim do trecho **contíguo** de NSR mais 1, deliberadamente **não**
+    `ultimo_nsr + 1`: `ultimo_nsr` é o maior NSR de cada lote, então um NSR do meio que nunca
+    chegasse ficaria para trás para sempre — batida descartada em silêncio, justamente quando o
+    autoconserto (repedir o arquivo inteiro todo ciclo) acabou de ser removido. Lacuna puxa o
+    cursor de volta; reingerir é de graça (`fn_ingerir_afd` é idempotente por dispositivo+NSR).
+    Validado contra 6 cenários em homologação, incluindo envenenamento por registro de trailer
+    com NSR `999999999`.
+  - `get_afd.fcgi` ganhou timeout próprio (10 min, ajustável por `timeout_afd_segundos` no
+    `config.yaml`). As outras chamadas ao relógio continuam em 30s de propósito — é o que faz
+    equipamento fora do ar falhar rápido em vez de segurar o ciclo. `afd-raw` e `afd-exportar`
+    também usam o teto folgado.
+  - Coletor v0.5.0 (`ciclo.Versao`, `dist/VERSION` e os dois `.exe` recompilados).
+
+### Documented
+- **`HTTP 401 "Timestamp fora da janela permitida (anti-replay)"` no log do coletor é relógio da
+  máquina, não token.** A checagem de desvio roda antes da validação do token, e afeta *todas* as
+  rotas `/api/rep/v1/*` (não só o heartbeat) — nada daquela unidade chega ao SisEscala enquanto o
+  fuso/hora do Windows estiver fora, ainda que o dado não se perca (vai para a fila offline).
+  Registrado no CLAUDE.md com o passo de conferência.
+
 ## [2.0.0] - 2026-08-14
 
 Salto de versão major: correção de dois bugs de produção com impacto direto em dado de ponto
