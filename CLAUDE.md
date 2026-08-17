@@ -501,6 +501,28 @@ SisEscala — não na hora (criar vínculo não reprocessa nada), mas no primeir
 o default (`dispositivos_rep.created_at` = 14/08/2026) e **nunca** a data da primeira batida do AFD.
 A LACEM tinha ~34.500 marcações nessa situação; aqui é 7x isso.
 
+🚨 **A instalação da SMS NÃO está concluída, e o motivo é o identificador ser PIS** (ver armadilha
+10, que foi reescrita por causa deste caso). Estado medido em 17/08/2026, agosto/2026, 126 escalados:
+
+| situação real (casando por PIS) | quantos | a tela "Cobertura da Escala" diz |
+|---|---|---|
+| já no relógio, **com biometria** — só falta o vínculo | **27** | `fora_do_relogio` ❌ |
+| já no relógio, sem biometria | 1 | `fora_do_relogio` ❌ |
+| realmente fora do relógio | 83 | `fora_do_relogio` ✅ |
+| sem PIS no cadastro do SisEscala | 15 | `sem_cpf` (1) ❌ |
+
+Ou seja: **27 pessoas batem ponto naquele relógio todo dia e a batida morre órfã**, e a tela afirma
+que elas não estão cadastradas. Nada disso se resolve clicando em "Sincronizar cadastros": o push
+falhou nos 327 (`'pis' em formato incorreto`) e, se tivesse passado, teria gravado vínculo por CPF
+que jamais casaria com as linhas do AFD deste equipamento.
+
+O que falta é **código**, não operação: vinculação por PIS, `fn_cobertura_ponto_dispositivo`
+reconhecendo PIS, `fn_enfileirar_cadastros_rep` gravando o identificador do tipo certo, e
+`rep.CriarUsuario` mandando o campo que este modelo aceita (varredura de formatos como a de
+`remove_users.fcgi`, validada em campo com `cadastros-testar`). Provavelmente precisa de uma coluna
+em `dispositivos_rep` dizendo o tipo de identificador — hoje CPF e PIS convivem em produção sem nada
+no schema distinguindo.
+
 ℹ️ Observação registrada, ainda **não tratada**: a cadeia de hash de `rep_afd_registros` é montada
 na **ordem de chegada** (`v_hash_ant` vem do maior NSR já presente), e a fila offline reenvia em
 ordem de hash de `lote_id`. Numa recuperação grande a cadeia deixa de acompanhar a ordem de NSR.
@@ -1090,7 +1112,38 @@ Vale para **todas** as categorias, inclusive Plantão. No cadastro atual, toda j
 (Plantão/Extra). `ScaleGrid.tsx` espelha essa regra para escolher entre 2 e 4 segmentos — se alterar
 uma ponta, altere a outra.
 
-### 10. O identificador do AFD é CPF com **um** zero à esquerda
+### 10. O identificador do AFD é CPF com **um** zero à esquerda — ⚠️ **só em alguns relógios**
+
+🚨 **LEIA ISTO ANTES DO RESTO DESTA ARMADILHA (17/08/2026).** "O identificador é CPF" **não é
+propriedade do AFD, é propriedade de como cada equipamento foi cadastrado.** O relógio da **SMS**
+(10.110.0.20) identifica por **PIS/NIS**, não por CPF — medido pelos dígitos verificadores dos 323
+usuários dele: **292 validam como PIS, só 13 como CPF** (2 como ambos, 16 como nenhum). Os relógios
+da TI, LACEM e CEI são CPF porque foram cadastrados assim; este veio de outro sistema que usou PIS.
+
+Consequências medidas em produção, todas silenciosas:
+
+| o que assume CPF | efeito no relógio da SMS |
+|---|---|
+| `rep.CriarUsuario` (manda campo `cpf`) | **327 cadastros falharam**: `add_users.fcgi recusou: 'pis' em formato incorreto` |
+| `fn_vincular_cadastros_por_cpf` | casa **0** dos 323 |
+| `fn_cobertura_ponto_dispositivo` | diz `fora_do_relogio` para **27 pessoas que estão no relógio com biometria** e batem ponto todo dia |
+| `fn_enfileirar_cadastros_rep` (grava `lpad(cpf,12,'0')`) | criaria vínculo com identificador que **nunca** casa com as linhas do AFD deste device — 265.922 marcações ficariam órfãs para sempre, sem erro nenhum |
+
+A falha do `add_users.fcgi` foi **sorte**: se tivesse passado, teria criado 327 vínculos inúteis e o
+problema só apareceria como "o ponto de ninguém aparece", meses depois.
+
+✅ **Existe ponte, e ela mudou desde que este arquivo dizia o contrário:** `servidores.pis_pasep`
+está preenchido em **309 de 347** servidores (a nota abaixo, de 08/08/2026, dizia "vazio em 100% dos
+registros" — **desatualizado**, os dados entraram depois). Casando por PIS, 48 dos 323 usuários do
+relógio viram servidor, e 28 dos 126 escalados. Casar por **matrícula** é ponte ruim aqui: só 35 de
+323 (89 têm matrícula `0` no device).
+
+**Ao ligar um relógio novo, descubra o tipo de identificador ANTES de empurrar cadastro** — rode a
+higiene (só leitura) e valide os dígitos verificadores do `identificador_afd`. Não existe hoje coluna
+dizendo se o dispositivo é CPF ou PIS; enquanto não existir, os dois conviverão em produção sem nada
+no schema registrando qual é qual.
+
+
 
 O registro tipo 3 do AFD (a marcação) carrega apenas `NSR + data/hora + identificador(12) + CRC`.
 **A matrícula não aparece em nenhuma marcação** — só no tipo 5 (cadastro) e no `load_users.fcgi`.
@@ -1110,8 +1163,11 @@ então o erro atinge um terço da base de forma aparentemente aleatória — e o
 fantasma no módulo de pendências, que leva alguém a vincular a pessoa errada na mão. Corrigido
 em `20260808090000`.
 
-Agrava: quem usa relógio tende a ter `cpf` nulo no SisEscala, e `pis_pasep` está vazio em 100%
-dos registros. Auditor fiscal casa por PIS/NIS — é projeto de qualidade de dados da Fase 9.
+Agrava: quem usa relógio tende a ter `cpf` nulo no SisEscala. Auditor fiscal casa por PIS/NIS.
+⚠️ A frase que existia aqui — "`pis_pasep` está vazio em 100% dos registros" — era verdade em
+08/08/2026 e **não é mais**: em 17/08/2026 são **309 de 347** preenchidos. Foi exatamente isso que
+tornou viável a ponte por PIS descrita no topo desta armadilha. **Reconfira contagem deste arquivo
+contra produção antes de decidir com base nela.**
 
 ⚠️ **Pendência (13/08/2026, sem solução escolhida): identificador por CPF quebra para vínculo
 duplo.** `servidores.vinculo_multiplo_confirmado` (`20260810140000`) permite duas matrículas pra

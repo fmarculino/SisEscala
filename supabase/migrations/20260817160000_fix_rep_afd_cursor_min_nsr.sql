@@ -18,9 +18,13 @@
 -- nao em ordem de NSR: durante uma recuperacao grande o dispositivo fica legitimamente com buracos
 -- que se fecham sozinhos. Enquanto o NSR 1 nao chegasse, o guard dispararia em TODO ciclo e o cursor
 -- devolveria 1 - o equipamento remontando o arquivo inteiro a cada 5 minutos, exatamente o que a
--- coleta incremental existe para eliminar. E se algum modelo de relogio de fato nao comecar em 1
--- (nao foi possivel confirmar o piso real deste equipamento antes da recuperacao terminar), o guard
--- travaria nisso para sempre.
+-- coleta incremental existe para eliminar. E se algum modelo de relogio de fato nao comecar em 1, o
+-- guard travaria nisso para sempre.
+--
+-- Para o registro: o piso REAL deste equipamento acabou sendo 1 (conferido quando a recuperacao
+-- terminou, 268.556 registros contiguos de 1 a 268.556). Os "3001" e "501" eram artefato da ordem de
+-- reenvio, nao caracteristica do relogio - nao cite este dispositivo como exemplo de AFD que comeca
+-- acima de 1. O guard estava errado de todo modo, porque travava durante a recuperacao inteira.
 --
 -- Nunca houve risco de PERDER marcacao: errar o cursor para baixo so rebaixa dado que ja existe, e
 -- reingerir e' de graca. O prejuizo era o ganho da coleta incremental ser zero.
@@ -77,10 +81,12 @@ GRANT EXECUTE ON FUNCTION public.fn_cursor_afd_dispositivo(uuid) TO service_role
 COMMENT ON FUNCTION public.fn_cursor_afd_dispositivo(uuid) IS
     'NSR a partir do qual o coletor deve pedir o AFD deste dispositivo (initial_nsr de '
     'get_afd.fcgi). E o fim do primeiro trecho CONTIGUO a partir do MENOR NSR do dispositivo, mais '
-    '1 - nao ancora no NSR 1, porque ha relogio cujo AFD comeca acima disso (o da SMS comeca em '
-    '3001). Deliberadamente NAO e dispositivos_rep.ultimo_nsr + 1: lacuna no meio puxa o cursor de '
-    'volta para antes dela, para que nenhum NSR fique para tras para sempre. Reingerir e de graca '
-    '(fn_ingerir_afd e idempotente por dispositivo+nsr). Servida por GET /api/rep/v1/estado.';
+    '1 - deliberadamente NAO ancora no NSR 1: durante recuperacao grande o menor NSR ingerido ainda '
+    'esta DESCENDO (a fila offline reenvia lote em ordem de hash de lote_id, nao de NSR), e nada '
+    'garante que o AFD de todo modelo de relogio comece em 1. Tambem NAO e '
+    'dispositivos_rep.ultimo_nsr + 1: lacuna no meio puxa o cursor de volta para antes dela, para '
+    'que nenhum NSR fique para tras para sempre. Reingerir e de graca (fn_ingerir_afd e idempotente '
+    'por dispositivo+nsr). Servida por GET /api/rep/v1/estado.';
 
 
 -- ============================================================================
