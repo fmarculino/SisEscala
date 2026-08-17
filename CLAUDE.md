@@ -9,8 +9,7 @@ Ver também [`.agents/AGENTS.md`](.agents/AGENTS.md) — regras que **complement
 ## Stack
 
 Next.js 15 (App Router) · TypeScript · Tailwind 4 · Supabase (Postgres + RLS + Auth)
-Sem framework de testes. `npm run build` e `npx tsc --noEmit` são a única verificação automática.
-(`npm run lint` **não roda** — o ESLint nunca foi configurado e o comando abre prompt interativo.)
+Verificações automáticas via GitHub Actions CI (`.github/workflows/ci.yml`): `npx tsc --noEmit`, `npm run lint`, `npm run build` e validação de compilação dos binários Go do coletor REP.
 
 **Deploy: Coolify na VPS, não Vercel.** App em `sisescala.maraba.pa.gov.br`, mesmo host do
 Supabase de produção. Webhook do GitHub dispara o deploy automático a cada push na `main`.

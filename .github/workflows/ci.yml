@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - staging
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  frontend-and-core:
+    name: Frontend & Core (Next.js / TypeScript)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript typecheck
+        run: npx tsc --noEmit
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Build Next.js (Standalone)
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: "http://localhost:54321"
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: "mock-anon-key-for-ci-build"
+        run: npm run build
+
+  coletor-rep:
+    name: Coletor REP (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21.x'
+          cache-dependency-path: tools/coletor-rep/go.sum
+
+      - name: Go Vet
+        working-directory: tools/coletor-rep
+        run: go vet ./...
+
+      - name: Build CLI (Windows target)
+        working-directory: tools/coletor-rep
+        env:
+          GOOS: windows
+          GOARCH: amd64
+        run: go build -o dist/coletor-rep-cli.exe ./cmd/cli
+
+      - name: Build Tray (Windows GUI target)
+        working-directory: tools/coletor-rep
+        env:
+          GOOS: windows
+          GOARCH: amd64
+        run: go build -ldflags="-H=windowsgui" -o dist/coletor-rep-tray.exe ./cmd/tray

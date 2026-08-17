@@ -16,8 +16,6 @@ interface Props {
 }
 
 export function HistoricoChart({ data }: Props) {
-  if (data.length === 0) return null
-
   const categories = [
     { key: 'regular' as const, label: 'Regular', color: 'bg-blue-500', darkColor: 'dark:bg-blue-400', textColor: 'text-blue-600 dark:text-blue-400' },
     { key: 'plantao' as const, label: 'Plantão', color: 'bg-emerald-500', darkColor: 'dark:bg-emerald-400', textColor: 'text-emerald-600 dark:text-emerald-400' },
@@ -27,6 +25,7 @@ export function HistoricoChart({ data }: Props) {
 
   // Default selected month: find last month with non-zero data, or fallback to latest month
   const defaultSelectedIdx = useMemo(() => {
+    if (data.length === 0) return 0
     for (let i = data.length - 1; i >= 0; i--) {
       const d = data[i]
       if (d.regular > 0 || d.plantao > 0 || d.sobreaviso > 0 || d.extra > 0) {
@@ -37,6 +36,8 @@ export function HistoricoChart({ data }: Props) {
   }, [data])
 
   const [selectedIdx, setSelectedIdx] = useState<number>(defaultSelectedIdx)
+
+  if (data.length === 0) return null
 
   const selectedMonth = data[selectedIdx] || data[data.length - 1]
   const previousMonth = selectedIdx > 0 ? data[selectedIdx - 1] : null
