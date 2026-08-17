@@ -219,8 +219,8 @@ BEGIN
     ),
     inseridos AS (
         INSERT INTO public.rep_vinculos_servidor (
-            dispositivo_id, servidor_id, identificador_afd, registration_bruto,
-            nome_no_device, tem_biometria, vigente_de, vigente_ate, criado_por_id
+            dispositivo_id, servidor_id, identificador_afd, matricula_device,
+            nome_device, tem_biometria, vigente_de, vigente_ate, criado_por_id
         )
         SELECT p_dispositivo_id, c.servidor_id, c.identificador_afd, c.registration_bruto,
                c.nome_no_device, c.tem_biometria, v_vigente_de, NULL, auth.uid()
