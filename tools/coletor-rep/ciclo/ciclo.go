@@ -20,7 +20,7 @@ import (
 	"github.com/sms-maraba/sisescala-coletor-rep/sisescala"
 )
 
-const Versao = "0.5.2"
+const Versao = "0.6.0"
 
 func hostname() string {
 	h, err := os.Hostname()
@@ -227,7 +227,12 @@ type ResultadoCadastros struct {
 	Falhas    int
 }
 
-func SincronizarCadastros(cfg *config.Config) (ResultadoCadastros, error) {
+// LimiteCadastrosPorCiclo e' o teto do ciclo AUTOMATICO. O clique manual no menu passa 0 (sem
+// teto), porque ali existe alguem esperando o resultado e a fila costuma ser pequena.
+const LimiteCadastrosPorCiclo = 20
+
+// SincronizarCadastros envia a fila de identidade ao relógio. `limite` = 0 significa sem teto.
+func SincronizarCadastros(cfg *config.Config, limite int) (ResultadoCadastros, error) {
 	var resultado ResultadoCadastros
 	if cfg.DispositivoRep == nil {
 		return resultado, fmt.Errorf("secao dispositivo_rep ausente no config.yaml — nada para sincronizar")
@@ -241,36 +246,98 @@ func SincronizarCadastros(cfg *config.Config) (ResultadoCadastros, error) {
 		return resultado, fmt.Errorf("falha ao listar cadastros pendentes: %w", err)
 	}
 	resultado.Pendentes = len(pendentes)
-	log.Printf("cadastros: %d pendente(s) para enviar ao rele", len(pendentes))
+
+	// Teto por execucao. O ciclo da bandeja e o menu dividem UMA goroutine (cmd/tray/main.go):
+	// escrever 327 cadastros de uma vez deixaria o menu sem resposta por minutos, que foi
+	// exatamente o susto de 17/08/2026 com a fila de AFD inflada. A fila e persistente, entao o
+	// resto sai no ciclo seguinte sem perder nada.
+	if limite > 0 && len(pendentes) > limite {
+		log.Printf("cadastros: %d pendente(s); enviando %d neste ciclo, o resto no proximo",
+			len(pendentes), limite)
+		pendentes = pendentes[:limite]
+	} else {
+		log.Printf("cadastros: %d pendente(s) para enviar ao rele", len(pendentes))
+	}
 
 	for _, p := range pendentes {
 		// device_user_id sempre nil - confirmado em 12/08/2026 que este device nao expoe um id
-		// interno separado (so pis/registration). A identidade de referencia e' identificador_afd,
-		// ja gravado em fn_confirmar_cadastro_rep a partir do proprio servidor da fila.
-		if err := rc.CriarUsuario(p.Matricula, p.Nome, p.IdentificadorAFD); err != nil {
+		// interno separado (so pis/registration). A identidade de referencia e' identificador_afd.
+		identNoDevice, err := rc.CriarUsuario(p.Matricula, p.Nome, p.IdentificadorAFD)
+		if err != nil {
 			resultado.Falhas++
 			log.Printf("cadastro de %s (%s) falhou: %v", p.Nome, p.Matricula, err)
-			if erroConfirmar := sc.ConfirmarCadastro(p.FilaID, false, nil, err.Error()); erroConfirmar != nil {
+			// Nao alcancar o relogio NAO pode queimar o cadastro da pessoa: transitorio devolve o
+			// item para a fila com espera. Recusa do equipamento e' definitiva - insistir a cada
+			// ciclo repetiria o mesmo erro (foi o caso das 327 da SMS, 'pis' em formato incorreto).
+			transitorio := ehFalhaDeTransporte(err)
+			if erroConfirmar := sc.ConfirmarCadastro(p.FilaID, false, nil, err.Error(), "", transitorio); erroConfirmar != nil {
 				log.Printf("aviso: falha tambem ao reportar erro do cadastro %s: %v", p.FilaID, erroConfirmar)
 			}
 			continue
 		}
 		resultado.Enviados++
-		log.Printf("cadastro de %s (%s) criado no rele", p.Nome, p.Matricula)
-		if err := sc.ConfirmarCadastro(p.FilaID, true, nil, ""); err != nil {
+		log.Printf("cadastro de %s (%s) criado no rele (formato %s, identificador no device: %q)",
+			p.Nome, p.Matricula, rc.FormatoCadastroUsado(), identNoDevice)
+		if err := sc.ConfirmarCadastro(p.FilaID, true, nil, "", identNoDevice, false); err != nil {
 			log.Printf("aviso: cadastro %s criado no rele mas falha ao confirmar no SisEscala: %v", p.FilaID, err)
 		}
 	}
 
-	comBiometria, err := rc.ListarUsuariosComBiometria()
+	// Relata o snapshot INTEIRO, nao so quem tem biometria. Esta listagem sempre foi feita aqui (a
+	// antiga ReportarBiometria a jogava fora depois de filtrar), e e' ela que deixa o SisEscala
+	// re-resolver identidade por CPF **ou** PIS via fn_registrar_snapshot_usuarios_dispositivo -
+	// a fonte unica. E' o que torna o fluxo autocorretivo: mesmo que o identificador reportado no
+	// ConfirmarCadastro acima falte, o snapshot conserta em seguida.
+	usuarios, err := rc.ListarUsuarios()
 	if err != nil {
-		log.Printf("aviso: nao foi possivel listar biometria do rele: %v", err)
+		log.Printf("aviso: nao foi possivel listar usuarios do rele: %v", err)
 		return resultado, nil // envio de cadastros ja aconteceu - nao falha o ciclo por isso
+	}
+
+	relato := make([]sisescala.UsuarioDispositivoRelato, len(usuarios))
+	comBiometria := make([]string, 0, len(usuarios))
+	for i, u := range usuarios {
+		relato[i] = sisescala.UsuarioDispositivoRelato{
+			IdentificadorAFD: u.IdentificadorAFD, RegistrationBruto: u.RegistrationBruto,
+			Nome: u.Nome, TemBiometria: u.TemBiometria,
+		}
+		if u.TemBiometria {
+			comBiometria = append(comBiometria, u.IdentificadorAFD)
+		}
+	}
+	if _, err := sc.ReportarUsuariosDispositivo(relato); err != nil {
+		log.Printf("aviso: falha ao atualizar o snapshot no SisEscala: %v", err)
 	}
 	if err := sc.ReportarBiometria(comBiometria); err != nil {
 		log.Printf("aviso: falha ao reportar biometria ao SisEscala: %v", err)
 	}
 	return resultado, nil
+}
+
+// ehFalhaDeTransporte separa "nao consegui falar com o relogio" de "o relogio respondeu e recusou".
+// A distincao decide o destino do item na fila, e por isso e' conservadora: SO trata como
+// transitorio o que reconhece como transporte. Qualquer duvida vira falha definitiva, que e o
+// comportamento antigo e aparece na tela - o oposto (achar que uma recusa e transitoria) faria o
+// ciclo automatico bater no mesmo erro para sempre.
+func ehFalhaDeTransporte(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	// "recusou" e' a marca das mensagens que o proprio equipamento devolveu (aplicarCadastro).
+	if strings.Contains(msg, "recusou") {
+		return false
+	}
+	for _, marca := range []string{
+		"timeout", "deadline exceeded", "connection refused", "no such host",
+		"network is unreachable", "connection reset", "i/o timeout", "eof",
+		"tls", "certificado do rep",
+	} {
+		if strings.Contains(msg, marca) {
+			return true
+		}
+	}
+	return false
 }
 
 // HigienizarListagem lê TODOS os usuários cadastrados no relógio (load_users.fcgi) e reporta o

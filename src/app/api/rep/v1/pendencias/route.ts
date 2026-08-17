@@ -52,6 +52,12 @@ export async function POST(request: Request) {
     p_sucesso: sucesso,
     p_device_user_id: body?.device_user_id ?? null,
     p_erro: body?.erro ?? null,
+    // O identificador que o RELÓGIO reportou, não o que o SisEscala calcularia do CPF — é isso
+    // que faz o vínculo casar com as linhas do AFD num relógio cadastrado por PIS. Ausente cai no
+    // cálculo por CPF (migration 20260817180000).
+    p_identificador_afd: body?.identificador_afd ?? null,
+    // Falha de transporte volta para a fila com espera; recusa do equipamento é definitiva.
+    p_transitorio: body?.transitorio === true,
   })
   if (error) {
     console.error('Falha ao confirmar cadastro REP:', error.message)

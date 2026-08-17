@@ -534,6 +534,30 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 				log.Printf("erro no heartbeat: %v", err)
 				ok = false
 			}
+
+			// Cadastro de identidade e leitura do cadastro do relogio entram no ciclo desde a
+			// v0.6.0, para nao depender de alguem clicar no menu numa maquina que fica sozinha.
+			//
+			// O que autoriza isso agora, e nao antes:
+			//   * a fila e' o gatilho. Sem ninguem enfileirado, ListarCadastrosPendentes devolve
+			//     lista vazia e NADA e' escrito no equipamento - o custo em repouso e um GET.
+			//     E' isso que faz o botao "Sincronizar cadastros" da tela valer como comando
+			//     remoto: ele enfileira, e o proximo ciclo aplica (o servidor nao tem caminho de
+			//     rede ate esta maquina, entao push de verdade nao existe).
+			//   * recusa do equipamento agora e' definitiva e falha de transporte volta para a
+			//     fila com espera (migration 20260817180000). Sem essa separacao, automatizar
+			//     transformaria um blecaute de um minuto em cadastro queimado sem alarme.
+			//   * ha teto por ciclo, porque o ciclo e os cliques do menu dividem UMA goroutine:
+			//     escrever centenas de cadastros de uma vez deixaria a bandeja sem resposta.
+			//
+			// Falha aqui NAO derruba o status para vermelho: sincronizar AFD (o ponto) e' a
+			// funcao essencial; cadastro pendente e' assunto da tela de Cobertura da Escala.
+			if resultado, err := ciclo.SincronizarCadastros(cfg, ciclo.LimiteCadastrosPorCiclo); err != nil {
+				log.Printf("aviso: cadastros nao sincronizados neste ciclo: %v", err)
+			} else if resultado.Enviados > 0 || resultado.Falhas > 0 {
+				log.Printf("cadastros no ciclo: enviados=%d falhas=%d (pendentes na fila: %d)",
+					resultado.Enviados, resultado.Falhas, resultado.Pendentes)
+			}
 		}
 
 		falhasAntes, falhasDepois := estado.registrarResultado(ok)
@@ -573,7 +597,7 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 				itemSincronizarCadastros.SetTitle("Enviando cadastros...")
 				itemSincronizarCadastros.Disable()
 				_ = beeep.Notify("SisEscala - Coletor", "Enviando cadastros pendentes para o rele...", nil)
-				resultado, err := ciclo.SincronizarCadastros(cfg)
+				resultado, err := ciclo.SincronizarCadastros(cfg, 0)
 				if err != nil {
 					log.Printf("erro ao sincronizar cadastros: %v", err)
 					_ = beeep.Notify("SisEscala - Coletor", "Falha ao sincronizar cadastros com o rele. Ver log.", nil)

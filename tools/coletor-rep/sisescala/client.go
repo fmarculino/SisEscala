@@ -293,16 +293,33 @@ func (c *Client) ListarCadastrosPendentes() ([]CadastroPendente, error) {
 	return pendentes, nil
 }
 
-// ConfirmarCadastro reporta o resultado de um item da fila — sucesso com o device_user_id
-// atribuído pelo relógio, ou falha com o motivo. Idempotente: reenviar a confirmação de um
-// item já processado não faz nada (fn_confirmar_cadastro_rep ignora silenciosamente).
-func (c *Client) ConfirmarCadastro(filaID string, sucesso bool, deviceUserID *int64, mensagemErro string) error {
+// ConfirmarCadastro reporta o resultado de um item da fila. Idempotente: reenviar a confirmação de
+// um item já processado não faz nada (fn_confirmar_cadastro_rep ignora silenciosamente).
+//
+// identificadorAfd é o identificador que o RELÓGIO informou depois de criar o usuário, lido de
+// volta por relistagem — não o que mandamos. Vazio deixa o servidor cair no cálculo por CPF, que
+// segue correto nos relógios cadastrados por CPF. Isso existe porque no relógio da SMS
+// (cadastrado por PIS pelo sistema anterior) um vínculo calculado do CPF nunca casaria com as
+// linhas do AFD, em silêncio: as batidas continuariam órfãs e a tela diria que estava tudo certo.
+//
+// transitorio distingue "não consegui FALAR com o relógio" (rede/timeout: o item volta para a
+// fila com espera) de "o relógio RECUSOU" (definitivo). Sem essa distinção, o ciclo automático
+// queimaria o cadastro de uma pessoa por causa de um blecaute de um minuto.
+func (c *Client) ConfirmarCadastro(
+	filaID string, sucesso bool, deviceUserID *int64, mensagemErro, identificadorAfd string, transitorio bool,
+) error {
 	payload := map[string]interface{}{"fila_id": filaID, "sucesso": sucesso}
 	if deviceUserID != nil {
 		payload["device_user_id"] = *deviceUserID
 	}
 	if mensagemErro != "" {
 		payload["erro"] = mensagemErro
+	}
+	if identificadorAfd != "" {
+		payload["identificador_afd"] = identificadorAfd
+	}
+	if transitorio {
+		payload["transitorio"] = true
 	}
 	corpo, err := json.Marshal(payload)
 	if err != nil {

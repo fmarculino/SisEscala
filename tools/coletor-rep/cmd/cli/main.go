@@ -57,7 +57,7 @@ func main() {
 		}
 		rodarAfdExportar(cfg, caminhoCfg, os.Args[2])
 	case "cadastros":
-		resultado, err := ciclo.SincronizarCadastros(cfg)
+		resultado, err := ciclo.SincronizarCadastros(cfg, 0)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Falha ao sincronizar cadastros: %v\n", err)
 			os.Exit(1)
@@ -473,12 +473,17 @@ func rodarCadastrosTestar(cfg *config.Config) {
 	// "00000000000" foi recusado com "'cpf' em formato incorreto". 011144477735 -> right(11) =
 	// 11144477735, um CPF de teste sintaticamente valido e amplamente usado em QA de sistemas
 	// brasileiros (nunca emitido de verdade).
-	err := rc.CriarUsuario("900000", "SISESCALA TESTE - PODE APAGAR", "011144477735")
+	identNoDevice, err := rc.CriarUsuario("900000", "SISESCALA TESTE - PODE APAGAR", "011144477735")
 	if err != nil {
 		fmt.Printf("CriarUsuario: FALHOU — %v\n", err)
 		fmt.Println("\nA mensagem acima, se tiver a resposta crua do rele, e o que decide o proximo passo.")
 	} else {
 		fmt.Println("CriarUsuario: OK")
+		// O formato aceito e o identificador atribuido sao o RESULTADO deste comando: decidem se
+		// este modelo precisa de PIS em vez de CPF, e qual numero vai aparecer na marcacao do AFD
+		// (logo, qual numero precisa virar rep_vinculos_servidor).
+		fmt.Printf("  formato aceito pelo add_users.fcgi: %s\n", rc.FormatoCadastroUsado())
+		fmt.Printf("  identificador que o RELOGIO atribuiu: %q\n", identNoDevice)
 	}
 
 	comBiometria, err := rc.ListarUsuariosComBiometria()
@@ -522,7 +527,7 @@ func rodarRemocaoTestar(cfg *config.Config) {
 	}
 	fmt.Println("login no REP: OK")
 
-	if err := rc.CriarUsuario("900000", "SISESCALA TESTE - PODE APAGAR", identificadorTeste); err != nil {
+	if _, err := rc.CriarUsuario("900000", "SISESCALA TESTE - PODE APAGAR", identificadorTeste); err != nil {
 		// Ja existir de uma rodada anterior de cadastros-testar nao impede o teste de remocao —
 		// a busca abaixo decide.
 		fmt.Printf("CriarUsuario: FALHOU — %v\n", err)

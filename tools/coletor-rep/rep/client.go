@@ -81,6 +81,11 @@ type Client struct {
 	// execucao - descoberto na primeira remocao (ver descobrirFormatoRemocao) e reusado depois,
 	// para nao repetir a varredura de candidatos a cada usuario do lote.
 	formatoRemocao *formatoRemocao
+
+	// formatoCadastro e o mesmo para add_users.fcgi: o nome do campo de identificador varia por
+	// modelo (a SMS recusou `cpf` pedindo `pis`), entao o primeiro cadastro de cada execucao
+	// descobre e o resto do lote reusa.
+	formatoCadastro *formatoCadastro
 }
 
 func NovoClient(endereco string, porta int, usaHTTPS bool, usuario, senha, certFingerprint string) *Client {
@@ -242,10 +247,56 @@ func (c *Client) InformacoesSistema() (map[string]interface{}, error) {
 // com zero de preenchimento); o campo cpf da API espera o CPF puro como NUMERO, daí o
 // `right(...,11)` + conversao — a mesma operacao inversa que fn_vinculos_sugeridos_afd já faz
 // do lado do banco (armadilha 10, CLAUDE.md).
-func (c *Client) CriarUsuario(matricula, nome, identificadorAfd string) error {
+// formatoCadastro e' um jeito candidato de montar o corpo de add_users.fcgi. Mesmo padrao de
+// formatosRemocao: o nome do campo de identificador VARIA por modelo/firmware, e descobrir por
+// tentativa confirmada e' o que faz um relogio novo ser suportado em vez de falhar em silencio.
+//
+// ✅ `cpf` CONFIRMADO em 12/08/2026 no REP da TI (10.110.2.89) - fica em primeiro.
+// ❌ Em 17/08/2026 o REP da SMS (10.110.0.20) recusou as 327 tentativas com
+//    "'pis' em formato incorreto". O device NOMEIA o campo `pis`, e pela convencao ja observada
+//    duas vezes neste equipamento (ver formatosRemocao) o campo nomeado e' o que ele espera. Aquele
+//    relogio veio cadastrado por PIS pelo sistema anterior, o que reforca a leitura.
+//    ⚠️ NAO CONFIRMADO em hardware: rodar `coletor-rep-cli cadastros-testar` na unidade antes de
+//    confiar. Se o device validar o digito verificador de PIS, mandar CPF no campo `pis` tambem
+//    sera recusado - e ai o cadastro naquele relogio tera que ser por PIS de verdade.
+type formatoCadastro struct {
+	Nome  string
+	Corpo func(nome string, matricula, numero int64) map[string]interface{}
+}
+
+var formatosCadastro = []formatoCadastro{
+	{"users:[{cpf}]", func(nome string, matricula, numero int64) map[string]interface{} {
+		return map[string]interface{}{"users": []map[string]interface{}{
+			{"name": nome, "registration": matricula, "cpf": numero, "admin": false}}}
+	}},
+	{"users:[{pis}]", func(nome string, matricula, numero int64) map[string]interface{} {
+		return map[string]interface{}{"users": []map[string]interface{}{
+			{"name": nome, "registration": matricula, "pis": numero, "admin": false}}}
+	}},
+	{"users:[{pis,cpf}]", func(nome string, matricula, numero int64) map[string]interface{} {
+		return map[string]interface{}{"users": []map[string]interface{}{
+			{"name": nome, "registration": matricula, "pis": numero, "cpf": numero, "admin": false}}}
+	}},
+}
+
+// FormatoCadastroUsado devolve o nome do formato de add_users.fcgi que este equipamento aceitou
+// nesta execucao (vazio se nenhum cadastro rodou ainda) - so' para log/diagnostico.
+func (c *Client) FormatoCadastroUsado() string {
+	if c.formatoCadastro == nil {
+		return ""
+	}
+	return c.formatoCadastro.Nome
+}
+
+// CriarUsuario devolve o identificador_afd que o RELOGIO passou a ter para esta pessoa, lido de
+// volta por relistagem - nao o que mandamos. E' esse numero que aparece na marcacao do AFD, entao
+// e' ele que precisa virar rep_vinculos_servidor; calcular do CPF foi o que produziria 327 vinculos
+// que nunca casariam nada no relogio da SMS. Devolve "" quando nao foi possivel reler (o servidor
+// entao cai no calculo por CPF, correto nos relogios cadastrados por CPF).
+func (c *Client) CriarUsuario(matricula, nome, identificadorAfd string) (string, error) {
 	if c.sessao == "" {
 		if err := c.Login(); err != nil {
-			return err
+			return "", err
 		}
 	}
 
@@ -256,7 +307,7 @@ func (c *Client) CriarUsuario(matricula, nome, identificadorAfd string) error {
 	matriculaLimpa := strings.TrimPrefix(strings.ToUpper(matricula), "T")
 	matriculaNum, err := strconv.ParseInt(matriculaLimpa, 10, 64)
 	if err != nil {
-		return fmt.Errorf("matricula %q (sem prefixo: %q) nao e numerica - este rele so aceita "+
+		return "", fmt.Errorf("matricula %q (sem prefixo: %q) nao e numerica - este rele so aceita "+
 			"'registration' numerico: %w", matricula, matriculaLimpa, err)
 	}
 
@@ -266,22 +317,62 @@ func (c *Client) CriarUsuario(matricula, nome, identificadorAfd string) error {
 	}
 	cpfNum, err := strconv.ParseInt(cpfStr, 10, 64)
 	if err != nil {
-		return fmt.Errorf("identificador_afd %q nao produziu um cpf numerico valido: %w", identificadorAfd, err)
+		return "", fmt.Errorf("identificador_afd %q nao produziu um cpf numerico valido: %w", identificadorAfd, err)
 	}
 
-	resultado, err := c.chamar(fmt.Sprintf("add_users.fcgi?session=%s&mode=671", c.sessao), map[string]interface{}{
-		"users": []map[string]interface{}{
-			{"name": nome, "registration": matriculaNum, "cpf": cpfNum, "admin": false},
-		},
-	})
+	// Formato ja descoberto nesta execucao: dispara direto, sem relistar por usuario (relistagem
+	// pagina de 100 em 100; fazer isso 327 vezes seria absurdo).
+	if c.formatoCadastro != nil {
+		return "", c.aplicarCadastro(*c.formatoCadastro, nome, matriculaNum, cpfNum)
+	}
+	return c.descobrirFormatoCadastro(nome, matriculaNum, cpfNum)
+}
+
+// aplicarCadastro dispara um formato ja conhecido. Erro aqui e' so' o que o equipamento recusou.
+func (c *Client) aplicarCadastro(f formatoCadastro, nome string, matricula, numero int64) error {
+	resultado, err := c.chamar(
+		fmt.Sprintf("add_users.fcgi?session=%s&mode=671", c.sessao),
+		f.Corpo(nome, matricula, numero))
 	if err != nil {
 		return err
 	}
-
 	if errMsg, ok := resultado["error"]; ok {
-		return fmt.Errorf("add_users.fcgi recusou: %v", errMsg)
+		return fmt.Errorf("add_users.fcgi recusou (formato %s): %v", f.Nome, errMsg)
 	}
 	return nil
+}
+
+// descobrirFormatoCadastro tenta cada candidato ate um deles REALMENTE criar o usuario, conferindo
+// por relistagem. "Sem erro" do equipamento nao basta: um formato pode ser aceito e nao criar nada,
+// e ai o SisEscala marcaria a fila como enviada com o relogio vazio.
+//
+// Devolve o identificador_afd que o relogio atribuiu, lido da relistagem - o dado que faz o vinculo
+// casar com o AFD depois.
+func (c *Client) descobrirFormatoCadastro(nome string, matricula, numero int64) (string, error) {
+	var tentativas []string
+	for _, f := range formatosCadastro {
+		if err := c.aplicarCadastro(f, nome, matricula, numero); err != nil {
+			tentativas = append(tentativas, fmt.Sprintf("%s -> %v", f.Nome, err))
+			continue
+		}
+
+		usuarios, err := c.ListarUsuarios()
+		if err != nil {
+			return "", fmt.Errorf("formato %s foi aceito pelo rele mas nao foi possivel reler o "+
+				"cadastro para confirmar o efeito - confira na interface do equipamento: %w", f.Nome, err)
+		}
+		for _, u := range usuarios {
+			if u.RegistrationConh && u.Registration == matricula {
+				formato := f
+				c.formatoCadastro = &formato
+				return u.IdentificadorAFD, nil
+			}
+		}
+		tentativas = append(tentativas, fmt.Sprintf("%s -> aceito mas o usuario nao apareceu na relistagem", f.Nome))
+	}
+
+	return "", fmt.Errorf("nenhum formato de add_users.fcgi funcionou neste equipamento; tentativas: %s",
+		strings.Join(tentativas, " | "))
 }
 
 // UsuarioDispositivo é um usuário como veio de load_users.fcgi, sem filtro de biometria - base
