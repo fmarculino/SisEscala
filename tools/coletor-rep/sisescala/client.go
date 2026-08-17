@@ -12,10 +12,97 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
+	"strings"
+	"sync/atomic"
 	"time"
 )
+
+// ============================================================================
+// Compensacao de desvio de relogio da maquina (17/08/2026)
+// ============================================================================
+// A assinatura anti-replay carrega um timestamp, e o servidor recusa desvio maior que 5 minutos
+// (repDeviceAuth.ts). Quando o relogio do Windows da maquina esta fora, TODA rota /api/rep/v1/*
+// passa a devolver 401 — nao so o heartbeat: EnviarLote, pendencias e biometria usam o mesmo HMAC.
+// Foi o que aconteceu na maquina do RH da SMS em 17/08/2026: o AFD baixava certo e os ~80 lotes
+// iam integralmente para a fila offline, com a tela do SisEscala vazia e nenhuma pista do motivo
+// para quem olhava de fora.
+//
+// A correcao NAO e' o coletor ajustar o relogio do Windows. Isso exige SeSystemtimePrivilege, que
+// usuario comum nao tem — e este app roda deliberadamente SEM administrador (autostart em HKCU,
+// ver README). Pedir elevacao para instalar quebraria essa decisao inteira.
+//
+// A correcao e' o coletor PARAR DE DEPENDER do relogio local: o timestamp da assinatura passa a
+// ser derivado do horario do proprio servidor, lido do header `Date` de qualquer resposta HTTP.
+//
+// Isso nao enfraquece o anti-replay. Quem decide o que e' "agora" continua sendo exclusivamente o
+// servidor, que segue recusando qualquer timestamp fora da janela dele; alinhar-se ao relogio dele
+// so permite que um cliente HONESTO produza um timestamp que ele considere atual. Um atacante
+// reproduzindo requisicao capturada nao ganha nada com isso — a janela de 5 minutos do servidor
+// continua valendo igual.
+//
+// ⚠️ Compensar NAO e' esconder: desvio grande vira aviso explicito no log a cada ciclo, porque a
+// hora errada do Windows continua sendo um problema real daquela maquina (e' o que o usuario ve na
+// tela do terminal de presenca, por exemplo). O coletor deixa de ser vitima dela, nao a resolve.
+//
+// O desvio e' de PROCESSO, nao de instancia de Client: cada funcao do ciclo cria seu proprio
+// Client, e reaprender o offset em cada um custaria um 401+retry por operacao. E' propriedade da
+// relacao maquina<->servidor, entao mora aqui.
+var desvioServidorMs atomic.Int64
+
+// margemAvisoDesvioMs e' de quando o desvio merece aviso no log. Bem abaixo dos 5 min do servidor:
+// a ideia e avisar ANTES de virar recusa, para o problema ser corrigido antes de parar tudo.
+const margemAvisoDesvioMs = 60 * 1000
+
+// DesvioServidor devolve o desvio aprendido (servidor - maquina). Positivo = relogio da maquina
+// ATRASADO. Zero enquanto nenhuma resposta HTTP tiver sido lida ainda.
+func DesvioServidor() time.Duration {
+	return time.Duration(desvioServidorMs.Load()) * time.Millisecond
+}
+
+// aprenderDesvio le o header Date da resposta e atualiza o desvio de processo.
+//
+// `Date` tem resolucao de 1 segundo e a resposta leva algum tempo para chegar, entao o instante
+// local usado na comparacao e' o PONTO MEDIO entre o envio e a chegada — mesmo raciocinio do NTP,
+// para a latencia da rede nao ser confundida com desvio de relogio. Ruido de +-1s e' irrelevante
+// contra uma janela de 5 minutos.
+func aprenderDesvio(resp *http.Response, enviadoEm, recebidoEm time.Time) {
+	cabecalho := resp.Header.Get("Date")
+	if cabecalho == "" {
+		return // sem Date nao ha o que aprender; segue com o desvio que ja tinha
+	}
+	horaServidor, err := http.ParseTime(cabecalho)
+	if err != nil {
+		return
+	}
+
+	localNoMeio := enviadoEm.Add(recebidoEm.Sub(enviadoEm) / 2)
+	novo := horaServidor.Sub(localNoMeio).Milliseconds()
+	anterior := desvioServidorMs.Swap(novo)
+
+	// Avisa quando o desvio e' relevante e quando ele APARECE (nao a cada resposta, o que
+	// encheria o log de linha repetida a cada lote de 500 linhas).
+	if abs64(novo) >= margemAvisoDesvioMs && abs64(novo-anterior) >= margemAvisoDesvioMs {
+		situacao := "atrasado"
+		if novo < 0 {
+			situacao = "adiantado"
+		}
+		log.Printf("AVISO: o relogio deste computador esta %s %s em relacao ao servidor. "+
+			"A assinatura das requisicoes esta sendo compensada automaticamente, mas CORRIJA a hora "+
+			"do Windows (Configuracoes > Hora e idioma > Sincronizar agora, ou 'w32tm /resync /force' "+
+			"como administrador) — a hora errada continua aparecendo em todo o resto da maquina.",
+			situacao, (time.Duration(abs64(novo)) * time.Millisecond).Round(time.Second))
+	}
+}
+
+func abs64(v int64) int64 {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
 
 type Client struct {
 	baseURL       string
@@ -33,8 +120,10 @@ func NovoClient(baseURL, dispositivoID, token string) *Client {
 	}
 }
 
+// assinar usa o horario do SERVIDOR (relogio local + desvio aprendido), nunca o local puro — ver
+// o bloco de comentario no topo do arquivo.
 func (c *Client) assinar(corpo []byte) (timestamp, assinatura string) {
-	ts := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	ts := strconv.FormatInt(time.Now().UnixMilli()+desvioServidorMs.Load(), 10)
 	somaCorpo := sha256.Sum256(corpo)
 
 	mac := hmac.New(sha256.New, []byte(c.token))
@@ -42,7 +131,34 @@ func (c *Client) assinar(corpo []byte) (timestamp, assinatura string) {
 	return ts, hex.EncodeToString(mac.Sum(nil))
 }
 
+// chamar faz a requisicao e, se ela for recusada especificamente por anti-replay, tenta UMA vez
+// mais depois de aprender o desvio com o header Date daquela propria resposta.
+//
+// O retry existe para o caso de arranque: na primeira requisicao de um processo o desvio ainda e'
+// zero, entao uma maquina com relogio muito fora e' recusada antes de ter tido qualquer chance de
+// aprender. Sem ele, o coletor levaria um ciclo inteiro (5 min) recusado a cada vez que subisse.
 func (c *Client) chamar(metodo, caminho string, corpo []byte) ([]byte, int, error) {
+	respBytes, status, err := c.chamarUmaVez(metodo, caminho, corpo)
+	if err != nil || status != http.StatusUnauthorized || !recusadoPorAntiReplay(respBytes) {
+		return respBytes, status, err
+	}
+
+	// aprenderDesvio ja rodou dentro de chamarUmaVez com o Date desta resposta, entao a assinatura
+	// da segunda tentativa ja sai com o desvio novo. Uma tentativa so: se ainda for recusado, o
+	// problema nao e' desvio de relogio e insistir viraria laco.
+	log.Printf("requisicao recusada por anti-replay; desvio de relogio aprendido (%s) e tentando "+
+		"novamente uma vez", DesvioServidor().Round(time.Second))
+	return c.chamarUmaVez(metodo, caminho, corpo)
+}
+
+// recusadoPorAntiReplay distingue "timestamp fora da janela" (que o retry resolve) de token
+// invalido/dispositivo inativo (que o retry nao resolve). A checagem de janela roda ANTES da
+// validacao do token em repDeviceAuth.ts, entao os dois casos chegam aqui como 401.
+func recusadoPorAntiReplay(respBytes []byte) bool {
+	return strings.Contains(string(respBytes), "anti-replay")
+}
+
+func (c *Client) chamarUmaVez(metodo, caminho string, corpo []byte) ([]byte, int, error) {
 	if corpo == nil {
 		corpo = []byte{}
 	}
@@ -58,11 +174,13 @@ func (c *Client) chamar(metodo, caminho string, corpo []byte) ([]byte, int, erro
 	req.Header.Set("X-SisEscala-Timestamp", timestamp)
 	req.Header.Set("X-SisEscala-Assinatura", assinatura)
 
+	enviadoEm := time.Now()
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer resp.Body.Close()
+	aprenderDesvio(resp, enviadoEm, time.Now())
 
 	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {

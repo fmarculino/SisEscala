@@ -229,3 +229,31 @@ dispositivo_rep:
 
 `afd-raw` e `afd-exportar` também usam esse teto — são justamente os comandos que se usaria num
 relógio de alto volume.
+
+## Desvio de relógio da máquina — v0.5.1, 17/08/2026
+
+`HTTP 401: "Timestamp fora da janela permitida (anti-replay)"` no log **não é problema de token**.
+A checagem de desvio roda antes da validação do token (token superado dá
+`"Dispositivo ou token inválido"`), e afeta **todas** as rotas `/api/rep/v1/*`, não só o heartbeat —
+`EnviarLote`, `pendencias` e `biometria` assinam com o mesmo HMAC. Numa máquina com hora errada, o
+AFD baixa normalmente e **todos** os lotes vão para a fila offline: nada se perde, mas nada aparece
+no SisEscala e a bandeja fica vermelha sem explicar por quê.
+
+Desde a v0.5.1 o coletor **não depende mais do relógio local**: aprende o desvio pelo header `Date`
+de qualquer resposta HTTP (ponto médio entre envio e chegada, à la NTP) e assina com
+`hora local + desvio`. O próprio 401 de anti-replay já traz o `Date` correto, então a resposta que
+recusa é a que ensina a hora certa; um retry único cobre a primeira requisição do processo, quando
+o desvio ainda é zero.
+
+**Não ajusta o relógio do Windows de propósito.** Isso exigiria `SeSystemtimePrivilege`, que usuário
+comum não tem, e pedir elevação quebraria a decisão de o app instalar e rodar sem administrador.
+
+**Não afrouxa o anti-replay.** Quem decide o que é "agora" continua sendo exclusivamente o servidor,
+que segue recusando timestamp fora da janela dele. Alinhar-se ao relógio dele só permite que um
+cliente honesto produza um timestamp que ele considere atual — replay de requisição capturada não
+ganha nada com isso.
+
+⚠️ **Compensar não é esconder.** Desvio de 1 min ou mais vira aviso explícito no log a cada vez que
+aparece, porque a hora errada do Windows continua sendo problema real daquela máquina (aparece na
+tela do terminal de presença, por exemplo). Corrija com `w32tm /resync /force` (como administrador)
+e confirme o fuso com `tzutil /g` — deve dar `SA Eastern Standard Time`.

@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2.0.1] - 2026-08-17
+## [2.0.2] - 2026-08-17
 
 ### Fixed
 - **Relógio REP recém-instalado nunca sincronizava nada** (REP iDClass - SMS, 10.110.0.20,
@@ -29,12 +29,25 @@ All notable changes to this project will be documented in this file.
     também usam o teto folgado.
   - Coletor v0.5.0 (`ciclo.Versao`, `dist/VERSION` e os dois `.exe` recompilados).
 
-### Documented
-- **`HTTP 401 "Timestamp fora da janela permitida (anti-replay)"` no log do coletor é relógio da
-  máquina, não token.** A checagem de desvio roda antes da validação do token, e afeta *todas* as
-  rotas `/api/rep/v1/*` (não só o heartbeat) — nada daquela unidade chega ao SisEscala enquanto o
-  fuso/hora do Windows estiver fora, ainda que o dado não se perca (vai para a fila offline).
-  Registrado no CLAUDE.md com o passo de conferência.
+- **Coletor parava de enviar tudo quando o relógio do Windows da máquina estava fora do ar**
+  (coletor v0.5.1). Medido na máquina do RH da SMS depois que a coleta do AFD passou a funcionar: o
+  arquivo baixava certo e os ~80 lotes iam **integralmente para a fila offline** com
+  `HTTP 401 "Timestamp fora da janela permitida (anti-replay)"`, tela vazia e nenhuma pista do
+  motivo. Não era só o heartbeat — `EnviarLote`, `pendencias` e `biometria` assinam com o mesmo
+  HMAC, e a checagem de desvio (5 min) roda **antes** da validação do token, então o erro nunca
+  indicou problema de credencial.
+  - O coletor **deixou de depender do relógio local**: aprende o desvio pelo header `Date` de
+    qualquer resposta HTTP (ponto médio envio/chegada, à la NTP) e assina com `local + desvio`. O
+    próprio 401 de anti-replay já traz o `Date` correto, então a resposta que recusa é a que ensina
+    a hora — um retry único (só quando o corpo contém `anti-replay`) cobre o arranque.
+  - **Não** ajusta o relógio do Windows: isso exigiria `SeSystemtimePrivilege`, que usuário comum
+    não tem, e quebraria a decisão de o app rodar sem administrador.
+  - Não afrouxa o anti-replay: quem decide o que é "agora" continua sendo só o servidor. Desvio
+    ≥ 1 min vira aviso explícito no log — compensar não é esconder, a hora errada continua sendo
+    problema real da máquina.
+  - Validado contra servidor de mentira 20 min adiantado (arranque com retry, operação seguinte sem
+    retry, desvio medido com erro < 1s, e 401 de assinatura inválida **não** gerando retry) e o
+    `Date` conferido contra o servidor real de produção.
 
 ## [2.0.0] - 2026-08-14
 

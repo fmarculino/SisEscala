@@ -263,16 +263,26 @@ em `/marcacoes` (`importarPendriveAfd` em `marcacoes/actions.ts`, que chama a me
   **para cima** é a única forma de perder marcação, então a assimetria é deliberada.
   `get_afd.fcgi` ganhou timeout próprio (10 min, `timeout_afd_segundos` no `config.yaml`);
   as demais chamadas continuam em 30s de propósito, para relógio fora do ar falhar rápido.
-- ⚠️ **`HTTP 401: "Timestamp fora da janela permitida (anti-replay)"` é relógio da máquina, nunca
-  token.** A checagem de desvio (`repDeviceAuth.ts`, 5 min) roda **antes** da validação do token,
-  então esse erro específico não diz nada sobre credencial — token superado dá
-  `"Dispositivo ou token inválido"`. O coletor assina com `time.Now().UnixMilli()`, epoch
-  absoluto: fuso do Windows errado desloca o epoch mesmo com a hora de parede parecendo certa
-  (`tzutil /g` deve dar `SA Eastern Standard Time`). E não afeta só o heartbeat — `EnviarLote`,
-  `pendencias` e `biometria` usam o mesmo HMAC, então **nada** daquela unidade chega ao SisEscala
-  enquanto o relógio da máquina estiver fora. O dado não se perde (vai para a fila offline e é
-  reenviado), mas a tela fica silenciosamente vazia. Visto em campo em 17/08/2026 na máquina do
-  RH da SMS, aparentemente logo depois do boot, antes do `w32time` corrigir.
+- ✅ **Desvio de relógio da máquina deixou de derrubar o coletor em 17/08/2026 (v0.5.1).**
+  `HTTP 401: "Timestamp fora da janela permitida (anti-replay)"` **nunca foi problema de token** —
+  a checagem de desvio (`repDeviceAuth.ts`, 5 min) roda **antes** da validação do token, e token
+  superado dá `"Dispositivo ou token inválido"`. Não afetava só o heartbeat: `EnviarLote`,
+  `pendencias` e `biometria` usam o mesmo HMAC, então **nada** daquela unidade chegava ao
+  SisEscala. Medido na máquina do RH da SMS: o AFD baixava certo e os ~80 lotes iam **integralmente
+  para a fila offline**, com a tela vazia e nenhuma pista do motivo para quem olhava de fora.
+  A correção **não** é o coletor ajustar o relógio do Windows — isso exige `SeSystemtimePrivilege`,
+  que usuário comum não tem, e o app roda deliberadamente **sem administrador** (autostart em
+  `HKCU`). A correção é ele parar de depender do relógio local: `sisescala/client.go` aprende o
+  desvio pelo header `Date` de qualquer resposta HTTP (ponto médio envio/chegada, à la NTP) e assina
+  com `hora local + desvio`. Confirmado em produção: o próprio 401 de anti-replay **já traz o
+  `Date` correto**, então a resposta que recusa é a que ensina a hora. Um retry único, só quando o
+  corpo contém `anti-replay`, cobre o arranque (desvio ainda zero na 1ª requisição do processo).
+  **Isso não afrouxa o anti-replay**: quem decide o que é "agora" continua sendo só o servidor, e
+  alinhar-se ao relógio dele apenas permite que um cliente honesto produza timestamp que ele
+  considere atual — replay de requisição capturada não ganha nada. Desvio ≥ 1 min vira **aviso
+  explícito no log**, porque a hora errada do Windows continua sendo problema real daquela máquina
+  (aparece na tela do terminal de presença, por exemplo): o coletor deixa de ser vítima dela, não a
+  conserta. Conferir com `tzutil /g` (deve dar `SA Eastern Standard Time`).
 - No Windows, abrir URL com `cmd /c start` **corta tudo depois de um `&`** (separador de
   comando do `cmd.exe`) — quebrava a URL de ativação do terminal local, que tem
   `?terminal_id=...&token=...`. `terminal/terminal.go` usa
