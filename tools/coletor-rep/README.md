@@ -256,4 +256,28 @@ ganha nada com isso.
 ⚠️ **Compensar não é esconder.** Desvio de 1 min ou mais vira aviso explícito no log a cada vez que
 aparece, porque a hora errada do Windows continua sendo problema real daquela máquina (aparece na
 tela do terminal de presença, por exemplo). Corrija com `w32tm /resync /force` (como administrador)
-e confirme o fuso com `tzutil /g` — deve dar `SA Eastern Standard Time`.
+e confirme o fuso com `tzutil /g` — deve dar `SA Eastern Standard Time`. Se o `w32tm` responder
+`0x80070426`, o serviço "Horário do Windows" está parado: `Set-Service w32time -StartupType
+Automatic` e `Start-Service w32time` antes de tentar de novo (em PowerShell use `sc.exe`, nunca
+`sc`, que é alias de `Set-Content`).
+
+## Se o menu da bandeja parar de responder
+
+`executarCiclo` e os cliques do menu rodam na **mesma goroutine**, então **enquanto um ciclo está em
+andamento nenhum item do menu responde** — incluindo "Verificar atualizacao". Não é o systray
+travado, é o ciclo em execução; e com `get_afd.fcgi` podendo levar minutos num relógio de alto
+volume, isso é esperado de vez em quando.
+
+O que já transformou isso em app aparentemente morto (17/08/2026, v0.5.2 corrigiu): a fila offline se
+multiplicava a cada ciclo recusado, e o reenvio passava minutos percorrendo milhares de lotes
+duplicados antes de o ciclo terminar.
+
+Para destravar na máquina, sem depender do menu:
+
+1. Encerrar `coletor-rep-tray.exe` pelo Gerenciador de Tarefas.
+2. Apagar o conteúdo de `%PROGRAMDATA%\SisEscala\fila`.
+3. Reabrir o app de `%LOCALAPPDATA%\SisEscala\coletor-rep\`.
+
+⚠️ **Apagar a fila não perde marcação.** Os lotes ali são cópias de linhas de AFD que continuam na
+memória inviolável do próprio relógio; o `sync` seguinte busca de novo a partir do cursor. A fila
+existe para não depender da rede no momento da coleta, não para ser a única cópia do dado.

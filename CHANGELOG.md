@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.3] - 2026-08-17
+
+### Fixed
+- **Fila offline do coletor se multiplicava sozinha, e isso travava o menu da bandeja**
+  (coletor v0.5.2). `fila.Gravar` abria o arquivo com `O_APPEND`, mas o arquivo é nomeado pelo
+  `lote_id` — que é hash determinístico do próprio conteúdo — e `fila.Pendentes` lê **cada linha
+  como um lote a reenviar**. Então cada ciclo que falhava acrescentava outra cópia idêntica do mesmo
+  lote: na máquina do RH da SMS, ~12 ciclos recusados por desvio de relógio transformaram ~80 lotes
+  em cerca de **1.000 reenvios por ciclo**, crescendo a cada 5 minutos.
+  - O sintoma que apareceu para quem estava na frente da máquina não foi "fila grande", foi **"o app
+    travou"**: `executarCiclo` e os cliques do menu dividem uma goroutine só (`cmd/tray/main.go`),
+    então um ciclo de vários minutos deixa "Verificar atualizacao" sem resposta. Um bug de
+    duplicação em disco virou app que não atualiza.
+  - `Gravar` passou a **substituir** o arquivo do lote, não acrescentar.
+  - O reenvio da fila **desiste depois de 3 falhas seguidas** e deixa o resto para o próximo ciclo:
+    falha sistemática (token, desvio de relógio, aplicação fora do ar) não muda no 900º lote, e a
+    fila é persistente — nada se perde. Mesmo raciocínio que `HigienizarRemocoes` já usava.
+
 ## [2.0.2] - 2026-08-17
 
 ### Fixed

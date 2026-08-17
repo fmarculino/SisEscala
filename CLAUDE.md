@@ -283,6 +283,15 @@ em `/marcacoes` (`importarPendriveAfd` em `marcacoes/actions.ts`, que chama a me
   explícito no log**, porque a hora errada do Windows continua sendo problema real daquela máquina
   (aparece na tela do terminal de presença, por exemplo): o coletor deixa de ser vítima dela, não a
   conserta. Conferir com `tzutil /g` (deve dar `SA Eastern Standard Time`).
+- ⚠️ **Ciclo longo = menu da bandeja sem resposta.** `executarCiclo` e todos os `case` de clique do
+  menu rodam na **mesma goroutine** (`cmd/tray/main.go`), então enquanto um ciclo está em andamento
+  nenhum item do menu responde. Foi assim que um bug de fila virou "o app não detecta atualização"
+  em 17/08/2026: `fila.Gravar` usava `O_APPEND` num arquivo nomeado pelo `lote_id` (que é hash
+  determinístico do conteúdo) e `fila.Pendentes` lê **cada linha como um lote**, então cada ciclo
+  recusado reempilhava o mesmo lote — ~80 lotes viraram ~1.000 reenvios por ciclo em ~12 ciclos.
+  Corrigido na v0.5.2 (`Gravar` substitui em vez de acrescentar, e o reenvio desiste após 3 falhas
+  seguidas). **Ao investigar "a bandeja não responde", meça a duração do ciclo antes de suspeitar
+  do systray** — e lembre que `GetAFD` agora pode legitimamente levar minutos.
 - No Windows, abrir URL com `cmd /c start` **corta tudo depois de um `&`** (separador de
   comando do `cmd.exe`) — quebrava a URL de ativação do terminal local, que tem
   `?terminal_id=...&token=...`. `terminal/terminal.go` usa

@@ -20,7 +20,7 @@ import (
 	"github.com/sms-maraba/sisescala-coletor-rep/sisescala"
 )
 
-const Versao = "0.5.1"
+const Versao = "0.5.2"
 
 func hostname() string {
 	h, err := os.Hostname()
@@ -94,12 +94,27 @@ func Sync(cfg *config.Config) error {
 	if err != nil {
 		log.Printf("aviso: falha ao ler fila offline: %v", err)
 	}
-	for _, lote := range pendentes {
+	// Uma fila grande com o servidor recusando tudo (token, desvio de relogio, aplicacao fora do
+	// ar) nao pode consumir o ciclo inteiro: falha sistematica nao muda no 900o lote, e o ciclo
+	// longo trava o menu da bandeja, que divide uma goroutine so com ele. Depois de algumas falhas
+	// SEGUIDAS o resto fica para o proximo ciclo - a fila e' persistente, nada se perde. Mesmo
+	// raciocinio que HigienizarRemocoes ja usa para formato de remocao desconhecido.
+	const falhasSeguidasParaDesistir = 3
+	var falhasSeguidas int
+
+	for i, lote := range pendentes {
 		resultado, err := sc.EnviarLote(lote.LoteID, lote.Linhas, lote.ArquivoSHA256, Versao, hostname())
 		if err != nil {
 			log.Printf("lote %s continua na fila: %v", lote.LoteID, err)
+			falhasSeguidas++
+			if falhasSeguidas >= falhasSeguidasParaDesistir {
+				log.Printf("desistindo do reenvio da fila neste ciclo apos %d falhas seguidas: "+
+					"%d lote(s) continuam na fila para o proximo ciclo", falhasSeguidas, len(pendentes)-i-1)
+				break
+			}
 			continue
 		}
+		falhasSeguidas = 0
 		log.Printf("lote %s da fila reenviado: novas=%d duplicadas=%d marcacoes=%d orfas=%d",
 			lote.LoteID, resultado.Novas, resultado.Duplicadas, resultado.Marcacoes, resultado.Orfas)
 		if err := fila.Remover(cfg.Fila.Diretorio, lote.LoteID); err != nil {
