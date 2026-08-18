@@ -200,7 +200,7 @@ export function ScaleGrid({
         .from('marcacoes_ponto')
         .select('id, servidor_id, ocorrido_em, observacao, origem')
         .in('servidor_id', servantIds)
-        .in('origem', ['terminal', 'rep', 'pendrive', 'ajuste_servidor'])
+        .in('origem', ['terminal', 'rep', 'ajuste_servidor', 'ajuste_coordenador'])
         .gte('ocorrido_em', startRange)
         .lte('ocorrido_em', endRange)
         .order('ocorrido_em')

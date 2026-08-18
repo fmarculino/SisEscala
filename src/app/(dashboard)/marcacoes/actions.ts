@@ -4,6 +4,7 @@ import { createClient, createAdminClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { randomUUID, createHash } from 'crypto'
 import { formatSectorsHierarchy } from '@/utils/sectors'
+import { reconciliarSincronizacaoAfd } from '@/utils/reconciliacaoHelper'
 
 async function exigirAdmin() {
   const supabase = await createClient()
@@ -796,9 +797,15 @@ export async function importarPendriveAfd(dispositivoId: string, formData: FormD
     duplicadas += data?.duplicadas || 0
     marcacoes += data?.marcacoes || 0
     orfas += data?.orfas || 0
+
+    if (data?.sincronizacao_id && (data?.marcacoes || 0) > 0) {
+      await reconciliarSincronizacaoAfd(data.sincronizacao_id)
+    }
   }
 
   revalidatePath('/marcacoes')
+  revalidatePath('/escalas')
+  revalidatePath('/folha-ponto')
   return { recebidas, novas, duplicadas, marcacoes, orfas, aviso }
 }
 

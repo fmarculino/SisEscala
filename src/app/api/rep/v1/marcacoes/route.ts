@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/utils/supabase/server'
 import { autenticarDispositivoRep } from '@/utils/repDeviceAuth'
+import { reconciliarSincronizacaoAfd } from '@/utils/reconciliacaoHelper'
 
 /**
  * Recebe um lote de linhas de AFD do coletor-rep e delega para `fn_ingerir_afd`, que já faz
@@ -42,6 +43,11 @@ export async function POST(request: Request) {
   if (error) {
     console.error('Falha ao ingerir AFD:', error.message)
     return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  // Reconciliação em tempo real de escala_diaria para os servidores que bateram ponto no lote
+  if (data?.sincronizacao_id && (data?.marcacoes || 0) > 0) {
+    await reconciliarSincronizacaoAfd(data.sincronizacao_id)
   }
 
   return NextResponse.json(data)
