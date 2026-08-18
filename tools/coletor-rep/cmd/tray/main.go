@@ -362,6 +362,19 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 
 	itemStatus := systray.AddMenuItem("Status: iniciando...", "")
 	itemStatus.Disable()
+
+	if cfg.DispositivoRep != nil && cfg.DispositivoRep.Endereco != "" {
+		relogioTexto := "Relógio IP: " + cfg.DispositivoRep.Endereco
+		if cfg.DispositivoRep.Porta != 0 && cfg.DispositivoRep.Porta != 80 && cfg.DispositivoRep.Porta != 443 {
+			relogioTexto += fmt.Sprintf(":%d", cfg.DispositivoRep.Porta)
+		}
+		itemRelogio := systray.AddMenuItem(relogioTexto, "Endereço IP do relógio de ponto (REP)")
+		itemRelogio.Disable()
+	} else if cfg.DispositivoRep == nil {
+		itemRelogio := systray.AddMenuItem("Relógio IP: não configurado", "Esta máquina não coleta de um relógio de ponto físico")
+		itemRelogio.Disable()
+	}
+
 	systray.AddSeparator()
 	itemSyncAgora := systray.AddMenuItem("Sincronizar agora", "Roda o ciclo de sincronizacao imediatamente")
 	itemAbrirTerminal := systray.AddMenuItem("Abrir tela de presenca", "Abre a tela de presenca local no navegador")
