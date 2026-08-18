@@ -3,10 +3,11 @@
 import { useEffect, useState } from 'react'
 import {
   Loader2, RefreshCw, AlertTriangle, CheckCircle2, ChevronDown, ChevronRight,
-  Link2, Fingerprint, UserX, IdCard, CloudOff,
+  Link2, Fingerprint, UserX, IdCard, CloudOff, Users,
 } from 'lucide-react'
 import {
   listarCoberturaResumo, listarCoberturaDispositivo, vincularCadastrosPorCpf, enfileirarCadastrosPorEscala,
+  enfileirarCadastrosEmLote,
   type CoberturaResumo, type CoberturaServidor, type SituacaoCobertura,
 } from './actions'
 
@@ -145,6 +146,43 @@ export function CoberturaTab({ isAdmin }: { isAdmin: boolean }) {
     if (!detalhe[id]) await carregarDetalhe(id)
   }
 
+  async function handleSincronizarTodos() {
+    if (resumo.length === 0) return
+    const nomesDispositivos = resumo.map((d) => d.dispositivo_nome).join(', ')
+    if (!confirm(
+      `Enviar cadastros dos servidores para a fila de sincronização do(s) relógio(s) (${nomesDispositivos})?\n\n` +
+      `Isso enfileira todos os servidores ativos da lotação e escalados no mês selecionado (${String(mes).padStart(2, '0')}/${ano}) que ainda não estão no relógio.\n\n` +
+      `Após o envio para a fila, o aplicativo coletor na unidade fará a gravação no equipamento de ponto.`
+    )) return
+
+    setProcessando(true)
+    setErro(null)
+    setAviso(null)
+
+    const res = await enfileirarCadastrosEmLote(resumo.map((d) => d.dispositivo_id), mes, ano)
+    setProcessando(false)
+
+    if (res.erros && res.erros.length > 0 && res.enfileirados === 0) {
+      setErro(res.erros.join('; '))
+      return
+    }
+
+    if (res.enfileirados > 0) {
+      setAviso(
+        `${res.enfileirados} cadastro(s) adicionado(s) com sucesso à fila de sincronização` +
+        (res.ja_na_fila > 0 ? ` (${res.ja_na_fila} já estavam na fila)` : '') +
+        `. O aplicativo coletor na unidade irá aplicar no equipamento.`
+      )
+    } else if (res.ja_na_fila > 0) {
+      setAviso('Os cadastros já estão na fila de envio aguardando o coletor na unidade sincronizar.')
+    } else {
+      setAviso('Todos os servidores da lotação e escala já estão sincronizados ou vinculados aos relógios de ponto.')
+    }
+
+    if (expandido) carregarDetalhe(expandido)
+    recarregarResumo()
+  }
+
   async function handleVincular(d: CoberturaResumo) {
     if (!confirm(
       `Criar vínculo para ${d.sem_vinculo} servidor(es) já cadastrado(s) em "${d.dispositivo_nome}", casando por CPF?\n\n` +
@@ -202,7 +240,7 @@ export function CoberturaTab({ isAdmin }: { isAdmin: boolean }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <input
             type="month"
             value={`${ano}-${String(mes).padStart(2, '0')}`}
@@ -214,6 +252,15 @@ export function CoberturaTab({ isAdmin }: { isAdmin: boolean }) {
           />
           <button onClick={() => recarregar()} className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500" title="Atualizar">
             <RefreshCw className="h-4 w-4" />
+          </button>
+          <button
+            onClick={handleSincronizarTodos}
+            disabled={processando || carregando || resumo.length === 0}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-3.5 py-2 rounded-xl text-sm font-bold shadow-xs transition-colors cursor-pointer"
+            title="Enviar cadastros dos servidores para a fila de sincronização do relógio"
+          >
+            {processando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users className="h-4 w-4" />}
+            <span>Sincronizar cadastros</span>
           </button>
         </div>
       </div>
@@ -308,7 +355,7 @@ export function CoberturaTab({ isAdmin }: { isAdmin: boolean }) {
                       tela, e escondê-los atrás de um clique fez a legenda mandar clicar num botão
                       que ninguém achava (13/08/2026). Também não podem ficar dentro do <button> do
                       cabeçalho — botão dentro de botão é HTML inválido. */}
-                  {isAdmin && (d.sem_vinculo > 0 || d.fora_do_relogio > 0) && (
+                  {(d.sem_vinculo > 0 || d.fora_do_relogio > 0) && (
                     <div className="border-t border-zinc-200 dark:border-zinc-800 p-4 space-y-3">
                       {d.sem_vinculo > 0 && (
                         <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-red-50 dark:bg-red-900/10">

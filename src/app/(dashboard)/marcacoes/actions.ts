@@ -17,6 +17,18 @@ async function exigirAdmin() {
   return user
 }
 
+async function exigirGestor() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Não autenticado')
+
+  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
+  if (!profile || !['admin', 'super_admin', 'coordenador', 'ass_adm', 'rh', 'rh_unidade'].includes(profile.role)) {
+    throw new Error('Apenas gestores ou administradores podem executar esta ação.')
+  }
+  return user
+}
+
 // ============================================================================
 // Opções compartilhadas pelos formulários (unidades, setores, coordenadores)
 // ============================================================================
@@ -298,6 +310,7 @@ export async function gerarTokenDispositivoRep(id: string) {
 // Isto so prepara matricula/nome/CPF no rele antes disso.
 
 export async function enfileirarCadastrosRep(dispositivoId: string) {
+  await exigirGestor()
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Não autenticado.' }
@@ -442,7 +455,7 @@ export async function listarCoberturaDispositivo(
 // dispositivo) - é ele que decide quais batidas passam a ter dono num reprocessamento, e um valor
 // antigo demais faria o histórico do sistema anterior virar marcação nossa.
 export async function vincularCadastrosPorCpf(dispositivoId: string) {
-  await exigirAdmin()
+  await exigirGestor()
   const supabase = await createClient()
   const { data, error } = await supabase.rpc('fn_vincular_cadastros_por_cpf', {
     p_dispositivo_id: dispositivoId,
@@ -458,7 +471,7 @@ export async function vincularCadastrosPorCpf(dispositivoId: string) {
 // lotado em outra unidade/setor, caso que o botão "Sincronizar cadastros" (escolha por lotação)
 // nunca alcança. Foi o que deixou Gabriela e Izabella batendo só no terminal do computador.
 export async function enfileirarCadastrosPorEscala(dispositivoId: string, mes?: number, ano?: number) {
-  await exigirAdmin()
+  await exigirGestor()
   const supabase = await createClient()
   const { data, error } = await supabase.rpc('fn_enfileirar_cadastros_por_escala', {
     p_dispositivo_id: dispositivoId,
@@ -469,6 +482,46 @@ export async function enfileirarCadastrosPorEscala(dispositivoId: string, mes?: 
 
   revalidatePath('/marcacoes')
   return data as { enfileirados: number; ja_na_fila: number }
+}
+
+// Enfileira em lote os cadastros (por escala e por lotação) para múltiplos dispositivos do escopo
+export async function enfileirarCadastrosEmLote(dispositivoIds: string[], mes?: number, ano?: number) {
+  await exigirGestor()
+  const supabase = await createClient()
+
+  let totalEnfileirados = 0
+  let totalJaNaFila = 0
+  const erros: string[] = []
+
+  for (const id of dispositivoIds) {
+    const { data: dataEscala, error: errEscala } = await supabase.rpc('fn_enfileirar_cadastros_por_escala', {
+      p_dispositivo_id: id,
+      p_mes: mes ?? null,
+      p_ano: ano ?? null,
+    })
+    if (errEscala) {
+      erros.push(errEscala.message)
+    } else if (dataEscala) {
+      totalEnfileirados += Number((dataEscala as any).enfileirados || 0)
+      totalJaNaFila += Number((dataEscala as any).ja_na_fila || 0)
+    }
+
+    const { data: dataLotacao, error: errLotacao } = await supabase.rpc('fn_enfileirar_cadastros_rep', {
+      p_dispositivo_id: id,
+    })
+    if (errLotacao) {
+      if (!errEscala) erros.push(errLotacao.message)
+    } else if (dataLotacao) {
+      totalEnfileirados += Number((dataLotacao as any).enfileirados || 0)
+    }
+  }
+
+  revalidatePath('/marcacoes')
+  return {
+    enfileirados: totalEnfileirados,
+    ja_na_fila: totalJaNaFila,
+    erros: erros.length > 0 ? erros : null,
+  }
 }
 
 // ============================================================================

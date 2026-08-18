@@ -18,25 +18,31 @@ type Lote struct {
 	ColetorHost   string   `json:"coletor_host"`
 }
 
-// Gravar acrescenta um lote pendente ao diretório de fila.
+// Gravar registra um lote pendente no diretório de fila, SUBSTITUINDO o arquivo daquele lote.
+//
+// ⚠️ Substituir, não acrescentar. O arquivo é nomeado pelo `lote_id`, e o `lote_id` é um hash
+// determinístico do próprio conteúdo (`loteIDDeterministico`, em ciclo) — então um mesmo arquivo só
+// pode descrever um mesmo lote, e `Pendentes` lê CADA LINHA como um lote a reenviar. Com
+// `O_APPEND` (como era até 17/08/2026) cada ciclo que falhava acrescentava outra cópia idêntica do
+// mesmo lote, e a fila se multiplicava sozinha: na máquina do RH da SMS, ~12 ciclos recusados por
+// desvio de relógio transformaram ~80 lotes em ~1.000 reenvios por ciclo.
+//
+// Não era só desperdício de rede. O ciclo passava vários minutos percorrendo essa fila inflada, e o
+// menu da bandeja **para de responder** durante um ciclo (evento e ciclo dividem uma goroutine só,
+// ver cmd/tray/main.go) — foi por isso que "Verificar atualizacao" parecia não fazer nada. Um bug de
+// duplicação em disco virou "o app travou" para quem estava na frente da máquina.
 func Gravar(diretorio string, lote Lote) error {
 	if err := os.MkdirAll(diretorio, 0o755); err != nil {
 		return err
 	}
 
-	caminho := filepath.Join(diretorio, lote.LoteID+".jsonl")
-	f, err := os.OpenFile(caminho, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
 	dados, err := json.Marshal(lote)
 	if err != nil {
 		return err
 	}
-	_, err = f.Write(append(dados, '\n'))
-	return err
+
+	caminho := filepath.Join(diretorio, lote.LoteID+".jsonl")
+	return os.WriteFile(caminho, append(dados, '\n'), 0o644)
 }
 
 // Pendentes lê todos os lotes que ainda estão na fila (não removidos após ACK).

@@ -25,6 +25,13 @@ type DispositivoRepConfig struct {
 	UsuarioRep      string `yaml:"usuario_rep"`
 	SenhaRep        string `yaml:"senha_rep"`
 	CertFingerprint string `yaml:"cert_fingerprint"`
+
+	// TimeoutAfdSegundos e' quanto esperar por get_afd.fcgi especificamente — nao pelas outras
+	// chamadas, que sao pequenas e devem falhar rapido quando o relogio esta fora do ar. Zero ou
+	// ausente usa o padrao de rep.NovoClient. Existe como config (e nao como constante) porque a
+	// unica variavel aqui e' quao lento o equipamento monta o arquivo, e descobrir isso exige
+	// estar na unidade — sem esta chave, ajustar significaria recompilar e redistribuir o .exe.
+	TimeoutAfdSegundos int `yaml:"timeout_afd_segundos"`
 }
 
 // TerminalLocalConfig é a tela de presença local. Omitir esta seção desativa `terminal abrir`.

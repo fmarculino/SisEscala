@@ -9,8 +9,7 @@ Ver também [`.agents/AGENTS.md`](.agents/AGENTS.md) — regras que **complement
 ## Stack
 
 Next.js 15 (App Router) · TypeScript · Tailwind 4 · Supabase (Postgres + RLS + Auth)
-Sem framework de testes. `npm run build` e `npx tsc --noEmit` são a única verificação automática.
-(`npm run lint` **não roda** — o ESLint nunca foi configurado e o comando abre prompt interativo.)
+Verificações automáticas via GitHub Actions CI (`.github/workflows/ci.yml`): `npx tsc --noEmit`, `npm run lint`, `npm run build` e validação de compilação dos binários Go do coletor REP.
 
 **Deploy: Coolify na VPS, não Vercel.** App em `sisescala.maraba.pa.gov.br`, mesmo host do
 Supabase de produção. Webhook do GitHub dispara o deploy automático a cada push na `main`.
@@ -244,10 +243,63 @@ em `/marcacoes` (`importarPendriveAfd` em `marcacoes/actions.ts`, que chama a me
   dá para reativar sem reinstalar — não presuma, leia o texto que aparece na hora.
 - `get_system_information.fcgi` (deriva de relógio no heartbeat) continua aproximação — não
   confirmado contra hardware real.
-- `sync` sempre pede o AFD a partir do NSR 1 (não lê `dispositivos_rep.ultimo_nsr` antes) e
-  confia na idempotência de `fn_ingerir_afd` para descartar o que já foi ingerido — funciona,
-  mas reenvia o arquivo inteiro do relógio a cada ciclo. Antes de ligar em relógio de alto
-  volume, trocar por uma leitura prévia do `ultimo_nsr`.
+- ✅ **`sync` passou a ser incremental em 17/08/2026 (v0.5.0).** Antes pedia o AFD sempre a
+  partir do NSR 1 e confiava na idempotência de `fn_ingerir_afd`. Isso não era só desperdício:
+  no **REP iDClass - SMS** (10.110.0.20) era falha **total** — de 14/08 a 17/08/2026 o
+  dispositivo ficou com `rep_sincronizacoes = 0` e `rep_afd_registros = 0`, todo ciclo morrendo
+  em `context deadline exceeded ... while reading body` (30s de timeout contra um equipamento
+  que leva mais que isso para montar ~40 mil linhas) e recomeçando do zero 5 min depois. O
+  relógio comunicava o tempo todo — `login.fcgi` e `get_system_information.fcgi` respondiam na
+  mesma rodada. **Sync que nunca completa uma vez não deixa rastro nenhum no banco**: ao
+  diagnosticar "instalado e não comunica", confira `rep_sincronizacoes` antes de suspeitar de
+  rede ou credencial.
+  O cursor vem de `GET /api/rep/v1/estado` → `fn_cursor_afd_dispositivo` (migration
+  `20260817150000`, **corrigida pela `20260817160000` no mesmo dia**), e **não é `ultimo_nsr + 1`**:
+  é o fim do trecho **contíguo** de NSR a partir do **menor NSR do dispositivo**, mais 1.
+  ⚠️ A primeira versão ancorava no **NSR 1** (`se não existe NSR 1, peça tudo`), embutindo a
+  suposição de que todo AFD começa em 1 — tirada dos 3 dispositivos que tinham dado real na hora.
+  Ela travaria devolvendo 1 para sempre em qualquer relógio cujo piso seja maior, e travava também
+  durante recuperação grande: **a fila offline reenvia lote em ordem de nome de arquivo**
+  (`os.ReadDir` sobre `lote_id`, que é hash), **não de NSR**, então o "menor NSR" de um dispositivo
+  em recuperação vai *descendo* e o AFD fica cheio de buracos transitórios (medido na SMS: piso
+  aparente 3001 → 501 → 1 em minutos). Cursor baixo durante recuperação é correto e passa; não
+  confunda com cursor travado.
+  `ultimo_nsr` é o maior NSR de cada lote, então um NSR do meio que nunca chegue ficaria para
+  trás **para sempre** com cursor ingênuo — batida descartada em silêncio, e o autoconserto que
+  existia (repedir o arquivo inteiro todo ciclo) tinha acabado de ser removido. Lacuna puxa o
+  cursor para trás; reingerir é de graça. Toda falha de decisão cai para o NSR 1: errar o cursor
+  **para cima** é a única forma de perder marcação, então a assimetria é deliberada.
+  `get_afd.fcgi` ganhou timeout próprio (10 min, `timeout_afd_segundos` no `config.yaml`);
+  as demais chamadas continuam em 30s de propósito, para relógio fora do ar falhar rápido.
+- ✅ **Desvio de relógio da máquina deixou de derrubar o coletor em 17/08/2026 (v0.5.1).**
+  `HTTP 401: "Timestamp fora da janela permitida (anti-replay)"` **nunca foi problema de token** —
+  a checagem de desvio (`repDeviceAuth.ts`, 5 min) roda **antes** da validação do token, e token
+  superado dá `"Dispositivo ou token inválido"`. Não afetava só o heartbeat: `EnviarLote`,
+  `pendencias` e `biometria` usam o mesmo HMAC, então **nada** daquela unidade chegava ao
+  SisEscala. Medido na máquina do RH da SMS: o AFD baixava certo e os ~80 lotes iam **integralmente
+  para a fila offline**, com a tela vazia e nenhuma pista do motivo para quem olhava de fora.
+  A correção **não** é o coletor ajustar o relógio do Windows — isso exige `SeSystemtimePrivilege`,
+  que usuário comum não tem, e o app roda deliberadamente **sem administrador** (autostart em
+  `HKCU`). A correção é ele parar de depender do relógio local: `sisescala/client.go` aprende o
+  desvio pelo header `Date` de qualquer resposta HTTP (ponto médio envio/chegada, à la NTP) e assina
+  com `hora local + desvio`. Confirmado em produção: o próprio 401 de anti-replay **já traz o
+  `Date` correto**, então a resposta que recusa é a que ensina a hora. Um retry único, só quando o
+  corpo contém `anti-replay`, cobre o arranque (desvio ainda zero na 1ª requisição do processo).
+  **Isso não afrouxa o anti-replay**: quem decide o que é "agora" continua sendo só o servidor, e
+  alinhar-se ao relógio dele apenas permite que um cliente honesto produza timestamp que ele
+  considere atual — replay de requisição capturada não ganha nada. Desvio ≥ 1 min vira **aviso
+  explícito no log**, porque a hora errada do Windows continua sendo problema real daquela máquina
+  (aparece na tela do terminal de presença, por exemplo): o coletor deixa de ser vítima dela, não a
+  conserta. Conferir com `tzutil /g` (deve dar `SA Eastern Standard Time`).
+- ⚠️ **Ciclo longo = menu da bandeja sem resposta.** `executarCiclo` e todos os `case` de clique do
+  menu rodam na **mesma goroutine** (`cmd/tray/main.go`), então enquanto um ciclo está em andamento
+  nenhum item do menu responde. Foi assim que um bug de fila virou "o app não detecta atualização"
+  em 17/08/2026: `fila.Gravar` usava `O_APPEND` num arquivo nomeado pelo `lote_id` (que é hash
+  determinístico do conteúdo) e `fila.Pendentes` lê **cada linha como um lote**, então cada ciclo
+  recusado reempilhava o mesmo lote — ~80 lotes viraram ~1.000 reenvios por ciclo em ~12 ciclos.
+  Corrigido na v0.5.2 (`Gravar` substitui em vez de acrescentar, e o reenvio desiste após 3 falhas
+  seguidas). **Ao investigar "a bandeja não responde", meça a duração do ciclo antes de suspeitar
+  do systray** — e lembre que `GetAFD` agora pode legitimamente levar minutos.
 - No Windows, abrir URL com `cmd /c start` **corta tudo depois de um `&`** (separador de
   comando do `cmd.exe`) — quebrava a URL de ativação do terminal local, que tem
   `?terminal_id=...&token=...`. `terminal/terminal.go` usa
@@ -427,13 +479,54 @@ aplicada a `cadastros`/`cadastros-testar`.
 inteira, não filtrada — reaproveita a mesma paginação já confirmada, então herda a confiança dela
 (`ListarUsuariosComBiometria` virou um filtro em cima de `ListarUsuarios`).
 
-⚠️ **Confirmado com dado real (log da LACEN, 12/08/2026): `sync` reprocessa as ~36 mil linhas do
-AFD inteiro a cada ciclo de 5 minutos**, não só na primeira vez — o item já registrado acima como
-pendência ("Antes de ligar em relógio de alto volume, trocar por leitura prévia do
-`ultimo_nsr`"). Não corrompe nada (o atalho de idempotência por lote de `fn_ingerir_afd` devolve
-o resultado já calculado, `reenvio: true`, sem reprocessar — só o log do coletor não distingue
-isso de reprocessamento de verdade), mas é candidato a prioridade agora que há volume real
-medido em produção.
+✅ **Resolvido em 17/08/2026 (v0.5.0).** A nota anterior aqui registrava, com dado real do log da
+LACEN (12/08/2026), que `sync` reprocessava as ~36 mil linhas do AFD inteiro a cada ciclo de 5
+minutos — sem corromper nada (o atalho de idempotência por lote de `fn_ingerir_afd` devolvia o
+resultado já calculado, `reenvio: true`, sem reprocessar; só o log do coletor não distinguia isso
+de reprocessamento de verdade). Virou prioridade quando o mesmo comportamento **impediu** o REP
+iDClass - SMS de sincronizar uma única vez — ver a seção do cursor de NSR acima.
+
+### SMS (17/08/2026) — ~250 mil marcações órfãs desde 2021, e o risco que elas criam
+
+O REP da SMS (10.110.0.20) é reaproveitado e chegou com **268.556 registros de AFD**, o mais antigo
+de **abril/2021** — sete vezes o volume da LACEM. Ingeridos por inteiro (regra "nunca descartar
+batida"), gerando **~250 mil `marcacoes_ponto` todas órfãs**, porque `rep_vinculos_servidor` está
+vazio para esse dispositivo. Órfã é inerte: sem `servidor_id` nada projeta em `escala_diaria`.
+
+⚠️ **É aqui que a armadilha 10 do `p_vigente_de` fica cara.** Ao criar os vínculos, um
+`p_vigente_de` antigo demais transformaria **cinco anos de ponto de outro sistema** em ponto do
+SisEscala — não na hora (criar vínculo não reprocessa nada), mas no primeiro
+`fn_reparse_afd_dispositivo`, que re-resolve autoria pelo vínculo *vigente na data da batida*. Use
+o default (`dispositivos_rep.created_at` = 14/08/2026) e **nunca** a data da primeira batida do AFD.
+A LACEM tinha ~34.500 marcações nessa situação; aqui é 7x isso.
+
+🚨 **A instalação da SMS NÃO está concluída, e o motivo é o identificador ser PIS** (ver armadilha
+10, que foi reescrita por causa deste caso). Estado medido em 17/08/2026, agosto/2026, 126 escalados:
+
+| situação real (casando por PIS) | quantos | a tela "Cobertura da Escala" diz |
+|---|---|---|
+| já no relógio, **com biometria** — só falta o vínculo | **27** | `fora_do_relogio` ❌ |
+| já no relógio, sem biometria | 1 | `fora_do_relogio` ❌ |
+| realmente fora do relógio | 83 | `fora_do_relogio` ✅ |
+| sem PIS no cadastro do SisEscala | 15 | `sem_cpf` (1) ❌ |
+
+Ou seja: **27 pessoas batem ponto naquele relógio todo dia e a batida morre órfã**, e a tela afirma
+que elas não estão cadastradas. Nada disso se resolve clicando em "Sincronizar cadastros": o push
+falhou nos 327 (`'pis' em formato incorreto`) e, se tivesse passado, teria gravado vínculo por CPF
+que jamais casaria com as linhas do AFD deste equipamento.
+
+O que falta é **código**, não operação: vinculação por PIS, `fn_cobertura_ponto_dispositivo`
+reconhecendo PIS, `fn_enfileirar_cadastros_rep` gravando o identificador do tipo certo, e
+`rep.CriarUsuario` mandando o campo que este modelo aceita (varredura de formatos como a de
+`remove_users.fcgi`, validada em campo com `cadastros-testar`). Provavelmente precisa de uma coluna
+em `dispositivos_rep` dizendo o tipo de identificador — hoje CPF e PIS convivem em produção sem nada
+no schema distinguindo.
+
+ℹ️ Observação registrada, ainda **não tratada**: a cadeia de hash de `rep_afd_registros` é montada
+na **ordem de chegada** (`v_hash_ant` vem do maior NSR já presente), e a fila offline reenvia em
+ordem de hash de `lote_id`. Numa recuperação grande a cadeia deixa de acompanhar a ordem de NSR.
+Não afeta o artefato legal — `linha_bruta` é gravada exatamente como veio do equipamento — mas a
+cadeia não serve como prova de sequência contínua nesses trechos.
 
 ### Implantação do LACEM (13/08/2026) — primeira unidade fora do piloto
 
@@ -1018,7 +1111,38 @@ Vale para **todas** as categorias, inclusive Plantão. No cadastro atual, toda j
 (Plantão/Extra). `ScaleGrid.tsx` espelha essa regra para escolher entre 2 e 4 segmentos — se alterar
 uma ponta, altere a outra.
 
-### 10. O identificador do AFD é CPF com **um** zero à esquerda
+### 10. O identificador do AFD é CPF com **um** zero à esquerda — ⚠️ **só em alguns relógios**
+
+🚨 **LEIA ISTO ANTES DO RESTO DESTA ARMADILHA (17/08/2026).** "O identificador é CPF" **não é
+propriedade do AFD, é propriedade de como cada equipamento foi cadastrado.** O relógio da **SMS**
+(10.110.0.20) identifica por **PIS/NIS**, não por CPF — medido pelos dígitos verificadores dos 323
+usuários dele: **292 validam como PIS, só 13 como CPF** (2 como ambos, 16 como nenhum). Os relógios
+da TI, LACEM e CEI são CPF porque foram cadastrados assim; este veio de outro sistema que usou PIS.
+
+Consequências medidas em produção, todas silenciosas:
+
+| o que assume CPF | efeito no relógio da SMS |
+|---|---|
+| `rep.CriarUsuario` (manda campo `cpf`) | **327 cadastros falharam**: `add_users.fcgi recusou: 'pis' em formato incorreto` |
+| `fn_vincular_cadastros_por_cpf` | casa **0** dos 323 |
+| `fn_cobertura_ponto_dispositivo` | diz `fora_do_relogio` para **27 pessoas que estão no relógio com biometria** e batem ponto todo dia |
+| `fn_enfileirar_cadastros_rep` (grava `lpad(cpf,12,'0')`) | criaria vínculo com identificador que **nunca** casa com as linhas do AFD deste device — 265.922 marcações ficariam órfãs para sempre, sem erro nenhum |
+
+A falha do `add_users.fcgi` foi **sorte**: se tivesse passado, teria criado 327 vínculos inúteis e o
+problema só apareceria como "o ponto de ninguém aparece", meses depois.
+
+✅ **Existe ponte, e ela mudou desde que este arquivo dizia o contrário:** `servidores.pis_pasep`
+está preenchido em **309 de 347** servidores (a nota abaixo, de 08/08/2026, dizia "vazio em 100% dos
+registros" — **desatualizado**, os dados entraram depois). Casando por PIS, 48 dos 323 usuários do
+relógio viram servidor, e 28 dos 126 escalados. Casar por **matrícula** é ponte ruim aqui: só 35 de
+323 (89 têm matrícula `0` no device).
+
+**Ao ligar um relógio novo, descubra o tipo de identificador ANTES de empurrar cadastro** — rode a
+higiene (só leitura) e valide os dígitos verificadores do `identificador_afd`. Não existe hoje coluna
+dizendo se o dispositivo é CPF ou PIS; enquanto não existir, os dois conviverão em produção sem nada
+no schema registrando qual é qual.
+
+
 
 O registro tipo 3 do AFD (a marcação) carrega apenas `NSR + data/hora + identificador(12) + CRC`.
 **A matrícula não aparece em nenhuma marcação** — só no tipo 5 (cadastro) e no `load_users.fcgi`.
@@ -1038,8 +1162,11 @@ então o erro atinge um terço da base de forma aparentemente aleatória — e o
 fantasma no módulo de pendências, que leva alguém a vincular a pessoa errada na mão. Corrigido
 em `20260808090000`.
 
-Agrava: quem usa relógio tende a ter `cpf` nulo no SisEscala, e `pis_pasep` está vazio em 100%
-dos registros. Auditor fiscal casa por PIS/NIS — é projeto de qualidade de dados da Fase 9.
+Agrava: quem usa relógio tende a ter `cpf` nulo no SisEscala. Auditor fiscal casa por PIS/NIS.
+⚠️ A frase que existia aqui — "`pis_pasep` está vazio em 100% dos registros" — era verdade em
+08/08/2026 e **não é mais**: em 17/08/2026 são **309 de 347** preenchidos. Foi exatamente isso que
+tornou viável a ponte por PIS descrita no topo desta armadilha. **Reconfira contagem deste arquivo
+contra produção antes de decidir com base nela.**
 
 ⚠️ **Pendência (13/08/2026, sem solução escolhida): identificador por CPF quebra para vínculo
 duplo.** `servidores.vinculo_multiplo_confirmado` (`20260810140000`) permite duas matrículas pra

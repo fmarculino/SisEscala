@@ -2,6 +2,142 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.1.0] - 2026-08-17
+
+Identidade do relógio deixa de assumir CPF, e o push de cadastro passa a rodar sozinho.
+
+### Fixed
+- **Relógio cadastrado por PIS resolvia ZERO servidores, em silêncio** (migration `20260817170000`).
+  "O identificador do AFD é o CPF" nunca foi propriedade do AFD — é propriedade de **como cada
+  pessoa foi cadastrada em cada relógio**. O REP da SMS veio de outro sistema que cadastrava por
+  PIS/NIS: dos 323 usuários dele, **292 validam como PIS e 13 como CPF** (conferido por dígito
+  verificador). Consequências, todas sem erro visível: o snapshot resolvia 0 dos 323, a tela
+  "Cobertura da Escala" rotulava `fora_do_relogio` **27 servidores que estão no equipamento com
+  biometria e batem ponto todo dia**, e as 265.922 marcações ficaram sem dono.
+  - Nova **fonte única** `fn_servidor_por_identificador_afd`: tenta vínculo vigente → CPF → PIS, e
+    **recusa em vez de chutar** quando há ambiguidade (CPF de um sendo PIS de outro, ou dois
+    servidores Ativos com o mesmo número). Dono errado lança ponto de uma pessoa em outra; sem dono
+    é um problema visível na tela.
+  - **Não** foi criada coluna "tipo de identificador" por dispositivo: seria errada desde o primeiro
+    dia, porque a SMS vai ficar **misturada** (292 antigos por PIS + todos os novos por CPF, no mesmo
+    equipamento). Misturado é o caso normal.
+  - Conferido em produção antes de escolher o desenho: **0** números que sejam CPF de um servidor e
+    PIS de outro, e **0** usuários de relógio que casariam com dois servidores — nos 4 dispositivos.
+    Ampliar para PIS não muda nenhum casamento existente em LACEM, CEI ou Reg/TI/TFD.
+  - Fecha de brinde um risco latente no snapshot: dois Ativos com o mesmo CPF multiplicavam a linha
+    e estouravam `uq_usuario_dispositivo`, derrubando o snapshot inteiro. E a cobertura passou a usar
+    `LATERAL ... LIMIT 1`, porque a mesma pessoa pode ter **dois** cadastros no equipamento.
+- **Vínculo criado pelo push usava um identificador calculado por nós** (migration `20260817180000`).
+  Era `lpad(cpf,12,'0')`, não o número que o equipamento guardou — no relógio da SMS isso produziria
+  327 vínculos que jamais casariam com as linhas do AFD, em silêncio absoluto. Agora o coletor lê o
+  identificador de volta do próprio relógio (por relistagem) e é **ele** que vira o vínculo; sem
+  isso, cai no cálculo por CPF, correto nos outros três.
+- **Toda falha do push era terminal.** `fn_confirmar_cadastro_rep` marcava `falhou` e o item saía da
+  fila para sempre (`tentativas` nunca passava de 1). Com humano clicando o botão era tolerável; no
+  ciclo automático, um relógio desligado por um minuto queimaria o cadastro de uma pessoa
+  permanentemente e sem alarme. Agora: recusa do equipamento → `falhou` definitivo; falha de
+  transporte → volta para `pendente` com espera de 5 min × tentativa, teto de 5.
+
+### Added
+- **Sincronização de cadastros automática** (coletor v0.6.0). Entra no ciclo de 5 min que já existe,
+  em vez de um segundo temporizador: **a própria fila é o gatilho** — sem ninguém enfileirado nada é
+  escrito no equipamento, e o custo em repouso é um GET que devolve lista vazia. Isso faz o botão
+  "Sincronizar cadastros" da tela funcionar como comando remoto (ele enfileira; o próximo ciclo
+  aplica), o que é o mais próximo de "push" que a topologia permite — o servidor não tem caminho de
+  rede até a máquina da unidade. Teto de 20 por ciclo, porque o ciclo e os cliques do menu dividem
+  uma goroutine. O botão manual continua, sem teto.
+- **Varredura de formato do `add_users.fcgi`**, mesmo padrão já confirmado em campo para
+  `remove_users.fcgi`: candidatos em ordem (`cpf` confirmado em 12/08 → `pis` → ambos), confirmando
+  por relistagem que o usuário **realmente** apareceu — "sem erro" do equipamento não basta. O
+  formato vencedor fica em cache para o resto do lote, e `cadastros-testar` passa a imprimir qual
+  formato foi aceito e qual identificador o relógio atribuiu.
+  ⚠️ **Não confirmado em hardware**: rodar `coletor-rep-cli cadastros-testar` na unidade antes de
+  confiar. Se o equipamento validar o dígito verificador de PIS, mandar CPF no campo `pis` também
+  será recusado — e aí o cadastro naquele relógio terá de ser por PIS de verdade.
+- O `SincronizarCadastros` passou a relatar o **snapshot inteiro** ao SisEscala no fim (a listagem já
+  era feita ali e era jogada fora depois de filtrar biometria). É o que torna o fluxo autocorretivo:
+  mesmo que o identificador reportado falte, o snapshot reconcilia em seguida pela fonte única.
+
+## [2.0.3] - 2026-08-17
+
+### Fixed
+- **Cursor de AFD nunca sairia de 1 enquanto o NSR 1 não tivesse chegado** (migration
+  `20260817160000`, corrigindo a `20260817150000` do mesmo dia). A versão original abria com um guard
+  "se não existe o NSR 1, peça o arquivo todo", que embutia a suposição de que todo AFD começa em 1 —
+  premissa tirada dos 3 dispositivos que tinham dado real na hora.
+  - Exposto na recuperação de ~268 mil registros do REP iDClass - SMS: o menor NSR apareceu como
+    3001 e depois 501, **descendo**, porque a fila offline reenvia lote em ordem de nome de arquivo
+    (`os.ReadDir` sobre `lote_id`, que é hash), não de NSR. Enquanto o NSR 1 não chegasse, o guard
+    disparava em todo ciclo e o equipamento remontava o arquivo inteiro a cada 5 minutos — o ganho
+    da coleta incremental era zero. (O piso real acabou sendo 1; o guard travaria de todo modo, e
+    travaria para sempre num modelo que comece acima disso.)
+  - A correção é uma **remoção**: o cálculo por trecho contíguo já tratava os dois casos, e passa a
+    ancorar no **menor NSR do dispositivo** em vez de exigir que ele seja 1. Nunca houve risco de
+    perder marcação — errar o cursor para baixo só rebaixa dado que já existe, e reingerir é de
+    graça. Validado em homologação contra 5 cenários, incluindo regressão dos dispositivos com piso
+    em 1 e o trailer `999999999`.
+- **Fila offline do coletor se multiplicava sozinha, e isso travava o menu da bandeja**
+  (coletor v0.5.2). `fila.Gravar` abria o arquivo com `O_APPEND`, mas o arquivo é nomeado pelo
+  `lote_id` — que é hash determinístico do próprio conteúdo — e `fila.Pendentes` lê **cada linha
+  como um lote a reenviar**. Então cada ciclo que falhava acrescentava outra cópia idêntica do mesmo
+  lote: na máquina do RH da SMS, ~12 ciclos recusados por desvio de relógio transformaram ~80 lotes
+  em cerca de **1.000 reenvios por ciclo**, crescendo a cada 5 minutos.
+  - O sintoma que apareceu para quem estava na frente da máquina não foi "fila grande", foi **"o app
+    travou"**: `executarCiclo` e os cliques do menu dividem uma goroutine só (`cmd/tray/main.go`),
+    então um ciclo de vários minutos deixa "Verificar atualizacao" sem resposta. Um bug de
+    duplicação em disco virou app que não atualiza.
+  - `Gravar` passou a **substituir** o arquivo do lote, não acrescentar.
+  - O reenvio da fila **desiste depois de 3 falhas seguidas** e deixa o resto para o próximo ciclo:
+    falha sistemática (token, desvio de relógio, aplicação fora do ar) não muda no 900º lote, e a
+    fila é persistente — nada se perde. Mesmo raciocínio que `HigienizarRemocoes` já usava.
+
+## [2.0.2] - 2026-08-17
+
+### Fixed
+- **Relógio REP recém-instalado nunca sincronizava nada** (REP iDClass - SMS, 10.110.0.20,
+  instalado em 14/08/2026). Em 17/08/2026 o dispositivo tinha `rep_sincronizacoes = 0` e
+  `rep_afd_registros = 0`: o `sync` pedia o AFD **sempre a partir do NSR 1**, o equipamento leva
+  mais de 30s (o timeout do coletor) para montar as ~40 mil linhas de um relógio reaproveitado, e
+  todo ciclo morria em `context deadline exceeded ... while reading body` para recomeçar do zero 5
+  minutos depois. O relógio comunicava o tempo todo — `login.fcgi` e `get_system_information.fcgi`
+  respondiam na mesma rodada; só a coleta do AFD não cabia no tempo.
+  - Coleta agora é **incremental**: `GET /api/rep/v1/estado` devolve o cursor de NSR
+    (`fn_cursor_afd_dispositivo`, migration `20260817150000`) e o coletor pede só o incremento.
+    Também deixa de reprocessar as ~36 mil linhas da LACEM a cada 5 minutos (pendência aberta
+    desde 12/08/2026).
+  - O cursor é o fim do trecho **contíguo** de NSR mais 1, deliberadamente **não**
+    `ultimo_nsr + 1`: `ultimo_nsr` é o maior NSR de cada lote, então um NSR do meio que nunca
+    chegasse ficaria para trás para sempre — batida descartada em silêncio, justamente quando o
+    autoconserto (repedir o arquivo inteiro todo ciclo) acabou de ser removido. Lacuna puxa o
+    cursor de volta; reingerir é de graça (`fn_ingerir_afd` é idempotente por dispositivo+NSR).
+    Validado contra 6 cenários em homologação, incluindo envenenamento por registro de trailer
+    com NSR `999999999`.
+  - `get_afd.fcgi` ganhou timeout próprio (10 min, ajustável por `timeout_afd_segundos` no
+    `config.yaml`). As outras chamadas ao relógio continuam em 30s de propósito — é o que faz
+    equipamento fora do ar falhar rápido em vez de segurar o ciclo. `afd-raw` e `afd-exportar`
+    também usam o teto folgado.
+  - Coletor v0.5.0 (`ciclo.Versao`, `dist/VERSION` e os dois `.exe` recompilados).
+
+- **Coletor parava de enviar tudo quando o relógio do Windows da máquina estava fora do ar**
+  (coletor v0.5.1). Medido na máquina do RH da SMS depois que a coleta do AFD passou a funcionar: o
+  arquivo baixava certo e os ~80 lotes iam **integralmente para a fila offline** com
+  `HTTP 401 "Timestamp fora da janela permitida (anti-replay)"`, tela vazia e nenhuma pista do
+  motivo. Não era só o heartbeat — `EnviarLote`, `pendencias` e `biometria` assinam com o mesmo
+  HMAC, e a checagem de desvio (5 min) roda **antes** da validação do token, então o erro nunca
+  indicou problema de credencial.
+  - O coletor **deixou de depender do relógio local**: aprende o desvio pelo header `Date` de
+    qualquer resposta HTTP (ponto médio envio/chegada, à la NTP) e assina com `local + desvio`. O
+    próprio 401 de anti-replay já traz o `Date` correto, então a resposta que recusa é a que ensina
+    a hora — um retry único (só quando o corpo contém `anti-replay`) cobre o arranque.
+  - **Não** ajusta o relógio do Windows: isso exigiria `SeSystemtimePrivilege`, que usuário comum
+    não tem, e quebraria a decisão de o app rodar sem administrador.
+  - Não afrouxa o anti-replay: quem decide o que é "agora" continua sendo só o servidor. Desvio
+    ≥ 1 min vira aviso explícito no log — compensar não é esconder, a hora errada continua sendo
+    problema real da máquina.
+  - Validado contra servidor de mentira 20 min adiantado (arranque com retry, operação seguinte sem
+    retry, desvio medido com erro < 1s, e 401 de assinatura inválida **não** gerando retry) e o
+    `Date` conferido contra o servidor real de produção.
+
 ## [2.0.0] - 2026-08-14
 
 Salto de versão major: correção de dois bugs de produção com impacto direto em dado de ponto

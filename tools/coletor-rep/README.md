@@ -175,8 +175,109 @@ idempotente por `(dispositivo_id, lote_id)`.
 - Biometria em si (o template do dedo) — sempre presencial no equipamento, nunca por API.
   Push de identidade (matrícula/nome/CPF) já existe desde 12/08/2026, ver seção acima —
   não validado contra hardware real ainda.
-- Leitura prévia do `ultimo_nsr` antes de pedir o AFD (hoje `sync` sempre pede a partir do NSR
-  1 e deixa a idempotência do servidor descartar o que já foi ingerido — funciona, mas
-  reenvia o arquivo inteiro a cada ciclo; ver TODO em `ciclo/ciclo.go`).
 - `get_system_information.fcgi` (deriva de relógio no heartbeat) continua aproximação — os
   nomes de campo não foram confirmados contra o hardware real.
+
+## Coleta incremental (cursor de NSR) — v0.5.0, 17/08/2026
+
+Até a v0.4.6 o `sync` pedia o AFD **sempre a partir do NSR 1** e confiava na idempotência de
+`fn_ingerir_afd` para descartar o repetido. Funcionava, mas fazia o equipamento remontar o arquivo
+inteiro a cada 5 minutos — e num relógio reaproveitado isso deixou de ser desperdício e passou a
+ser **falha total**: o REP iDClass - SMS (10.110.0.20) ficou de 14/08 a 17/08/2026 com **zero**
+sincronizações, todo ciclo morrendo em `context deadline exceeded ... while reading body` (o
+equipamento leva mais de 30s para montar ~40 mil linhas) e recomeçando do zero 5 minutos depois.
+
+Agora o coletor pergunta o cursor ao SisEscala antes de pedir o AFD:
+
+```
+GET /api/rep/v1/estado  ->  { "proximo_nsr": 36075, "ultimo_nsr": 36074 }
+```
+
+⚠️ **O cursor não é `ultimo_nsr + 1`, e essa diferença é o ponto todo.** Ele é
+`fn_cursor_afd_dispositivo`: o fim do trecho **contíguo** de NSR já ingerido, mais 1. `ultimo_nsr`
+é o *maior* NSR de cada lote, então se um NSR do meio nunca chegar (linha ilegível, lote perdido
+da fila offline), um cursor ingênuo o deixaria para trás **para sempre** — batida descartada em
+silêncio. Com trecho contíguo, qualquer lacuna puxa o cursor de volta para antes dela e o relógio
+reenvia dali; reingerir é de graça. Ver a migration `20260817150000` para o raciocínio completo.
+
+Toda falha de decisão cai para o NSR 1 (comportamento antigo, "baixar demais"). A assimetria é
+deliberada: errar o cursor **para cima** é a única forma de perder marcação, porque o relógio
+simplesmente não devolveria as linhas anteriores e nada no sistema reclamaria.
+
+Quando o SisEscala está inacessível, o coletor usa o último cursor que o servidor informou,
+cacheado em `cursor-<dispositivo_id>.json` no diretório da fila. Esse arquivo é **cache, nunca
+fonte de verdade** — só guarda valor vindo do servidor, nunca é avançado localmente, e apagá-lo é
+sempre seguro. Sem ele, um servidor fora do ar rebaixaria a coleta para "arquivo inteiro"
+justamente no momento em que a fila offline precisa juntar dado.
+
+### Dois timeouts, de propósito
+
+| chamada | timeout | por quê |
+|---|---|---|
+| `login`, `get_system_information`, `load_users`, `add_users`, `remove_users` | 30s | respondem em menos de 1s num relógio saudável — timeout curto é o que faz equipamento fora do ar falhar rápido em vez de segurar o ciclo |
+| `get_afd.fcgi` | 10 min (padrão) | o equipamento monta o arquivo antes de responder; a **primeira** coleta de um relógio já usado continua sendo o arquivo inteiro, e é ela que precisa de teto folgado para o dispositivo arrancar |
+
+Ajustável por unidade sem recompilar, via `timeout_afd_segundos` no `config.yaml` (ausente ou 0
+usa o padrão de 10 min — nunca "sem timeout", que prenderia o ciclo da bandeja num relógio
+travado):
+
+```yaml
+dispositivo_rep:
+  # ...
+  timeout_afd_segundos: 900   # opcional; só para relógio muito lento
+```
+
+`afd-raw` e `afd-exportar` também usam esse teto — são justamente os comandos que se usaria num
+relógio de alto volume.
+
+## Desvio de relógio da máquina — v0.5.1, 17/08/2026
+
+`HTTP 401: "Timestamp fora da janela permitida (anti-replay)"` no log **não é problema de token**.
+A checagem de desvio roda antes da validação do token (token superado dá
+`"Dispositivo ou token inválido"`), e afeta **todas** as rotas `/api/rep/v1/*`, não só o heartbeat —
+`EnviarLote`, `pendencias` e `biometria` assinam com o mesmo HMAC. Numa máquina com hora errada, o
+AFD baixa normalmente e **todos** os lotes vão para a fila offline: nada se perde, mas nada aparece
+no SisEscala e a bandeja fica vermelha sem explicar por quê.
+
+Desde a v0.5.1 o coletor **não depende mais do relógio local**: aprende o desvio pelo header `Date`
+de qualquer resposta HTTP (ponto médio entre envio e chegada, à la NTP) e assina com
+`hora local + desvio`. O próprio 401 de anti-replay já traz o `Date` correto, então a resposta que
+recusa é a que ensina a hora certa; um retry único cobre a primeira requisição do processo, quando
+o desvio ainda é zero.
+
+**Não ajusta o relógio do Windows de propósito.** Isso exigiria `SeSystemtimePrivilege`, que usuário
+comum não tem, e pedir elevação quebraria a decisão de o app instalar e rodar sem administrador.
+
+**Não afrouxa o anti-replay.** Quem decide o que é "agora" continua sendo exclusivamente o servidor,
+que segue recusando timestamp fora da janela dele. Alinhar-se ao relógio dele só permite que um
+cliente honesto produza um timestamp que ele considere atual — replay de requisição capturada não
+ganha nada com isso.
+
+⚠️ **Compensar não é esconder.** Desvio de 1 min ou mais vira aviso explícito no log a cada vez que
+aparece, porque a hora errada do Windows continua sendo problema real daquela máquina (aparece na
+tela do terminal de presença, por exemplo). Corrija com `w32tm /resync /force` (como administrador)
+e confirme o fuso com `tzutil /g` — deve dar `SA Eastern Standard Time`. Se o `w32tm` responder
+`0x80070426`, o serviço "Horário do Windows" está parado: `Set-Service w32time -StartupType
+Automatic` e `Start-Service w32time` antes de tentar de novo (em PowerShell use `sc.exe`, nunca
+`sc`, que é alias de `Set-Content`).
+
+## Se o menu da bandeja parar de responder
+
+`executarCiclo` e os cliques do menu rodam na **mesma goroutine**, então **enquanto um ciclo está em
+andamento nenhum item do menu responde** — incluindo "Verificar atualizacao". Não é o systray
+travado, é o ciclo em execução; e com `get_afd.fcgi` podendo levar minutos num relógio de alto
+volume, isso é esperado de vez em quando.
+
+O que já transformou isso em app aparentemente morto (17/08/2026, v0.5.2 corrigiu): a fila offline se
+multiplicava a cada ciclo recusado, e o reenvio passava minutos percorrendo milhares de lotes
+duplicados antes de o ciclo terminar.
+
+Para destravar na máquina, sem depender do menu:
+
+1. Encerrar `coletor-rep-tray.exe` pelo Gerenciador de Tarefas.
+2. Apagar o conteúdo de `%PROGRAMDATA%\SisEscala\fila`.
+3. Reabrir o app de `%LOCALAPPDATA%\SisEscala\coletor-rep\`.
+
+⚠️ **Apagar a fila não perde marcação.** Os lotes ali são cópias de linhas de AFD que continuam na
+memória inviolável do próprio relógio; o `sync` seguinte busca de novo a partir do cursor. A fila
+existe para não depender da rede no momento da coleta, não para ser a única cópia do dado.
