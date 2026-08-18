@@ -395,6 +395,10 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 	if cfg.DispositivoRep == nil {
 		itemHigienizarCadastros.Disable()
 	}
+	itemHigienizarRemocoes := systray.AddMenuItem("Executar remocoes de higiene agora", "Aplica no relogio as remocoes marcadas na tela de Higiene do SisEscala")
+	if cfg.DispositivoRep == nil {
+		itemHigienizarRemocoes.Disable()
+	}
 	itemVerLogs := systray.AddMenuItem("Ver logs", "Abre a pasta de logs e configuracao")
 	systray.AddSeparator()
 	// Sempre visivel, nunca clicavel - so' pra quem abrir o menu ja saber de cara qual versao
@@ -571,6 +575,14 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 				log.Printf("cadastros no ciclo: enviados=%d falhas=%d (pendentes na fila: %d)",
 					resultado.Enviados, resultado.Falhas, resultado.Pendentes)
 			}
+
+			// Executa remoções de higiene pendentes enfileiradas pelo SisEscala
+			if resRemocao, err := ciclo.HigienizarRemocoes(cfg, ciclo.LimiteRemocoesPorCiclo); err != nil {
+				log.Printf("aviso: remocoes de higiene nao executadas neste ciclo: %v", err)
+			} else if resRemocao.Removidos > 0 || resRemocao.Falhas > 0 {
+				log.Printf("higiene no ciclo: removidos=%d falhas=%d (pendentes na fila: %d)",
+					resRemocao.Removidos, resRemocao.Falhas, resRemocao.Pendentes)
+			}
 		}
 
 		falhasAntes, falhasDepois := estado.registrarResultado(ok)
@@ -636,6 +648,22 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 				}
 				itemHigienizarCadastros.SetTitle("Atualizar lista de cadastros do relogio")
 				itemHigienizarCadastros.Enable()
+			case <-itemHigienizarRemocoes.ClickedCh:
+				itemHigienizarRemocoes.SetTitle("Aplicando remocoes...")
+				itemHigienizarRemocoes.Disable()
+				_ = beeep.Notify("SisEscala - Coletor", "Aplicando remocoes de higiene no rele...", nil)
+				resultado, err := ciclo.HigienizarRemocoes(cfg, 0)
+				if err != nil {
+					log.Printf("erro ao aplicar remocoes de higiene: %v", err)
+					_ = beeep.Notify("SisEscala - Coletor", "Falha ao aplicar remocoes no rele. Ver log.", nil)
+				} else if resultado.Pendentes == 0 {
+					_ = beeep.Notify("SisEscala - Coletor", "Nenhuma remocao pendente para aplicar.", nil)
+				} else {
+					_ = beeep.Notify("SisEscala - Coletor",
+						fmt.Sprintf("%d usuario(s) removido(s) do rele, %d falha(s).", resultado.Removidos, resultado.Falhas), nil)
+				}
+				itemHigienizarRemocoes.SetTitle("Executar remocoes de higiene agora")
+				itemHigienizarRemocoes.Enable()
 			case <-itemVerLogs.ClickedCh:
 				exec.Command("explorer", dirInstalado).Start() //nolint:errcheck
 			case <-itemAtualizar.ClickedCh:

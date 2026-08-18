@@ -81,7 +81,7 @@ func main() {
 		}
 		fmt.Printf("usuarios_lidos=%d\n", resultado.UsuariosLidos)
 	case "higiene-remover":
-		if err := ciclo.HigienizarRemocoes(cfg); err != nil {
+		if _, err := ciclo.HigienizarRemocoes(cfg, 0); err != nil {
 			fmt.Fprintf(os.Stderr, "Falha ao aplicar remocoes no rele: %v\n", err)
 			os.Exit(1)
 		}

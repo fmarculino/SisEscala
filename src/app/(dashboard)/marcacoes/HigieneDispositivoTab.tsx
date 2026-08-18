@@ -85,8 +85,7 @@ export function HigieneDispositivoTab() {
     if (selecionados.size === 0) return
     if (!confirm(
       `Marcar ${selecionados.size} cadastro(s) para remoção do relógio? ` +
-      `Isto não apaga nada agora — só entra na fila. Quem administra o coletor precisa rodar ` +
-      `"coletor-rep higiene-remover" (ou usar o menu correspondente) para aplicar no equipamento.`
+      `Os cadastros marcados serão removidos automaticamente pelo aplicativo coletor no próximo ciclo de sincronização (ou via menu da bandeja).`
     )) return
 
     setProcessando(true)
@@ -102,7 +101,7 @@ export function HigieneDispositivoTab() {
       (res.bloqueados_por_vinculo_ativo > 0
         ? `${res.bloqueados_por_vinculo_ativo} não foram porque correspondem a um servidor ativo. `
         : '') +
-      `A remoção de verdade no relógio só acontece quando o coletor rodar "higiene-remover".`
+      `O aplicativo coletor na unidade executará a remoção física no relógio automaticamente no próximo ciclo.`
     )
     recarregar()
   }

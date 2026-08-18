@@ -20,7 +20,14 @@ import (
 	"github.com/sms-maraba/sisescala-coletor-rep/sisescala"
 )
 
-const Versao = "0.6.1"
+const Versao = "0.7.0"
+
+// LimiteCadastrosPorCiclo e' o teto do ciclo AUTOMATICO. O clique manual no menu passa 0 (sem
+// teto, envia todos).
+const LimiteCadastrosPorCiclo = 20
+
+// LimiteRemocoesPorCiclo e' o teto de remocoes do ciclo AUTOMATICO. O clique manual no menu passa 0.
+const LimiteRemocoesPorCiclo = 20
 
 func hostname() string {
 	h, err := os.Hostname()
@@ -227,10 +234,6 @@ type ResultadoCadastros struct {
 	Falhas    int
 }
 
-// LimiteCadastrosPorCiclo e' o teto do ciclo AUTOMATICO. O clique manual no menu passa 0 (sem
-// teto), porque ali existe alguem esperando o resultado e a fila costuma ser pequena.
-const LimiteCadastrosPorCiclo = 20
-
 // SincronizarCadastros envia a fila de identidade ao relógio. `limite` = 0 significa sem teto.
 func SincronizarCadastros(cfg *config.Config, limite int) (ResultadoCadastros, error) {
 	var resultado ResultadoCadastros
@@ -383,18 +386,24 @@ func HigienizarListagem(cfg *config.Config) (ResultadoHigiene, error) {
 	return resultado, nil
 }
 
+// ResultadoRemocao resume o que aconteceu num HigienizarRemocoes
+type ResultadoRemocao struct {
+	Pendentes int
+	Removidos int
+	Falhas    int
+}
+
 // HigienizarRemocoes aplica no relógio quem foi selecionado na tela de higiene (Fase 7b) para
-// sair do equipamento. Deliberadamente NUNCA chamada pelo ciclo automático nem pelo menu da
-// bandeja: é a única operação que apaga dado de equipamento de produção, e o formato aceito por
-// remove_users.fcgi neste hardware só foi descoberto por tentativa (ver rep/client.go).
+// sair do equipamento. Agora automatizado no ciclo da bandeja com teto por lote (LimiteRemocoesPorCiclo).
 //
 // Só reporta sucesso ao SisEscala depois de RELISTAR o cadastro do relógio e confirmar que o
 // usuário sumiu de verdade. O device já respondeu "ok" para chamada que não removeu nada, e
 // marcar a fila como aplicada nesse caso deixaria o SisEscala achando que o relógio está limpo
 // quando não está.
-func HigienizarRemocoes(cfg *config.Config) error {
+func HigienizarRemocoes(cfg *config.Config, limite int) (ResultadoRemocao, error) {
+	var resultado ResultadoRemocao
 	if cfg.DispositivoRep == nil {
-		return fmt.Errorf("secao dispositivo_rep ausente no config.yaml — nada para remover")
+		return resultado, fmt.Errorf("secao dispositivo_rep ausente no config.yaml — nada para remover")
 	}
 	d := cfg.DispositivoRep
 	sc := sisescala.NovoClient(cfg.SisEscala.URL, d.ID, d.Token)
@@ -402,18 +411,26 @@ func HigienizarRemocoes(cfg *config.Config) error {
 
 	pendentes, err := sc.ListarRemocoesPendentes()
 	if err != nil {
-		return fmt.Errorf("falha ao listar remocoes pendentes: %w", err)
+		return resultado, fmt.Errorf("falha ao listar remocoes pendentes: %w", err)
 	}
-	log.Printf("higiene: %d remocao(oes) pendente(s) para aplicar no rele", len(pendentes))
+	resultado.Pendentes = len(pendentes)
 	if len(pendentes) == 0 {
-		return nil
+		return resultado, nil
+	}
+
+	if limite > 0 && len(pendentes) > limite {
+		log.Printf("higiene: %d remocao(oes) pendente(s); aplicando %d neste ciclo, o resto no proximo",
+			len(pendentes), limite)
+		pendentes = pendentes[:limite]
+	} else {
+		log.Printf("higiene: %d remocao(oes) pendente(s) para aplicar no rele", len(pendentes))
 	}
 
 	// O corpo de remove_users.fcgi precisa de campos que só existem no snapshot do equipamento
 	// (`code`/`registration`), não na fila do SisEscala — daí ler o cadastro antes de remover.
 	usuarios, err := rc.ListarUsuarios()
 	if err != nil {
-		return fmt.Errorf("falha ao ler o cadastro do rele antes de remover: %w", err)
+		return resultado, fmt.Errorf("falha ao ler o cadastro do rele antes de remover: %w", err)
 	}
 	noDevice := make(map[string]rep.UsuarioDispositivo, len(usuarios))
 	for _, u := range usuarios {
@@ -433,10 +450,12 @@ func HigienizarRemocoes(cfg *config.Config) error {
 			if err := sc.ConfirmarRemocao(p.FilaID, true, ""); err != nil {
 				log.Printf("aviso: falha ao confirmar remocao %s no SisEscala: %v", p.FilaID, err)
 			}
+			resultado.Removidos++
 			continue
 		}
 
 		if err := rc.RemoverUsuario(alvo); err != nil {
+			resultado.Falhas++
 			log.Printf("remocao de %s (%s) falhou: %v", p.NomeNoDevice, p.IdentificadorAFD, err)
 			if erroConfirmar := sc.ConfirmarRemocao(p.FilaID, false, err.Error()); erroConfirmar != nil {
 				log.Printf("aviso: falha tambem ao reportar erro da remocao %s: %v", p.FilaID, erroConfirmar)
@@ -444,7 +463,7 @@ func HigienizarRemocoes(cfg *config.Config) error {
 			// Erro de formato desconhecido vale para todo o lote: sem formato aceito, insistir nos
 			// 30 seguintes só repete a mesma varredura de candidatos contra o equipamento.
 			if rc.FormatoRemocaoUsado() == "" {
-				return fmt.Errorf("nenhuma remocao foi aplicada: %w", err)
+				return resultado, fmt.Errorf("nenhuma remocao foi aplicada: %w", err)
 			}
 			continue
 		}
@@ -452,14 +471,14 @@ func HigienizarRemocoes(cfg *config.Config) error {
 	}
 
 	if len(tentados) == 0 {
-		return nil
+		return resultado, nil
 	}
 	log.Printf("higiene: %d remocao(oes) aceitas pelo rele (formato %s) — conferindo por relistagem",
 		len(tentados), rc.FormatoRemocaoUsado())
 
 	depois, err := rc.ListarUsuarios()
 	if err != nil {
-		return fmt.Errorf("remocoes aplicadas, mas falha ao reler o cadastro do rele para confirmar "+
+		return resultado, fmt.Errorf("remocoes aplicadas, mas falha ao reler o cadastro do rele para confirmar "+
 			"(nada foi confirmado no SisEscala; rodar de novo e' seguro): %w", err)
 	}
 	aindaNoDevice := make(map[string]bool, len(depois))
@@ -467,10 +486,9 @@ func HigienizarRemocoes(cfg *config.Config) error {
 		aindaNoDevice[u.IdentificadorAFD] = true
 	}
 
-	var removidos, sobraram int
 	for _, p := range tentados {
 		if aindaNoDevice[p.IdentificadorAFD] {
-			sobraram++
+			resultado.Falhas++
 			msg := "o rele aceitou a remocao mas o cadastro continua la (conferido por relistagem)"
 			log.Printf("remocao de %s (%s): %s", p.NomeNoDevice, p.IdentificadorAFD, msg)
 			if err := sc.ConfirmarRemocao(p.FilaID, false, msg); err != nil {
@@ -478,13 +496,14 @@ func HigienizarRemocoes(cfg *config.Config) error {
 			}
 			continue
 		}
-		removidos++
+		resultado.Removidos++
 		log.Printf("usuario %s (%s) removido do rele", p.NomeNoDevice, p.IdentificadorAFD)
 		if err := sc.ConfirmarRemocao(p.FilaID, true, ""); err != nil {
 			log.Printf("aviso: usuario %s removido do rele mas falha ao confirmar no SisEscala: %v", p.FilaID, err)
 		}
 	}
-	log.Printf("higiene: %d removido(s), %d nao efetivado(s)", removidos, sobraram)
+	log.Printf("higiene: %d removido(s), %d nao efetivado(s) (pendentes no total: %d)",
+		resultado.Removidos, resultado.Falhas, resultado.Pendentes)
 
 	// O snapshot da tela fica desatualizado depois de remover — reportar aqui evita ter que
 	// lembrar de rodar `higiene` logo em seguida.
@@ -498,7 +517,7 @@ func HigienizarRemocoes(cfg *config.Config) error {
 	if _, err := sc.ReportarUsuariosDispositivo(relato); err != nil {
 		log.Printf("aviso: remocoes aplicadas, mas falha ao atualizar o snapshot no SisEscala: %v", err)
 	}
-	return nil
+	return resultado, nil
 }
 
 // InfoVersaoServidor é o que GET /api/coletor-rep/tray-version devolve.
