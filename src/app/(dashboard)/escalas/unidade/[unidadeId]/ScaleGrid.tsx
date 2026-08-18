@@ -2204,6 +2204,82 @@ export function ScaleGrid({
         })
         return
       }
+
+      // Validação de consistência cronológica dos horários (Portaria 671/2021 e CLT)
+      const diaPres = presenceData[manualPresenceModal.servidorId]?.[manualPresenceModal.categoria]?.[manualPresenceModal.dia]
+      const toHHMM = (isoOrTime?: string | null) => {
+        if (!isoOrTime) return null
+        if (isoOrTime.includes('T')) {
+          return new Date(isoOrTime).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })
+        }
+        return isoOrTime.slice(0, 5)
+      }
+
+      const getFinalPassoHora = (p: PassoPresenca) => {
+        if (manualPresenceModal.selecoes?.[p]?.hora) return manualPresenceModal.selecoes[p]!.hora.slice(0, 5)
+        if (manualPresenceModal.horarios?.[p]) return manualPresenceModal.horarios[p].slice(0, 5)
+        if (p === 'entrada') return toHHMM(diaPres?.entrada_em)
+        if (p === 'intervalo_saida') return toHHMM(diaPres?.intervalo_saida_em)
+        if (p === 'intervalo_retorno') return toHHMM(diaPres?.intervalo_retorno_em)
+        if (p === 'saida') return toHHMM(diaPres?.saida_em)
+        return null
+      }
+
+      const fEnt = getFinalPassoHora('entrada')
+      const fIntSai = getFinalPassoHora('intervalo_saida')
+      const fIntRet = getFinalPassoHora('intervalo_retorno')
+      const fSai = getFinalPassoHora('saida')
+
+      const toMin = (hhmm?: string | null) => {
+        if (!hhmm) return null
+        const [h, m] = hhmm.split(':').map(Number)
+        return h * 60 + m
+      }
+
+      const mEnt = toMin(fEnt)
+      const mIntSai = toMin(fIntSai)
+      const mIntRet = toMin(fIntRet)
+      const mSai = toMin(fSai)
+
+      if (mEnt !== null && mIntSai !== null && mIntSai <= mEnt) {
+        setAlertModal({
+          isOpen: true,
+          title: 'Horários Inconsistentes',
+          message: `A saída para o intervalo (${fIntSai}) não pode ser anterior ou igual à entrada (${fEnt}).`,
+          type: 'warning'
+        })
+        return
+      }
+
+      if (mIntSai !== null && mIntRet !== null && mIntRet <= mIntSai) {
+        setAlertModal({
+          isOpen: true,
+          title: 'Horários Inconsistentes',
+          message: `O retorno do intervalo (${fIntRet}) não pode ser anterior ou igual à saída para o intervalo (${fIntSai}).`,
+          type: 'warning'
+        })
+        return
+      }
+
+      if (mIntRet !== null && mSai !== null && mSai <= mIntRet && mSai > 360) {
+        setAlertModal({
+          isOpen: true,
+          title: 'Horários Inconsistentes',
+          message: `A saída final (${fSai}) não pode ser anterior ou igual ao retorno do intervalo (${fIntRet}).`,
+          type: 'warning'
+        })
+        return
+      }
+
+      if (mEnt !== null && mSai !== null && !fIntSai && !fIntRet && mSai <= mEnt && mSai > 360) {
+        setAlertModal({
+          isOpen: true,
+          title: 'Horários Inconsistentes',
+          message: `A saída (${fSai}) não pode ser anterior ou igual à entrada (${fEnt}).`,
+          type: 'warning'
+        })
+        return
+      }
     }
 
     setLoading(true)
@@ -5199,64 +5275,7 @@ export function ScaleGrid({
         const cellPendentes = marcacoesPendentes.filter(m =>
           m.servidor_id === manualPresenceModal.servidorId && noDiaDaCelula(m.ocorrido_em))
 
-        // A MESMA batida física aparece nas duas listas: desde a v1.22.0 (20260808100000) uma
-        // batida fora da janela gera tentativa em logs_tentativas_presenca E marcação pendente em
-        // marcacoes_ponto. Exibir as duas confundiria, e selecionar as duas gravaria em dobro.
-        // A marcação vence porque é ela que tem id em marcacoes_ponto. 5s de folga porque os dois
-        // now() do banco não são o mesmo instante.
-        type BatidaDoDia = {
-          fonte: 'marcacao' | 'tentativa'
-          id: string
-          quando: Date
-          elegivel: boolean
-          motivo?: string
-          previstoNaEpoca?: string | null
-        }
-        const batidasDoDia: BatidaDoDia[] = cellPendentes.map((m): BatidaDoDia => ({
-          fonte: 'marcacao', id: m.id, quando: new Date(m.ocorrido_em), elegivel: true
-        }))
-        for (const l of cellDeniedAttempts) {
-          const quando = new Date(l.data_hora_tentativa)
-          const gemea = batidasDoDia.find(o => o.fonte === 'marcacao'
-            && Math.abs(o.quando.getTime() - quando.getTime()) <= 5000)
-          if (gemea) {
-            // A marcação vence, mas o motivo da recusa é dela também — sem herdar, o coordenador
-            // perderia a única explicação de por que aquela batida caiu fora da janela.
-            gemea.motivo = gemea.motivo || l.mensagem_erro
-            gemea.previstoNaEpoca = gemea.previstoNaEpoca || l.escala_prevista_inicio
-            continue
-          }
-          batidasDoDia.push({
-            fonte: 'tentativa', id: l.id, quando,
-            // `elegivel` vem de fn_tentativa_recusada_elegivel, no banco. Tentativa de PIN
-            // inválido não prova nem identidade: vira ponto a partir de erro de digitação.
-            elegivel: !!l.elegivel, motivo: l.mensagem_erro,
-            previstoNaEpoca: l.escala_prevista_inicio
-          })
-        }
-        batidasDoDia.sort((a, b) => a.quando.getTime() - b.quando.getTime())
-
-        const batidasSelecionaveis = batidasDoDia.filter(b => b.elegivel)
-
-        // Rajada de tentativas repetidas cai toda com a mesma mensagem. Repeti-la em cada linha
-        // triplicava a altura do modal sem dizer nada de novo: quando é uma só, sai no rodapé.
-        const motivosDistintos = Array.from(new Set(
-          batidasDoDia.map(b => `${b.motivo || ''}|${b.previstoNaEpoca || ''}`).filter(k => k !== '|')))
-        const motivoComum = motivosDistintos.length === 1 && batidasDoDia.every(b => b.motivo)
-          ? { texto: batidasDoDia[0].motivo!, previsto: batidasDoDia[0].previstoNaEpoca }
-          : null
-
-        const rotuloPasso = (p: PassoPresenca) => ({
-          entrada: 'Entrada',
-          intervalo_saida: 'Saída Interv.',
-          intervalo_retorno: 'Retorno Interv.',
-          saida: 'Saída',
-        }[p])
-
-        // Quais campos de horário o escopo escolhido pede. Espelha os escopos de
-        // fn_confirmar_presenca_manual (CLAUDE.md, tabela de escopos): dia completo grava os
-        // quatro passos, 1º período entrada + saída para o intervalo, 2º período retorno +
-        // saída final — e os de intervalo só existem onde a unidade registra intervalo.
+        // Quais campos de horário o escopo escolhido pede.
         const unidadeMarcaIntervalo = !!unidadedata?.permite_marca_intervalo
           && (manualPresenceModal.categoria === 'Regular' || manualPresenceModal.categoria === 'Plantão')
 
@@ -5274,6 +5293,88 @@ export function ScaleGrid({
               return [manualPresenceModal.tipo as PassoPresenca]
           }
         })()
+
+        // Identifica horários já preenchidos/utilizados na escala em passos fora do escopo atual
+        const diaPresence = presenceData[manualPresenceModal.servidorId]?.[manualPresenceModal.categoria]?.[manualPresenceModal.dia]
+        const horariosJaUsados = new Set<string>()
+        if (diaPresence) {
+          const addHora = (iso?: string | null) => {
+            if (!iso) return
+            const d = new Date(iso)
+            horariosJaUsados.add(d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Sao_Paulo' }))
+            horariosJaUsados.add(d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' }))
+          }
+          if (!passosDoEscopo.includes('entrada')) addHora(diaPresence.entrada_em)
+          if (!passosDoEscopo.includes('intervalo_saida')) addHora(diaPresence.intervalo_saida_em)
+          if (!passosDoEscopo.includes('intervalo_retorno')) addHora(diaPresence.intervalo_retorno_em)
+          if (!passosDoEscopo.includes('saida')) addHora(diaPresence.saida_em)
+        }
+
+        // A MESMA batida física aparece nas duas listas: desde a v1.22.0 (20260808100000) uma
+        // batida fora da janela gera tentativa em logs_tentativas_presenca E marcação pendente em
+        // marcacoes_ponto. Exibir as duas confundiria, e selecionar as duas gravaria em dobro.
+        // A marcação vence porque é ela que tem id em marcacoes_ponto. 5s de folga porque os dois
+        // now() do banco não são o mesmo instante.
+        type BatidaDoDia = {
+          fonte: 'marcacao' | 'tentativa'
+          id: string
+          quando: Date
+          elegivel: boolean
+          motivo?: string
+          previstoNaEpoca?: string | null
+        }
+        const todasBatidas: BatidaDoDia[] = cellPendentes.map((m): BatidaDoDia => ({
+          fonte: 'marcacao', id: m.id, quando: new Date(m.ocorrido_em), elegivel: true
+        }))
+        for (const l of cellDeniedAttempts) {
+          const quando = new Date(l.data_hora_tentativa)
+          const gemea = todasBatidas.find(o => o.fonte === 'marcacao'
+            && Math.abs(o.quando.getTime() - quando.getTime()) <= 5000)
+          if (gemea) {
+            gemea.motivo = gemea.motivo || l.mensagem_erro
+            gemea.previstoNaEpoca = gemea.previstoNaEpoca || l.escala_prevista_inicio
+            continue
+          }
+          todasBatidas.push({
+            fonte: 'tentativa', id: l.id, quando,
+            elegivel: !!l.elegivel, motivo: l.mensagem_erro,
+            previstoNaEpoca: l.escala_prevista_inicio
+          })
+        }
+        todasBatidas.sort((a, b) => a.quando.getTime() - b.quando.getTime())
+
+        // Suprime batidas que já estão em uso em passos fora do escopo e deduplica horários repetidos
+        const batidasDoDia: BatidaDoDia[] = []
+        const horariosVistos = new Set<string>()
+        for (const b of todasBatidas) {
+          const hComSec = horaComSegundos(b.quando)
+          const hSemSec = hComSec.slice(0, 5)
+          if (horariosJaUsados.has(hComSec) || horariosJaUsados.has(hSemSec)) {
+            continue // Já utilizada em outro período/passo da escala
+          }
+          if (horariosVistos.has(hComSec)) {
+            continue // Deduplica tentativa/marcação idêntica
+          }
+          horariosVistos.add(hComSec)
+          batidasDoDia.push(b)
+        }
+
+        const batidasSelecionaveis = batidasDoDia.filter(b => b.elegivel)
+
+        // Rajada de tentativas repetidas cai toda com a mesma mensagem. Repeti-la em cada linha
+        // triplicava a altura do modal sem dizer nada de novo: quando é uma só, sai no rodapé.
+        const motivosDistintos = Array.from(new Set(
+          batidasDoDia.map(b => `${b.motivo || ''}|${b.previstoNaEpoca || ''}`).filter(k => k !== '|')))
+        const motivoComum = motivosDistintos.length === 1 && batidasDoDia.every(b => b.motivo)
+          ? { texto: batidasDoDia[0].motivo!, previsto: batidasDoDia[0].previstoNaEpoca }
+          : null
+
+        const rotuloPasso = (p: PassoPresenca) => ({
+          entrada: 'Entrada',
+          intervalo_saida: 'Saída Interv.',
+          intervalo_retorno: 'Retorno Interv.',
+          saida: 'Saída',
+        }[p])
 
         // O previsto vem do BANCO (fn_blocos_previstos_mes, via blocoDaCelula) — a mesma fonte
         // que o terminal cobra, já com a âncora espelho da jornada noturna (armadilha 4, nível

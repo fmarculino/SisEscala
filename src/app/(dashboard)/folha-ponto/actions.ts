@@ -1594,7 +1594,13 @@ export async function reclassificarPassoPresenca(
     // duplicar logica de geracao.
     const syncResult = await sincronizarFolhaPonto(folhaId)
 
+    // Revalida a folha de ponto e a grade da escala para refletir imediatamente a movimentação
     revalidatePath(`/folha-ponto/${folhaId}`)
+    revalidatePath('/folha-ponto')
+    revalidatePath('/escalas')
+    if (escala.unidade_id) {
+      revalidatePath(`/escalas/unidade/${escala.unidade_id}`)
+    }
 
     if (syncResult?.error) {
       return {
