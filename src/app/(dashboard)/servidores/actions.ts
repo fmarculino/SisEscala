@@ -149,8 +149,30 @@ async function validarLotacaoNoEscopo(
   // Sem perfil legível não dá para concluir nada: deixa a RLS decidir, que é a garantia final.
   if (error || !profile) return null
 
-  if (profile.role === 'super_admin' || profile.acesso_todas_unidades || profile.acesso_todos_setores) {
+  // super_admin e rh (RH Geral) têm permissão total em qualquer unidade/setor
+  if (profile.role === 'super_admin' || profile.role === 'rh' || profile.acesso_todas_unidades || profile.acesso_todos_setores) {
     return null
+  }
+
+  // Se for rh_unidade, verifica se o setor pertence a alguma das unidades vinculadas ao usuário
+  if (profile.role === 'rh_unidade') {
+    const { data: userUnits } = await supabase
+      .from('profile_unidades')
+      .select('unidade_id')
+      .eq('profile_id', user.id)
+
+    const unitIds = (userUnits || []).map((u: any) => u.unidade_id)
+    if (unitIds.length > 0) {
+      const { data: setorRow } = await supabase
+        .from('setores')
+        .select('unidade_id')
+        .eq('id', setorId)
+        .maybeSingle()
+
+      if (setorRow && unitIds.includes(setorRow.unidade_id)) {
+        return null
+      }
+    }
   }
 
   const permitidos = ((profile as any).setores_no_escopo || [])
@@ -984,7 +1006,7 @@ export async function updateServidor(id: string, formData: FormData) {
     .select('role')
     .eq('id', usuarioEditor?.id)
     .single()
-  const isSuperAdminEditor = perfilEditor?.role === 'super_admin'
+  const isSuperAdminEditor = perfilEditor?.role === 'super_admin' || perfilEditor?.role === 'rh'
 
   const transferenciaDireta = isTransferred && isSuperAdminEditor
   const transferenciaPendente = isTransferred && !isSuperAdminEditor
