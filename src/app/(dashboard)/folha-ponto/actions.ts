@@ -1,6 +1,6 @@
 'use server'
 
-import { createClient } from '@/utils/supabase/server'
+import { createClient, createAdminClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { registrarLog, calcularAlteracoes, calcularAlteracoesFolha } from '@/utils/auditoria'
 import { hasSectorAccess, UserProfile, applyAccessFilters, isAccessUnrestricted } from '@/utils/permissions'
@@ -1973,39 +1973,88 @@ export async function checkIfFolhaHasPendingPastTimes(folha: any, escala: any, t
 
 export async function getDadosPlantoesSobreavisosServidor(servidorId: string, mes: number, ano: number) {
   try {
-    const supabase = await createClient()
+    const supabase = await createAdminClient()
 
     // 1. Fetch server info
     const { data: servidor, error: sErr } = await supabase
       .from('servidores')
-      .select('id, nome, matricula, cargo, vinculo, unidades(nome), setores(dicionario_setores(nome))')
+      .select('id, nome, matricula, cargo, vinculo, unidade_id, setor_id')
       .eq('id', servidorId)
       .single()
 
     if (sErr) throw sErr
 
-    // 2. Fetch all scales of the server in that month/year with categoria Plantão or Sobreaviso
+    // 2. Resolve Unit and Sector names
+    let unidadeNome = 'SECRETARIA MUNICIPAL DE SAÚDE'
+    if (servidor?.unidade_id) {
+      const { data: u } = await supabase.from('unidades').select('nome').eq('id', servidor.unidade_id).maybeSingle()
+      if (u?.nome) unidadeNome = u.nome
+    }
+    let setorNome = 'SETOR GERAL'
+    if (servidor?.setor_id) {
+      const { data: s } = await supabase.from('setores').select('dicionario_setores(nome)').eq('id', servidor.setor_id).maybeSingle()
+      const dict = Array.isArray(s?.dicionario_setores) ? s?.dicionario_setores[0] : s?.dicionario_setores
+      if (dict?.nome) setorNome = dict.nome
+    }
+
+    const servidorFormatado = {
+      ...servidor,
+      unidades: { nome: unidadeNome },
+      setores: { dicionario_setores: { nome: setorNome } }
+    }
+
+    // 3. Fetch active scales of this server for that month/year
     const { data: escalasMensais, error: eErr } = await supabase
       .from('escala_mensal')
       .select(`
         id, mes, ano, status, unidade_id, setor_id,
         unidades(nome),
-        setores(dicionario_setores(nome)),
-        escala_diaria(
-          id, dia, categoria, turno_id,
-          presenca_entrada_em, presenca_saida_em,
-          presenca_confirmada, presenca_entrada_origem, presenca_saida_origem,
-          presenca_entrada_manual, presenca_saida_manual,
-          dicionario_turnos(id, nome, hora_inicio, hora_fim, horas_computadas, tipo)
-        )
+        setores(dicionario_setores(nome))
       `)
       .eq('servidor_id', servidorId)
       .eq('mes', mes)
       .eq('ano', ano)
+      .eq('ativo', true)
 
     if (eErr) throw eErr
 
-    // 3. Fetch on-call logs (logs_sobreaviso) for this server in that month/year
+    const escalaMensalIds = escalasMensais?.map(em => em.id) || []
+    const emMap = new Map((escalasMensais || []).map(em => [em.id, em]))
+
+    // 4. Fetch daily scale entries
+    let diarias: any[] = []
+    if (escalaMensalIds.length > 0) {
+      const { data: dData, error: dErr } = await supabase
+        .from('escala_diaria')
+        .select(`
+          id, dia, categoria, escala_mensal_id, dicionario_turnos_id,
+          presenca_entrada_em, presenca_saida_em,
+          presenca_confirmada, presenca_entrada_origem, presenca_saida_origem,
+          presenca_entrada_manual, presenca_saida_manual,
+          dicionario_turnos(id, codigo, nome, hora_inicio, hora_fim, horas_computadas, slots)
+        `)
+        .in('escala_mensal_id', escalaMensalIds)
+        .order('dia', { ascending: true })
+
+      if (dErr) throw dErr
+      diarias = dData || []
+    }
+
+    // 5. Fetch justificativas_eventos for this server in that month/year
+    const { data: justificativas } = await supabase
+      .from('justificativas_eventos')
+      .select('escala_diaria_id, dia, categoria, texto_justificativa, status, origem, motivo_recusa')
+      .eq('servidor_id', servidorId)
+      .eq('mes', mes)
+      .eq('ano', ano)
+
+    const justMap = new Map<string, any>()
+    justificativas?.forEach((j: any) => {
+      if (j.escala_diaria_id) justMap.set(j.escala_diaria_id, j)
+      justMap.set(`${j.dia}_${j.categoria}`, j)
+    })
+
+    // 6. Fetch on-call logs (logs_sobreaviso) for this server in that month/year
     const startDate = `${ano}-${String(mes).padStart(2, '0')}-01`
     const endDate = `${ano}-${String(mes).padStart(2, '0')}-31`
     
@@ -2017,62 +2066,73 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
       .lte('data', endDate)
       .order('data', { ascending: true })
 
-    // 4. Organize Plantões and Sobreavisos
+    // 7. Organize Plantões and Sobreavisos
     const plantoes: any[] = []
     const sobreavisos: any[] = []
     const weekDays = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB']
 
-    if (escalasMensais) {
-      for (const em of escalasMensais) {
-        const unidadeNome = (em.unidades as any)?.nome || 'Unidade'
-        const setorNome = (em.setores as any)?.dicionario_setores?.nome || 'Setor'
+    for (const ed of diarias) {
+      const em = emMap.get(ed.escala_mensal_id)
+      const uNome = (em?.unidades as any)?.nome || unidadeNome
+      const sDict = (em?.setores as any)?.dicionario_setores
+      const sNome = (Array.isArray(sDict) ? sDict[0]?.nome : sDict?.nome) || setorNome
 
-        for (const ed of (em.escala_diaria || [])) {
-          const rawTurno = ed.dicionario_turnos
-          const turno = (Array.isArray(rawTurno) ? rawTurno[0] : rawTurno) as any
+      const rawTurno = ed.dicionario_turnos
+      const turno = (Array.isArray(rawTurno) ? rawTurno[0] : rawTurno) as any
+      const cat = String(ed.categoria || '').toLowerCase()
 
-          if (ed.categoria === 'Plantão') {
-            const dateObj = new Date(ano, mes - 1, ed.dia)
-            
-            plantoes.push({
-              dia: ed.dia,
-              dia_semana: weekDays[dateObj.getDay()],
-              data_formatada: `${String(ed.dia).padStart(2, '0')}/${String(mes).padStart(2, '0')}/${ano}`,
-              turno_nome: turno?.nome || 'Plantão',
-              horario_previsto: turno?.hora_inicio && turno?.hora_fim ? `${turno.hora_inicio.slice(0,5)} às ${turno.hora_fim.slice(0,5)}` : '12h',
-              horas_computadas: Number(turno?.horas_computadas || 12),
-              entrada_real: ed.presenca_entrada_em ? new Date(ed.presenca_entrada_em).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }) : '-',
-              saida_real: ed.presenca_saida_em ? new Date(ed.presenca_saida_em).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }) : '-',
-              confirmado: !!ed.presenca_confirmada,
-              unidade: unidadeNome,
-              setor: setorNome,
-              ajuste_manual: ed.presenca_entrada_manual || ed.presenca_saida_manual,
-              observacao: ed.presenca_entrada_origem ? `Origem: ${ed.presenca_entrada_origem}` : ''
-            })
-          } else if (ed.categoria === 'Sobreaviso') {
-            const dateObj = new Date(ano, mes - 1, ed.dia)
-            const dateStr = `${ano}-${String(mes).padStart(2, '0')}-${String(ed.dia).padStart(2, '0')}`
-            const acionamentos = logsSobreaviso?.filter((l: any) => l.data === dateStr) || []
+      const just = justMap.get(ed.id) || justMap.get(`${ed.dia}_${ed.categoria}`)
+      const justTexto = just?.texto_justificativa || ''
 
-            sobreavisos.push({
-              dia: ed.dia,
-              dia_semana: weekDays[dateObj.getDay()],
-              data_formatada: `${String(ed.dia).padStart(2, '0')}/${String(mes).padStart(2, '0')}/${ano}`,
-              turno_nome: turno?.nome || 'Sobreaviso',
-              horario_previsto: turno?.hora_inicio && turno?.hora_fim ? `${turno.hora_inicio.slice(0,5)} às ${turno.hora_fim.slice(0,5)}` : '12h',
-              horas_prontidao: Number(turno?.horas_computadas || 12),
-              unidade: unidadeNome,
-              setor: setorNome,
-              acionamentos: acionamentos.map((a: any) => ({
-                hora_acionamento: a.hora_acionamento ? a.hora_acionamento.slice(0,5) : '-',
-                hora_chegada: a.hora_chegada ? a.hora_chegada.slice(0,5) : '-',
-                hora_saida: a.hora_saida ? a.hora_saida.slice(0,5) : '-',
-                motivo: a.motivo || 'Atendimento de urgência/emergência',
-                status: a.status || 'Concluído'
-              }))
-            })
-          }
-        }
+      if (cat.includes('plant') || cat.includes('extra')) {
+        const dateObj = new Date(ano, mes - 1, ed.dia)
+        
+        let horaInicio = turno?.hora_inicio ? turno.hora_inicio.slice(0, 5) : ''
+        let horaFim = turno?.hora_fim ? turno.hora_fim.slice(0, 5) : ''
+        let horarioPrevisto = horaInicio && horaFim ? `${horaInicio} às ${horaFim}` : (turno?.codigo || '12h')
+
+        plantoes.push({
+          dia: ed.dia,
+          dia_semana: weekDays[dateObj.getDay()],
+          data_formatada: `${String(ed.dia).padStart(2, '0')}/${String(mes).padStart(2, '0')}/${ano}`,
+          turno_nome: turno?.nome || ed.categoria || 'Plantão',
+          horario_previsto: horarioPrevisto,
+          horas_computadas: Number(turno?.horas_computadas || 12),
+          entrada_real: ed.presenca_entrada_em ? new Date(ed.presenca_entrada_em).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }) : '-',
+          saida_real: ed.presenca_saida_em ? new Date(ed.presenca_saida_em).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }) : '-',
+          confirmado: !!ed.presenca_confirmada,
+          unidade: uNome,
+          setor: sNome,
+          ajuste_manual: ed.presenca_entrada_manual || ed.presenca_saida_manual,
+          observacao: justTexto || (ed.presenca_entrada_origem ? `Origem: ${ed.presenca_entrada_origem}` : '')
+        })
+      } else if (cat.includes('sobreaviso')) {
+        const dateObj = new Date(ano, mes - 1, ed.dia)
+        const dateStr = `${ano}-${String(mes).padStart(2, '0')}-${String(ed.dia).padStart(2, '0')}`
+        const acionamentos = logsSobreaviso?.filter((l: any) => l.data === dateStr) || []
+
+        let horaInicio = turno?.hora_inicio ? turno.hora_inicio.slice(0, 5) : ''
+        let horaFim = turno?.hora_fim ? turno.hora_fim.slice(0, 5) : ''
+        let horarioPrevisto = horaInicio && horaFim ? `${horaInicio} às ${horaFim}` : (turno?.codigo || '12h')
+
+        sobreavisos.push({
+          dia: ed.dia,
+          dia_semana: weekDays[dateObj.getDay()],
+          data_formatada: `${String(ed.dia).padStart(2, '0')}/${String(mes).padStart(2, '0')}/${ano}`,
+          turno_nome: turno?.nome || 'Sobreaviso',
+          horario_previsto: horarioPrevisto,
+          horas_prontidao: Number(turno?.horas_computadas || 12),
+          unidade: uNome,
+          setor: sNome,
+          justificativa: justTexto,
+          acionamentos: acionamentos.map((a: any) => ({
+            hora_acionamento: a.hora_acionamento ? a.hora_acionamento.slice(0,5) : '-',
+            hora_chegada: a.hora_chegada ? a.hora_chegada.slice(0,5) : '-',
+            hora_saida: a.hora_saida ? a.hora_saida.slice(0,5) : '-',
+            motivo: a.motivo || justTexto || 'Atendimento de urgência/emergência',
+            status: a.status || 'Concluído'
+          }))
+        })
       }
     }
 
@@ -2084,7 +2144,7 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
     const totalAcionamentos = sobreavisos.reduce((acc, s) => acc + (s.acionamentos?.length || 0), 0)
 
     return {
-      servidor,
+      servidor: servidorFormatado,
       mes,
       ano,
       plantoes,

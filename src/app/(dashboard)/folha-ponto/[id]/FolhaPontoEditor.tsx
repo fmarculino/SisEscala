@@ -629,7 +629,7 @@ export function FolhaPontoEditor({
       setAlertModal({
         isOpen: true,
         title: 'Anexo Indisponível',
-        message: 'Não foi possível carregar os dados de plantões e sobreavisos deste servidor.',
+        message: (res && (res as any).error) ? `Erro ao carregar dados: ${(res as any).error}` : 'Não foi possível carregar os dados de plantões e sobreavisos deste servidor.',
         type: 'warning'
       })
     }
