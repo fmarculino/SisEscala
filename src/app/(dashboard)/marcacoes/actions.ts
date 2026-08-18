@@ -464,7 +464,22 @@ export async function vincularCadastrosPorCpf(dispositivoId: string) {
   if (error) return { error: error.message }
 
   revalidatePath('/marcacoes')
+  revalidatePath('/escalas')
   return data as { criados: number; vigente_de: string }
+}
+
+export async function reprocessarBatidasOrfas(dispositivoId?: string | null, desde?: string | null) {
+  await exigirGestor()
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc('fn_reparse_afd_dispositivo', {
+    p_dispositivo_id: dispositivoId || null,
+    p_desde: desde || null,
+  })
+  if (error) return { error: error.message }
+
+  revalidatePath('/marcacoes')
+  revalidatePath('/escalas')
+  return data as { sucesso: boolean; marcacoes_atualizadas: number; marcacoes_criadas: number }
 }
 
 // Enfileira para o relógio quem está ESCALADO ali e não está cadastrado - inclusive quem está
