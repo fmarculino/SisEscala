@@ -17,6 +17,7 @@ import { TemplatePadraoModal } from '@/components/justificativas/TemplatePadraoM
 import { ValidarSugestaoModal } from '@/components/justificativas/ValidarSugestaoModal'
 import { AssinaturaDigitalModal } from '@/components/justificativas/AssinaturaDigitalModal'
 import { RelatorioEventoPrintView } from '@/components/reports/RelatorioEventoPrintView'
+import { formatSectorsHierarchy } from '@/utils/sectors'
 
 interface JustificativasClientProps {
   unidades: any[]
@@ -135,7 +136,10 @@ export function JustificativasClient({
   } | null>(null)
 
   // Filter sectors and servers for selected unit/sector/search
-  const filteredSetores = setores.filter(s => !selectedUnidade || s.unidade_id === selectedUnidade)
+  const filteredSetores = useMemo(() => {
+    const unformatted = setores.filter(s => !selectedUnidade || s.unidade_id === selectedUnidade)
+    return formatSectorsHierarchy(unformatted)
+  }, [setores, selectedUnidade])
   
   const filteredServidores = useMemo(() => {
     return (servidores || []).filter(s => {
@@ -330,7 +334,7 @@ export function JustificativasClient({
             >
               <option value="">Todos os Setores</option>
               {filteredSetores.map(s => (
-                <option key={s.id} value={s.id}>{s.dicionario_setores?.nome || s.nome}</option>
+                <option key={s.id} value={s.id}>{s.nome}</option>
               ))}
             </select>
           </div>

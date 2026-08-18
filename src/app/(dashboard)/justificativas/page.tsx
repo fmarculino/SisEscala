@@ -32,7 +32,7 @@ export default async function JustificativasPage() {
   // Fetch sectors filtered by permissions
   let sectorsQuery = supabase
     .from('setores')
-    .select('id, unidade_id, dicionario_setores(nome)')
+    .select('id, unidade_id, parent_id, dicionario_setores(nome)')
   
   sectorsQuery = applyAccessFilters(sectorsQuery, userProfile, { setorField: 'id' })
   const { data: sectorsRaw } = await sectorsQuery
@@ -42,7 +42,9 @@ export default async function JustificativasPage() {
       ? s.dicionario_setores[0] 
       : s.dicionario_setores
     return {
-      ...s,
+      id: s.id,
+      unidade_id: s.unidade_id,
+      parent_id: s.parent_id,
       nome: dictData?.nome || 'SETOR SEM NOME'
     }
   }) || []
