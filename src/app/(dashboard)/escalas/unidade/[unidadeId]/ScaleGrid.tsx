@@ -185,18 +185,28 @@ export function ScaleGrid({
     }
 
     // Batidas registradas no mês (terminal, rep, pendrive, ajuste_servidor).
-    // Devem ser exibidas no modal de validação manual para permitir que o gestor
-    // selecione qualquer batida real (seja do terminal ou do relógio REP).
-    const { data: pend } = await supabase
-      .from('marcacoes_ponto')
-      .select('id, servidor_id, ocorrido_em, observacao, origem')
-      .in('servidor_id', servantIds)
-      .in('origem', ['terminal', 'rep', 'pendrive', 'ajuste_servidor'])
-      .gte('ocorrido_em', startRange)
-      .lte('ocorrido_em', endRange)
-      .order('ocorrido_em')
+    // Busca via RPC dedicada (mesmo padrão de fn_tentativas_recusadas_mes) para
+    // garantir que regras de RLS não mascarem marcações dos servidores da grade.
+    const { data: pendRpc, error: rpcErr } = await supabase.rpc('fn_marcacoes_mes', {
+      p_servidor_ids: servantIds,
+      p_mes: mes,
+      p_ano: ano
+    })
 
-    setMarcacoesPendentes(pend || [])
+    if (!rpcErr && pendRpc) {
+      setMarcacoesPendentes(pendRpc)
+    } else {
+      const { data: pend } = await supabase
+        .from('marcacoes_ponto')
+        .select('id, servidor_id, ocorrido_em, observacao, origem')
+        .in('servidor_id', servantIds)
+        .in('origem', ['terminal', 'rep', 'pendrive', 'ajuste_servidor'])
+        .gte('ocorrido_em', startRange)
+        .lte('ocorrido_em', endRange)
+        .order('ocorrido_em')
+
+      setMarcacoesPendentes(pend || [])
+    }
   }, [supabase, escalaMensalInicial, mes, ano])
 
   const [unidadedata, setUnidadedata] = useState<any>(null)
