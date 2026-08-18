@@ -1971,3 +1971,132 @@ export async function checkIfFolhaHasPendingPastTimes(folha: any, escala: any, t
   return false
 }
 
+export async function getDadosPlantoesSobreavisosServidor(servidorId: string, mes: number, ano: number) {
+  try {
+    const supabase = await createClient()
+
+    // 1. Fetch server info
+    const { data: servidor, error: sErr } = await supabase
+      .from('servidores')
+      .select('id, nome, matricula, cargo, vinculo, unidades(nome), setores(dicionario_setores(nome))')
+      .eq('id', servidorId)
+      .single()
+
+    if (sErr) throw sErr
+
+    // 2. Fetch all scales of the server in that month/year with categoria Plantão or Sobreaviso
+    const { data: escalasMensais, error: eErr } = await supabase
+      .from('escala_mensal')
+      .select(`
+        id, mes, ano, status, unidade_id, setor_id,
+        unidades(nome),
+        setores(dicionario_setores(nome)),
+        escala_diaria(
+          id, dia, categoria, turno_id,
+          presenca_entrada_em, presenca_saida_em,
+          presenca_confirmada, presenca_entrada_origem, presenca_saida_origem,
+          presenca_entrada_manual, presenca_saida_manual,
+          dicionario_turnos(id, nome, hora_inicio, hora_fim, horas_computadas, tipo)
+        )
+      `)
+      .eq('servidor_id', servidorId)
+      .eq('mes', mes)
+      .eq('ano', ano)
+
+    if (eErr) throw eErr
+
+    // 3. Fetch on-call logs (logs_sobreaviso) for this server in that month/year
+    const startDate = `${ano}-${String(mes).padStart(2, '0')}-01`
+    const endDate = `${ano}-${String(mes).padStart(2, '0')}-31`
+    
+    const { data: logsSobreaviso } = await supabase
+      .from('logs_sobreaviso')
+      .select('id, data, hora_acionamento, hora_chegada, hora_saida, motivo, status, observacoes, created_at')
+      .eq('servidor_id', servidorId)
+      .gte('data', startDate)
+      .lte('data', endDate)
+      .order('data', { ascending: true })
+
+    // 4. Organize Plantões and Sobreavisos
+    const plantoes: any[] = []
+    const sobreavisos: any[] = []
+    const weekDays = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB']
+
+    if (escalasMensais) {
+      for (const em of escalasMensais) {
+        const unidadeNome = (em.unidades as any)?.nome || 'Unidade'
+        const setorNome = (em.setores as any)?.dicionario_setores?.nome || 'Setor'
+
+        for (const ed of (em.escala_diaria || [])) {
+          const rawTurno = ed.dicionario_turnos
+          const turno = (Array.isArray(rawTurno) ? rawTurno[0] : rawTurno) as any
+
+          if (ed.categoria === 'Plantão') {
+            const dateObj = new Date(ano, mes - 1, ed.dia)
+            
+            plantoes.push({
+              dia: ed.dia,
+              dia_semana: weekDays[dateObj.getDay()],
+              data_formatada: `${String(ed.dia).padStart(2, '0')}/${String(mes).padStart(2, '0')}/${ano}`,
+              turno_nome: turno?.nome || 'Plantão',
+              horario_previsto: turno?.hora_inicio && turno?.hora_fim ? `${turno.hora_inicio.slice(0,5)} às ${turno.hora_fim.slice(0,5)}` : '12h',
+              horas_computadas: Number(turno?.horas_computadas || 12),
+              entrada_real: ed.presenca_entrada_em ? new Date(ed.presenca_entrada_em).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }) : '-',
+              saida_real: ed.presenca_saida_em ? new Date(ed.presenca_saida_em).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }) : '-',
+              confirmado: !!ed.presenca_confirmada,
+              unidade: unidadeNome,
+              setor: setorNome,
+              ajuste_manual: ed.presenca_entrada_manual || ed.presenca_saida_manual,
+              observacao: ed.presenca_entrada_origem ? `Origem: ${ed.presenca_entrada_origem}` : ''
+            })
+          } else if (ed.categoria === 'Sobreaviso') {
+            const dateObj = new Date(ano, mes - 1, ed.dia)
+            const dateStr = `${ano}-${String(mes).padStart(2, '0')}-${String(ed.dia).padStart(2, '0')}`
+            const acionamentos = logsSobreaviso?.filter((l: any) => l.data === dateStr) || []
+
+            sobreavisos.push({
+              dia: ed.dia,
+              dia_semana: weekDays[dateObj.getDay()],
+              data_formatada: `${String(ed.dia).padStart(2, '0')}/${String(mes).padStart(2, '0')}/${ano}`,
+              turno_nome: turno?.nome || 'Sobreaviso',
+              horario_previsto: turno?.hora_inicio && turno?.hora_fim ? `${turno.hora_inicio.slice(0,5)} às ${turno.hora_fim.slice(0,5)}` : '12h',
+              horas_prontidao: Number(turno?.horas_computadas || 12),
+              unidade: unidadeNome,
+              setor: setorNome,
+              acionamentos: acionamentos.map((a: any) => ({
+                hora_acionamento: a.hora_acionamento ? a.hora_acionamento.slice(0,5) : '-',
+                hora_chegada: a.hora_chegada ? a.hora_chegada.slice(0,5) : '-',
+                hora_saida: a.hora_saida ? a.hora_saida.slice(0,5) : '-',
+                motivo: a.motivo || 'Atendimento de urgência/emergência',
+                status: a.status || 'Concluído'
+              }))
+            })
+          }
+        }
+      }
+    }
+
+    plantoes.sort((a, b) => a.dia - b.dia)
+    sobreavisos.sort((a, b) => a.dia - b.dia)
+
+    const totalHorasPlantao = plantoes.reduce((acc, p) => acc + (p.horas_computadas || 0), 0)
+    const totalHorasSobreaviso = sobreavisos.reduce((acc, s) => acc + (s.horas_prontidao || 0), 0)
+    const totalAcionamentos = sobreavisos.reduce((acc, s) => acc + (s.acionamentos?.length || 0), 0)
+
+    return {
+      servidor,
+      mes,
+      ano,
+      plantoes,
+      sobreavisos,
+      totalHorasPlantao,
+      totalHorasSobreaviso,
+      totalAcionamentos
+    }
+  } catch (error: any) {
+    console.error('Erro em getDadosPlantoesSobreavisosServidor:', error)
+    return { error: error.message }
+  }
+}
+
+

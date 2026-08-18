@@ -6,12 +6,13 @@ import Link from 'next/link'
 import { 
   ArrowLeft, Printer, Save, RefreshCw, AlertTriangle, 
   Check, Loader2, Building2, Users, Calendar, Briefcase, 
-  Clock, FileText, CheckSquare, X, Unlock
+  Clock, FileText, CheckSquare, X, Unlock, PhoneCall, ShieldCheck
 } from 'lucide-react'
-import { salvarFolhaPonto, verificarDivergenciaEscala, sincronizarFolhaPonto, gerarFolhaPonto, reclassificarPassoPresenca } from '../actions'
+import { salvarFolhaPonto, verificarDivergenciaEscala, sincronizarFolhaPonto, gerarFolhaPonto, reclassificarPassoPresenca, getDadosPlantoesSobreavisosServidor } from '../actions'
 import { Modal } from '@/components/ui/Modal'
 import { createClient } from '@/utils/supabase/client'
 import { isFaltaDefinitiva } from '@/utils/folha/faltaAutomatica'
+import { RelatorioPlantaoSobreavisoAnexo } from '@/components/reports/RelatorioPlantaoSobreavisoAnexo'
 
 function formatMinutesToTimeStr(totalMinutes: number): string {
   const h = Math.floor(totalMinutes / 60) % 24
@@ -477,6 +478,163 @@ export function FolhaPontoEditor({
     }
   }, [registros, jornada, folha.ano, folha.mes])
 
+  // Extrai todas as ocorrências e justificativas do mês para o Verso (Página 2)
+  const ocorrenciasMes = useMemo(() => {
+    const lista: Array<{
+      dia: number
+      dia_semana: string
+      data_formatada: string
+      tipo: string
+      passo: string
+      justificativa: string
+      origem: string
+    }> = []
+
+    const weekDaysShort = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB']
+
+    registros.forEach((r) => {
+      const dateObj = new Date(folha.ano, folha.mes - 1, r.dia)
+      const dataFormatada = `${String(r.dia).padStart(2, '0')}/${String(folha.mes).padStart(2, '0')}/${folha.ano}`
+      const diaSem = weekDaysShort[dateObj.getDay()]
+
+      // 1. Afastamento / Férias / Atestado / Licença
+      if (r.afastamento) {
+        lista.push({
+          dia: r.dia,
+          dia_semana: diaSem,
+          data_formatada: dataFormatada,
+          tipo: 'Afastamento / Atestado',
+          passo: 'Dia Integral',
+          justificativa: r.observacao || r.afastamento,
+          origem: 'Registro de RH / Gestão'
+        })
+      }
+      // 2. Feriado
+      else if (r.feriado) {
+        lista.push({
+          dia: r.dia,
+          dia_semana: diaSem,
+          data_formatada: dataFormatada,
+          tipo: 'Feriado Oficial',
+          passo: 'Dia Integral',
+          justificativa: r.observacao || 'Feriado Nacional / Municipal',
+          origem: 'Calendário Oficial'
+        })
+      }
+      // 3. Ponto Facultativo
+      else if (r.ponto_facultativo) {
+        lista.push({
+          dia: r.dia,
+          dia_semana: diaSem,
+          data_formatada: dataFormatada,
+          tipo: 'Ponto Facultativo',
+          passo: r.entrada && r.saida ? 'Parcial' : 'Dia Integral',
+          justificativa: r.observacao || 'Decreto de Ponto Facultativo',
+          origem: 'Decreto Municipal'
+        })
+      }
+
+      // 4. Ajustes manuais de batidas
+      const temAjusteEntrada = r.origem_entrada === 'manual' || r.origem_entrada === 'ajuste_coordenador' || r.origem_entrada === 'ajuste_servidor'
+      const temAjusteSaida = r.origem_saida === 'manual' || r.origem_saida === 'ajuste_coordenador' || r.origem_saida === 'ajuste_servidor'
+      const temAjusteIntSaida = r.origem_saida_intervalo === 'manual' || r.origem_saida_intervalo === 'ajuste_coordenador'
+      const temAjusteIntRetorno = r.origem_retorno_intervalo === 'manual' || r.origem_retorno_intervalo === 'ajuste_coordenador'
+
+      if (temAjusteEntrada || temAjusteSaida || temAjusteIntSaida || temAjusteIntRetorno) {
+        const passosAjustados: string[] = []
+        if (temAjusteEntrada) passosAjustados.push(`Entrada (${r.entrada || '--:--'})`)
+        if (temAjusteIntSaida) passosAjustados.push(`Saída Int. (${r.saida_intervalo || '--:--'})`)
+        if (temAjusteIntRetorno) passosAjustados.push(`Retorno Int. (${r.retorno_intervalo || '--:--'})`)
+        if (temAjusteSaida) passosAjustados.push(`Saída (${r.saida || '--:--'})`)
+
+        lista.push({
+          dia: r.dia,
+          dia_semana: diaSem,
+          data_formatada: dataFormatada,
+          tipo: 'Inclusão / Ajuste Manual de Ponto',
+          passo: passosAjustados.join(', '),
+          justificativa: r.observacao || 'Esquecimento de registro / Atividade externa autorizada',
+          origem: 'Ajuste Manual Homologado'
+        })
+      }
+      // 5. Observação manual avulsa digitada (sem ser afastamento/feriado já incluído)
+      else if (r.observacao && !r.afastamento && !r.feriado && !r.ponto_facultativo) {
+        lista.push({
+          dia: r.dia,
+          dia_semana: diaSem,
+          data_formatada: dataFormatada,
+          tipo: 'Observação / Justificativa',
+          passo: r.entrada && r.saida ? `${r.entrada} às ${r.saida}` : 'Jornada',
+          justificativa: r.observacao,
+          origem: 'Gestão / Coordenação'
+        })
+      }
+
+      // 6. Jornada Temporária
+      if (r.jornada_temporaria) {
+        lista.push({
+          dia: r.dia,
+          dia_semana: diaSem,
+          data_formatada: dataFormatada,
+          tipo: 'Jornada Temporária',
+          passo: r.jornada_nome || 'Horário Especial',
+          justificativa: `Cumprimento em escala/jornada autorizada: ${r.jornada_nome || ''}`,
+          origem: 'Ordem de Serviço / Portaria'
+        })
+      }
+    })
+
+    return lista.sort((a, b) => a.dia - b.dia)
+  }, [registros, folha.ano, folha.mes])
+
+  // Estatísticas de Frequência do Mês para o Verso
+  const estatisticasVerso = useMemo(() => {
+    let diasTrabalhados = 0
+    let diasAfastamento = 0
+    let diasFolgaFeriado = 0
+
+    registros.forEach((r) => {
+      if (r.afastamento) {
+        diasAfastamento++
+      } else if (r.feriado || r.ponto_facultativo) {
+        if (r.entrada || r.saida) diasTrabalhados++
+        else diasFolgaFeriado++
+      } else if (r.entrada || r.saida) {
+        diasTrabalhados++
+      } else if (r.dia_semana === 'SÁB' || r.dia_semana === 'DOM' || r.observacao?.includes('FOLGA')) {
+        diasFolgaFeriado++
+      }
+    })
+
+    return {
+      diasTrabalhados,
+      diasAfastamento,
+      diasFolgaFeriado
+    }
+  }, [registros])
+
+  // State para modal de anexo de plantões e sobreavisos
+  const [anexoModalOpen, setAnexoModalOpen] = useState(false)
+  const [anexoData, setAnexoData] = useState<any>(null)
+  const [loadingAnexo, setLoadingAnexo] = useState(false)
+
+  const handleOpenAnexo = async () => {
+    setLoadingAnexo(true)
+    const res = await getDadosPlantoesSobreavisosServidor(servidor.id, folha.mes, folha.ano)
+    setLoadingAnexo(false)
+    if (res && !('error' in res)) {
+      setAnexoData(res)
+      setAnexoModalOpen(true)
+    } else {
+      setAlertModal({
+        isOpen: true,
+        title: 'Anexo Indisponível',
+        message: 'Não foi possível carregar os dados de plantões e sobreavisos deste servidor.',
+        type: 'warning'
+      })
+    }
+  }
+
   // Custom function to open browser print dialog
   const handlePrint = () => {
     window.print()
@@ -516,6 +674,10 @@ export function FolhaPontoEditor({
             padding: 0 !important;
             box-shadow: none !important;
             border: none !important;
+          }
+          .print-page-break {
+            break-before: page !important;
+            page-break-before: always !important;
           }
           input, select, textarea {
             border: none !important;
@@ -605,9 +767,21 @@ export function FolhaPontoEditor({
           <button 
             onClick={handlePrint}
             className="inline-flex items-center bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-black text-xs uppercase tracking-wider px-4 py-2.5 rounded-xl transition-all"
+            title="Imprimir a folha de ponto (Frente) e o relatório de justificativas (Verso)."
           >
             <Printer className="h-4 w-4 mr-1.5" />
             Imprimir
+          </button>
+
+          {/* Anexo de Plantões e Sobreavisos */}
+          <button 
+            onClick={handleOpenAnexo}
+            disabled={loadingAnexo}
+            className="inline-flex items-center bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-black text-xs uppercase tracking-wider px-4 py-2.5 rounded-xl transition-all border border-blue-200 dark:border-blue-800/50"
+            title="Visualizar e imprimir o demonstrativo anexo de plantões e sobreavisos do servidor."
+          >
+            {loadingAnexo ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <ShieldCheck className="h-4 w-4 mr-1.5 text-blue-600 dark:text-blue-400" />}
+            Anexo Plantões / Sobreavisos
           </button>
 
           {/* Salvar */}
@@ -1071,6 +1245,197 @@ export function FolhaPontoEditor({
           )}
         </div>
       </div>
+
+      {/* ========================================================================= */}
+      {/* PÁGINA 2: VERSO DA FOLHA DE PONTO — RELATÓRIO DE JUSTIFICATIVAS E OCORRÊNCIAS */}
+      {/* ========================================================================= */}
+      <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-xl overflow-hidden print-full-width print-page-break mt-12 print:mt-0">
+        {/* Verso Header */}
+        <div className="p-8 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 print:bg-white print:border-zinc-300 print:p-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-6 border-b border-zinc-200/60 dark:border-zinc-700/60 print:pb-3 print:gap-2">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3">
+                {/* Brasões */}
+                <div className="h-10 w-24 relative flex items-center justify-center bg-white dark:bg-zinc-800 rounded-lg p-1 border border-zinc-100 dark:border-zinc-700 shadow-sm print:shadow-none print:border-none">
+                  {instituicaoCabecalhoUrl ? (
+                    <img 
+                      src={instituicaoCabecalhoUrl} 
+                      alt="Logo Institucional" 
+                      className="max-h-full max-w-full object-contain"
+                    />
+                  ) : (
+                    <div className="flex items-center gap-1">
+                      <div className="w-5 h-5 bg-green-600 rounded flex items-center justify-center text-[7px] text-white font-bold">PMM</div>
+                      <div className="text-[7px] font-black leading-tight text-zinc-700 dark:text-zinc-300">Marabá<br/><span className="text-[5px] text-zinc-400 font-normal">Prefeitura</span></div>
+                    </div>
+                  )}
+                </div>
+                <div className="h-10 w-10 relative flex items-center justify-center bg-white dark:bg-zinc-800 rounded-lg p-1 border border-zinc-100 dark:border-zinc-700 shadow-sm print:shadow-none print:border-none">
+                  <div className="w-7 h-7 bg-blue-600 rounded-full flex items-center justify-center text-[8px] text-white font-black">SMS</div>
+                </div>
+              </div>
+              <div>
+                <h3 className="text-xl font-black text-zinc-900 dark:text-white uppercase print:text-black tracking-tight">
+                  Folha de Ponto Mensal — Verso
+                </h3>
+                <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider print:text-zinc-500">
+                  Relatório Detalhado de Justificativas e Tratamentos de Ocorrências • Portaria MTP 671/2021
+                </p>
+              </div>
+            </div>
+            <div className="text-right">
+              <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 block mb-0.5">Competência</span>
+              <div className="text-lg font-bold text-zinc-900 dark:text-white uppercase print:text-black">
+                {mesExtenso} / {folha.ano}
+              </div>
+            </div>
+          </div>
+
+          {/* Verso Servidor Details */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-xs print:grid-cols-4 print:gap-4 print:text-[8px] mt-6 print:mt-3">
+            <div>
+              <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">Servidor</span>
+              <div className="font-bold text-zinc-900 dark:text-white uppercase print:text-black">{servidor.nome}</div>
+              <div className="text-zinc-500 font-mono text-[10px]">Matrícula: {servidor.matricula || '---'}</div>
+            </div>
+            <div>
+              <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">Cargo / Vínculo</span>
+              <div className="font-bold text-zinc-900 dark:text-white uppercase print:text-black">{cargo || '---'}</div>
+              <div className="text-zinc-500 uppercase text-[10px]">{servidor.vinculo || 'CONTRATADO/EFETIVO'}</div>
+            </div>
+            <div>
+              <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">Unidade</span>
+              <div className="font-bold text-zinc-900 dark:text-white uppercase print:text-black truncate" title={unidade.nome}>
+                {unidade.nome}
+              </div>
+            </div>
+            <div>
+              <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">Setor / Jornada</span>
+              <div className="font-bold text-zinc-900 dark:text-white uppercase print:text-black truncate" title={setor?.nome}>
+                {setor?.nome}
+              </div>
+              <div className="text-zinc-500 uppercase text-[10px]">{jornada?.nome || 'Jornada Padrão'}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Verso Content: Tabela de Ocorrências e Justificativas */}
+        <div className="p-8 print:p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h4 className="text-xs font-black uppercase tracking-wider text-zinc-900 dark:text-white print:text-black flex items-center gap-2">
+              <FileText className="h-4 w-4 text-blue-600 dark:text-blue-400 print:hidden" />
+              1. Extrato Cronológico de Justificativas e Tratamentos ({ocorrenciasMes.length} registro(s))
+            </h4>
+            <span className="text-[10px] font-bold text-zinc-400 uppercase">
+              Demonstrativo de Ausências, Atestados e Inclusões Manuais
+            </span>
+          </div>
+
+          {ocorrenciasMes.length > 0 ? (
+            <div className="overflow-x-auto border border-zinc-200 dark:border-zinc-800 rounded-2xl mb-8 print:mb-4">
+              <table className="w-full text-xs text-left border-collapse print:text-[8px]">
+                <thead>
+                  <tr className="bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold uppercase text-[9px] print:bg-zinc-200 print:text-black border-b border-zinc-200 dark:border-zinc-700">
+                    <th className="py-2.5 px-3 text-center w-12 print-cell-border">Dia</th>
+                    <th className="py-2.5 px-3 text-center w-12 print-cell-border">Sem</th>
+                    <th className="py-2.5 px-3 print-cell-border">Tipo de Ocorrência</th>
+                    <th className="py-2.5 px-3 print-cell-border">Horário / Passo</th>
+                    <th className="py-2.5 px-4 print-cell-border">Justificativa / Motivo Detalhado</th>
+                    <th className="py-2.5 px-3 print-cell-border">Origem / Responsável</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+                  {ocorrenciasMes.map((oc, idx) => (
+                    <tr key={idx} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/40 print:hover:bg-transparent">
+                      <td className="py-2 px-3 text-center font-bold print-cell-border">{String(oc.dia).padStart(2, '0')}</td>
+                      <td className="py-2 px-3 text-center text-zinc-500 uppercase font-semibold print-cell-border">{oc.dia_semana}</td>
+                      <td className="py-2 px-3 font-bold text-zinc-900 dark:text-white print:text-black uppercase print-cell-border">{oc.tipo}</td>
+                      <td className="py-2 px-3 text-zinc-600 dark:text-zinc-300 font-mono text-[10px] print:text-[8px] print-cell-border">{oc.passo}</td>
+                      <td className="py-2 px-4 text-zinc-800 dark:text-zinc-200 font-medium print:text-black print-cell-border">{oc.justificativa}</td>
+                      <td className="py-2 px-3 text-zinc-500 print:text-black text-[10px] print:text-[8px] italic print-cell-border">{oc.origem}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="p-6 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800 text-center text-xs text-zinc-500 mb-8 print:mb-4 bg-zinc-50/50 dark:bg-zinc-800/20 print:bg-white">
+              Nenhuma ocorrência extraordinária, atestado ou ajuste manual registrado nesta competência. Cumprimento regular da jornada de trabalho.
+            </div>
+          )}
+
+          {/* Resumo Consolidado de Frequência do Verso */}
+          <div className="mb-8 print:mb-4">
+            <h4 className="text-xs font-black uppercase tracking-wider text-zinc-900 dark:text-white print:text-black mb-3">
+              2. Resumo Consolidado da Frequência no Mês
+            </h4>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 text-center print:grid-cols-5 print:gap-2">
+              <div className="bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200 dark:border-zinc-800 p-3 rounded-xl print:border-zinc-300 print:p-2">
+                <div className="text-[8px] font-black uppercase text-zinc-400 mb-1">Dias Trabalhados</div>
+                <div className="text-lg font-black text-zinc-900 dark:text-white print:text-black">{estatisticasVerso.diasTrabalhados}</div>
+              </div>
+              <div className="bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200 dark:border-zinc-800 p-3 rounded-xl print:border-zinc-300 print:p-2">
+                <div className="text-[8px] font-black uppercase text-zinc-400 mb-1">Afastamentos / Licenças</div>
+                <div className="text-lg font-black text-amber-600 dark:text-amber-400 print:text-black">{estatisticasVerso.diasAfastamento}</div>
+              </div>
+              <div className="bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200 dark:border-zinc-800 p-3 rounded-xl print:border-zinc-300 print:p-2">
+                <div className="text-[8px] font-black uppercase text-zinc-400 mb-1">Folgas / Feriados / PF</div>
+                <div className="text-lg font-black text-blue-600 dark:text-blue-400 print:text-black">{estatisticasVerso.diasFolgaFeriado}</div>
+              </div>
+              <div className="bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200 dark:border-zinc-800 p-3 rounded-xl print:border-zinc-300 print:p-2">
+                <div className="text-[8px] font-black uppercase text-zinc-400 mb-1">Horas Extra Totais</div>
+                <div className="text-lg font-black text-violet-600 dark:text-violet-400 print:text-black">
+                  {(Number(totalizers.horas50) + Number(totalizers.horas100)).toFixed(1)}h
+                </div>
+              </div>
+              <div className="bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200 dark:border-zinc-800 p-3 rounded-xl print:border-zinc-300 print:p-2">
+                <div className="text-[8px] font-black uppercase text-zinc-400 mb-1">Faltas Computadas</div>
+                <div className="text-lg font-black text-red-500 print:text-black">{totalizers.faltas}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Termo de Declaração e Assinaturas (Verso) */}
+          <div className="border-t border-zinc-200 dark:border-zinc-700 pt-6 print:pt-4">
+            <p className="text-[9px] text-zinc-500 dark:text-zinc-400 print:text-zinc-600 leading-relaxed text-justify mb-8 print:mb-6">
+              Declaro para os devidos fins de direito e controle de frequência a veracidade de todas as ocorrências, atestados e justificativas apresentadas neste relatório (Verso), em conformidade com as diretrizes da Secretaria Municipal de Saúde e as exigências da Portaria MTP nº 671/2021.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-12 px-6 print:grid-cols-2 print:gap-10 print:px-0 text-center">
+              <div className="space-y-2">
+                <div className="w-full border-t border-zinc-400 dark:border-zinc-700 pt-3">
+                  <div className="text-[10px] font-black uppercase text-zinc-900 dark:text-white print:text-[8px]">{servidor.nome}</div>
+                  <div className="text-[8px] text-zinc-400 dark:text-zinc-500 font-bold uppercase tracking-widest mt-0.5">Assinatura do Servidor (Ciência do Verso)</div>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <div className="w-full border-t border-zinc-400 dark:border-zinc-700 pt-3">
+                  <div className="text-[10px] font-black uppercase text-zinc-900 dark:text-white print:text-[8px]">Chefia Imediata / Coordenação</div>
+                  <div className="text-[8px] text-zinc-400 dark:text-zinc-500 font-bold uppercase tracking-widest mt-0.5">Visto e Homologação das Justificativas</div>
+                </div>
+              </div>
+            </div>
+
+            {isMounted && (
+              <div className="hidden print:block text-right text-[6px] text-zinc-400 mt-8">
+                Verso oficial da Folha de Ponto emitida via SisEscala em {new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR')}.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Modal Demonstrativo de Plantões e Sobreavisos */}
+      {anexoModalOpen && anexoData && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto print:p-0 print:bg-white">
+          <div className="relative w-full max-w-5xl my-8">
+            <RelatorioPlantaoSobreavisoAnexo 
+              dados={anexoData} 
+              onClose={() => setAnexoModalOpen(false)} 
+            />
+          </div>
+        </div>
+      )}
 
       {/* Alert Modal */}
       <Modal

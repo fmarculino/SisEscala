@@ -459,6 +459,118 @@ export default function FolhaPontoPage() {
                </div>
             </div>
           </div>
+
+          <!-- VERSO: RELATÓRIO DE JUSTIFICATIVAS E OCORRÊNCIAS -->
+          <div class="print-page bg-white p-8 max-w-5xl mx-auto my-8 border border-zinc-200 rounded-3xl shadow-lg">
+            <div class="flex justify-between items-start border-b border-zinc-300 pb-4 mb-6">
+              <div class="flex items-center gap-4">
+                ${res.logoUrl ? `
+                  <div class="h-14 w-28 border border-zinc-200 rounded-lg p-1 bg-white flex items-center justify-center">
+                    <img src="${res.logoUrl}" alt="Logo" class="max-h-full max-w-full object-contain" />
+                  </div>
+                ` : ''}
+                <div>
+                  <h3 class="text-xl font-black text-zinc-900 uppercase tracking-tight">Folha de Ponto Mensal — Verso</h3>
+                  <p class="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Relatório Detalhado de Justificativas e Tratamentos • Portaria MTP 671/2021</p>
+                </div>
+              </div>
+              <div class="text-right">
+                <div class="text-[9px] font-black uppercase text-zinc-400">Competência</div>
+                <div class="text-lg font-bold text-zinc-900 uppercase">${mesExt} / ${folha.ano}</div>
+              </div>
+            </div>
+
+            <!-- Metadata -->
+            <div class="grid grid-cols-4 gap-4 text-xs mb-6 bg-zinc-50 p-4 rounded-2xl border border-zinc-100">
+               <div>
+                 <div class="text-[9px] font-black uppercase text-zinc-400 mb-0.5">Servidor</div>
+                 <div class="font-bold text-zinc-900 uppercase">${servidor.nome}</div>
+                 <div class="text-[10px] text-zinc-500 font-bold">Matrícula: ${servidor.matricula || '---'}</div>
+               </div>
+               <div>
+                 <div class="text-[9px] font-black uppercase text-zinc-400 mb-0.5">Cargo / Vínculo</div>
+                 <div class="font-bold text-zinc-900 uppercase">${servidor.cargo || '---'}</div>
+                 <div class="text-[10px] text-zinc-500">${servidor.vinculo || '---'}</div>
+               </div>
+               <div>
+                 <div class="text-[9px] font-black uppercase text-zinc-400 mb-0.5">Unidade</div>
+                 <div class="font-bold text-zinc-900 uppercase">${unidade.nome}</div>
+               </div>
+               <div>
+                 <div class="text-[9px] font-black uppercase text-zinc-400 mb-0.5">Setor / Jornada</div>
+                 <div class="font-bold text-zinc-900 uppercase">${setor?.nome}</div>
+                 <div class="text-[10px] text-zinc-500">${jornada?.nome || 'Não Vinculada'}</div>
+               </div>
+            </div>
+
+            <!-- Extrato de Justificativas -->
+            <div class="mb-6">
+              <h4 class="text-xs font-black uppercase tracking-wider text-zinc-900 mb-3">1. Extrato Cronológico de Justificativas e Tratamentos de Ponto</h4>
+              <table class="w-full text-[10px] text-left border-collapse border border-zinc-300">
+                <thead>
+                  <tr class="bg-zinc-100 text-zinc-600 font-black uppercase tracking-wider border-b border-zinc-300">
+                    <th class="px-3 py-2 text-center w-12 border-r border-zinc-300">Dia</th>
+                    <th class="px-2 py-2 text-center w-12 border-r border-zinc-300">Sem</th>
+                    <th class="px-3 py-2 border-r border-zinc-300">Tipo de Ocorrência</th>
+                    <th class="px-3 py-2 border-r border-zinc-300">Horário / Passo</th>
+                    <th class="px-4 py-2 border-r border-zinc-300">Justificativa / Motivo Detalhado</th>
+                    <th class="px-3 py-2">Origem / Responsável</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-zinc-200">
+                  ${parsedRegs.filter((r: any) => r.afastamento || r.feriado || r.ponto_facultativo || r.observacao || r.origem_entrada === 'manual' || r.origem_saida === 'manual').length > 0 ? (
+                    parsedRegs
+                      .filter((r: any) => r.afastamento || r.feriado || r.ponto_facultativo || r.observacao || r.origem_entrada === 'manual' || r.origem_saida === 'manual')
+                      .map((r: any) => {
+                        const tipo = r.afastamento ? 'Afastamento / Atestado' : r.feriado ? 'Feriado Oficial' : r.ponto_facultativo ? 'Ponto Facultativo' : (r.origem_entrada === 'manual' || r.origem_saida === 'manual') ? 'Ajuste Manual de Ponto' : 'Justificativa de Ponto'
+                        const passo = r.afastamento || r.feriado ? 'Dia Integral' : `${r.entrada || '--:--'} às ${r.saida || '--:--'}`
+                        const motivo = r.observacao || r.afastamento || 'Regularização de frequência homologada'
+                        const origem = r.afastamento ? 'RH / Gestão' : r.feriado ? 'Calendário Oficial' : (r.origem_entrada === 'manual' || r.origem_saida === 'manual') ? 'Ajuste Manual' : 'Coordenação'
+
+                        return `
+                          <tr>
+                            <td class="px-3 py-1.5 border-r border-zinc-300 text-center font-bold">${String(r.dia).padStart(2, '0')}</td>
+                            <td class="px-2 py-1.5 border-r border-zinc-300 text-center font-bold text-zinc-500">${r.dia_semana || ''}</td>
+                            <td class="px-3 py-1.5 border-r border-zinc-300 font-bold uppercase">${tipo}</td>
+                            <td class="px-3 py-1.5 border-r border-zinc-300 font-mono text-zinc-600">${passo}</td>
+                            <td class="px-4 py-1.5 border-r border-zinc-300 font-medium">${motivo}</td>
+                            <td class="px-3 py-1.5 text-zinc-500 italic">${origem}</td>
+                          </tr>
+                        `
+                      }).join('')
+                  ) : `
+                    <tr>
+                      <td colspan="6" class="px-4 py-4 text-center text-zinc-400 italic">Nenhuma ocorrência extraordinária ou ajuste manual registrado no período.</td>
+                    </tr>
+                  `}
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Termo e Assinaturas no Verso -->
+            <div class="mt-8 pt-4 border-t border-zinc-300">
+              <p class="text-[8px] text-zinc-500 leading-relaxed mb-8">
+                Declaro para os devidos fins de direito e controle de frequência a veracidade de todas as ocorrências e justificativas apresentadas neste relatório (Verso), em conformidade com as normas da Portaria MTP nº 671/2021.
+              </p>
+              <div class="grid grid-cols-2 gap-10 px-4">
+                <div class="text-center">
+                  <div class="w-full border-t border-zinc-400 pt-2">
+                    <div class="text-[9px] font-black uppercase text-zinc-950">${servidor.nome}</div>
+                    <div class="text-[7px] text-zinc-400 font-bold uppercase tracking-widest mt-0.5">Assinatura do Servidor (Ciência do Verso)</div>
+                  </div>
+                </div>
+                <div class="text-center">
+                  <div class="w-full border-t border-zinc-400 pt-2">
+                    <div class="text-[9px] font-black uppercase text-zinc-950">Chefia Imediata / Coordenação</div>
+                    <div class="text-[7px] text-zinc-400 font-bold uppercase tracking-widest mt-0.5">Visto e Homologação das Justificativas</div>
+                  </div>
+                </div>
+              </div>
+              <div class="text-right text-[6px] text-zinc-400 mt-8">
+                Verso oficial da Folha de Ponto emitida via SisEscala em ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}.
+              </div>
+            </div>
+          </div>
         `
       }).join('')
 
