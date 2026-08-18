@@ -6,22 +6,16 @@
 --   1. SUPORTE A IDENTIDADE MISTA (CPF ou PIS):
 --      Utiliza a fonte unica `fn_servidor_por_identificador_afd` (criada em 17/08/2026),
 --      que resolve a identidade tentando: 1) Vinculo ativo, 2) CPF, 3) PIS/NIS.
---      Isso garante suporte completo a relogios com cadastros legados por PIS e cadastros
---      novos por CPF no mesmo equipamento.
 --
---   2. ZERO PERDA DE DADOS / NAO DESTRUTIVO:
---      * `rep_afd_registros` (memoria fiscal do relogio) e APENAS LEITURA — nunca alterada/deletada.
---      * `marcacoes_ponto` e alterada SOMENTE nas linhas onde `servidor_id IS NULL` (orfas).
---        Nenhuma marcação que ja pertence a um servidor e alterada, movida ou sobrescrita.
+--   2. CONFORMIDADE COM A PORTARIA 671/2021 (IMUTABILIDADE):
+--      `marcacoes_ponto` e `rep_afd_registros` sao imutaveis (INSERT-only, UPDATE/DELETE bloqueados
+--      por trigger). Em vez de tentar fazer UPDATE em marcacoes_ponto (o que violaria a lei),
+--      esta funcao INSERE uma nova marcação vinculada ao `servidor_id` resolvido para cada registro
+--      de AFD do periodo que ainda nao tenha marcacao com aquele servidor.
 --
---   3. PROTECAO CONTRA AMBIGUIDADE (NAO BAGUNCA PONTO ALHEIO):
---      Se um identificador do relogio apontar para mais de um servidor ativo (ou CPF/PIS
---      divergentes), `fn_servidor_por_identificador_afd` devolve NULL e a batida permanece
---      orfa. O sistema NUNCA atribui ponto por chute.
---
---   4. ESCOPO TEMPORAL PROTEGIDO:
---      Por padrao, reprocessa apenas a partir do inicio do mes em curso (`p_desde` NULL),
---      protegendo competencias passadas ja fechadas pelo RH.
+--   3. ZERO DADO PERDIDO / AUDITORIA PRESERVADA:
+--      Nenhuma marcacao existente e alterada ou apagada. A batida orfa antiga permanece intocada
+--      para historico de auditoria, e a nova marcacao vinculada passa a ser consumida pela grade.
 -- ============================================================================
 
 CREATE OR REPLACE FUNCTION public.fn_reparse_afd_dispositivo(
@@ -35,7 +29,6 @@ SET search_path = public
 AS $fn$
 DECLARE
     v_desde       timestamptz;
-    v_atualizados integer := 0;
     v_criados     integer := 0;
     r             record;
     v_servidor_id uuid;
@@ -49,73 +42,35 @@ BEGIN
         v_desde := p_desde;
     END IF;
 
-    -- 1. Atualiza marcacoes em marcacoes_ponto que eram orfas (servidor_id IS NULL)
-    --    usando a fonte unica (fn_servidor_por_identificador_afd) -> aceita vinculo, CPF e PIS.
-    FOR r IN
-        SELECT m.id AS marcacao_id,
-               m.dispositivo_id,
-               m.identificador_bruto,
-               m.ocorrido_em
-          FROM public.marcacoes_ponto m
-         WHERE m.servidor_id IS NULL
-           AND m.origem = 'rep'
-           AND m.ocorrido_em >= v_desde
-           AND (p_dispositivo_id IS NULL OR m.dispositivo_id = p_dispositivo_id)
-    LOOP
-        SELECT servidor_id INTO v_servidor_id
-          FROM public.fn_servidor_por_identificador_afd(r.dispositivo_id, r.identificador_bruto);
-
-        IF v_servidor_id IS NOT NULL THEN
-            SELECT s.unidade_id, s.setor_id INTO v_unidade_id, v_setor_id
-              FROM public.servidores s WHERE s.id = v_servidor_id;
-
-            -- Trava estrita: so atualiza se CONTINUAR sendo orfa (evita race condition)
-            UPDATE public.marcacoes_ponto
-               SET servidor_id = v_servidor_id,
-                   unidade_id  = COALESCE(v_unidade_id, marcacoes_ponto.unidade_id),
-                   setor_id    = COALESCE(v_setor_id, marcacoes_ponto.setor_id)
-             WHERE id = r.marcacao_id
-               AND servidor_id IS NULL;
-
-            v_atualizados := v_atualizados + 1;
-        END IF;
-    END LOOP;
-
-    -- 2. Registros de rep_afd_registros tipo '3' que nao tinham marcacao com dono
+    -- Registros de rep_afd_registros tipo '3' (batida de ponto) do periodo
     FOR r IN
         SELECT a.id AS afd_id,
                a.dispositivo_id,
                a.nsr,
                a.ocorrido_em,
                a.identificador_afd,
-               a.via_pendrive
+               COALESCE(s.canal = 'pendrive', false) AS via_pendrive
           FROM public.rep_afd_registros a
+          LEFT JOIN public.rep_sincronizacoes s ON s.id = a.sincronizacao_id
          WHERE a.tipo_registro = '3'
            AND a.ocorrido_em >= v_desde
            AND (p_dispositivo_id IS NULL OR a.dispositivo_id = p_dispositivo_id)
-           AND NOT EXISTS (
-               SELECT 1 FROM public.marcacoes_ponto m
-                WHERE m.dispositivo_id = a.dispositivo_id
-                  AND m.nsr = a.nsr
-                  AND m.servidor_id IS NOT NULL
-           )
     LOOP
+        -- Resolve o servidor pela fonte unica (Vinculo > CPF > PIS)
         SELECT servidor_id INTO v_servidor_id
           FROM public.fn_servidor_por_identificador_afd(r.dispositivo_id, r.identificador_afd);
 
         IF v_servidor_id IS NOT NULL THEN
-            SELECT s.unidade_id, s.setor_id INTO v_unidade_id, v_setor_id
-              FROM public.servidores s WHERE s.id = v_servidor_id;
+            -- Se ainda NAO existe marcacao em marcacoes_ponto com esse (dispositivo_id, nsr, servidor_id)
+            IF NOT EXISTS (
+                SELECT 1 FROM public.marcacoes_ponto m
+                 WHERE m.dispositivo_id = r.dispositivo_id
+                   AND m.nsr = r.nsr
+                   AND m.servidor_id = v_servidor_id
+            ) THEN
+                SELECT s.unidade_id, s.setor_id INTO v_unidade_id, v_setor_id
+                  FROM public.servidores s WHERE s.id = v_servidor_id;
 
-            UPDATE public.marcacoes_ponto
-               SET servidor_id = v_servidor_id,
-                   unidade_id  = COALESCE(v_unidade_id, marcacoes_ponto.unidade_id),
-                   setor_id    = COALESCE(v_setor_id, marcacoes_ponto.setor_id)
-             WHERE dispositivo_id = r.dispositivo_id
-               AND nsr = r.nsr
-               AND servidor_id IS NULL;
-
-            IF NOT FOUND THEN
                 PERFORM public.fn_registrar_marcacao(
                     v_servidor_id,
                     'rep'::public.marcacao_origem,
@@ -128,24 +83,20 @@ BEGIN
                     'AFD NSR ' || r.nsr::text || ' (reprocessado)'
                 );
                 v_criados := v_criados + 1;
-            ELSE
-                v_atualizados := v_atualizados + 1;
             END IF;
         END IF;
     END LOOP;
 
     RETURN jsonb_build_object(
         'sucesso', true,
-        'marcacoes_atualizadas', v_atualizados,
         'marcacoes_criadas', v_criados
     );
 END;
 $fn$;
 
 COMMENT ON FUNCTION public.fn_reparse_afd_dispositivo(uuid, timestamptz) IS
-    'Reprocessa batidas orfas de REP a partir de p_desde (default: inicio do mes atual) usando a '
-    'fonte unica fn_servidor_por_identificador_afd (suporta vinculo, CPF e PIS). Nao destrutivo: '
-    'so atua em linhas com servidor_id NULL e recusa qualquer ambiguidade.';
+    'Reprocessa registros de AFD a partir de p_desde (default: inicio do mes atual) usando a '
+    'fonte unica fn_servidor_por_identificador_afd. INSERT-only conforme Portaria 671/2021.';
 
 REVOKE ALL ON FUNCTION public.fn_reparse_afd_dispositivo(uuid, timestamptz) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_reparse_afd_dispositivo(uuid, timestamptz) TO authenticated, service_role;

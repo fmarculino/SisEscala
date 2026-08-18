@@ -184,15 +184,14 @@ export function ScaleGrid({
       setLogsTentativas(data)
     }
 
-    // Batidas que o terminal registrou FORA da janela prevista. Desde 20260808100000 elas não
-    // são mais recusadas — ficam pendentes de revisão, e é aqui que o coordenador as encontra,
-    // no mesmo lugar onde já decide sobre presença.
+    // Batidas registradas no mês (terminal, rep, pendrive, ajuste_servidor).
+    // Devem ser exibidas no modal de validação manual para permitir que o gestor
+    // selecione qualquer batida real (seja do terminal ou do relógio REP).
     const { data: pend } = await supabase
       .from('marcacoes_ponto')
       .select('id, servidor_id, ocorrido_em, observacao, origem')
       .in('servidor_id', servantIds)
-      .eq('origem', 'terminal')
-      .like('observacao', '%pendente de revisao%')
+      .in('origem', ['terminal', 'rep', 'pendrive', 'ajuste_servidor'])
       .gte('ocorrido_em', startRange)
       .lte('ocorrido_em', endRange)
       .order('ocorrido_em')
