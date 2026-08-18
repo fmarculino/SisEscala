@@ -175,7 +175,7 @@ export function FolhaPontoEditor({
   }
   const podeReclassificar =
     !isPortal && isEditable &&
-    ['coordenador', 'admin', 'super_admin', 'rh', 'rh_unidade'].includes(profile?.role)
+    ['coordenador', 'ass_adm', 'admin', 'super_admin', 'rh', 'rh_unidade'].includes(profile?.role)
 
   const [draggingFrom, setDraggingFrom] = useState<{ dia: number; passo: string } | null>(null)
   const [reclassifyModal, setReclassifyModal] = useState<{

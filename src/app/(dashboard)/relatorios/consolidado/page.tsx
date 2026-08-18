@@ -48,7 +48,7 @@ export default async function ConsolidadoPage({ searchParams }: Props) {
     .eq('id', user?.id)
     .single()
 
-  if (profile?.role === 'coordenador') {
+  if (profile?.role === 'coordenador' || profile?.role === 'ass_adm') {
     return <AcessoNegado />
   }
 

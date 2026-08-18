@@ -695,7 +695,7 @@ export default function AuditoriaPage() {
 
   const totalPages = Math.ceil(totalCount / pageSize)
 
-  if (userProfile?.role === 'coordenador') {
+  if (userProfile?.role === 'coordenador' || userProfile?.role === 'ass_adm') {
     return (
       <div className="flex h-[50vh] items-center justify-center">
         <div className="text-center space-y-4 max-w-md p-8 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm">

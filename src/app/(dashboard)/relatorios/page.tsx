@@ -8,7 +8,7 @@ export default async function RelatoriosPage() {
   const { data: { user } } = await supabase.auth.getUser()
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user?.id).single()
 
-  if (profile?.role === 'coordenador') {
+  if (profile?.role === 'coordenador' || profile?.role === 'ass_adm') {
     return <AcessoNegado />
   }
 
