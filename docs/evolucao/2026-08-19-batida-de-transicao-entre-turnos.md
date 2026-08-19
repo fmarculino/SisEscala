@@ -94,6 +94,33 @@ com a sua batida.
 4. "Sincronizar" na folha do servidor para a folha refletir (ver
    [`2026-08-19-batida-de-um-dia-virando-passo-de-outro.md`](2026-08-19-batida-de-um-dia-virando-passo-de-outro.md)).
 
+## Resultado da aplicação (19/08/2026)
+
+Migrations `20260819200000` e `20260819210000` aplicadas em produção; reconciliação de agosto/2026:
+**94 dias, 0 falhas**. MAISA, os dois dias em que houve batida na transição:
+
+| dia | Regular (frente da folha) | Plantão (anexo) |
+|---|---|---|
+| 17 | — → 13:23 | 13:29 → 19:14 |
+| 18 | 07:04 → 13:07 | 13:10 → 19:09 |
+
+Antes, as duas linhas tinham `07:04 → 19:09` e a folha cobrava 6h de hora extra além do plantão.
+
+⚠️ **A folha só reflete isso depois de "Sincronizar"** — `folha_ponto.registros` é snapshot.
+
+### Pendências que ficaram (medidas, não supostas)
+
+- **6 dias não convergem** na conferência: bloco que cruza a meia-noite, alocado tanto no dia dele
+  quanto no seguinte. Já registrado no diário do dono/piso.
+- **9 blocos de agosto têm a janela de intervalo FORA do próprio bloco** — todos plantão noturno
+  `19:00 → 07:00` com intervalo previsto às `12:00/14:00`. `fn_blocos_previstos_dia` usa
+  `jornadas.intervalo_inicio_padrao`, que é **hora absoluta**, mesmo para turno que começa às
+  19:00; o fallback relativo (`v_start_min + 240`) só entra quando a jornada não tem padrão.
+  Efeito: a linha do plantão recebe intervalo antes da própria entrada — ICARO HENRIQUE, 18/08,
+  está assim **desde antes desta mudança** (entrada 19:03, intervalo 13:02/13:37, saída 06:55),
+  então não é regressão. Correção: ignorar o intervalo padrão quando ele cai fora da janela do
+  turno e usar o relativo. Não feita nesta rodada.
+
 ## Efeito no anexo de plantões
 
 Com a linha do plantão passando a ter horário próprio, o anexo mostra o que de fato aconteceu no
