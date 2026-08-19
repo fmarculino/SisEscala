@@ -2,11 +2,11 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { FileText, Loader2, Search, Building2, Layers, Calendar, ChevronRight, Play, RefreshCw, AlertCircle, Printer } from 'lucide-react'
+import { FileText, Loader2, Search, Building2, Layers, Calendar, ChevronRight, Play, RefreshCw, AlertCircle, Printer, Wand2 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { applyAccessFilters, isAccessUnrestricted } from '@/utils/permissions'
-import { getServidoresFolhaPonto, gerarFolhaPonto, gerarFolhasEmLote, getFolhasPontoPrintData } from './actions'
+import { getServidoresFolhaPonto, gerarFolhaPonto, gerarFolhasEmLote, getFolhasPontoPrintData, autoCorrigirTodasFolhasPonto } from './actions'
 import { Modal } from '@/components/ui/Modal'
 import { formatSectorsHierarchy } from '@/utils/sectors'
 
@@ -255,6 +255,40 @@ export default function FolhaPontoPage() {
         type: 'success'
       })
       fetchServidores()
+    }
+  }
+
+  const handleAutoCorrigirLote = async () => {
+    setActionLoading('autocorrigir-lote')
+    try {
+      const res = await autoCorrigirTodasFolhasPonto(mes, ano)
+      if (res.error) {
+        setAlertModal({
+          isOpen: true,
+          title: 'Erro na Auto-Correção',
+          message: res.error,
+          type: 'danger'
+        })
+      } else {
+        setAlertModal({
+          isOpen: true,
+          title: 'Correção em Lote Concluída',
+          message: (res.totalFolhasCorrigidas ?? 0) > 0
+            ? `Foram analisadas e corrigidas ${res.totalFolhasCorrigidas} folha(s) de ponto (${res.totalDiasCorrigidos} dias normalizados) na competência ${mes}/${ano}.`
+            : `Todas as folhas de ponto da competência ${mes}/${ano} já se encontram consistentes e sem horários invertidos.`,
+          type: 'success'
+        })
+        fetchServidores()
+      }
+    } catch (err: any) {
+      setAlertModal({
+        isOpen: true,
+        title: 'Erro',
+        message: err.message || 'Falha ao executar correção em lote.',
+        type: 'danger'
+      })
+    } finally {
+      setActionLoading(null)
     }
   }
 
@@ -809,6 +843,15 @@ export default function FolhaPontoPage() {
               >
                 {actionLoading === 'imprimir-lote' ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Printer className="h-4 w-4 mr-2" />}
                 Imprimir Selecionadas (${selectedFolhas.size})
+              </button>
+              <button 
+                onClick={handleAutoCorrigirLote}
+                disabled={actionLoading !== null}
+                className="inline-flex items-center bg-violet-600 hover:bg-violet-700 text-white font-black text-xs uppercase tracking-wider px-5 py-3 rounded-xl transition-all shadow-md shadow-violet-500/20 active:scale-95 disabled:opacity-50"
+                title="Executa a normalização e realinhamento automático de todas as folhas do período."
+              >
+                {actionLoading === 'autocorrigir-lote' ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Wand2 className="h-4 w-4 mr-2" />}
+                Auto-Corrigir Lote
               </button>
               <button 
                 onClick={() => handleGerarEmLote(true)}
