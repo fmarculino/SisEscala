@@ -2031,7 +2031,7 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
           presenca_entrada_em, presenca_saida_em,
           presenca_confirmada, presenca_entrada_origem, presenca_saida_origem,
           presenca_entrada_manual, presenca_saida_manual,
-          dicionario_turnos(id, codigo, nome, hora_inicio, hora_fim, horas_computadas, slots)
+          dicionario_turnos(id, codigo, descricao, horas_computadas, tipo, slots)
         `)
         .in('escala_mensal_id', escalaMensalIds)
         .order('dia', { ascending: true })
@@ -2086,16 +2086,14 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
 
       if (cat.includes('plant') || cat.includes('extra')) {
         const dateObj = new Date(ano, mes - 1, ed.dia)
-        
-        let horaInicio = turno?.hora_inicio ? turno.hora_inicio.slice(0, 5) : ''
-        let horaFim = turno?.hora_fim ? turno.hora_fim.slice(0, 5) : ''
-        let horarioPrevisto = horaInicio && horaFim ? `${horaInicio} às ${horaFim}` : (turno?.codigo || '12h')
+        const turnoDesc = turno?.descricao || turno?.codigo || ed.categoria || 'Plantão'
+        const horarioPrevisto = turno?.codigo ? `${turno.codigo} (${turno.horas_computadas || 12}h)` : `${turno?.horas_computadas || 12}h`
 
         plantoes.push({
           dia: ed.dia,
           dia_semana: weekDays[dateObj.getDay()],
           data_formatada: `${String(ed.dia).padStart(2, '0')}/${String(mes).padStart(2, '0')}/${ano}`,
-          turno_nome: turno?.nome || ed.categoria || 'Plantão',
+          turno_nome: turnoDesc,
           horario_previsto: horarioPrevisto,
           horas_computadas: Number(turno?.horas_computadas || 12),
           entrada_real: ed.presenca_entrada_em ? new Date(ed.presenca_entrada_em).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }) : '-',
@@ -2110,16 +2108,14 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
         const dateObj = new Date(ano, mes - 1, ed.dia)
         const dateStr = `${ano}-${String(mes).padStart(2, '0')}-${String(ed.dia).padStart(2, '0')}`
         const acionamentos = logsSobreaviso?.filter((l: any) => l.data === dateStr) || []
-
-        let horaInicio = turno?.hora_inicio ? turno.hora_inicio.slice(0, 5) : ''
-        let horaFim = turno?.hora_fim ? turno.hora_fim.slice(0, 5) : ''
-        let horarioPrevisto = horaInicio && horaFim ? `${horaInicio} às ${horaFim}` : (turno?.codigo || '12h')
+        const turnoDesc = turno?.descricao || turno?.codigo || 'Sobreaviso'
+        const horarioPrevisto = turno?.codigo ? `${turno.codigo} (${turno.horas_computadas || 12}h)` : `${turno?.horas_computadas || 12}h`
 
         sobreavisos.push({
           dia: ed.dia,
           dia_semana: weekDays[dateObj.getDay()],
           data_formatada: `${String(ed.dia).padStart(2, '0')}/${String(mes).padStart(2, '0')}/${ano}`,
-          turno_nome: turno?.nome || 'Sobreaviso',
+          turno_nome: turnoDesc,
           horario_previsto: horarioPrevisto,
           horas_prontidao: Number(turno?.horas_computadas || 12),
           unidade: uNome,
