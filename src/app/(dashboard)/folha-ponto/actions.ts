@@ -676,21 +676,22 @@ export async function executeGerarFolhaPonto(
           }
         }
 
-        // Preserve manual observation if needed
-        if (shouldPreserve && registroExistente && (
-          registroExistente.observacao.includes('FALTA') ||
-          registroExistente.observacao.includes('MANUAL')
-        )) {
-          registro.observacao = registroExistente.observacao
+        const temMarcacao = hasRealEntrada || isManualEntrada || hasRealSaida || isManualSaida || hasRealIntervaloSaida || isManualIntervaloSaida || hasRealIntervaloRetorno || isManualIntervaloRetorno || !!registro.entrada || !!registro.saida
+
+        // Preserve manual observation if needed (nunca preserva 'FALTA' se o dia agora tem marcação)
+        if (shouldPreserve && registroExistente) {
+          if (registroExistente.observacao.includes('MANUAL')) {
+            registro.observacao = registroExistente.observacao
+          } else if (registroExistente.observacao.includes('FALTA') && !temMarcacao) {
+            registro.observacao = registroExistente.observacao
+          }
         }
 
-        // Falta automatica: dia sem nenhuma observacao ainda e sem NENHUMA marcacao (real ou
-        // manual) de entrada nem saida. Ver src/utils/folha/faltaAutomatica.ts.
-        if (!registro.observacao) {
+        // Falta automatica: dia sem nenhuma observacao ainda e sem NENHUMA marcacao (real ou manual)
+        if (!registro.observacao && !temMarcacao) {
           const diaJaPassou = (resolvedAno < currentYear) ||
             (resolvedAno === currentYear && resolvedMes < currentMonth) ||
             (resolvedAno === currentYear && resolvedMes === currentMonth && day < currentDay)
-          const temMarcacao = hasRealEntrada || isManualEntrada || hasRealSaida || isManualSaida
           const faltaObservacao = resolverFaltaAutomatica({
             diaJaPassou,
             temMarcacao,
@@ -1360,21 +1361,22 @@ export async function sincronizarFolhaPonto(folhaId: string) {
           }
         }
 
-        // Preserve manual observation if needed
-        if (shouldPreserve && registroExistente && (
-          registroExistente.observacao.includes('FALTA') ||
-          registroExistente.observacao.includes('MANUAL')
-        )) {
-          registro.observacao = registroExistente.observacao
+        const temMarcacao = hasRealEntrada || isManualEntrada || hasRealSaida || isManualSaida || hasRealIntervaloSaida || isManualIntervaloSaida || hasRealIntervaloRetorno || isManualIntervaloRetorno || !!registro.entrada || !!registro.saida
+
+        // Preserve manual observation if needed (nunca preserva 'FALTA' se o dia agora tem marcação)
+        if (shouldPreserve && registroExistente) {
+          if (registroExistente.observacao.includes('MANUAL')) {
+            registro.observacao = registroExistente.observacao
+          } else if (registroExistente.observacao.includes('FALTA') && !temMarcacao) {
+            registro.observacao = registroExistente.observacao
+          }
         }
 
-        // Falta automatica: dia sem nenhuma observacao ainda e sem NENHUMA marcacao (real ou
-        // manual) de entrada nem saida. Ver src/utils/folha/faltaAutomatica.ts.
-        if (!registro.observacao) {
+        // Falta automatica: dia sem nenhuma observacao ainda e sem NENHUMA marcacao (real ou manual)
+        if (!registro.observacao && !temMarcacao) {
           const diaJaPassou = (folha.ano < currentYear) ||
             (folha.ano === currentYear && folha.mes < currentMonth) ||
             (folha.ano === currentYear && folha.mes === currentMonth && day < currentDay)
-          const temMarcacao = hasRealEntrada || isManualEntrada || hasRealSaida || isManualSaida
           const faltaObservacao = resolverFaltaAutomatica({
             diaJaPassou,
             temMarcacao,
@@ -1693,6 +1695,49 @@ export async function salvarFolhaPonto(folhaId: string, registros: any[], status
       .gte('data', startDate)
       .lte('data', endDate)
     const feriadosSet = new Set(feriados?.map(f => f.data) || [])
+
+    // Validação de consistência cronológica e limpeza de falta em dias preenchidos
+    for (const r of registros) {
+      if (!r.turno_codigo || r.afastamento || r.feriado) continue
+
+      const timeToMin = (t: string) => {
+        if (!t || !t.includes(':')) return null
+        const [h, m] = t.split(':').map(Number)
+        return h * 60 + m
+      }
+
+      const eMin = timeToMin(r.entrada)
+      const siMin = timeToMin(r.saida_intervalo)
+      const riMin = timeToMin(r.retorno_intervalo)
+      const sMin = timeToMin(r.saida)
+
+      // 1. Saída de intervalo vs Retorno de intervalo (saída intervalo maior que retorno)
+      if (siMin !== null && riMin !== null && siMin >= riMin) {
+        return {
+          error: `Inconsistência no Dia ${String(r.dia).padStart(2, '0')}: o horário de Saída para o Intervalo (${r.saida_intervalo}) não pode ser maior ou igual ao Retorno do Intervalo (${r.retorno_intervalo}). Corrija a sequência dos horários.`
+        }
+      }
+
+      // 2. Entrada vs Saída de intervalo
+      if (eMin !== null && siMin !== null && eMin >= siMin) {
+        return {
+          error: `Inconsistência no Dia ${String(r.dia).padStart(2, '0')}: o horário de Entrada (${r.entrada}) não pode ser maior ou igual à Saída para o Intervalo (${r.saida_intervalo}).`
+        }
+      }
+
+      // 3. Retorno de intervalo vs Saída final
+      if (riMin !== null && sMin !== null && riMin >= sMin) {
+        return {
+          error: `Inconsistência no Dia ${String(r.dia).padStart(2, '0')}: o horário de Retorno do Intervalo (${r.retorno_intervalo}) não pode ser maior ou igual à Saída Final (${r.saida}).`
+        }
+      }
+
+      // 4. Limpeza automática de FALTA caso o dia agora possua horários de marcação
+      const temHorarios = eMin !== null || sMin !== null || siMin !== null || riMin !== null
+      if (temHorarios && r.observacao && (r.observacao.includes('FALTA') || r.observacao.includes('AGUARDANDO JUSTIFICATIVA'))) {
+        r.observacao = ''
+      }
+    }
 
     // Recalculate totals
     let totalHorasNormais = 0

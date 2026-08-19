@@ -347,6 +347,12 @@ export function FolhaPontoEditor({
       if (field === 'retorno_intervalo') updated.origem_retorno_intervalo = 'manual'
       if (field === 'saida') updated.origem_saida = 'manual'
 
+      // Se o usuário preencheu ou alterou horários no dia, limpa a falta automática pendente
+      const hasAnyTime = !!updated.entrada || !!updated.saida || !!updated.saida_intervalo || !!updated.retorno_intervalo
+      if (hasAnyTime && updated.observacao && (updated.observacao.includes('FALTA') || updated.observacao.includes('AGUARDANDO JUSTIFICATIVA'))) {
+        updated.observacao = ''
+      }
+
       // If entrance/exit changed, dynamically compute overtime
       if (field === 'entrada' || field === 'saida') {
         const ent = field === 'entrada' ? value : r.entrada
@@ -362,6 +368,55 @@ export function FolhaPontoEditor({
 
   // Save edits
   const handleSave = async (newStatus?: string) => {
+    // 1. Validação de consistência cronológica
+    for (const r of registros) {
+      if (!r.turno_codigo || r.afastamento || r.feriado) continue
+
+      const toMin = (t: string) => {
+        if (!t || !t.includes(':')) return null
+        const [h, m] = t.split(':').map(Number)
+        return h * 60 + m
+      }
+
+      const eMin = toMin(r.entrada)
+      const siMin = toMin(r.saida_intervalo)
+      const riMin = toMin(r.retorno_intervalo)
+      const sMin = toMin(r.saida)
+
+      // Saída do intervalo >= Retorno do intervalo
+      if (siMin !== null && riMin !== null && siMin >= riMin) {
+        setAlertModal({
+          isOpen: true,
+          title: 'Horários Invertidos no Intervalo',
+          message: `No Dia ${String(r.dia).padStart(2, '0')}: o horário de Saída para o Intervalo (${r.saida_intervalo}) não pode ser maior ou igual ao Retorno do Intervalo (${r.retorno_intervalo}). Corrija a sequência dos horários antes de salvar.`,
+          type: 'danger'
+        })
+        return
+      }
+
+      // Entrada >= Saída do intervalo
+      if (eMin !== null && siMin !== null && eMin >= siMin) {
+        setAlertModal({
+          isOpen: true,
+          title: 'Horários Invertidos na Entrada',
+          message: `No Dia ${String(r.dia).padStart(2, '0')}: o horário de Entrada (${r.entrada}) não pode ser maior ou igual à Saída para o Intervalo (${r.saida_intervalo}). Corrija a sequência dos horários antes de salvar.`,
+          type: 'danger'
+        })
+        return
+      }
+
+      // Retorno do intervalo >= Saída final
+      if (riMin !== null && sMin !== null && riMin >= sMin) {
+        setAlertModal({
+          isOpen: true,
+          title: 'Horários Invertidos na Saída',
+          message: `No Dia ${String(r.dia).padStart(2, '0')}: o horário de Retorno do Intervalo (${r.retorno_intervalo}) não pode ser maior ou igual à Saída Final (${r.saida}). Corrija a sequência dos horários antes de salvar.`,
+          type: 'danger'
+        })
+        return
+      }
+    }
+
     setSaving(true)
     const targetStatus = newStatus || status
     const res = await executeSave(folha.id, registros, targetStatus, cargo)
@@ -1023,6 +1078,20 @@ export function FolhaPontoEditor({
                   return diff > 6
                 })()
 
+                const toMin = (t: string) => {
+                  if (!t || !t.includes(':')) return null
+                  const [h, m] = t.split(':').map(Number)
+                  return h * 60 + m
+                }
+                const eMin = toMin(r.entrada)
+                const siMin = toMin(r.saida_intervalo)
+                const riMin = toMin(r.retorno_intervalo)
+                const sMin = toMin(r.saida)
+
+                const isIntervaloInvertido = siMin !== null && riMin !== null && siMin >= riMin
+                const isEntradaInvertida = eMin !== null && siMin !== null && eMin >= siMin
+                const isSaidaInvertida = riMin !== null && sMin !== null && riMin >= sMin
+
                 // Arrastar-e-soltar pra reclassificar uma batida real (dia 12 do Fernando: uma
                 // "saída" real que caiu em "saída intervalo" porque ele trabalhou direto). Só
                 // arrasta quem tem origem 'real' e valor preenchido; só solta em passo vazio do
@@ -1071,13 +1140,13 @@ export function FolhaPontoEditor({
 
                     {/* Entrada */}
                     <td
-                      className={`px-2 py-1.5 border-r border-zinc-200 dark:border-zinc-700 text-center ${isWorkDay ? borderClass(r.origem_entrada) : ''} ${isArrastavel('entrada') ? 'cursor-grab active:cursor-grabbing' : ''} ${isAlvoDeSolta('entrada') ? 'ring-2 ring-inset ring-dashed ring-blue-400' : ''}`}
+                      className={`px-2 py-1.5 border-r border-zinc-200 dark:border-zinc-700 text-center ${isWorkDay ? borderClass(r.origem_entrada) : ''} ${isEntradaInvertida ? 'ring-2 ring-inset ring-red-500 bg-red-50/40 dark:bg-red-950/20' : ''} ${isArrastavel('entrada') ? 'cursor-grab active:cursor-grabbing' : ''} ${isAlvoDeSolta('entrada') ? 'ring-2 ring-inset ring-dashed ring-blue-400' : ''}`}
                       draggable={isArrastavel('entrada')}
                       onDragStart={() => setDraggingFrom({ dia: r.dia, passo: 'entrada' })}
                       onDragEnd={() => setDraggingFrom(null)}
                       onDragOver={(e) => { if (isAlvoDeSolta('entrada')) e.preventDefault() }}
                       onDrop={(e) => { e.preventDefault(); handleDrop(r.dia, 'entrada') }}
-                      title={isArrastavel('entrada') ? 'Arraste para outro passo do dia para corrigir a classificação' : undefined}
+                      title={isEntradaInvertida ? `Inconsistência: Entrada (${r.entrada}) >= Saída Intervalo (${r.saida_intervalo})` : (isArrastavel('entrada') ? 'Arraste para outro passo do dia para corrigir a classificação' : undefined)}
                     >
                       {isWorkDay && !r.afastamento && !r.feriado ? (
                         <input
@@ -1094,13 +1163,13 @@ export function FolhaPontoEditor({
 
                     {/* Saída Intervalo */}
                     <td
-                      className={`px-2 py-1.5 border-r border-zinc-200 dark:border-zinc-700 text-center ${isWorkDay && recordHasInterval ? borderClass(r.origem_saida_intervalo) : ''} ${isArrastavel('saida_intervalo') ? 'cursor-grab active:cursor-grabbing' : ''} ${isAlvoDeSolta('saida_intervalo') ? 'ring-2 ring-inset ring-dashed ring-blue-400' : ''}`}
+                      className={`px-2 py-1.5 border-r border-zinc-200 dark:border-zinc-700 text-center ${isWorkDay && recordHasInterval ? borderClass(r.origem_saida_intervalo) : ''} ${isIntervaloInvertido || isEntradaInvertida ? 'ring-2 ring-inset ring-red-500 bg-red-50/40 dark:bg-red-950/20' : ''} ${isArrastavel('saida_intervalo') ? 'cursor-grab active:cursor-grabbing' : ''} ${isAlvoDeSolta('saida_intervalo') ? 'ring-2 ring-inset ring-dashed ring-blue-400' : ''}`}
                       draggable={isArrastavel('saida_intervalo')}
                       onDragStart={() => setDraggingFrom({ dia: r.dia, passo: 'saida_intervalo' })}
                       onDragEnd={() => setDraggingFrom(null)}
                       onDragOver={(e) => { if (isAlvoDeSolta('saida_intervalo')) e.preventDefault() }}
                       onDrop={(e) => { e.preventDefault(); handleDrop(r.dia, 'saida_intervalo') }}
-                      title={isArrastavel('saida_intervalo') ? 'Arraste para outro passo do dia para corrigir a classificação' : undefined}
+                      title={isIntervaloInvertido ? `Inconsistência: Saída Intervalo (${r.saida_intervalo}) >= Retorno (${r.retorno_intervalo})` : (isArrastavel('saida_intervalo') ? 'Arraste para outro passo do dia para corrigir a classificação' : undefined)}
                     >
                       {isWorkDay && recordHasInterval && !r.afastamento && !r.feriado ? (
                         <input
@@ -1117,13 +1186,13 @@ export function FolhaPontoEditor({
 
                     {/* Retorno Intervalo */}
                     <td
-                      className={`px-2 py-1.5 border-r border-zinc-200 dark:border-zinc-700 text-center ${isWorkDay && recordHasInterval ? borderClass(r.origem_retorno_intervalo) : ''} ${isArrastavel('retorno_intervalo') ? 'cursor-grab active:cursor-grabbing' : ''} ${isAlvoDeSolta('retorno_intervalo') ? 'ring-2 ring-inset ring-dashed ring-blue-400' : ''}`}
+                      className={`px-2 py-1.5 border-r border-zinc-200 dark:border-zinc-700 text-center ${isWorkDay && recordHasInterval ? borderClass(r.origem_retorno_intervalo) : ''} ${isIntervaloInvertido || isSaidaInvertida ? 'ring-2 ring-inset ring-red-500 bg-red-50/40 dark:bg-red-950/20' : ''} ${isArrastavel('retorno_intervalo') ? 'cursor-grab active:cursor-grabbing' : ''} ${isAlvoDeSolta('retorno_intervalo') ? 'ring-2 ring-inset ring-dashed ring-blue-400' : ''}`}
                       draggable={isArrastavel('retorno_intervalo')}
                       onDragStart={() => setDraggingFrom({ dia: r.dia, passo: 'retorno_intervalo' })}
                       onDragEnd={() => setDraggingFrom(null)}
                       onDragOver={(e) => { if (isAlvoDeSolta('retorno_intervalo')) e.preventDefault() }}
                       onDrop={(e) => { e.preventDefault(); handleDrop(r.dia, 'retorno_intervalo') }}
-                      title={isArrastavel('retorno_intervalo') ? 'Arraste para outro passo do dia para corrigir a classificação' : undefined}
+                      title={isIntervaloInvertido ? `Inconsistência: Retorno (${r.retorno_intervalo}) <= Saída Intervalo (${r.saida_intervalo})` : (isArrastavel('retorno_intervalo') ? 'Arraste para outro passo do dia para corrigir a classificação' : undefined)}
                     >
                       {isWorkDay && recordHasInterval && !r.afastamento && !r.feriado ? (
                         <input
@@ -1140,13 +1209,13 @@ export function FolhaPontoEditor({
 
                     {/* Saída */}
                     <td
-                      className={`px-2 py-1.5 border-r border-zinc-200 dark:border-zinc-700 text-center ${isWorkDay ? borderClass(r.origem_saida) : ''} ${isArrastavel('saida') ? 'cursor-grab active:cursor-grabbing' : ''} ${isAlvoDeSolta('saida') ? 'ring-2 ring-inset ring-dashed ring-blue-400' : ''}`}
+                      className={`px-2 py-1.5 border-r border-zinc-200 dark:border-zinc-700 text-center ${isWorkDay ? borderClass(r.origem_saida) : ''} ${isSaidaInvertida ? 'ring-2 ring-inset ring-red-500 bg-red-50/40 dark:bg-red-950/20' : ''} ${isArrastavel('saida') ? 'cursor-grab active:cursor-grabbing' : ''} ${isAlvoDeSolta('saida') ? 'ring-2 ring-inset ring-dashed ring-blue-400' : ''}`}
                       draggable={isArrastavel('saida')}
                       onDragStart={() => setDraggingFrom({ dia: r.dia, passo: 'saida' })}
                       onDragEnd={() => setDraggingFrom(null)}
                       onDragOver={(e) => { if (isAlvoDeSolta('saida')) e.preventDefault() }}
                       onDrop={(e) => { e.preventDefault(); handleDrop(r.dia, 'saida') }}
-                      title={isArrastavel('saida') ? 'Arraste para outro passo do dia para corrigir a classificação' : undefined}
+                      title={isSaidaInvertida ? `Inconsistência: Retorno (${r.retorno_intervalo}) >= Saída Final (${r.saida})` : (isArrastavel('saida') ? 'Arraste para outro passo do dia para corrigir a classificação' : undefined)}
                     >
                       {isWorkDay && !r.afastamento && !r.feriado ? (
                         <input

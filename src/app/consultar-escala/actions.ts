@@ -1315,21 +1315,22 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
           }
         }
 
-      // Preserve manual observation if needed
-        if (shouldPreserve && registroExistente && (
-          registroExistente.observacao.includes('FALTA') ||
-          registroExistente.observacao.includes('MANUAL')
-        )) {
-          registro.observacao = registroExistente.observacao
+        const temMarcacao = hasRealEntrada || isManualEntrada || hasRealSaida || isManualSaida || hasRealIntervaloSaida || isManualIntervaloSaida || hasRealIntervaloRetorno || isManualIntervaloRetorno || !!registro.entrada || !!registro.saida || !!registro.saida_intervalo || !!registro.retorno_intervalo
+
+        // Preserve manual observation if needed (nunca preserva 'FALTA' se o dia agora tem marcação)
+        if (shouldPreserve && registroExistente) {
+          if (registroExistente.observacao.includes('MANUAL')) {
+            registro.observacao = registroExistente.observacao
+          } else if (registroExistente.observacao.includes('FALTA') && !temMarcacao) {
+            registro.observacao = registroExistente.observacao
+          }
         }
 
-        // Falta automatica: dia sem nenhuma observacao ainda e sem NENHUMA marcacao (real ou
-        // manual) de entrada nem saida. Ver src/utils/folha/faltaAutomatica.ts.
-        if (!registro.observacao) {
+        // Falta automatica: dia sem nenhuma observacao ainda e sem NENHUMA marcacao (real ou manual)
+        if (!registro.observacao && !temMarcacao) {
           const diaJaPassou = (folha.ano < currentYear) ||
             (folha.ano === currentYear && folha.mes < currentMonth) ||
             (folha.ano === currentYear && folha.mes === currentMonth && day < currentDay)
-          const temMarcacao = hasRealEntrada || isManualEntrada || hasRealSaida || isManualSaida
           const faltaObservacao = resolverFaltaAutomatica({
             diaJaPassou,
             temMarcacao,
@@ -1859,21 +1860,22 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
           }
         }
 
-        // Preserve manual observation if needed
-        if (shouldPreserve && registroExistente && (
-          registroExistente.observacao.includes('FALTA') ||
-          registroExistente.observacao.includes('MANUAL')
-        )) {
-          registro.observacao = registroExistente.observacao
+        const temMarcacao = hasRealEntrada || isManualEntrada || hasRealSaida || isManualSaida || hasRealIntervaloSaida || isManualIntervaloSaida || hasRealIntervaloRetorno || isManualIntervaloRetorno || !!registro.entrada || !!registro.saida || !!registro.saida_intervalo || !!registro.retorno_intervalo
+
+        // Preserve manual observation if needed (nunca preserva 'FALTA' se o dia agora tem marcação)
+        if (shouldPreserve && registroExistente) {
+          if (registroExistente.observacao.includes('MANUAL')) {
+            registro.observacao = registroExistente.observacao
+          } else if (registroExistente.observacao.includes('FALTA') && !temMarcacao) {
+            registro.observacao = registroExistente.observacao
+          }
         }
 
-        // Falta automatica: dia sem nenhuma observacao ainda e sem NENHUMA marcacao (real ou
-        // manual) de entrada nem saida. Ver src/utils/folha/faltaAutomatica.ts.
-        if (!registro.observacao) {
+        // Falta automatica: dia sem nenhuma observacao ainda e sem NENHUMA marcacao (real ou manual)
+        if (!registro.observacao && !temMarcacao) {
           const diaJaPassou = (ano < currentYear) ||
             (ano === currentYear && mes < currentMonth) ||
             (ano === currentYear && mes === currentMonth && day < currentDay)
-          const temMarcacao = hasRealEntrada || isManualEntrada || hasRealSaida || isManualSaida
           const faltaObservacao = resolverFaltaAutomatica({
             diaJaPassou,
             temMarcacao,
