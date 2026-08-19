@@ -1,4 +1,4 @@
-# SisEscala 📅[![Version](https://img.shields.io/badge/version-2.0.0-green.svg)](https://github.com/fmarculino/SisEscala)
+# SisEscala 📅[![Version](https://img.shields.io/badge/version-2.2.0-green.svg)](https://github.com/fmarculino/SisEscala)
 [![Next.js](https://img.shields.io/badge/framework-Next.js%2015-black.svg)](https://nextjs.org/)
 [![Supabase](https://img.shields.io/badge/backend-Supabase-green.svg)](https://supabase.com/)
 [![Tailwind CSS](https://img.shields.io/badge/styling-Tailwind%20CSS-38B2AC.svg)](https://tailwindcss.com/)
@@ -10,6 +10,25 @@ O sistema foca em **governança, segurança jurídica e eficiência operacional*
 ---
 
 ## 🚀 Principais Funcionalidades
+
+### 📄 Verso da Folha de Ponto & Relatório Anexo de Plantão/Sobreaviso (v2.2.0)
+- **Verso Oficial da Folha de Ponto**: Quadro analítico com detalhamento completo de ocorrências, justificativas registradas, atestados, declarações e histórico funcional para prestação de contas aos órgãos fiscalizadores.
+- **Relatório Anexo de Plantão e Sobreaviso (`RelatorioPlantaoSobreavisoAnexo.tsx`)**: Relatório gerado em PDF/impressão consolidando plantões extras e escalas de sobreaviso cumpridas no mês, com cruzamento de justificativas de eventos e descrições do `dicionario_turnos`.
+- **Acesso Seguro via Service Role**: Consultas administrativas de relatórios e anexos utilizando `createAdminClient` para evitar recortes indevidos de escopo RLS entre setores da mesma unidade.
+
+### ⏱️ Afastamentos Fracionados (Por Horas) & Abono Parcial (v2.2.0)
+- **Afastamento Fracionado (`tipo_periodo = 'horas'`)**: Permite cadastrar afastamentos com hora de início e término (`hora_inicio`, `hora_fim`), possibilitando abonar saídas antecipadas, consultas médicas ou convocações pontuais.
+- **Cálculo Preciso de Horas**: Dedução proporcional das horas abonadas sem anular o restante do expediente trabalhado no dia, com integração automática na Folha de Ponto, Grade de Escalas e Portal do Servidor.
+
+### 🕐 Reconciliação em Massa de Marcações REP & Duplo Vínculo (v2.2.0)
+- **Resolução de Identidade com Escopo de Unidade**: `fn_servidor_por_identificador_afd` desfaz ambiguidades quando um mesmo CPF possui duplo vínculo funcional ativo no município, associando a batida à unidade correta do relógio.
+- **Auto-Reconciliação Instantânea**: A ingestão de arquivos AFD do REP dispara automaticamente a reconciliação das marcações, atualizando o espelho de ponto em tempo real.
+- **Reprocessamento Retroativo de Batidas Órfãs**: Rotina que recupera e vincula automaticamente marcações históricas do AFD assim que novos servidores são cadastrados ou vinculados.
+
+### 🔄 Coletor REP v0.7.0 & Automação de Higiene
+- **Higiene Automatizada em Background**: O ciclo do coletor (5 min) executa remoções pendentes no hardware REP e confirma a exclusão por relistagem sem exigir intervenção do usuário.
+- **App de Bandeja (Tray) com Menu Completo**: Ações rápidas no Windows para sincronização forçada, disparo de rotina de higiene e status em tempo real.
+- **CI/CD no GitHub Actions**: Pipeline automatizado que compila os binários Go para Windows e executa checagens estáticas de tipos e lint a cada push.
 
 ### ⚙️ Correções de Presença, Isolamento do Sobreaviso & Intervalo Flexível (v1.21.0)
 - **Intervalo Flexível por Servidor**: nova flag no cadastro que libera o gozo do intervalo em **qualquer horário**, mesmo em unidades de intervalo **Rígido**, desde que a carga horária líquida seja cumprida. A saída passa a ser calculada dinamicamente (`fim previsto + excedente do intervalo`): jornada 08h–18h com 2h previstas, saindo 14h e voltando 17h, encerra às 19h.

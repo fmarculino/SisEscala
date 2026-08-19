@@ -2,6 +2,44 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.2.0] - 2026-08-19
+
+Verso oficial da Folha de Ponto com justificativas e anexo de plantão/sobreaviso, suporte a afastamentos fracionados (por horas), auto-reconciliação em massa de marcações REP com resolução por duplo vínculo, e coletor REP v0.7.0 com higiene automatizada em segundo plano e CI no GitHub Actions.
+
+### Added
+- **Verso da Folha de Ponto com Detalhamento de Justificativas (`FolhaPontoEditor.tsx`)**:
+  - Implementado o verso oficial da Folha de Ponto com quadro analítico de ocorrências, justificativas registradas, atestados, declarações e histórico completo para prestação de contas aos órgãos fiscalizadores.
+  - Carregamento administrativo seguro via `createAdminClient` no backend (`actions.ts`), garantindo exibição fidedigna sem recortes indevidos por políticas de RLS de visualização.
+- **Relatório Anexo de Plantão e Sobreaviso (`RelatorioPlantaoSobreavisoAnexo.tsx`)**:
+  - Novo relatório gerado em PDF e visualização para impressão consolidando plantões extras e escalas de sobreaviso cumpridas no mês.
+  - Integração com `justificativas_eventos` e enriquecimento automático com código e descrição oficial do `dicionario_turnos`.
+- **Afastamentos Fracionados por Horas (`20260817210000_add_afastamento_por_horas.sql`)**:
+  - Suporte completo no banco de dados e na interface para afastamentos com definição de horários de início e fim (`tipo_periodo = 'horas'`, `hora_inicio`, `hora_fim`).
+  - Abono parcial inteligente: permite registrar saídas antecipadas, consultas médicas ou convocações pontuais sem anular o dia inteiro de trabalho, calculando com precisão as horas abonadas e preservando o cumprimento da jornada no espelho de ponto e no Portal do Servidor.
+- **Reprocessamento Retroativo e Auto-Vínculo de Batidas Órfãs (`fn_reparse_afd_dispositivo` e `fn_reprocessar_marcacoes_orfas_dispositivo`)**:
+  - Ao vincular ou cadastrar um servidor no relógio ou no sistema, o SisEscala agora reprocessa retroativamente todas as batidas históricas daquele CPF/PIS no AFD que constavam como órfãs, vinculando-as ao servidor e disparando a auto-reconciliação das escalas do mês.
+- **Consulta Otimizada de Batidas do Mês (`fn_marcacoes_mes`)**:
+  - Nova RPC de alta performance (`20260818005000_add_fn_marcacoes_mes.sql`) consumida pelo `ScaleGrid.tsx` para carregar a origem e status real de todas as marcações mensais dos servidores da unidade sem gargalos de RLS.
+- **Coletor REP v0.7.0 & Automação de Higiene de Cadastros**:
+  - A rotina `HigienizarRemocoes` agora é executada automaticamente pelo ciclo de background do coletor a cada 5 minutos: cadastros marcados para exclusão no SisEscala são removidos do hardware REP e validados por relistagem sem intervenção manual.
+  - Novos atalhos no menu da bandeja do Windows (Tray) para forçar sincronização imediata, disparo de higiene e verificação de atualizações.
+- **Pipeline de Integração Contínua (CI) no GitHub Actions (`.github/workflows/ci.yml`)**:
+  - Automação de validações a cada push na branch `main`: compilação de binários Go para Windows (`coletor-rep-cli.exe` e `coletor-rep-tray.exe`), checagem estática de tipos com TypeScript (`tsc --noEmit`), ESLint e teste de build do Next.js.
+- **Governança e Permissões RLS Ampliadas**:
+  - Perfil `ass_adm` (Assistente Administrativo) habilitado em políticas RLS para relatórios consolidados, frequência, distribuição, auditoria e visualização de escalas (`20260818170000_allow_ass_adm_in_rls_policies.sql`).
+  - Perfil `rh` (`rh_geral` e `rh_unidade`) com permissões granulares em RLS para atualizações cadastrais de servidores e validações server-side reforçadas (`20260818100000_allow_rh_roles_in_servidores_rls.sql`).
+
+### Fixed
+- **Resolução de Identidade do Servidor no REP com Escopo de Unidade para Duplo Vínculo (`20260818200000_fix_rep_identity_and_auto_reconcile_all_punches.sql`)**:
+  - Correção na função `fn_servidor_por_identificador_afd` para considerar o escopo da unidade do dispositivo REP, resolvendo ambiguidades em municípios onde o mesmo servidor possui dois vínculos funcionais ativos com o mesmo CPF.
+  - Ingestão de AFD passa a acionar a auto-reconciliação imediata de marcações (`fn_reconciliar_marcacoes_dia`), eliminando a defasagem entre o recebimento da batida e o espelho de ponto.
+- **Árvore Hierárquica de Setores em Justificativas**:
+  - Ajustada a formatação dos seletores de setor na tela de justificativas (`JustificativasClient.tsx`), organizando subsetores com indentação visual baseada em `parent_id`.
+- **Navegação e Sincronização no `ScaleGrid`**:
+  - Correção no fluxo de navegação da célula da escala direto para a geração da Folha de Ponto e sincronização em tempo real de eventos e batidas.
+- **Seleção de Colunas em `dicionario_turnos`**:
+  - Corrigida a consulta em `actions.ts` da folha de ponto para buscar apenas as colunas existentes (`codigo`, `descricao`), eliminando exceções no carregamento de turnos.
+
 ## [2.1.0] - 2026-08-17
 
 Identidade do relógio deixa de assumir CPF, e o push de cadastro passa a rodar sozinho.
