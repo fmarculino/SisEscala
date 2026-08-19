@@ -103,6 +103,41 @@ Restam 15 casos de batida em dois passos, de dois tipos — nenhum deles o bug a
   resultado gravado passa a depender de qual dia foi reconciliado por último. Não corrompe dia
   isolado. Fica como pendência conhecida.
 
+## O segundo bug, que escondia a correção do primeiro
+
+Aplicada a migration e reconciliada a `escala_diaria`, **a grade ficou certa e a folha continuou
+errada** — e "Sincronizar" não adiantava.
+
+`folha_ponto.registros` é um **snapshot jsonb**: não lê `escala_diaria` na hora de exibir. Quem
+leva o horário da escala para a folha é a geração/sincronização — e as quatro cópias dela
+preservavam **tudo** que já estivesse preenchido:
+
+```ts
+const shouldPreserve = true                 // executeGerarFolhaPonto, gerarFolhaPontoServidor
+const shouldPreserve = !scaleChangedForDay  // sincronizarFolhaPonto(+Servidor) — o mesmo, quando
+                                            // a escala não mudou, que é justamente este caso
+```
+
+O comentário acima da linha dizia *"Check manual edits in existing record to preserve them"* — a
+intenção era preservar **edição humana**, mas o código preservava também o valor derivado da
+escala. Consequência: horário corrigido no banco **nunca mais** chegava à folha.
+
+**A correção** é `src/utils/folha/preservacao.ts`, fonte única usada pelas quatro cópias:
+
+| origem do campo | o que acontece ao regerar/sincronizar |
+|---|---|
+| `manual`, `ajuste_coordenador`, `ajuste_servidor` | **preserva** — alguém decidiu aquilo |
+| `real`, `pre_assinalado`, nulo, ausente | **regera** a partir de `escala_diaria` |
+
+Preservar `real` parece conservador ("não mexer em batida"), mas é o oposto: `real` é exatamente
+o valor que a `escala_diaria` manda, e congelá-lo impede a folha de receber a correção de uma
+batida mal alocada. Batida real continua protegida onde importa — `salvarFolhaPonto` recusa que
+quem não é `super_admin` **altere** um horário de origem `real`.
+
+Quatro cópias, um critério só, pelo mesmo motivo que criou `sequenciaDia.ts`: elas já divergiram
+entre si antes. Trocadas por `scratchpad/aplica_preservacao.js`, que aborta se a contagem de
+ocorrências divergir (16 = 4 campos × 4 cópias).
+
 ## Como aplicar
 
 1. Aplicar `supabase/migrations/20260819180000_dono_da_batida_e_piso_de_meia_noite.sql`.
@@ -114,3 +149,21 @@ Restam 15 casos de batida em dois passos, de dois tipos — nenhum deles o bug a
 3. `node scratchpad/portao_dono_piso.js --aplicar` — reconcilia esses dias. Isto **mexe em ponto
    já projetado**: é passo separado e deliberado.
 4. A `folha_ponto` já gerada não se atualiza sozinha — usar "Sincronizar" na folha do servidor.
+   **Isso só funciona a partir do deploy que traz `src/utils/folha/preservacao.ts`**; antes dele,
+   sincronizar preservava o valor errado.
+
+## Resultado da aplicação (19/08/2026)
+
+Migration aplicada em produção pelo usuário; reconciliação rodada em agosto/2026 com
+`portao_dono_piso.js --aplicar`: **104 dias reconciliados, 0 falhas**. Uma segunda conferência
+acusou 7 dias que não convergem — são o caso conhecido do bloco que cruza a meia-noite, alocado
+tanto no dia dele quanto no seguinte (por isso o script roda em ordem crescente de data e
+reconfere; a terceira rodada não muda mais nada).
+
+Caso que originou tudo, depois da reconciliação:
+
+| dia | antes | depois |
+|---|---|---|
+| 17 | 08:09 → 12:34 (do dia 18) | 08:09 → 22:22 |
+| 18 | 07:34 → 21:20 | 07:34 → 21:20 (inalterado) |
+| 19 | **21:20 (do dia 18)** → int. 08:23 | **08:23**, demais passos pendentes |

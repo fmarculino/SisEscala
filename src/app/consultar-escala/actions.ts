@@ -8,6 +8,7 @@ import { resolverMarcacaoDoDia, COLUNAS_PRESENCA_FOLHA } from '@/utils/folha/ori
 import { podePreAssinalarIntervalo } from '@/utils/folha/preAssinalacao'
 import { resolverFaltaAutomatica, isFaltaDefinitiva } from '@/utils/folha/faltaAutomatica'
 import { TERMO_ATIVACAO, TERMO_DESATIVACAO, TERMO_VERSAO } from '@/utils/avisoPonto'
+import { preservarCampo } from '@/utils/folha/preservacao'
 
 
 export async function findServidorByMatricula(matricula: string) {
@@ -1256,7 +1257,7 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
 
         // 1. Entrance Time
         // 1. Entrance Time
-        if (shouldPreserve && registroExistente?.entrada) {
+        if (shouldPreserve && preservarCampo(registroExistente, 'entrada')) {
           registro.entrada = registroExistente.entrada
           registro.origem_entrada = registroExistente.origem_entrada || 'manual'
         } else if (hasRealEntrada && realEntradaTime) {
@@ -1268,7 +1269,7 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
         }
 
         // 2. Exit Time
-        if (shouldPreserve && registroExistente?.saida) {
+        if (shouldPreserve && preservarCampo(registroExistente, 'saida')) {
           registro.saida = registroExistente.saida
           registro.origem_saida = registroExistente.origem_saida || 'manual'
         } else if (hasRealSaida && realSaidaTime) {
@@ -1287,7 +1288,7 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
           }
           
           if (targetSaidaMin > officialSaidaIntervaloMin) {
-            if (shouldPreserve && registroExistente?.saida_intervalo) {
+            if (shouldPreserve && preservarCampo(registroExistente, 'saida_intervalo')) {
               registro.saida_intervalo = registroExistente.saida_intervalo
               registro.origem_saida_intervalo = registroExistente.origem_saida_intervalo || 'manual'
             } else if (hasRealIntervaloSaida && realIntervaloSaidaTime) {
@@ -1301,7 +1302,7 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
               registro.origem_saida_intervalo = 'pre_assinalado'
             }
 
-            if (shouldPreserve && registroExistente?.retorno_intervalo) {
+            if (shouldPreserve && preservarCampo(registroExistente, 'retorno_intervalo')) {
               registro.retorno_intervalo = registroExistente.retorno_intervalo
               registro.origem_retorno_intervalo = registroExistente.origem_retorno_intervalo || 'manual'
             } else if (hasRealIntervaloRetorno && realIntervaloRetornoTime) {
@@ -1794,7 +1795,7 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
         }
 
         // 1. Entrance Time
-        if (shouldPreserve && registroExistente?.entrada) {
+        if (shouldPreserve && preservarCampo(registroExistente, 'entrada')) {
           registro.entrada = registroExistente.entrada
           registro.origem_entrada = registroExistente.origem_entrada || 'manual'
         } else if (hasRealEntrada && realEntradaTime) {
@@ -1806,7 +1807,7 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
         }
 
         // 2. Exit Time
-        if (shouldPreserve && registroExistente?.saida) {
+        if (shouldPreserve && preservarCampo(registroExistente, 'saida')) {
           registro.saida = registroExistente.saida
           registro.origem_saida = registroExistente.origem_saida || 'manual'
         } else if (hasRealSaida && realSaidaTime) {
@@ -1825,7 +1826,7 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
           }
           
           if (targetSaidaMin > officialSaidaIntervaloMin) {
-            if (shouldPreserve && registroExistente?.saida_intervalo) {
+            if (shouldPreserve && preservarCampo(registroExistente, 'saida_intervalo')) {
               registro.saida_intervalo = registroExistente.saida_intervalo
               registro.origem_saida_intervalo = registroExistente.origem_saida_intervalo || 'manual'
             } else if (hasRealIntervaloSaida && realIntervaloSaidaTime) {
@@ -1839,7 +1840,7 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
               registro.origem_saida_intervalo = 'pre_assinalado'
             }
 
-            if (shouldPreserve && registroExistente?.retorno_intervalo) {
+            if (shouldPreserve && preservarCampo(registroExistente, 'retorno_intervalo')) {
               registro.retorno_intervalo = registroExistente.retorno_intervalo
               registro.origem_retorno_intervalo = registroExistente.origem_retorno_intervalo || 'manual'
             } else if (hasRealIntervaloRetorno && realIntervaloRetornoTime) {

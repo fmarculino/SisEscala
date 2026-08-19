@@ -10,6 +10,7 @@ import { podePreAssinalarIntervalo } from '@/utils/folha/preAssinalacao'
 import { resolverFaltaAutomatica, isFaltaDefinitiva } from '@/utils/folha/faltaAutomatica'
 import { normalizarRegistrosFolha } from '@/utils/folha/normalizarHorarios'
 import { sequenciarDia, PASSOS_FOLHA } from '@/utils/folha/sequenciaDia'
+import { preservarCampo } from '@/utils/folha/preservacao'
 
 // Helper: Get user profile with unit/sector permissions
 async function getUserProfile(supabase: any): Promise<UserProfile> {
@@ -608,7 +609,7 @@ export async function executeGerarFolhaPonto(
         }
 
         // 1. Entrance Time
-        if (shouldPreserve && registroExistente?.entrada) {
+        if (shouldPreserve && preservarCampo(registroExistente, 'entrada')) {
           registro.entrada = registroExistente.entrada
           registro.origem_entrada = registroExistente.origem_entrada || 'manual'
         } else if (hasRealEntrada && realEntradaTime) {
@@ -620,7 +621,7 @@ export async function executeGerarFolhaPonto(
         }
 
         // 2. Exit Time
-        if (shouldPreserve && registroExistente?.saida) {
+        if (shouldPreserve && preservarCampo(registroExistente, 'saida')) {
           registro.saida = registroExistente.saida
           registro.origem_saida = registroExistente.origem_saida || 'manual'
         } else if (hasRealSaida && realSaidaTime) {
@@ -640,7 +641,7 @@ export async function executeGerarFolhaPonto(
           
           if (targetSaidaMin > officialSaidaIntervaloMin) {
             // Lunch out
-            if (shouldPreserve && registroExistente?.saida_intervalo) {
+            if (shouldPreserve && preservarCampo(registroExistente, 'saida_intervalo')) {
               registro.saida_intervalo = registroExistente.saida_intervalo
               registro.origem_saida_intervalo = registroExistente.origem_saida_intervalo || 'manual'
             } else if (hasRealIntervaloSaida && realIntervaloSaidaTime) {
@@ -655,7 +656,7 @@ export async function executeGerarFolhaPonto(
             }
 
             // Lunch return
-            if (shouldPreserve && registroExistente?.retorno_intervalo) {
+            if (shouldPreserve && preservarCampo(registroExistente, 'retorno_intervalo')) {
               registro.retorno_intervalo = registroExistente.retorno_intervalo
               registro.origem_retorno_intervalo = registroExistente.origem_retorno_intervalo || 'manual'
             } else if (hasRealIntervaloRetorno && realIntervaloRetornoTime) {
@@ -1289,7 +1290,7 @@ export async function sincronizarFolhaPonto(folhaId: string) {
 
         // 1. Entrance Time
         // 1. Entrance Time
-        if (shouldPreserve && registroExistente?.entrada) {
+        if (shouldPreserve && preservarCampo(registroExistente, 'entrada')) {
           registro.entrada = registroExistente.entrada
           registro.origem_entrada = registroExistente.origem_entrada || 'manual'
         } else if (hasRealEntrada && realEntradaTime) {
@@ -1301,7 +1302,7 @@ export async function sincronizarFolhaPonto(folhaId: string) {
         }
 
         // 2. Exit Time
-        if (shouldPreserve && registroExistente?.saida) {
+        if (shouldPreserve && preservarCampo(registroExistente, 'saida')) {
           registro.saida = registroExistente.saida
           registro.origem_saida = registroExistente.origem_saida || 'manual'
         } else if (hasRealSaida && realSaidaTime) {
@@ -1320,7 +1321,7 @@ export async function sincronizarFolhaPonto(folhaId: string) {
           }
 
           if (targetSaidaMin > officialSaidaIntervaloMin) {
-            if (shouldPreserve && registroExistente?.saida_intervalo) {
+            if (shouldPreserve && preservarCampo(registroExistente, 'saida_intervalo')) {
               registro.saida_intervalo = registroExistente.saida_intervalo
               registro.origem_saida_intervalo = registroExistente.origem_saida_intervalo || 'manual'
             } else if (hasRealIntervaloSaida && realIntervaloSaidaTime) {
@@ -1334,7 +1335,7 @@ export async function sincronizarFolhaPonto(folhaId: string) {
               registro.origem_saida_intervalo = 'pre_assinalado'
             }
 
-            if (shouldPreserve && registroExistente?.retorno_intervalo) {
+            if (shouldPreserve && preservarCampo(registroExistente, 'retorno_intervalo')) {
               registro.retorno_intervalo = registroExistente.retorno_intervalo
               registro.origem_retorno_intervalo = registroExistente.origem_retorno_intervalo || 'manual'
             } else if (hasRealIntervaloRetorno && realIntervaloRetornoTime) {
@@ -2010,6 +2011,43 @@ export async function checkIfFolhaHasPendingPastTimes(folha: any, escala: any, t
   return false
 }
 
+/**
+ * Janela prevista de UM turno de plantao/extra, para o anexo — "13:00 as 19:00".
+ *
+ * O anexo mostrava so o codigo e a carga ("T (6h)"), que nao diz quando o plantao comeca. Quem
+ * responde isso e a cadeia de precedencia da armadilha 4 do CLAUDE.md; aqui usam-se os DOIS
+ * primeiros niveis, que sao os que valem para plantao:
+ *
+ *   nivel 1  escala_diaria.hora_inicio_prevista  (o coordenador informou ao escalar — e o que a
+ *            modal "Horario do turno T" grava, e vence todas as demais regras)
+ *   nivel 2  dicionario_turnos.horario_inicio    (os 27 codigos ancorados; T = 13:00)
+ *
+ * Nao usa fn_blocos_previstos_dia DE PROPOSITO: ela FUNDE turnos contiguos (armadilha 6), entao
+ * para um Regular 07:00-13:00 seguido de Plantao 13:00-19:00 ela devolve um bloco unico
+ * 07:00->19:00 — exatamente o horario do expediente que nao deve aparecer aqui.
+ *
+ * Sem nenhum dos dois niveis (codigo Classe B sem hora informada), cai no rotulo antigo: melhor
+ * mostrar "T (6h)" do que inventar um inicio.
+ */
+function formatarJanelaPrevista(horaInicioPrevista: string | null | undefined, turno: any): string {
+  const rotuloAntigo = turno?.codigo
+    ? `${turno.codigo} (${turno.horas_computadas || 12}h)`
+    : `${turno?.horas_computadas || 12}h`
+
+  const inicio = horaInicioPrevista || turno?.horario_inicio
+  const horas = Number(turno?.horas_computadas)
+  if (!inicio || !Number.isFinite(horas) || horas <= 0) return rotuloAntigo
+
+  const [h, m] = String(inicio).split(':')
+  const iniMin = parseInt(h, 10) * 60 + parseInt(m || '0', 10)
+  if (!Number.isFinite(iniMin)) return rotuloAntigo
+
+  // O fim pode passar da meia-noite (plantao noturno): o modulo mantem a hora do relogio.
+  const fimMin = (iniMin + Math.round(horas * 60)) % 1440
+  const hhmm = (min: number) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`
+  return `${hhmm(iniMin)} às ${hhmm(fimMin)}`
+}
+
 export async function getDadosPlantoesSobreavisosServidor(servidorId: string, mes: number, ano: number) {
   try {
     const supabase = await createAdminClient()
@@ -2066,11 +2104,11 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
       const { data: dData, error: dErr } = await supabase
         .from('escala_diaria')
         .select(`
-          id, dia, categoria, escala_mensal_id, dicionario_turnos_id,
+          id, dia, categoria, escala_mensal_id, dicionario_turnos_id, hora_inicio_prevista,
           presenca_entrada_em, presenca_saida_em,
           presenca_confirmada, presenca_entrada_origem, presenca_saida_origem,
           presenca_entrada_manual, presenca_saida_manual,
-          dicionario_turnos(id, codigo, descricao, horas_computadas, tipo, slots)
+          dicionario_turnos(id, codigo, descricao, horas_computadas, tipo, slots, horario_inicio)
         `)
         .in('escala_mensal_id', escalaMensalIds)
         .order('dia', { ascending: true })
@@ -2143,7 +2181,7 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
       if (cat.includes('plant') || cat.includes('extra')) {
         const dateObj = new Date(ano, mes - 1, ed.dia)
         const turnoDesc = turno?.descricao || turno?.codigo || ed.categoria || 'Plantão'
-        const horarioPrevisto = turno?.codigo ? `${turno.codigo} (${turno.horas_computadas || 12}h)` : `${turno?.horas_computadas || 12}h`
+        const horarioPrevisto = formatarJanelaPrevista(ed.hora_inicio_prevista, turno)
 
         plantoes.push({
           dia: ed.dia,

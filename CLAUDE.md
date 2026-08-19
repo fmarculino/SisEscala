@@ -732,6 +732,34 @@ autorizado pelo Art. 82, parágrafo único. A vedação 2 é o *sistema* marcar 
 `fn_confirmar_presenca` e `fn_confirmar_presenca_manual` **não foram alteradas** por nada disso —
 todo o comportamento novo entra por funções que as envolvem (armadilha 1).
 
+### A folha é um snapshot, e preservar demais congela a correção (19/08/2026)
+
+⚠️ **`folha_ponto.registros` é jsonb, não uma view de `escala_diaria`.** Corrigir a escala **não**
+corrige a folha: quem leva o horário de uma para a outra são as **quatro** cópias da geração
+(`executeGerarFolhaPonto`, `sincronizarFolhaPonto`, `gerarFolhaPontoServidor`,
+`sincronizarFolhaPontoServidor`). Em 19/08/2026 todas preservavam **tudo** que já estivesse
+preenchido (`shouldPreserve = true`, ou `!scaleChangedForDay`, que dá no mesmo quando a escala não
+mudou) — então o horário corrigido no banco nunca mais chegava à folha, e clicar "Sincronizar"
+reafirmava o valor errado. O comentário acima da linha dizia "preserve manual edits"; o código
+preservava também o valor derivado.
+
+Fonte única desde então: **`src/utils/folha/preservacao.ts`**.
+
+| origem do campo | ao regerar/sincronizar |
+|---|---|
+| `manual` · `ajuste_coordenador` · `ajuste_servidor` | **preserva** — alguém decidiu aquilo |
+| `real` · `pre_assinalado` · nulo | **regera** a partir de `escala_diaria` |
+
+⚠️ **Preservar `real` parece conservador e é o oposto.** `real` é justamente o que a
+`escala_diaria` manda; congelá-lo impede a folha de receber a correção de uma batida mal alocada.
+A proteção da batida real vive noutro lugar e continua: `salvarFolhaPonto` recusa que quem não é
+`super_admin` **altere** um horário de origem `real`.
+
+⚠️ **Ao mexer em qualquer regra da geração de folha, mexa nas quatro cópias pelo mesmo critério** —
+duas ficam em `folha-ponto/actions.ts` e duas em `consultar-escala/actions.ts`. Elas já divergiram
+entre si antes (foi o que criou `sequenciaDia.ts`). Use um script que conte as ocorrências e aborte
+na divergência (`scratchpad/aplica_preservacao.js` é o modelo).
+
 ### Seleção da batida real na validação manual (v1.26.0)
 
 Plano em [`docs/planos/2026-08-09-selecao-de-batida-real-na-validacao-manual.md`](docs/planos/2026-08-09-selecao-de-batida-real-na-validacao-manual.md),

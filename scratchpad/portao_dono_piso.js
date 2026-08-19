@@ -57,6 +57,10 @@ const ATE = arg('ate') || '2026-08-31'
   console.log('\ndivergencias: ' + divs.length + ' em ' + dias.size + ' dias' + (erros ? '  (' + erros + ' servidores com erro)' : ''))
   for (const t of Object.keys(porTipo).sort()) console.log('   ' + t + ': ' + porTipo[t])
 
+  const dump = path.join(__dirname, 'portao_dono_piso_divergencias.json')
+  fs.writeFileSync(dump, JSON.stringify(divs.map(d => ({ ...d, nome: SN.get(d.servidor_id) })), null, 1))
+  console.log('divergencias completas gravadas em ' + dump)
+
   console.log('\nprimeiros 25 dias divergentes:')
   let n = 0
   for (const [k, lista] of dias) {
@@ -68,14 +72,37 @@ const ATE = arg('ate') || '2026-08-31'
 
   if (!APLICAR) { console.log('\nDRY-RUN: nada foi escrito. Rode com --aplicar para reconciliar estes dias.'); return }
 
-  console.log('\nreconciliando ' + dias.size + ' dias...')
-  let ok = 0, falhou = 0
-  for (const k of dias.keys()) {
-    const [sid, data] = k.split('|')
-    try { await rpc('fn_reconciliar_marcacoes_dia', { p_servidor_id: sid, p_data: data }); ok++ }
-    catch (e) { falhou++; console.error('  ! ' + (SN.get(sid) || sid) + ' ' + data + ': ' + e.message.slice(0, 120)) }
+  // Um bloco que cruza a meia-noite pertence as linhas do dia em que COMECA, mas so recebe a
+  // alocacao completa ao processar o dia SEGUINTE. Por isso a ordem e crescente por data, e
+  // por isso rodamos ate a conferencia parar de acusar divergencia (no maximo 3 rodadas).
+  const reconciliar = async chaves => {
+    let ok = 0, falhou = 0
+    for (const k of Array.from(chaves).sort()) {
+      const [sid, data] = k.split('|')
+      try { await rpc('fn_reconciliar_marcacoes_dia', { p_servidor_id: sid, p_data: data }); ok++ }
+      catch (e) { falhou++; console.error('  ! ' + (SN.get(sid) || sid) + ' ' + data + ': ' + e.message.slice(0, 120)) }
+    }
+    return { ok, falhou }
   }
-  console.log('reconciliados: ' + ok + ' | falhas: ' + falhou)
+
+  console.log('\nrodada 1: reconciliando ' + dias.size + ' dias (ordem crescente)...')
+  let r = await reconciliar(dias.keys())
+  console.log('  reconciliados: ' + r.ok + ' | falhas: ' + r.falhou)
+
+  for (let rodada = 2; rodada <= 3; rodada++) {
+    const restantes = new Set()
+    for (const sid of servidores) {
+      try {
+        const d = await rpc('fn_conferir_reconciliacao', { p_data_inicio: DE, p_data_fim: ATE, p_servidor_id: sid })
+        for (const x of d) restantes.add(x.servidor_id + '|' + x.data)
+      } catch (e) { /* ja reportado na conferencia inicial */ }
+    }
+    console.log('\nconferencia apos rodada ' + (rodada - 1) + ': ' + restantes.size + ' dias ainda divergentes')
+    if (!restantes.size) break
+    console.log('rodada ' + rodada + ': reconciliando ' + restantes.size + ' dias...')
+    r = await reconciliar(restantes)
+    console.log('  reconciliados: ' + r.ok + ' | falhas: ' + r.falhou)
+  }
   console.log('\nATENCAO: escala_diaria foi atualizada. A folha_ponto ja gerada NAO se atualiza sozinha —')
   console.log('use "Sincronizar" na folha do servidor para a folha refletir o novo horario.')
 })().catch(e => { console.error('ERRO:', e.message); process.exit(1) })
