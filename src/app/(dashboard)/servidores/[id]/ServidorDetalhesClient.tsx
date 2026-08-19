@@ -315,6 +315,7 @@ export function ServidorDetalhesClient({
               setores={setores}
               cargos={cargos}
               isSuperAdmin={isSuperAdmin}
+              escalas={escalas}
             />
           </div>
         )}
