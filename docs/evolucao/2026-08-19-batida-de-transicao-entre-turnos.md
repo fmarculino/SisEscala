@@ -112,14 +112,12 @@ Antes, as duas linhas tinham `07:04 → 19:09` e a folha cobrava 6h de hora extr
 
 - **6 dias não convergem** na conferência: bloco que cruza a meia-noite, alocado tanto no dia dele
   quanto no seguinte. Já registrado no diário do dono/piso.
-- **9 blocos de agosto têm a janela de intervalo FORA do próprio bloco** — todos plantão noturno
-  `19:00 → 07:00` com intervalo previsto às `12:00/14:00`. `fn_blocos_previstos_dia` usa
-  `jornadas.intervalo_inicio_padrao`, que é **hora absoluta**, mesmo para turno que começa às
-  19:00; o fallback relativo (`v_start_min + 240`) só entra quando a jornada não tem padrão.
-  Efeito: a linha do plantão recebe intervalo antes da própria entrada — ICARO HENRIQUE, 18/08,
-  está assim **desde antes desta mudança** (entrada 19:03, intervalo 13:02/13:37, saída 06:55),
-  então não é regressão. Correção: ignorar o intervalo padrão quando ele cai fora da janela do
-  turno e usar o relativo. Não feita nesta rodada.
+- ~~**9 blocos de agosto têm a janela de intervalo FORA do próprio bloco**~~ — **corrigido no
+  mesmo dia** por `20260819220000`, ver
+  [`2026-08-19-intervalo-previsto-dentro-do-turno.md`](2026-08-19-intervalo-previsto-dentro-do-turno.md).
+  Eram todos plantão noturno `19:00 → 07:00` com intervalo previsto às `12:00/14:00`, porque
+  `jornadas.intervalo_*_padrao` é **hora absoluta**. ICARO HENRIQUE, 18/08, estava assim **desde
+  antes desta mudança** (entrada 19:03, intervalo 13:02/13:37, saída 06:55) — não era regressão.
 
 ## Efeito no anexo de plantões
 

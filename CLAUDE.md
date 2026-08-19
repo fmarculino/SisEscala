@@ -1191,6 +1191,20 @@ Vale para **todas** as categorias, inclusive Plantão. No cadastro atual, toda j
 (Plantão/Extra). `ScaleGrid.tsx` espelha essa regra para escolher entre 2 e 4 segmentos — se alterar
 uma ponta, altere a outra.
 
+⚠️ **`jornadas.intervalo_inicio_padrao`/`intervalo_fim_padrao` são HORA ABSOLUTA (12:00), e até
+19/08/2026 valiam para qualquer turno** — inclusive um Plantão `19:00 → 07:00`, cuja janela de
+intervalo nascia *antes da própria entrada*. Medido: 9 dos 3.626 blocos de agosto/2026, todos
+plantão noturno; ICARO HENRIQUE, 18/08, ficou gravado com `entrada 19:03 | intervalo 13:02/13:37 |
+saída 06:55`. `20260819220000` fecha isso em duas etapas — soma um dia quando a hora absoluta
+pertence ao dia seguinte; senão cai para o relativo (`início + 4h`) preservando a **duração** do
+padrão. Diário em
+[`docs/evolucao/2026-08-19-intervalo-previsto-dentro-do-turno.md`](docs/evolucao/2026-08-19-intervalo-previsto-dentro-do-turno.md).
+
+⚠️ **O trecho do intervalo existe em TRÊS sítios** — dois em `fn_confirmar_presenca` (cursor de
+hoje e cursor de ontem) e um em `fn_blocos_previstos_dia`. Corrigir só um lado faz o terminal
+aceitar uma janela e a reconciliação prever outra. Use um gerador com contagem
+(`scratchpad/gen_intervalo_dentro_do_turno.js` é o modelo).
+
 ### 10. O identificador do AFD é CPF com **um** zero à esquerda — ⚠️ **só em alguns relógios**
 
 🚨 **LEIA ISTO ANTES DO RESTO DESTA ARMADILHA (17/08/2026).** "O identificador é CPF" **não é
