@@ -99,20 +99,20 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
       `}</style>
 
       {/* Action Bar (Hidden on Print) */}
-      <div className="flex items-center justify-between gap-4 pb-6 mb-6 border-b border-zinc-200 dark:border-zinc-800 print:hidden">
+      <div className="sticky top-0 z-20 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md flex items-center justify-between gap-4 pb-4 pt-1 mb-6 border-b border-zinc-200 dark:border-zinc-800 print:hidden">
         <div>
-          <h2 className="text-xl font-black uppercase tracking-tight text-zinc-900 dark:text-white flex items-center gap-2">
-            <ShieldCheck className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+          <h2 className="text-lg md:text-xl font-black uppercase tracking-tight text-zinc-900 dark:text-white flex items-center gap-2">
+            <ShieldCheck className="h-6 w-6 text-blue-600 dark:text-blue-400 shrink-0" />
             Demonstrativo de Plantões e Sobreavisos
           </h2>
           <p className="text-xs text-zinc-500 font-medium">Relatório comprobatório anexo à folha de ponto de {nomeMes} / {ano}</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 shrink-0">
           {onClose && (
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-bold rounded-xl border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all"
+              className="px-4 py-2 text-xs font-bold rounded-xl border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 transition-all cursor-pointer"
             >
               Fechar
             </button>
@@ -120,7 +120,7 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
           <button
             type="button"
             onClick={handlePrint}
-            className="px-5 py-2 text-xs font-black rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-600/20 transition-all flex items-center gap-2 uppercase tracking-wider"
+            className="px-5 py-2 text-xs font-black rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-600/20 transition-all flex items-center gap-2 uppercase tracking-wider cursor-pointer"
           >
             <Printer className="h-4 w-4" />
             Imprimir Anexo
