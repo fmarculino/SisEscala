@@ -12,12 +12,31 @@ import { salvarFolhaPonto, verificarDivergenciaEscala, sincronizarFolhaPonto, ge
 import { Modal } from '@/components/ui/Modal'
 import { createClient } from '@/utils/supabase/client'
 import { isFaltaDefinitiva } from '@/utils/folha/faltaAutomatica'
+import { sequenciarDia, temViradaDeDia } from '@/utils/folha/sequenciaDia'
 import { RelatorioPlantaoSobreavisoAnexo } from '@/components/reports/RelatorioPlantaoSobreavisoAnexo'
 
 function formatMinutesToTimeStr(totalMinutes: number): string {
   const h = Math.floor(totalMinutes / 60) % 24
   const m = totalMinutes % 60
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+}
+
+/**
+ * Marcador de que aquela batida ocorreu no dia seguinte ao da linha da folha.
+ *
+ * A linha da folha é o dia em que a JORNADA COMEÇOU — é assim que a Portaria 671/2021 espera o
+ * espelho, com o par entrada→saída inteiro, e é o oposto de partir o plantão em duas linhas
+ * (uma até 00:00, outra a partir de 00:01), que produziria dois registros incompletos.
+ */
+function MarcadorDiaSeguinte({ passo }: { passo: string }) {
+  return (
+    <span
+      className="text-[9px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 px-1 py-0.2 rounded border border-indigo-200 dark:border-indigo-800 ml-0.5 print:text-[8px] print:text-zinc-600 print:border-none print:ml-0.5"
+      title={`Marcação de ${passo} realizada no dia seguinte (jornada que cruza a meia-noite)`}
+    >
+      +1d
+    </span>
+  )
 }
 
 interface FolhaPontoEditorProps {
@@ -372,19 +391,12 @@ export function FolhaPontoEditor({
     for (const r of registros) {
       if (!r.turno_codigo || r.afastamento || r.feriado) continue
 
-      const toMin = (t: string) => {
-        if (!t || !t.includes(':')) return null
-        const [h, m] = t.split(':').map(Number)
-        return h * 60 + m
-      }
-
-      const eMin = toMin(r.entrada)
-      const siMin = toMin(r.saida_intervalo)
-      const riMin = toMin(r.retorno_intervalo)
-      const sMin = toMin(r.saida)
+      // Mesma leitura cronológica da tela e do servidor. Sem ela, plantão que cruza a
+      // meia-noite (18:11 -> 06:00) era barrado aqui como "invertido" e a folha não salvava.
+      const seq = sequenciarDia(r, r.jornada_nome || jornada?.nome)
 
       // Saída do intervalo >= Retorno do intervalo
-      if (siMin !== null && riMin !== null && siMin >= riMin) {
+      if (seq.intervaloInvertido) {
         setAlertModal({
           isOpen: true,
           title: 'Horários Invertidos no Intervalo',
@@ -395,7 +407,7 @@ export function FolhaPontoEditor({
       }
 
       // Entrada >= Saída do intervalo
-      if (eMin !== null && siMin !== null && eMin >= siMin) {
+      if (seq.entradaInvertida) {
         setAlertModal({
           isOpen: true,
           title: 'Horários Invertidos na Entrada',
@@ -406,7 +418,7 @@ export function FolhaPontoEditor({
       }
 
       // Retorno do intervalo >= Saída final
-      if (riMin !== null && sMin !== null && riMin >= sMin) {
+      if (seq.saidaInvertida) {
         setAlertModal({
           isOpen: true,
           title: 'Horários Invertidos na Saída',
@@ -1121,56 +1133,18 @@ export function FolhaPontoEditor({
                   return diff > 6
                 })()
 
-                const toMin = (t: string) => {
-                  if (!t || !t.includes(':')) return null
-                  const [h, m] = t.split(':').map(Number)
-                  return h * 60 + m
-                }
-                const eMin = toMin(r.entrada)
-                const siMin = toMin(r.saida_intervalo)
-                const riMin = toMin(r.retorno_intervalo)
-                const sMin = toMin(r.saida)
+                // Virada de dia (plantão 18h às 06h e afins). Fonte única compartilhada com a
+                // validação de salvarFolhaPonto e com o Auto-Corrigir — as três já divergiram
+                // entre si, pintando vermelho num dia que o save aceitava. Ver sequenciaDia.ts.
+                const seq = sequenciarDia(r, recordJornadaNome)
 
-                // Tratamento inteligente de Jornadas Noturnas / Virada de Dia (ex: 18h às 06h, 19h às 07h)
-                const isJornadaNoturna = (() => {
-                  if (recordJornadaNome) {
-                    const match = recordJornadaNome.match(/(\d{1,2})(?:[hH:](\d{2})?)?\s*(?:às|as|to|-|a)\s*(\d{1,2})(?:[hH:](\d{2})?)?/i)
-                    if (match) {
-                      const sH = parseInt(match[1], 10)
-                      const eH = parseInt(match[3], 10)
-                      if (eH <= sH) return true
-                    }
-                  }
-                  if (eMin !== null && eMin >= 12 * 60) return true
-                  return false
-                })()
+                const isEntradaInvertida = seq.entradaInvertida
+                const isIntervaloInvertido = seq.intervaloInvertido
+                const isSaidaInvertida = seq.saidaInvertida
 
-                let siAdj = siMin
-                if (isJornadaNoturna && eMin !== null && siMin !== null && siMin < eMin) {
-                  siAdj = siMin + 1440
-                }
-
-                let riAdj = riMin
-                const refSi = siAdj ?? eMin
-                if (isJornadaNoturna && refSi !== null && riMin !== null && riMin < (refSi % 1440)) {
-                  riAdj = riMin + 1440
-                } else if (isJornadaNoturna && siAdj !== null && siAdj >= 1440 && riMin !== null) {
-                  riAdj = riMin + 1440
-                }
-
-                let sAdj = sMin
-                const refRi = riAdj ?? siAdj ?? eMin
-                if (isJornadaNoturna && refRi !== null && sMin !== null && sMin < (refRi % 1440)) {
-                  sAdj = sMin + 1440
-                } else if (isJornadaNoturna && refRi !== null && refRi >= 1440 && sMin !== null) {
-                  sAdj = sMin + 1440
-                }
-
-                const isEntradaInvertida = eMin !== null && siAdj !== null && eMin >= siAdj
-                const isIntervaloInvertido = siAdj !== null && riAdj !== null && siAdj >= riAdj
-                const isSaidaInvertida = refRi !== null && sAdj !== null && refRi >= sAdj
-
-                const isSaidaDiaSeguinte = isJornadaNoturna && sAdj !== null && sAdj >= 1440
+                const isSaidaDiaSeguinte = seq.offsetDias.saida > 0
+                const isRetornoDiaSeguinte = seq.offsetDias.retorno_intervalo > 0
+                const isSaidaIntervaloDiaSeguinte = seq.offsetDias.saida_intervalo > 0
 
                 // Arrastar-e-soltar pra reclassificar uma batida real (dia 12 do Fernando: uma
                 // "saída" real que caiu em "saída intervalo" porque ele trabalhou direto). Só
@@ -1252,13 +1226,16 @@ export function FolhaPontoEditor({
                       title={isIntervaloInvertido ? `Inconsistência: Saída Intervalo (${r.saida_intervalo}) >= Retorno (${r.retorno_intervalo})` : (isArrastavel('saida_intervalo') ? 'Arraste para outro passo do dia para corrigir a classificação' : undefined)}
                     >
                       {isWorkDay && recordHasInterval && !r.afastamento && !r.feriado ? (
-                        <input
-                          type="time"
-                          value={r.saida_intervalo || ''}
-                          onChange={(e) => handleCellChange(r.dia, 'saida_intervalo', e.target.value)}
-                          disabled={isPortal || !isEditable || (r.origem_saida_intervalo === 'real' && profile?.role !== 'super_admin')}
-                          className="w-full bg-transparent border-none text-center outline-none font-bold text-zinc-900 dark:text-white font-mono disabled:opacity-50"
-                        />
+                        <div className="relative inline-flex items-center justify-center w-full">
+                          <input
+                            type="time"
+                            value={r.saida_intervalo || ''}
+                            onChange={(e) => handleCellChange(r.dia, 'saida_intervalo', e.target.value)}
+                            disabled={isPortal || !isEditable || (r.origem_saida_intervalo === 'real' && profile?.role !== 'super_admin')}
+                            className="w-full bg-transparent border-none text-center outline-none font-bold text-zinc-900 dark:text-white font-mono disabled:opacity-50"
+                          />
+                          {isSaidaIntervaloDiaSeguinte && r.saida_intervalo && <MarcadorDiaSeguinte passo="saída para o intervalo" />}
+                        </div>
                       ) : (
                         <span className="text-zinc-300 dark:text-zinc-700">-</span>
                       )}
@@ -1275,13 +1252,16 @@ export function FolhaPontoEditor({
                       title={isIntervaloInvertido ? `Inconsistência: Retorno (${r.retorno_intervalo}) <= Saída Intervalo (${r.saida_intervalo})` : (isArrastavel('retorno_intervalo') ? 'Arraste para outro passo do dia para corrigir a classificação' : undefined)}
                     >
                       {isWorkDay && recordHasInterval && !r.afastamento && !r.feriado ? (
-                        <input
-                          type="time"
-                          value={r.retorno_intervalo || ''}
-                          onChange={(e) => handleCellChange(r.dia, 'retorno_intervalo', e.target.value)}
-                          disabled={isPortal || !isEditable || (r.origem_retorno_intervalo === 'real' && profile?.role !== 'super_admin')}
-                          className="w-full bg-transparent border-none text-center outline-none font-bold text-zinc-900 dark:text-white font-mono disabled:opacity-50"
-                        />
+                        <div className="relative inline-flex items-center justify-center w-full">
+                          <input
+                            type="time"
+                            value={r.retorno_intervalo || ''}
+                            onChange={(e) => handleCellChange(r.dia, 'retorno_intervalo', e.target.value)}
+                            disabled={isPortal || !isEditable || (r.origem_retorno_intervalo === 'real' && profile?.role !== 'super_admin')}
+                            className="w-full bg-transparent border-none text-center outline-none font-bold text-zinc-900 dark:text-white font-mono disabled:opacity-50"
+                          />
+                          {isRetornoDiaSeguinte && r.retorno_intervalo && <MarcadorDiaSeguinte passo="retorno do intervalo" />}
+                        </div>
                       ) : (
                         <span className="text-zinc-300 dark:text-zinc-700">-</span>
                       )}
@@ -1306,14 +1286,7 @@ export function FolhaPontoEditor({
                             disabled={isPortal || !isEditable || (r.origem_saida === 'real' && profile?.role !== 'super_admin')}
                             className="w-full bg-transparent border-none text-center outline-none font-bold text-zinc-900 dark:text-white font-mono disabled:opacity-50"
                           />
-                          {isSaidaDiaSeguinte && r.saida && (
-                            <span 
-                              className="text-[9px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 px-1 py-0.2 rounded border border-indigo-200 dark:border-indigo-800 ml-0.5 print:text-[8px] print:text-zinc-600 print:border-none print:ml-0.5"
-                              title="Marcação de saída realizada no dia seguinte (plantão noturno)"
-                            >
-                              +1d
-                            </span>
-                          )}
+                          {isSaidaDiaSeguinte && r.saida && <MarcadorDiaSeguinte passo="saída" />}
                         </div>
                       ) : (
                         <span className="text-zinc-300 dark:text-zinc-700">-</span>
@@ -1376,6 +1349,18 @@ export function FolhaPontoEditor({
             </tbody>
           </table>
         </div>
+
+        {/* Nota de rodapé do marcador de virada de dia.
+            Precisa existir na IMPRESSÃO: a legenda de origens acima é print:hidden, então sem
+            isto o espelho — que é o documento oficial — sairia com um "+1d" sem explicação.
+            Só aparece quando algum dia da competência realmente cruza a meia-noite. */}
+        {registros.some(r => !!r.turno_codigo && temViradaDeDia(r, r.jornada_nome || jornada?.nome)) && (
+          <div className="px-8 pt-3 text-[10px] font-semibold text-zinc-500 print:px-4 print:pt-2 print:text-[8px] print:text-zinc-600">
+            <span className="font-bold">+1d</span> — marcação registrada no dia seguinte ao do
+            início da jornada (plantão que cruza a meia-noite). A linha corresponde ao dia em que
+            a jornada teve início, com o par entrada/saída mantido íntegro.
+          </div>
+        )}
 
         {/* Document Footer (Totalizers) */}
         <div className="p-8 border-t border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 print:bg-white print:border-zinc-300 print:p-4">

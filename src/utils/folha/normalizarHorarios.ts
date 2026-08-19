@@ -9,6 +9,8 @@
  * 5. Recálculo limpo de horas extras sem loops anômalos de múltiplos dias.
  */
 
+import { sequenciarDia } from './sequenciaDia'
+
 export interface NormalizacaoResult {
   registros: any[]
   diasCorrigidos: number
@@ -118,56 +120,47 @@ export function normalizarRegistrosFolha(
 
     if (unicos.length === 0) continue
 
-    const eMin = timeToMin(r.entrada)
-    const siMin = timeToMin(r.saida_intervalo)
-    const riMin = timeToMin(r.retorno_intervalo)
-    const sMin = timeToMin(r.saida)
+    const seq = sequenciarDia(r, jornadaNome)
+    const isInvertido = seq.invertido
 
-    const isPlantaoNoturno = isNoturno || (eMin !== null && eMin >= 12 * 60) || unicos.some(u => u.min >= 12 * 60) && unicos.some(u => u.min < 12 * 60)
-
-    let siAdj = siMin
-    if (isPlantaoNoturno && eMin !== null && siMin !== null && siMin < eMin) siAdj = siMin + 1440
-    let riAdj = riMin
-    const refSi = siAdj ?? eMin
-    if (isPlantaoNoturno && refSi !== null && riMin !== null && riMin < (refSi % 1440)) riAdj = riMin + 1440
-    else if (isPlantaoNoturno && siAdj !== null && siAdj >= 1440 && riMin !== null) riAdj = riMin + 1440
-    let sAdj = sMin
-    const refRi = riAdj ?? siAdj ?? eMin
-    if (isPlantaoNoturno && refRi !== null && sMin !== null && sMin < (refRi % 1440)) sAdj = sMin + 1440
-    else if (isPlantaoNoturno && refRi !== null && refRi >= 1440 && sMin !== null) sAdj = sMin + 1440
-
-    const isInvertido = (
-      (eMin !== null && siAdj !== null && eMin >= siAdj) ||
-      (siAdj !== null && riAdj !== null && siAdj >= riAdj) ||
-      (refRi !== null && sAdj !== null && refRi >= sAdj)
-    )
-
-    const sortMarcacoes = (a: typeof unicos[0], b: typeof unicos[0]) => {
-      if (isPlantaoNoturno) {
-        const valA = a.min >= 12 * 60 ? a.min : a.min + 24 * 60
-        const valB = b.min >= 12 * 60 ? b.min : b.min + 24 * 60
-        return valA - valB
-      }
-      return a.min - b.min
-    }
+    /**
+     * Reordenacao por relogio, usada SO onde ja se sabe que o dia esta invertido.
+     *
+     * `isInvertido` e a licenca: um dia que cruza a meia-noite de forma legitima nunca chega
+     * aqui, porque sequenciarDia leu a virada e devolveu invertido = false. Onde nao ha virada,
+     * ordenar por minuto bruto e a correcao certa — e continua sendo o comportamento que existia
+     * antes de 64d8863 para o dia diurno embaralhado.
+     *
+     * As duas versoes anteriores erraram lados opostos disto. Antes de 64d8863 o pivo das 12:00
+     * so valia quando o NOME da jornada dizia noturna, entao Plantao N sobre jornada diurna nao
+     * era coberto. Em 64d8863 o pivo passou a valer sempre que o dia tivesse uma marcacao antes
+     * e outra depois do meio-dia — todo dia de trabalho normal —, e 08:00 -> 17:00 virava
+     * 17:00 -> 08:00 carregando a origem 'real' junto. Ver o cabecalho de sequenciaDia.
+     */
+    const ordenarPassos = (lista: typeof unicos): typeof unicos =>
+      [...lista].sort((a, b) => a.min - b.min)
 
     // Caso 1: Apenas 2 horários no dia (Entrada e Saída Direta)
     // Se foram distribuídos em Entrada e Saída_Intervalo, mover Saída_Intervalo para Saída Final
     if (unicos.length === 2) {
-      unicos.sort(sortMarcacoes)
+      // Diferente dos casos 3 e 4, este ramo roda em TODO dia de 2 batidas — o trabalho dele e
+      // consolidar `saida_intervalo` em `saida`, nao reordenar. Por isso a ordenacao e
+      // condicionada aqui: sem inversao provada, a ordem das colunas fica como esta. Era a falta
+      // deste guard que deixava o pivo de 64d8863 inverter jornada diurna intacta.
+      const ordenados = isInvertido ? ordenarPassos(unicos) : unicos
 
       const antesEntrada = r.entrada
       const antesSaida = r.saida
       const antesSi = r.saida_intervalo
 
-      r.entrada = unicos[0].time
-      r.origem_entrada = unicos[0].origem
+      r.entrada = ordenados[0].time
+      r.origem_entrada = ordenados[0].origem
       r.saida_intervalo = null
       r.origem_saida_intervalo = null
       r.retorno_intervalo = null
       r.origem_retorno_intervalo = null
-      r.saida = unicos[1].time
-      r.origem_saida = unicos[1].origem
+      r.saida = ordenados[1].time
+      r.origem_saida = ordenados[1].origem
 
       if (antesEntrada !== r.entrada || antesSaida !== r.saida || antesSi !== r.saida_intervalo) {
         diasCorrigidos++
@@ -179,16 +172,16 @@ export function normalizarRegistrosFolha(
     }
     // Caso 2: 4 horários no dia (Entrada, Saída Int, Retorno Int, Saída Final)
     else if (unicos.length === 4 && isInvertido) {
-      unicos.sort(sortMarcacoes)
+      const ordenados = ordenarPassos(unicos)
 
-      r.entrada = unicos[0].time
-      r.origem_entrada = unicos[0].origem
-      r.saida_intervalo = unicos[1].time
-      r.origem_saida_intervalo = unicos[1].origem
-      r.retorno_intervalo = unicos[2].time
-      r.origem_retorno_intervalo = unicos[2].origem
-      r.saida = unicos[3].time
-      r.origem_saida = unicos[3].origem
+      r.entrada = ordenados[0].time
+      r.origem_entrada = ordenados[0].origem
+      r.saida_intervalo = ordenados[1].time
+      r.origem_saida_intervalo = ordenados[1].origem
+      r.retorno_intervalo = ordenados[2].time
+      r.origem_retorno_intervalo = ordenados[2].origem
+      r.saida = ordenados[3].time
+      r.origem_saida = ordenados[3].origem
 
       diasCorrigidos++
       detalhes.push({
@@ -198,15 +191,15 @@ export function normalizarRegistrosFolha(
     }
     // Caso 3: 3 horários no dia
     else if (unicos.length === 3 && isInvertido) {
-      unicos.sort(sortMarcacoes)
-      r.entrada = unicos[0].time
-      r.origem_entrada = unicos[0].origem
-      r.saida_intervalo = unicos[1].time
-      r.origem_saida_intervalo = unicos[1].origem
+      const ordenados = ordenarPassos(unicos)
+      r.entrada = ordenados[0].time
+      r.origem_entrada = ordenados[0].origem
+      r.saida_intervalo = ordenados[1].time
+      r.origem_saida_intervalo = ordenados[1].origem
       r.retorno_intervalo = null
       r.origem_retorno_intervalo = null
-      r.saida = unicos[2].time
-      r.origem_saida = unicos[2].origem
+      r.saida = ordenados[2].time
+      r.origem_saida = ordenados[2].origem
 
       diasCorrigidos++
       detalhes.push({

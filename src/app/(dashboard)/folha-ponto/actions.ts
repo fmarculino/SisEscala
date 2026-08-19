@@ -9,6 +9,7 @@ import { resolverMarcacaoDoDia, COLUNAS_PRESENCA_FOLHA, type PassoPresenca } fro
 import { podePreAssinalarIntervalo } from '@/utils/folha/preAssinalacao'
 import { resolverFaltaAutomatica, isFaltaDefinitiva } from '@/utils/folha/faltaAutomatica'
 import { normalizarRegistrosFolha } from '@/utils/folha/normalizarHorarios'
+import { sequenciarDia, PASSOS_FOLHA } from '@/utils/folha/sequenciaDia'
 
 // Helper: Get user profile with unit/sector permissions
 async function getUserProfile(supabase: any): Promise<UserProfile> {
@@ -1688,64 +1689,36 @@ export async function salvarFolhaPonto(folhaId: string, registros: any[], status
     for (const r of registros) {
       if (!r.turno_codigo || r.afastamento || r.feriado) continue
 
-      const timeToMin = (t: string) => {
-        if (!t || !t.includes(':')) return null
-        const [h, m] = t.split(':').map(Number)
-        return h * 60 + m
-      }
-
-      const eMin = timeToMin(r.entrada)
-      const siMin = timeToMin(r.saida_intervalo)
-      const riMin = timeToMin(r.retorno_intervalo)
-      const sMin = timeToMin(r.saida)
-
-      // Identifica virada de dia (plantão noturno)
-      const isJornadaNoturna = (eMin !== null && eMin >= 12 * 60) || !!(r.jornada_nome && /18|19|20|21|22/i.test(r.jornada_nome))
-
-      let siAdj = siMin
-      if (isJornadaNoturna && eMin !== null && siMin !== null && siMin < eMin) {
-        siAdj = siMin + 1440
-      }
-
-      let riAdj = riMin
-      const refSi = siAdj ?? eMin
-      if (isJornadaNoturna && refSi !== null && riMin !== null && riMin < (refSi % 1440)) {
-        riAdj = riMin + 1440
-      } else if (isJornadaNoturna && siAdj !== null && siAdj >= 1440 && riMin !== null) {
-        riAdj = riMin + 1440
-      }
-
-      let sAdj = sMin
-      const refRi = riAdj ?? siAdj ?? eMin
-      if (isJornadaNoturna && refRi !== null && sMin !== null && sMin < (refRi % 1440)) {
-        sAdj = sMin + 1440
-      } else if (isJornadaNoturna && refRi !== null && refRi >= 1440 && sMin !== null) {
-        sAdj = sMin + 1440
-      }
+      // Leitura cronologica do dia (fonte unica, compartilhada com o editor e o Auto-Corrigir).
+      // A deteccao anterior de virada de dia era /18|19|20|21|22/ sobre o nome da jornada, que
+      // casa com "08H ÀS 18H" — a jornada diurna mais comum do sistema. Toda ela era tratada
+      // como noturna, e estes tres guards, que existem para pegar erro de digitacao antes de
+      // virar folha oficial, ficavam inertes justamente nela.
+      const seq = sequenciarDia(r, r.jornada_nome)
 
       // 1. Saída de intervalo vs Retorno de intervalo
-      if (siAdj !== null && riAdj !== null && siAdj >= riAdj) {
+      if (seq.intervaloInvertido) {
         return {
           error: `Inconsistência no Dia ${String(r.dia).padStart(2, '0')}: o horário de Saída para o Intervalo (${r.saida_intervalo}) não pode ser maior ou igual ao Retorno do Intervalo (${r.retorno_intervalo}). Corrija a sequência dos horários.`
         }
       }
 
       // 2. Entrada vs Saída de intervalo
-      if (eMin !== null && siAdj !== null && eMin >= siAdj) {
+      if (seq.entradaInvertida) {
         return {
           error: `Inconsistência no Dia ${String(r.dia).padStart(2, '0')}: o horário de Entrada (${r.entrada}) não pode ser maior ou igual à Saída para o Intervalo (${r.saida_intervalo}).`
         }
       }
 
       // 3. Retorno de intervalo vs Saída final
-      if (refRi !== null && sAdj !== null && refRi >= sAdj) {
+      if (seq.saidaInvertida) {
         return {
           error: `Inconsistência no Dia ${String(r.dia).padStart(2, '0')}: o horário de Retorno do Intervalo (${r.retorno_intervalo || r.saida_intervalo || r.entrada}) não pode ser maior ou igual à Saída Final (${r.saida}).`
         }
       }
 
       // 4. Limpeza automática de FALTA caso o dia agora possua horários de marcação
-      const temHorarios = eMin !== null || sMin !== null || siMin !== null || riMin !== null
+      const temHorarios = PASSOS_FOLHA.some(passo => seq.minutos[passo] !== null)
       if (temHorarios && r.observacao && (r.observacao.includes('FALTA') || r.observacao.includes('AGUARDANDO JUSTIFICATIVA'))) {
         r.observacao = ''
       }
