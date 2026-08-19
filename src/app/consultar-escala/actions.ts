@@ -4,7 +4,7 @@ import { createClient, createAdminClient } from '@/utils/supabase/server'
 import { cookies } from 'next/headers'
 import { unstable_cache, revalidatePath } from 'next/cache'
 import { autoCloseExpiredScalesAndTimesheets, isCompetencyClosed } from '@/utils/autoClose'
-import { resolverMarcacaoDoDia, COLUNAS_PRESENCA_FOLHA } from '@/utils/folha/origemMarcacao'
+import { resolverMarcacaoDoDia, turnosDaFolha, COLUNAS_PRESENCA_FOLHA } from '@/utils/folha/origemMarcacao'
 import { podePreAssinalarIntervalo } from '@/utils/folha/preAssinalacao'
 import { resolverFaltaAutomatica, isFaltaDefinitiva } from '@/utils/folha/faltaAutomatica'
 import { TERMO_ATIVACAO, TERMO_DESATIVACAO, TERMO_VERSAO } from '@/utils/avisoPonto'
@@ -1207,7 +1207,7 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
 
         // Consolida os turnos do dia e resolve, para cada passo, o horário vencedor junto da
         // origem daquele horário específico.
-        const dayShifts = currentShifts.filter(d => d.dia === day)
+        const dayShifts = turnosDaFolha(currentShifts.filter(d => d.dia === day))
 
         const marcEntrada = resolverMarcacaoDoDia(dayShifts, 'entrada')
         const marcIntervaloSaida = resolverMarcacaoDoDia(dayShifts, 'intervalo_saida')
@@ -1746,7 +1746,7 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
 
         // Consolida os turnos do dia e resolve, para cada passo, o horário vencedor junto da
         // origem daquele horário específico.
-        const dayShifts = escalaDiaria?.filter((d: any) => d.dia === day) || []
+        const dayShifts = turnosDaFolha<any>(escalaDiaria?.filter((d: any) => d.dia === day) || [])
 
         const marcEntrada = resolverMarcacaoDoDia(dayShifts, 'entrada')
         const marcIntervaloSaida = resolverMarcacaoDoDia(dayShifts, 'intervalo_saida')

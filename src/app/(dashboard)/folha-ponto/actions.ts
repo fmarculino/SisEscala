@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { registrarLog, calcularAlteracoes, calcularAlteracoesFolha } from '@/utils/auditoria'
 import { hasSectorAccess, UserProfile, applyAccessFilters, isAccessUnrestricted } from '@/utils/permissions'
 import { autoCloseExpiredScalesAndTimesheets, isCompetencyClosed } from '@/utils/autoClose'
-import { resolverMarcacaoDoDia, COLUNAS_PRESENCA_FOLHA, type PassoPresenca } from '@/utils/folha/origemMarcacao'
+import { resolverMarcacaoDoDia, turnosDaFolha, COLUNAS_PRESENCA_FOLHA, type PassoPresenca } from '@/utils/folha/origemMarcacao'
 import { podePreAssinalarIntervalo } from '@/utils/folha/preAssinalacao'
 import { resolverFaltaAutomatica, isFaltaDefinitiva } from '@/utils/folha/faltaAutomatica'
 import { normalizarRegistrosFolha } from '@/utils/folha/normalizarHorarios'
@@ -555,7 +555,7 @@ export async function executeGerarFolhaPonto(
 
         // Consolida os turnos do dia (Regular, Extra, Plantão) e resolve, para cada passo,
         // o horário vencedor junto da origem daquele horário específico.
-        const dayShifts = escalaDiaria?.filter((d: any) => d.dia === day) || []
+        const dayShifts = turnosDaFolha<any>(escalaDiaria?.filter((d: any) => d.dia === day) || [])
 
         const marcEntrada = resolverMarcacaoDoDia(dayShifts, 'entrada')
         const marcIntervaloSaida = resolverMarcacaoDoDia(dayShifts, 'intervalo_saida')
@@ -1240,7 +1240,7 @@ export async function sincronizarFolhaPonto(folhaId: string) {
 
         // Consolida os turnos do dia (Regular, Extra, Plantão) e resolve, para cada passo,
         // o horário vencedor junto da origem daquele horário específico.
-        const dayShifts = currentShifts.filter(d => d.dia === day)
+        const dayShifts = turnosDaFolha(currentShifts.filter(d => d.dia === day))
 
         const marcEntrada = resolverMarcacaoDoDia(dayShifts, 'entrada')
         const marcIntervaloSaida = resolverMarcacaoDoDia(dayShifts, 'intervalo_saida')

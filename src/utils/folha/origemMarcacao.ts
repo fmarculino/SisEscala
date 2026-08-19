@@ -98,6 +98,33 @@ const CAMPOS: Record<
 }
 
 /**
+ * Quais turnos do dia a FRENTE da folha de ponto representa.
+ *
+ * `resolverMarcacaoDoDia` agrega por min(entrada)/max(saida) sobre os turnos que receber. Passando
+ * o dia inteiro, um Plantao emendado no expediente puxa a saida do dia para o fim do plantao — e
+ * a folha passa a contar as horas do plantao como HORA EXTRA. Como o plantao ja e pago pelo anexo
+ * de plantoes (Portaria MTP 671/2021), isso conta a mesma jornada duas vezes.
+ *
+ * Caso real (MAISA, mat. 32269, 18/08/2026): Regular 07:00-13:00 + Plantao 13:00-19:00; a folha
+ * saia com 07:04 -> 19:09 e "EXTRA 06:09 (50%)", alem do plantao no anexo.
+ *
+ * ⚠️ Quando NAO ha Regular no dia, devolve tudo. Plantonista puro (12x36) nao tem turno Regular
+ * nenhum — filtrar ali deixaria a folha dele em branco, que e pior do que o problema original.
+ */
+/*
+ * Generico SEM constraint de propriedade: com constraint, o TS infere T como o proprio constraint
+ * quando o argumento e `any[]` (o filter das copias da geracao devolve any[]) e o retorno deixa de
+ * ser aceito por resolverMarcacaoDoDia. A categoria e lida por acesso estreitado aqui dentro.
+ */
+export function turnosDaFolha<T>(turnosDoDia: T[] | null | undefined): T[] {
+  const turnos = turnosDoDia || []
+  const categoria = (t: T) => (t as { categoria?: string | null } | null | undefined)?.categoria
+  const temRegular = turnos.some(t => categoria(t) === 'Regular')
+  if (!temRegular) return turnos
+  return turnos.filter(t => categoria(t) === 'Regular' || categoria(t) === 'Extra')
+}
+
+/**
  * Consolida os turnos de um dia num unico horario para o passo pedido, devolvendo junto a
  * origem daquele horario especifico.
  */
