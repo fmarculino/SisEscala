@@ -13,6 +13,7 @@ import { useDialog } from '@/components/ui/DialogProvider'
 import { IntervaloPersonalizadoFields } from '@/components/servidores/IntervaloPersonalizadoFields'
 import { CampoDocumento } from '@/components/CampoDocumento'
 import { PendenciaRhCpfBanner } from '@/components/servidores/PendenciaRhCpfBanner'
+import { gerarMensagemAcessoPortal } from '@/utils/servidorMensagens'
 
 interface Cargo {
   id: string
@@ -174,8 +175,11 @@ export default function NovoServidorPage() {
   const sharePinWhatsApp = async () => {
     if (!currentPin) return
     const phone = currentTelefone
-    const nome = currentNome || 'Servidor'
-    const message = `Olá *${nome}*, seu PIN de acesso ao Portal do Servidor SisEscala é: *${currentPin}*`
+    const message = gerarMensagemAcessoPortal({
+      nome: currentNome,
+      matricula: currentMatricula,
+      pin: currentPin,
+    })
 
     try {
       // Sem `unidadeId` o envio ignora o canal próprio da unidade e sai sempre pelo global.

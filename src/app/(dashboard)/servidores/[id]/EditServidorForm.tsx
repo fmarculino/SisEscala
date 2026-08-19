@@ -16,6 +16,7 @@ import { CampoDocumento } from '@/components/CampoDocumento'
 import { PendenciaRhCpfBanner } from '@/components/servidores/PendenciaRhCpfBanner'
 import { createClient } from '@/utils/supabase/client'
 import { calcularDataMinimaTransferencia } from '@/utils/transferValidation'
+import { gerarMensagemAcessoPortal } from '@/utils/servidorMensagens'
 
 interface EditServidorFormProps {
   id: string
@@ -144,9 +145,13 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
   const dialog = useDialog()
 
   const sharePinWhatsApp = async () => {
-    if (!currentPin) return
+    if (!currentPin || currentPin === '****') return
     const phone = currentTelefone
-    const message = `Olá *${servidor.nome || 'Servidor'}*, seu PIN de acesso ao Portal do Servidor SisEscala é: *${currentPin}*`
+    const message = gerarMensagemAcessoPortal({
+      nome: servidor.nome,
+      matricula: servidor.matricula,
+      pin: currentPin,
+    })
 
     setWaSending(true)
     try {
