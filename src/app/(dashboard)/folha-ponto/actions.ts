@@ -607,9 +607,9 @@ export async function executeGerarFolhaPonto(
         }
 
         // 1. Entrance Time
-        if (shouldPreserve && registroExistente?.origem_entrada === 'manual') {
+        if (shouldPreserve && registroExistente?.entrada) {
           registro.entrada = registroExistente.entrada
-          registro.origem_entrada = 'manual'
+          registro.origem_entrada = registroExistente.origem_entrada || 'manual'
         } else if (hasRealEntrada && realEntradaTime) {
           registro.entrada = realEntradaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_entrada = 'real'
@@ -617,14 +617,11 @@ export async function executeGerarFolhaPonto(
           registro.entrada = realEntradaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_entrada = 'manual'
         }
-        // Entrada NUNCA e gerada pelo sistema: o servidor sempre tem como registrar, entao
-        // preencher aqui seria marcacao automatica por horario contratual (Portaria 671/2021).
-        // Dia sem batida fica vazio e vira tratamento do coordenador. Ver utils/folha/preAssinalacao.ts
 
         // 2. Exit Time
-        if (shouldPreserve && registroExistente?.origem_saida === 'manual') {
+        if (shouldPreserve && registroExistente?.saida) {
           registro.saida = registroExistente.saida
-          registro.origem_saida = 'manual'
+          registro.origem_saida = registroExistente.origem_saida || 'manual'
         } else if (hasRealSaida && realSaidaTime) {
           registro.saida = realSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_saida = 'real'
@@ -632,7 +629,6 @@ export async function executeGerarFolhaPonto(
           registro.saida = realSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_saida = 'manual'
         }
-        // Saida NUNCA e gerada pelo sistema. Mesma razao da entrada.
 
         // 3. Lunch Interval
         if (intervaloMinutos > 0) {
@@ -643,9 +639,9 @@ export async function executeGerarFolhaPonto(
           
           if (targetSaidaMin > officialSaidaIntervaloMin) {
             // Lunch out
-            if (shouldPreserve && registroExistente?.origem_saida_intervalo === 'manual') {
+            if (shouldPreserve && registroExistente?.saida_intervalo) {
               registro.saida_intervalo = registroExistente.saida_intervalo
-              registro.origem_saida_intervalo = 'manual'
+              registro.origem_saida_intervalo = registroExistente.origem_saida_intervalo || 'manual'
             } else if (hasRealIntervaloSaida && realIntervaloSaidaTime) {
               registro.saida_intervalo = realIntervaloSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
               registro.origem_saida_intervalo = 'real'
@@ -653,17 +649,14 @@ export async function executeGerarFolhaPonto(
               registro.saida_intervalo = realIntervaloSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
               registro.origem_saida_intervalo = 'manual'
             } else if (podePreAssinalar && shouldGenerate(officialSaidaIntervaloMin)) {
-              // Pre-assinalacao do periodo de repouso (CLT Art. 74 par. 2): horario FIXO, sem
-              // offset. So acontece quando a unidade nao exige marcacao de intervalo — ali o
-              // servidor nao tem como registrar o repouso.
               registro.saida_intervalo = formatMinutesToTimeStr(officialSaidaIntervaloMin)
               registro.origem_saida_intervalo = 'pre_assinalado'
             }
 
             // Lunch return
-            if (shouldPreserve && registroExistente?.origem_retorno_intervalo === 'manual') {
+            if (shouldPreserve && registroExistente?.retorno_intervalo) {
               registro.retorno_intervalo = registroExistente.retorno_intervalo
-              registro.origem_retorno_intervalo = 'manual'
+              registro.origem_retorno_intervalo = registroExistente.origem_retorno_intervalo || 'manual'
             } else if (hasRealIntervaloRetorno && realIntervaloRetornoTime) {
               registro.retorno_intervalo = realIntervaloRetornoTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
               registro.origem_retorno_intervalo = 'real'
@@ -1294,9 +1287,10 @@ export async function sincronizarFolhaPonto(folhaId: string) {
         }
 
         // 1. Entrance Time
-        if (shouldPreserve && registroExistente?.origem_entrada === 'manual') {
+        // 1. Entrance Time
+        if (shouldPreserve && registroExistente?.entrada) {
           registro.entrada = registroExistente.entrada
-          registro.origem_entrada = 'manual'
+          registro.origem_entrada = registroExistente.origem_entrada || 'manual'
         } else if (hasRealEntrada && realEntradaTime) {
           registro.entrada = realEntradaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_entrada = 'real'
@@ -1304,14 +1298,11 @@ export async function sincronizarFolhaPonto(folhaId: string) {
           registro.entrada = realEntradaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_entrada = 'manual'
         }
-        // Entrada NUNCA e gerada pelo sistema: o servidor sempre tem como registrar, entao
-        // preencher aqui seria marcacao automatica por horario contratual (Portaria 671/2021).
-        // Dia sem batida fica vazio e vira tratamento do coordenador. Ver utils/folha/preAssinalacao.ts
 
         // 2. Exit Time
-        if (shouldPreserve && registroExistente?.origem_saida === 'manual') {
+        if (shouldPreserve && registroExistente?.saida) {
           registro.saida = registroExistente.saida
-          registro.origem_saida = 'manual'
+          registro.origem_saida = registroExistente.origem_saida || 'manual'
         } else if (hasRealSaida && realSaidaTime) {
           registro.saida = realSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_saida = 'real'
@@ -1319,7 +1310,6 @@ export async function sincronizarFolhaPonto(folhaId: string) {
           registro.saida = realSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
           registro.origem_saida = 'manual'
         }
-        // Saida NUNCA e gerada pelo sistema. Mesma razao da entrada.
 
         // 3. Lunch Interval
         if (intervaloMinutos > 0) {
@@ -1329,9 +1319,9 @@ export async function sincronizarFolhaPonto(folhaId: string) {
           }
 
           if (targetSaidaMin > officialSaidaIntervaloMin) {
-            if (shouldPreserve && registroExistente?.origem_saida_intervalo === 'manual') {
+            if (shouldPreserve && registroExistente?.saida_intervalo) {
               registro.saida_intervalo = registroExistente.saida_intervalo
-              registro.origem_saida_intervalo = 'manual'
+              registro.origem_saida_intervalo = registroExistente.origem_saida_intervalo || 'manual'
             } else if (hasRealIntervaloSaida && realIntervaloSaidaTime) {
               registro.saida_intervalo = realIntervaloSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
               registro.origem_saida_intervalo = 'real'
@@ -1339,16 +1329,13 @@ export async function sincronizarFolhaPonto(folhaId: string) {
               registro.saida_intervalo = realIntervaloSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
               registro.origem_saida_intervalo = 'manual'
             } else if (podePreAssinalar && shouldGenerate(officialSaidaIntervaloMin)) {
-              // Pre-assinalacao do periodo de repouso (CLT Art. 74 par. 2): horario FIXO, sem
-              // offset. So acontece quando a unidade nao exige marcacao de intervalo — ali o
-              // servidor nao tem como registrar o repouso.
               registro.saida_intervalo = formatMinutesToTimeStr(officialSaidaIntervaloMin)
               registro.origem_saida_intervalo = 'pre_assinalado'
             }
 
-            if (shouldPreserve && registroExistente?.origem_retorno_intervalo === 'manual') {
+            if (shouldPreserve && registroExistente?.retorno_intervalo) {
               registro.retorno_intervalo = registroExistente.retorno_intervalo
-              registro.origem_retorno_intervalo = 'manual'
+              registro.origem_retorno_intervalo = registroExistente.origem_retorno_intervalo || 'manual'
             } else if (hasRealIntervaloRetorno && realIntervaloRetornoTime) {
               registro.retorno_intervalo = realIntervaloRetornoTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
               registro.origem_retorno_intervalo = 'real'
@@ -1854,7 +1841,7 @@ export async function verificarDivergenciaEscala(folhaId: string) {
       .eq('categoria', 'Regular')
 
     const currentFingerprint = generateFingerprint(escalaDiaria || [])
-    const divergent = currentFingerprint !== folha.escala_fingerprint
+    let divergent = currentFingerprint !== folha.escala_fingerprint
 
     // Find affected days
     const affectedDays: number[] = []
@@ -1874,6 +1861,15 @@ export async function verificarDivergenciaEscala(folhaId: string) {
         if (changed) {
           affectedDays.push(day)
         }
+      }
+
+      if (affectedDays.length === 0) {
+        divergent = false
+        // Atualiza o fingerprint silenciosamente para evitar falso positivo nas próximas verificações
+        await supabase
+          .from('folha_ponto')
+          .update({ escala_fingerprint: currentFingerprint })
+          .eq('id', folhaId)
       }
     }
 
