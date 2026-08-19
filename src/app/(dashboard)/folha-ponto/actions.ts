@@ -1699,24 +1699,48 @@ export async function salvarFolhaPonto(folhaId: string, registros: any[], status
       const riMin = timeToMin(r.retorno_intervalo)
       const sMin = timeToMin(r.saida)
 
-      // 1. Saída de intervalo vs Retorno de intervalo (saída intervalo maior que retorno)
-      if (siMin !== null && riMin !== null && siMin >= riMin) {
+      // Identifica virada de dia (plantão noturno)
+      const isJornadaNoturna = (eMin !== null && eMin >= 12 * 60) || !!(r.jornada_nome && /18|19|20|21|22/i.test(r.jornada_nome))
+
+      let siAdj = siMin
+      if (isJornadaNoturna && eMin !== null && siMin !== null && siMin < eMin) {
+        siAdj = siMin + 1440
+      }
+
+      let riAdj = riMin
+      const refSi = siAdj ?? eMin
+      if (isJornadaNoturna && refSi !== null && riMin !== null && riMin < (refSi % 1440)) {
+        riAdj = riMin + 1440
+      } else if (isJornadaNoturna && siAdj !== null && siAdj >= 1440 && riMin !== null) {
+        riAdj = riMin + 1440
+      }
+
+      let sAdj = sMin
+      const refRi = riAdj ?? siAdj ?? eMin
+      if (isJornadaNoturna && refRi !== null && sMin !== null && sMin < (refRi % 1440)) {
+        sAdj = sMin + 1440
+      } else if (isJornadaNoturna && refRi !== null && refRi >= 1440 && sMin !== null) {
+        sAdj = sMin + 1440
+      }
+
+      // 1. Saída de intervalo vs Retorno de intervalo
+      if (siAdj !== null && riAdj !== null && siAdj >= riAdj) {
         return {
           error: `Inconsistência no Dia ${String(r.dia).padStart(2, '0')}: o horário de Saída para o Intervalo (${r.saida_intervalo}) não pode ser maior ou igual ao Retorno do Intervalo (${r.retorno_intervalo}). Corrija a sequência dos horários.`
         }
       }
 
       // 2. Entrada vs Saída de intervalo
-      if (eMin !== null && siMin !== null && eMin >= siMin) {
+      if (eMin !== null && siAdj !== null && eMin >= siAdj) {
         return {
           error: `Inconsistência no Dia ${String(r.dia).padStart(2, '0')}: o horário de Entrada (${r.entrada}) não pode ser maior ou igual à Saída para o Intervalo (${r.saida_intervalo}).`
         }
       }
 
       // 3. Retorno de intervalo vs Saída final
-      if (riMin !== null && sMin !== null && riMin >= sMin) {
+      if (refRi !== null && sAdj !== null && refRi >= sAdj) {
         return {
-          error: `Inconsistência no Dia ${String(r.dia).padStart(2, '0')}: o horário de Retorno do Intervalo (${r.retorno_intervalo}) não pode ser maior ou igual à Saída Final (${r.saida}).`
+          error: `Inconsistência no Dia ${String(r.dia).padStart(2, '0')}: o horário de Retorno do Intervalo (${r.retorno_intervalo || r.saida_intervalo || r.entrada}) não pode ser maior ou igual à Saída Final (${r.saida}).`
         }
       }
 

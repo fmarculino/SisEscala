@@ -123,24 +123,38 @@ export function normalizarRegistrosFolha(
     const riMin = timeToMin(r.retorno_intervalo)
     const sMin = timeToMin(r.saida)
 
-    const isInvertido = !isNoturno && (
-      (siMin !== null && riMin !== null && siMin >= riMin) ||
-      (eMin !== null && siMin !== null && eMin >= siMin) ||
-      (riMin !== null && sMin !== null && riMin >= sMin)
+    const isPlantaoNoturno = isNoturno || (eMin !== null && eMin >= 12 * 60) || unicos.some(u => u.min >= 12 * 60) && unicos.some(u => u.min < 12 * 60)
+
+    let siAdj = siMin
+    if (isPlantaoNoturno && eMin !== null && siMin !== null && siMin < eMin) siAdj = siMin + 1440
+    let riAdj = riMin
+    const refSi = siAdj ?? eMin
+    if (isPlantaoNoturno && refSi !== null && riMin !== null && riMin < (refSi % 1440)) riAdj = riMin + 1440
+    else if (isPlantaoNoturno && siAdj !== null && siAdj >= 1440 && riMin !== null) riAdj = riMin + 1440
+    let sAdj = sMin
+    const refRi = riAdj ?? siAdj ?? eMin
+    if (isPlantaoNoturno && refRi !== null && sMin !== null && sMin < (refRi % 1440)) sAdj = sMin + 1440
+    else if (isPlantaoNoturno && refRi !== null && refRi >= 1440 && sMin !== null) sAdj = sMin + 1440
+
+    const isInvertido = (
+      (eMin !== null && siAdj !== null && eMin >= siAdj) ||
+      (siAdj !== null && riAdj !== null && siAdj >= riAdj) ||
+      (refRi !== null && sAdj !== null && refRi >= sAdj)
     )
+
+    const sortMarcacoes = (a: typeof unicos[0], b: typeof unicos[0]) => {
+      if (isPlantaoNoturno) {
+        const valA = a.min >= 12 * 60 ? a.min : a.min + 24 * 60
+        const valB = b.min >= 12 * 60 ? b.min : b.min + 24 * 60
+        return valA - valB
+      }
+      return a.min - b.min
+    }
 
     // Caso 1: Apenas 2 horários no dia (Entrada e Saída Direta)
     // Se foram distribuídos em Entrada e Saída_Intervalo, mover Saída_Intervalo para Saída Final
     if (unicos.length === 2) {
-      unicos.sort((a, b) => {
-        if (isNoturno) {
-          // Em turno noturno (ex: 18h às 08h), horários após 12h vêm primeiro
-          const valA = a.min >= 12 * 60 ? a.min : a.min + 24 * 60
-          const valB = b.min >= 12 * 60 ? b.min : b.min + 24 * 60
-          return valA - valB
-        }
-        return a.min - b.min
-      })
+      unicos.sort(sortMarcacoes)
 
       const antesEntrada = r.entrada
       const antesSaida = r.saida
@@ -165,7 +179,7 @@ export function normalizarRegistrosFolha(
     }
     // Caso 2: 4 horários no dia (Entrada, Saída Int, Retorno Int, Saída Final)
     else if (unicos.length === 4 && isInvertido) {
-      unicos.sort((a, b) => a.min - b.min)
+      unicos.sort(sortMarcacoes)
 
       r.entrada = unicos[0].time
       r.origem_entrada = unicos[0].origem
@@ -184,7 +198,7 @@ export function normalizarRegistrosFolha(
     }
     // Caso 3: 3 horários no dia
     else if (unicos.length === 3 && isInvertido) {
-      unicos.sort((a, b) => a.min - b.min)
+      unicos.sort(sortMarcacoes)
       r.entrada = unicos[0].time
       r.origem_entrada = unicos[0].origem
       r.saida_intervalo = unicos[1].time

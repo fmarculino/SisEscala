@@ -1131,9 +1131,46 @@ export function FolhaPontoEditor({
                 const riMin = toMin(r.retorno_intervalo)
                 const sMin = toMin(r.saida)
 
-                const isIntervaloInvertido = siMin !== null && riMin !== null && siMin >= riMin
-                const isEntradaInvertida = eMin !== null && siMin !== null && eMin >= siMin
-                const isSaidaInvertida = riMin !== null && sMin !== null && riMin >= sMin
+                // Tratamento inteligente de Jornadas Noturnas / Virada de Dia (ex: 18h às 06h, 19h às 07h)
+                const isJornadaNoturna = (() => {
+                  if (recordJornadaNome) {
+                    const match = recordJornadaNome.match(/(\d{1,2})(?:[hH:](\d{2})?)?\s*(?:às|as|to|-|a)\s*(\d{1,2})(?:[hH:](\d{2})?)?/i)
+                    if (match) {
+                      const sH = parseInt(match[1], 10)
+                      const eH = parseInt(match[3], 10)
+                      if (eH <= sH) return true
+                    }
+                  }
+                  if (eMin !== null && eMin >= 12 * 60) return true
+                  return false
+                })()
+
+                let siAdj = siMin
+                if (isJornadaNoturna && eMin !== null && siMin !== null && siMin < eMin) {
+                  siAdj = siMin + 1440
+                }
+
+                let riAdj = riMin
+                const refSi = siAdj ?? eMin
+                if (isJornadaNoturna && refSi !== null && riMin !== null && riMin < (refSi % 1440)) {
+                  riAdj = riMin + 1440
+                } else if (isJornadaNoturna && siAdj !== null && siAdj >= 1440 && riMin !== null) {
+                  riAdj = riMin + 1440
+                }
+
+                let sAdj = sMin
+                const refRi = riAdj ?? siAdj ?? eMin
+                if (isJornadaNoturna && refRi !== null && sMin !== null && sMin < (refRi % 1440)) {
+                  sAdj = sMin + 1440
+                } else if (isJornadaNoturna && refRi !== null && refRi >= 1440 && sMin !== null) {
+                  sAdj = sMin + 1440
+                }
+
+                const isEntradaInvertida = eMin !== null && siAdj !== null && eMin >= siAdj
+                const isIntervaloInvertido = siAdj !== null && riAdj !== null && siAdj >= riAdj
+                const isSaidaInvertida = refRi !== null && sAdj !== null && refRi >= sAdj
+
+                const isSaidaDiaSeguinte = isJornadaNoturna && sAdj !== null && sAdj >= 1440
 
                 // Arrastar-e-soltar pra reclassificar uma batida real (dia 12 do Fernando: uma
                 // "saída" real que caiu em "saída intervalo" porque ele trabalhou direto). Só
@@ -1252,22 +1289,32 @@ export function FolhaPontoEditor({
 
                     {/* Saída */}
                     <td
-                      className={`px-2 py-1.5 border-r border-zinc-200 dark:border-zinc-700 text-center ${isWorkDay ? borderClass(r.origem_saida) : ''} ${isSaidaInvertida ? 'ring-2 ring-inset ring-red-500 bg-red-50/40 dark:bg-red-950/20' : ''} ${isArrastavel('saida') ? 'cursor-grab active:cursor-grabbing' : ''} ${isAlvoDeSolta('saida') ? 'ring-2 ring-inset ring-dashed ring-blue-400' : ''}`}
+                      className={`px-2 py-1.5 border-r border-zinc-200 dark:border-zinc-700 text-center relative ${isWorkDay ? borderClass(r.origem_saida) : ''} ${isSaidaInvertida ? 'ring-2 ring-inset ring-red-500 bg-red-50/40 dark:bg-red-950/20' : ''} ${isArrastavel('saida') ? 'cursor-grab active:cursor-grabbing' : ''} ${isAlvoDeSolta('saida') ? 'ring-2 ring-inset ring-dashed ring-blue-400' : ''}`}
                       draggable={isArrastavel('saida')}
                       onDragStart={() => setDraggingFrom({ dia: r.dia, passo: 'saida' })}
                       onDragEnd={() => setDraggingFrom(null)}
                       onDragOver={(e) => { if (isAlvoDeSolta('saida')) e.preventDefault() }}
                       onDrop={(e) => { e.preventDefault(); handleDrop(r.dia, 'saida') }}
-                      title={isSaidaInvertida ? `Inconsistência: Retorno (${r.retorno_intervalo}) >= Saída Final (${r.saida})` : (isArrastavel('saida') ? 'Arraste para outro passo do dia para corrigir a classificação' : undefined)}
+                      title={isSaidaInvertida ? `Inconsistência: Retorno (${r.retorno_intervalo || r.entrada}) >= Saída Final (${r.saida})` : (isSaidaDiaSeguinte ? 'Saída realizada no dia seguinte (plantão noturno)' : (isArrastavel('saida') ? 'Arraste para outro passo do dia para corrigir a classificação' : undefined))}
                     >
                       {isWorkDay && !r.afastamento && !r.feriado ? (
-                        <input
-                          type="time"
-                          value={r.saida || ''}
-                          onChange={(e) => handleCellChange(r.dia, 'saida', e.target.value)}
-                          disabled={isPortal || !isEditable || (r.origem_saida === 'real' && profile?.role !== 'super_admin')}
-                          className="w-full bg-transparent border-none text-center outline-none font-bold text-zinc-900 dark:text-white font-mono disabled:opacity-50"
-                        />
+                        <div className="relative inline-flex items-center justify-center w-full">
+                          <input
+                            type="time"
+                            value={r.saida || ''}
+                            onChange={(e) => handleCellChange(r.dia, 'saida', e.target.value)}
+                            disabled={isPortal || !isEditable || (r.origem_saida === 'real' && profile?.role !== 'super_admin')}
+                            className="w-full bg-transparent border-none text-center outline-none font-bold text-zinc-900 dark:text-white font-mono disabled:opacity-50"
+                          />
+                          {isSaidaDiaSeguinte && r.saida && (
+                            <span 
+                              className="text-[9px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 px-1 py-0.2 rounded border border-indigo-200 dark:border-indigo-800 ml-0.5 print:text-[8px] print:text-zinc-600 print:border-none print:ml-0.5"
+                              title="Marcação de saída realizada no dia seguinte (plantão noturno)"
+                            >
+                              +1d
+                            </span>
+                          )}
+                        </div>
                       ) : (
                         <span className="text-zinc-300 dark:text-zinc-700">-</span>
                       )}
