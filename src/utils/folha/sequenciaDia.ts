@@ -138,19 +138,41 @@ function parseJornadaNome(
 /**
  * Aquele dia tem DIREITO de rolar para o dia seguinte?
  *
- * Duas fontes, nesta ordem:
- *   1. a jornada prevista termina no dia seguinte;
- *   2. a entrada e vespertina (>= 12:00) — cobre o Plantao N escalado sobre servidor de jornada
- *      diurna, onde o nome da jornada nao sabe nada do plantao daquele dia.
+ * O NOME DA JORNADA E AUTORITATIVO NOS DOIS SENTIDOS. Se ele diz que a jornada termina no dia
+ * seguinte, ha direito; se diz que termina no mesmo dia, NAO ha — e uma saida menor que a
+ * entrada ali e problema, nao virada.
  *
- * Nao ha terceira fonte de proposito. "As marcacoes parecem fora de ordem" NAO entra aqui: e o
- * sintoma que a inversao deveria denunciar, e usa-lo como prova apagaria a propria deteccao.
+ * So quando o nome nao e parseavel entra o palpite de que entrada vespertina (>= 12:00) indica
+ * jornada noturna.
+ *
+ * POR QUE O PALPITE NAO VALE QUANDO O NOME PARSEIA
+ *   A primeira versao deste arquivo aplicava o palpite sempre, para cobrir um Plantao N escalado
+ *   sobre servidor de jornada diurna. Medido em produção em 19/08/2026, nos 94 dias em que a
+ *   entrada e >= 12:00 e a saida e menor que ela — exatamente onde a decisao pesa:
+ *
+ *     67 tem nome de jornada que ja diz noturna  -> cobertos pela regra principal
+ *     27 tem nome de jornada DIURNA              -> so o palpite os salvava
+ *      0 tem nome nao parseavel
+ *
+ *   E os 27 sao todos turno DIURNO (MT, T, T4, M em 08H AS 18H, 13H AS 19H, 14H AS 18H...) —
+ *   nenhum plantao noturno de verdade. Ou seja, o palpite nao protegia nenhum caso legitimo e
+ *   carimbava "+1d" em 27 linhas com dado corrompido, escondendo justamente o que precisava
+ *   aparecer. 55 delas sao linhas de turno MT cuja entrada veio da vespera as ~18:00 e cuja
+ *   saida veio do dia seguinte as ~08:00 — `fn_blocos_previstos_dia` preve 08:00 -> 18:00 no
+ *   mesmo dia para esses dias, entao a previsao esta certa e a atribuicao da batida e que erra.
+ *
+ * A ASSIMETRIA E DELIBERADA
+ *   Se um Plantao N sobre jornada diurna aparecer, ele vai ser marcado como invertido — alarme
+ *   falso, visivel, que alguem corrige. O caminho oposto (carimbar "+1d" e seguir) transforma
+ *   dado corrompido em jornada plausivel dentro do espelho oficial, em silencio. Num sistema de
+ *   ponto, alarme falso visivel ganha de erro silencioso.
  */
 export function podeCruzarMeiaNoite(
   horarios: HorariosDia,
   jornadaNome?: string | null
 ): boolean {
-  if (jornadaCruzaMeiaNoite(jornadaNome)) return true
+  const jornada = parseJornadaNome(jornadaNome)
+  if (jornada !== null) return jornada.fimMin <= jornada.inicioMin
   const entradaMin = timeToMin(horarios.entrada)
   return entradaMin !== null && entradaMin >= 12 * 60
 }
