@@ -45,6 +45,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
+  // Espelha a versão do coletor no próprio dispositivo, além da linha de rep_sincronizacoes que
+  // `fn_ingerir_afd` já grava. É o que faz a tela de /marcacoes mostrar a versão de coletor
+  // ANTERIOR à 0.8.0 (que não reporta nada no heartbeat, mas sempre mandou coletor_versao aqui).
+  // Falha em silêncio de propósito: nunca pode derrubar a ingestão de uma batida.
+  if (typeof coletor_versao === 'string' && coletor_versao.trim()) {
+    const { error: erroVersao } = await supabase
+      .from('dispositivos_rep')
+      .update({
+        coletor_versao: coletor_versao.trim().slice(0, 32),
+        coletor_host: typeof coletor_host === 'string' && coletor_host.trim() ? coletor_host.trim().slice(0, 128) : null,
+        coletor_versao_em: new Date().toISOString(),
+      })
+      .eq('id', auth.dispositivoId)
+    if (erroVersao) console.error('Falha ao gravar versão do coletor:', erroVersao.message)
+  }
+
   // Reconciliação em tempo real de escala_diaria para os servidores que bateram ponto no lote
   if (data?.sincronizacao_id && (data?.marcacoes || 0) > 0) {
     await reconciliarSincronizacaoAfd(data.sincronizacao_id)

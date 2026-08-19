@@ -24,6 +24,61 @@ const CLASSES_STATUS_COLETA = {
   verde: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20',
   ambar: 'text-amber-600 bg-amber-50 dark:bg-amber-900/20',
   vermelho: 'text-red-600 bg-red-50 dark:bg-red-900/20',
+  neutro: 'text-zinc-500 bg-zinc-100 dark:bg-zinc-800',
+}
+
+// Mesma comparação numérica campo a campo de `compararVersoes` em ciclo/ciclo.go — é o próprio
+// coletor que decide se atualiza, aqui só se mostra a mesma conclusão na tela.
+function compararVersoes(a: string, b: string): number {
+  const pa = a.split('.')
+  const pb = b.split('.')
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = parseInt(pa[i] || '0', 10) || 0
+    const nb = parseInt(pb[i] || '0', 10) || 0
+    if (na !== nb) return na - nb
+  }
+  return 0
+}
+
+// Versão do coletor instalado na máquina daquela unidade, comparada com a que o servidor publica
+// em /api/coletor-rep/tray-version (o mesmo endpoint que o app de bandeja consulta pra se
+// oferecer pra atualizar). Dispositivo "somente pendrive" não tem coletor rodando continuamente:
+// devolve null e o card não mostra badge nenhum, em vez de dizer "desatualizado" pra sempre.
+function statusColetorDispositivo(d: any, versaoServidor: string | null): { texto: string; classe: string; titulo: string } | null {
+  if (d.modo_operacao === 'usb') return null
+
+  if (!d.coletor_versao) {
+    return {
+      texto: 'Coletor: versão desconhecida',
+      classe: CLASSES_STATUS_COLETA.neutro,
+      titulo: 'Nenhum coletor reportou versão ainda neste dispositivo — só o heartbeat (0.8.0+) e o envio de lote de AFD informam.',
+    }
+  }
+
+  const desde = d.coletor_versao_em ? ` · informada há ${formatarDuracao(d.coletor_versao_em).texto}` : ''
+  const host = d.coletor_host ? ` · ${d.coletor_host}` : ''
+  const base = `Coletor v${d.coletor_versao}`
+
+  if (!versaoServidor) {
+    return { texto: base, classe: CLASSES_STATUS_COLETA.neutro, titulo: `Versão publicada no servidor indisponível no momento.${host}${desde}` }
+  }
+
+  const cmp = compararVersoes(d.coletor_versao, versaoServidor)
+  if (cmp < 0) {
+    return {
+      texto: `${base} · atualizar para ${versaoServidor}`,
+      classe: CLASSES_STATUS_COLETA.ambar,
+      titulo: `O app de bandeja avisa sozinho e espera clique em "Atualização disponível".${host}${desde}`,
+    }
+  }
+  if (cmp > 0) {
+    return {
+      texto: `${base} · à frente do servidor (${versaoServidor})`,
+      classe: CLASSES_STATUS_COLETA.neutro,
+      titulo: `O servidor publica ${versaoServidor} — provavelmente o dist/VERSION não foi atualizado no último release.${host}${desde}`,
+    }
+  }
+  return { texto: `${base} · atualizado`, classe: CLASSES_STATUS_COLETA.verde, titulo: `Igual à versão publicada no servidor.${host}${desde}` }
 }
 
 function formatarDuracao(desde: string): { texto: string; horas: number } {
@@ -65,6 +120,7 @@ export function MarcacoesClient({ isAdmin, opcoes }: { isAdmin: boolean; opcoes:
   const [terminais, setTerminais] = useState<any[]>([])
   const [dispositivos, setDispositivos] = useState<any[]>([])
   const [carregandoLista, setCarregandoLista] = useState(false)
+  const [versaoColetorServidor, setVersaoColetorServidor] = useState<string | null>(null)
 
   const [alertaCobertura, setAlertaCobertura] = useState<number | null>(null)
 
@@ -101,6 +157,17 @@ export function MarcacoesClient({ isAdmin, opcoes }: { isAdmin: boolean; opcoes:
     if (aba === 'dispositivos') recarregarDispositivos()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aba, isAdmin])
+
+  // Versão do coletor publicada no servidor agora — mesma fonte que o app de bandeja consulta
+  // (dist/VERSION). Falha em silêncio: sem ela o card mostra a versão instalada sem julgar se
+  // está atrasada, que é melhor do que dizer "desatualizado" por indisponibilidade do endpoint.
+  useEffect(() => {
+    if (!isAdmin) return
+    fetch('/api/coletor-rep/tray-version', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => setVersaoColetorServidor(j?.versao || null))
+      .catch(() => setVersaoColetorServidor(null))
+  }, [isAdmin])
 
   // O alerta de cobertura carrega junto com a página, não quando a aba é aberta: o valor dele é
   // justamente avisar quem não ia clicar. Falha em silêncio — um erro aqui não pode derrubar o
@@ -240,6 +307,15 @@ export function MarcacoesClient({ isAdmin, opcoes }: { isAdmin: boolean; opcoes:
                         const s = statusColetaDispositivo(d)
                         return <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${s.classe}`}>{s.texto}</span>
                       })()}
+                      {d.ativo && (() => {
+                        const c = statusColetorDispositivo(d, versaoColetorServidor)
+                        if (!c) return null
+                        return (
+                          <span title={c.titulo} className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${c.classe}`}>
+                            {c.texto}
+                          </span>
+                        )
+                      })()}
                     </p>
                     <p className="text-xs text-zinc-500">
                       {d.unidades?.nome}
@@ -253,6 +329,7 @@ export function MarcacoesClient({ isAdmin, opcoes }: { isAdmin: boolean; opcoes:
                     </p>
                     <p className="text-[11px] text-zinc-400">
                       NSR: {d.ultimo_nsr} · Último contato: {d.ultimo_contato_em ? new Date(d.ultimo_contato_em).toLocaleString('pt-BR') : 'nunca'}
+                      {d.coletor_host && ` · máquina: ${d.coletor_host}`}
                       {typeof d.deriva_segundos === 'number' && Math.abs(d.deriva_segundos) > 60 && (
                         <span className="text-amber-600 font-bold"> · deriva de relógio: {d.deriva_segundos}s</span>
                       )}

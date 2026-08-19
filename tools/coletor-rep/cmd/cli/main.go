@@ -171,7 +171,7 @@ func rodarDiagnostico(cfg *config.Config) {
 		}
 
 		sc := sisescala.NovoClient(cfg.SisEscala.URL, d.ID, d.Token)
-		if err := sc.Heartbeat(nil); err != nil {
+		if err := sc.Heartbeat(nil, ciclo.Versao, ciclo.Hostname()); err != nil {
 			fmt.Printf("  heartbeat no SisEscala: FALHOU (%v)\n", err)
 		} else {
 			fmt.Println("  heartbeat no SisEscala: OK (token e dispositivo_id validos)")

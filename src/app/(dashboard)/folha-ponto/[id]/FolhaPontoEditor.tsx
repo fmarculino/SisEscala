@@ -1597,14 +1597,10 @@ export function FolhaPontoEditor({
 
       {/* Modal Demonstrativo de Plantões e Sobreavisos */}
       {anexoModalOpen && anexoData && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex justify-center items-start p-4 sm:p-6 md:p-8 overflow-y-auto print:p-0 print:bg-white print:overflow-visible">
-          <div className="relative w-full max-w-5xl my-4 print:my-0 print:max-w-none">
-            <RelatorioPlantaoSobreavisoAnexo 
-              dados={anexoData} 
-              onClose={() => setAnexoModalOpen(false)} 
-            />
-          </div>
-        </div>
+        <RelatorioPlantaoSobreavisoAnexo 
+          dados={anexoData} 
+          onClose={() => setAnexoModalOpen(false)} 
+        />
       )}
 
       {/* Alert Modal */}

@@ -20,19 +20,39 @@ export async function POST(request: Request) {
     body = {}
   }
 
+  // O heartbeat é a única chamada que TODO ciclo faz — o sync incremental (v0.5.0) pode não ter
+  // lote nenhum a enviar num relógio sem batida nova. Por isso é aqui que a versão do coletor se
+  // mantém fresca no card de /marcacoes. Coletor anterior à 0.8.0 não manda esses campos: fica
+  // com o que a rota de marcações gravou no último lote, nunca com um valor inventado aqui.
+  const atualizacao: Record<string, any> = {}
+
   let derivaSegundos: number | null = null
   const relogioDevice: string | undefined = body?.relogio_device
   if (relogioDevice) {
     const deviceMs = Date.parse(relogioDevice)
     if (Number.isFinite(deviceMs)) {
       derivaSegundos = Math.round((deviceMs - Date.now()) / 1000)
-      const supabase = await createAdminClient()
-      const { error } = await supabase
-        .from('dispositivos_rep')
-        .update({ deriva_segundos: derivaSegundos })
-        .eq('id', auth.dispositivoId)
-      if (error) console.error('Falha ao gravar deriva de relógio:', error.message)
+      atualizacao.deriva_segundos = derivaSegundos
     }
+  }
+
+  const coletorVersao: string | undefined = body?.coletor_versao
+  if (typeof coletorVersao === 'string' && coletorVersao.trim()) {
+    atualizacao.coletor_versao = coletorVersao.trim().slice(0, 32)
+    atualizacao.coletor_versao_em = new Date().toISOString()
+    const coletorHost: string | undefined = body?.coletor_host
+    if (typeof coletorHost === 'string' && coletorHost.trim()) {
+      atualizacao.coletor_host = coletorHost.trim().slice(0, 128)
+    }
+  }
+
+  if (Object.keys(atualizacao).length > 0) {
+    const supabase = await createAdminClient()
+    const { error } = await supabase
+      .from('dispositivos_rep')
+      .update(atualizacao)
+      .eq('id', auth.dispositivoId)
+    if (error) console.error('Falha ao gravar estado do coletor:', error.message)
   }
 
   return NextResponse.json({ success: true, deriva_segundos: derivaSegundos })

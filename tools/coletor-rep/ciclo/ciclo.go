@@ -20,7 +20,7 @@ import (
 	"github.com/sms-maraba/sisescala-coletor-rep/sisescala"
 )
 
-const Versao = "0.7.0"
+const Versao = "0.8.0"
 
 // LimiteCadastrosPorCiclo e' o teto do ciclo AUTOMATICO. O clique manual no menu passa 0 (sem
 // teto, envia todos).
@@ -29,7 +29,7 @@ const LimiteCadastrosPorCiclo = 20
 // LimiteRemocoesPorCiclo e' o teto de remocoes do ciclo AUTOMATICO. O clique manual no menu passa 0.
 const LimiteRemocoesPorCiclo = 20
 
-func hostname() string {
+func Hostname() string {
 	h, err := os.Hostname()
 	if err != nil {
 		return "desconhecido"
@@ -110,7 +110,7 @@ func Sync(cfg *config.Config) error {
 	var falhasSeguidas int
 
 	for i, lote := range pendentes {
-		resultado, err := sc.EnviarLote(lote.LoteID, lote.Linhas, lote.ArquivoSHA256, Versao, hostname())
+		resultado, err := sc.EnviarLote(lote.LoteID, lote.Linhas, lote.ArquivoSHA256, Versao, Hostname())
 		if err != nil {
 			log.Printf("lote %s continua na fila: %v", lote.LoteID, err)
 			falhasSeguidas++
@@ -177,12 +177,12 @@ func Sync(cfg *config.Config) error {
 		trecho := linhas[inicio:fim]
 		loteID := loteIDDeterministico(d.ID, trecho)
 
-		resultado, err := sc.EnviarLote(loteID, trecho, arquivoSHA256, Versao, hostname())
+		resultado, err := sc.EnviarLote(loteID, trecho, arquivoSHA256, Versao, Hostname())
 		if err != nil {
 			log.Printf("falha ao enviar lote %s, gravando na fila offline: %v", loteID, err)
 			erroFila := fila.Gravar(cfg.Fila.Diretorio, fila.Lote{
 				LoteID: loteID, Linhas: trecho, ArquivoSHA256: arquivoSHA256,
-				ColetorVersao: Versao, ColetorHost: hostname(),
+				ColetorVersao: Versao, ColetorHost: Hostname(),
 			})
 			if erroFila != nil {
 				log.Printf("erro: falha tambem ao gravar na fila: %v", erroFila)
@@ -209,15 +209,15 @@ func Heartbeat(cfg *config.Config) error {
 	info, err := rc.InformacoesSistema()
 	if err != nil {
 		log.Printf("aviso: nao foi possivel ler o relogio do REP (%v); heartbeat sem deriva", err)
-		return sc.Heartbeat(nil)
+		return sc.Heartbeat(nil, Versao, Hostname())
 	}
 
 	relogioDevice := extrairRelogioDevice(info)
 	if relogioDevice.IsZero() {
 		log.Println("aviso: get_system_information.fcgi nao trouxe um campo de hora reconhecido; heartbeat sem deriva")
-		return sc.Heartbeat(nil)
+		return sc.Heartbeat(nil, Versao, Hostname())
 	}
-	return sc.Heartbeat(&relogioDevice)
+	return sc.Heartbeat(&relogioDevice, Versao, Hostname())
 }
 
 // SincronizarCadastros aplica a fila de push de identidade (Fase 7) no relógio e reporta quem

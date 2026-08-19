@@ -431,13 +431,20 @@ func (c *Client) ConfirmarRemocao(filaID string, sucesso bool, mensagemErro stri
 	return nil
 }
 
-// Heartbeat reporta a hora do relógio do device para o SisEscala calcular a deriva.
+// Heartbeat reporta a hora do relógio do device para o SisEscala calcular a deriva, e a versão
+// do próprio coletor para a tela de Marcações mostrar quem está desatualizado.
 // relogioDevice nil quando o coletor não conseguiu ler o relógio do REP — o heartbeat ainda
 // vale para atualizar ultimo_contato_em, só não atualiza deriva_segundos.
-func (c *Client) Heartbeat(relogioDevice *time.Time) error {
+// A versão vai por aqui (e não só no lote de AFD) porque o sync é incremental desde a v0.5.0:
+// relógio sem batida nova não manda lote nenhum, e ficaria com a versão congelada na tela.
+func (c *Client) Heartbeat(relogioDevice *time.Time, coletorVersao, coletorHost string) error {
 	payload := map[string]interface{}{}
 	if relogioDevice != nil {
 		payload["relogio_device"] = relogioDevice.Format(time.RFC3339)
+	}
+	if coletorVersao != "" {
+		payload["coletor_versao"] = coletorVersao
+		payload["coletor_host"] = coletorHost
 	}
 	corpo, err := json.Marshal(payload)
 	if err != nil {

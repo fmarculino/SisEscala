@@ -168,6 +168,7 @@ export async function listarDispositivosRep() {
       'id, nome, unidade_id, numero_serie, endereco_ip, modo_operacao, ativo, '
       + 'usuario_rep, porta, usa_https, '
       + 'ultimo_nsr, ultimo_contato_em, deriva_segundos, created_at, unidades(nome), '
+      + 'coletor_versao, coletor_host, coletor_versao_em, '
       // Lista de setores atendidos (0 linhas = "toda a unidade" - mesma semantica do antigo
       // setor_id IS NULL, ver docs/planos/2026-08-13-relogio-rep-compartilhado-por-multiplos-setores.md).
       + 'dispositivos_rep_setores(setor_id, setores(dicionario_setores(nome)))'
