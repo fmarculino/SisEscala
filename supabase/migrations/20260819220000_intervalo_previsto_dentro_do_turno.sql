@@ -1309,7 +1309,11 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 
 -- ============================================================================
--- 4. fn_confirmar_presenca_manual - copia de 20260808100000 + 1 insercao
+-- fn_blocos_previstos_dia - copia de 20260819200000 + a mesma insercao (1 sitio)
+--
+-- (A linha acima substitui um cabecalho que veio junto no recorte de 20260809000000 e falava de
+--  fn_confirmar_presenca_manual, que NAO e recriada aqui. Comentario SQL, sem efeito no que foi
+--  executado — corrigido so para o arquivo nao mentir sobre o proprio conteudo.)
 -- ============================================================================
 
 CREATE OR REPLACE FUNCTION public.fn_blocos_previstos_dia(
