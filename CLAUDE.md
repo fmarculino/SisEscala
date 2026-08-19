@@ -73,6 +73,36 @@ Não replicar no frontend.
 - `fn_projecao_marcacoes_dia` é a **fonte única** compartilhada por reconciliar e conferir. Se
   cada uma derivar por conta própria, o portão de conferência deixa de validar o que será aplicado.
 
+### A alocação roda por dia, e um dia não sabe do outro (19/08/2026)
+
+⚠️ **`fn_alocar_marcacoes_dia` é chamada por (servidor, dia) e grava só o seu dia.** Nada
+sobrescreve nada entre dias vizinhos, então **a mesma batida podia ficar gravada como saída de
+ontem E entrada de hoje** — foi assim que a batida das 21:20 do dia 18 virou a entrada do dia 19
+e empurrou a batida real das 08:23 para "saída para o intervalo" (caso real, coordenador da TI).
+Diário completo em
+[`docs/evolucao/2026-08-19-batida-de-um-dia-virando-passo-de-outro.md`](docs/evolucao/2026-08-19-batida-de-um-dia-virando-passo-de-outro.md).
+
+Duas defesas em `20260819180000`, que **não podem ser removidas sem repor equivalente**:
+
+| defesa | o que faz |
+|---|---|
+| **piso de meia-noite** | um passo nunca casa com batida anterior à meia-noite do dia civil em que o **bloco** começa. Blocos que cruzam a meia-noite não são afetados: o piso é o do *início* do bloco |
+| **regra do dono** | a batida é do dia cujo passo previsto está mais perto dela; os passos dos blocos dos dias vizinhos viram *sombras* que só desqualificam candidatas. O desempate por timestamp do slot faz os dois dias decidirem o oposto — exatamente um fica com ela, **independente da ordem de reconciliação** |
+
+⚠️ **O teto de distância sozinho nunca resolve isso.** 720 min é metade do período da escala, então
+toda batida das 20:00–24:00 da véspera alcança o slot de entrada das 08:00. Baixar o teto até
+fechar essa brecha desliga a flag `ignora_janela_presenca` (medido em `20260819120000`).
+
+⚠️ **O DP prefere quantidade a qualidade** — o custo de não casar (`v_tol_ontem * 2`) é sempre
+maior que o pior casamento aceito (`<= v_tol_ontem`), então casar mal sempre compensa. Mexer nesse
+custo foi **simulado e descartado** em 19/08/2026: corrige 2 duplicações a mais e quebra três dias
+saudáveis, entre eles uma entrada real a 3 min do previsto que passava a ser recusada.
+
+Ainda aberto, medido e sem correção: um bloco que cruza a meia-noite é alocado ao processar o dia
+dele **e** o dia seguinte, com conjuntos de slots concorrentes diferentes — o resultado gravado
+depende de qual dia foi reconciliado por último. (Batida de transição entre blocos encostados
+aparecendo em dois passos é o caso vizinho e é **desejado**; ver armadilha 6.)
+
 ### Antes de mexer
 
 `fn_blocos_previstos_dia` (`20260808040000`) é **cópia mecânica** do trecho de montagem de blocos
