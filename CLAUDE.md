@@ -1025,6 +1025,28 @@ não marca intervalo a fusão é inofensiva, em unidade que marca ela é perda d
 Quando dois blocos ficam encostados, a **batida de transição** fecha um e abre o outro com o
 horário real: nada de timestamp fabricado na fronteira.
 
+⚠️ **Dentro de um bloco fundido isso só passou a valer em 19/08/2026** (`20260819200000`, diário em
+[`docs/evolucao/2026-08-19-batida-de-transicao-entre-turnos.md`](docs/evolucao/2026-08-19-batida-de-transicao-entre-turnos.md)).
+Antes, o bloco tinha no máximo os 4 passos do conjunto e **quem batia na fronteira perdia a batida**:
+medido na SMS (MAISA, 18/08/2026, Regular M 07:00–13:00 + Plantão T 13:00–19:00), as batidas das
+13:07 e 13:10 viraram `fora_da_janela`, e a linha do plantão ficava com o horário do expediente
+(07:04 → 19:09) porque a projeção grava o mesmo par em todas as linhas do bloco.
+
+Como funciona agora: `fn_blocos_previstos_dia` expõe `turnos_inicio[]`/`turnos_fim[]` (o previsto de
+cada turno fundido, na ordem de `escala_diaria_ids`), e cada fronteira interna ganha **dois slots
+opcionais** — a saída do turno que fecha e a entrada do turno que abre — gravados na **linha** de
+cada turno, não no bloco. Três coisas não podem ser desfeitas:
+
+- **Slot opcional sem batida não vira pendência.** A maioria dos dias em bloco contínuo não tem
+  batida na fronteira, e isso é normal, não falta.
+- **Os slots precisam ser reordenados por instante previsto** depois de montados. O DP é um
+  alinhamento monotônico; os slots de fronteira nascem no fim do array (13:00 depois da saída das
+  19:00) e sem reordenar o alinhamento fica impossível — a batida de transição seria recusada do
+  mesmo jeito, e o sintoma seria idêntico ao bug original.
+- **A alocação de fronteira vence a do bloco** na mesma linha e passo (`'fronteira'` no jsonb da
+  alocação, desempate em `fn_projecao_marcacoes_dia`). É o que faz a linha do plantão mostrar
+  13:10 em vez de 07:04.
+
 **Sobreaviso não entra nessa conta.** Não é trabalho presencial, não marca presença e tem ciclo
 próprio em `logs_sobreaviso`. Agrava o fato de que o `start_hour` do Sobreaviso é alinhado ao fim
 do turno Regular (o 3º elemento do `COALESCE` de `start_hour` **não filtra por categoria**), então
