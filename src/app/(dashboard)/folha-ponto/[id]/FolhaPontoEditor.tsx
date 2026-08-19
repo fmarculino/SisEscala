@@ -6,9 +6,9 @@ import Link from 'next/link'
 import { 
   ArrowLeft, Printer, Save, RefreshCw, AlertTriangle, 
   Check, Loader2, Building2, Users, Calendar, Briefcase, 
-  Clock, FileText, CheckSquare, X, Unlock, PhoneCall, ShieldCheck
+  Clock, FileText, CheckSquare, X, Unlock, PhoneCall, ShieldCheck, Wand2
 } from 'lucide-react'
-import { salvarFolhaPonto, verificarDivergenciaEscala, sincronizarFolhaPonto, gerarFolhaPonto, reclassificarPassoPresenca, getDadosPlantoesSobreavisosServidor } from '../actions'
+import { salvarFolhaPonto, verificarDivergenciaEscala, sincronizarFolhaPonto, gerarFolhaPonto, reclassificarPassoPresenca, getDadosPlantoesSobreavisosServidor, autoCorrigirFolhaPonto } from '../actions'
 import { Modal } from '@/components/ui/Modal'
 import { createClient } from '@/utils/supabase/client'
 import { isFaltaDefinitiva } from '@/utils/folha/faltaAutomatica'
@@ -466,6 +466,36 @@ export function FolhaPontoEditor({
     }
   }
 
+  const [autoCorrecting, setAutoCorrecting] = useState(false)
+
+  // Auto-corrigir horários invertidos e desacoplar marcações deslocadas
+  const handleAutoCorrigir = async () => {
+    setAutoCorrecting(true)
+    const res = await autoCorrigirFolhaPonto(folha.id)
+    setAutoCorrecting(false)
+    if (res.error) {
+      setAlertModal({
+        isOpen: true,
+        title: 'Erro na Auto-Correção',
+        message: res.error,
+        type: 'danger'
+      })
+    } else {
+      if (res.registros) {
+        setRegistros(res.registros)
+      }
+      setAlertModal({
+        isOpen: true,
+        title: 'Auto-Correção Concluída',
+        message: res.diasCorrigidos && res.diasCorrigidos > 0 
+          ? `Foram identificados e corrigidos automaticamente ${res.diasCorrigidos} dia(s) com horários invertidos ou deslocados. As horas extras e faltas foram recalculadas com sucesso!`
+          : 'Nenhuma inconsistência de horários invertidos foi detectada nesta folha de ponto. O documento já está consistente.',
+        type: 'success'
+      })
+      router.refresh()
+    }
+  }
+
   // Regenerate sheet completely (overwrites manual edits)
   const handleRegenerar = () => {
     setConfirmModal({
@@ -833,10 +863,23 @@ export function FolhaPontoEditor({
         </div>
 
         <div className="flex flex-wrap gap-2">
+          {/* Auto-Corrigir */}
+          {!isPortal && isEditable && (
+            <button 
+              onClick={handleAutoCorrigir}
+              disabled={autoCorrecting || saving || regenerating || syncing}
+              className="inline-flex items-center bg-violet-50 dark:bg-violet-950/40 hover:bg-violet-100 dark:hover:bg-violet-900/60 text-violet-700 dark:text-violet-300 font-black text-xs uppercase tracking-wider px-4 py-2.5 rounded-xl transition-all border border-violet-200 dark:border-violet-800/50 shadow-sm"
+              title="Realinha automaticamente horários invertidos, remove batidas vazadas de outros dias e recalcula horas extras."
+            >
+              {autoCorrecting ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Wand2 className="h-4 w-4 mr-1.5 text-violet-600 dark:text-violet-400" />}
+              Auto-Corrigir
+            </button>
+          )}
+
           {/* Regenerar */}
           <button 
             onClick={handleRegenerar}
-            disabled={regenerating || saving || syncing || !isEditable}
+            disabled={regenerating || saving || syncing || !isEditable || autoCorrecting}
             className="inline-flex items-center bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-black text-xs uppercase tracking-wider px-4 py-2.5 rounded-xl transition-all disabled:opacity-50"
             title="Regera a folha limpando todas as edições manuais."
           >

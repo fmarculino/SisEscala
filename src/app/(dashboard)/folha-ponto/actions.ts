@@ -8,6 +8,7 @@ import { autoCloseExpiredScalesAndTimesheets, isCompetencyClosed } from '@/utils
 import { resolverMarcacaoDoDia, COLUNAS_PRESENCA_FOLHA, type PassoPresenca } from '@/utils/folha/origemMarcacao'
 import { podePreAssinalarIntervalo } from '@/utils/folha/preAssinalacao'
 import { resolverFaltaAutomatica, isFaltaDefinitiva } from '@/utils/folha/faltaAutomatica'
+import { normalizarRegistrosFolha } from '@/utils/folha/normalizarHorarios'
 
 // Helper: Get user profile with unit/sector permissions
 async function getUserProfile(supabase: any): Promise<UserProfile> {
@@ -2238,5 +2239,175 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
     return { error: error.message }
   }
 }
+
+/**
+ * Executa a auto-correção e realinhamento inteligente de uma folha de ponto.
+ * Reordena horários invertidos, desacopla batidas de dias vizinhos e recalcula horas extras e faltas.
+ */
+export async function autoCorrigirFolhaPonto(folhaId: string) {
+  try {
+    const supabase = await createClient()
+    const userProfile = await getUserProfile(supabase)
+
+    const { data: folha, error: fError } = await supabase
+      .from('folha_ponto')
+      .select('*, escala_mensal(id, unidade_id, setor_id, mes, ano, jornada_id, jornadas(horas_totais, nome, intervalo_minutos))')
+      .eq('id', folhaId)
+      .single()
+
+    if (fError || !folha) throw new Error('Folha de ponto não encontrada.')
+
+    if (await isCompetencyClosed(folha.mes, folha.ano)) {
+      return { error: 'Esta competência está encerrada e todos os dados estão congelados para auditoria.' }
+    }
+
+    const escala = folha.escala_mensal as any
+    if (escala && !hasSectorAccess(userProfile, escala.setor_id, escala.unidade_id)) {
+      return { error: 'Acesso negado para modificar esta folha de ponto.' }
+    }
+
+    const jornadaInfo = escala?.jornadas || null
+    const normalizacao = normalizarRegistrosFolha(folha.registros, folha.mes, folha.ano, jornadaInfo)
+
+    // Recalcular totais consolidados da folha
+    const horasNormaisDiarias = jornadaInfo?.horas_totais ?? 8
+    let totalHorasNormais = 0
+    let totalExtra50 = 0
+    let totalExtra100 = 0
+    let totalFaltas = 0
+
+    normalizacao.registros.forEach((r: any) => {
+      if (r.turno_codigo) {
+        totalHorasNormais += horasNormaisDiarias
+      }
+      if (isFaltaDefinitiva(r.observacao)) {
+        totalFaltas++
+      }
+      if (r.hora_extra_minutos && r.hora_extra_minutos > 0) {
+        if (r.hora_extra_tipo === '100%') {
+          totalExtra100 += r.hora_extra_minutos
+        } else {
+          totalExtra50 += r.hora_extra_minutos
+        }
+      }
+    })
+
+    const { error: updError } = await supabase
+      .from('folha_ponto')
+      .update({
+        registros: normalizacao.registros,
+        total_horas_normais: parseFloat(totalHorasNormais.toFixed(2)),
+        total_horas_extras_50: parseFloat((totalExtra50 / 60).toFixed(2)),
+        total_horas_extras_100: parseFloat((totalExtra100 / 60).toFixed(2)),
+        total_faltas: totalFaltas,
+        ultima_edicao_por_id: userProfile.id,
+        ultima_edicao_em: new Date().toISOString()
+      })
+      .eq('id', folhaId)
+
+    if (updError) throw updError
+
+    revalidatePath(`/folha-ponto/${folhaId}`)
+    revalidatePath('/folha-ponto')
+
+    return {
+      success: true,
+      diasCorrigidos: normalizacao.diasCorrigidos,
+      detalhes: normalizacao.detalhes,
+      registros: normalizacao.registros
+    }
+  } catch (error: any) {
+    console.error('Erro em autoCorrigirFolhaPonto:', error)
+    return { error: error.message }
+  }
+}
+
+/**
+ * Executa a auto-correção em lote de todas as folhas de ponto de uma competência (ou geral).
+ */
+export async function autoCorrigirTodasFolhasPonto(mes?: number, ano?: number) {
+  try {
+    const supabase = await createClient()
+    const userProfile = await getUserProfile(supabase)
+
+    if (userProfile.role !== 'admin' && userProfile.role !== 'super_admin') {
+      return { error: 'Apenas administradores podem executar a correção em lote.' }
+    }
+
+    let query = supabase
+      .from('folha_ponto')
+      .select('id, mes, ano, registros, escala_mensal(id, unidade_id, setor_id, mes, ano, jornada_id, jornadas(horas_totais, nome, intervalo_minutos))')
+
+    if (mes && ano) {
+      query = query.eq('mes', mes).eq('ano', ano)
+    }
+
+    const { data: folhas, error } = await query
+    if (error) throw error
+
+    let totalFolhasCorrigidas = 0
+    let totalDiasCorrigidos = 0
+    const resumoPorServidor: any[] = []
+
+    for (const folha of (folhas || [])) {
+      if (await isCompetencyClosed(folha.mes, folha.ano)) continue
+
+      const escala = folha.escala_mensal as any
+      const jornadaInfo = escala?.jornadas || null
+      const normalizacao = normalizarRegistrosFolha(folha.registros, folha.mes, folha.ano, jornadaInfo)
+
+      if (normalizacao.diasCorrigidos > 0) {
+        const horasNormaisDiarias = jornadaInfo?.horas_totais ?? 8
+        let totalHorasNormais = 0
+        let totalExtra50 = 0
+        let totalExtra100 = 0
+        let totalFaltas = 0
+
+        normalizacao.registros.forEach((r: any) => {
+          if (r.turno_codigo) totalHorasNormais += horasNormaisDiarias
+          if (isFaltaDefinitiva(r.observacao)) totalFaltas++
+          if (r.hora_extra_minutos && r.hora_extra_minutos > 0) {
+            if (r.hora_extra_tipo === '100%') totalExtra100 += r.hora_extra_minutos
+            else totalExtra50 += r.hora_extra_minutos
+          }
+        })
+
+        await supabase
+          .from('folha_ponto')
+          .update({
+            registros: normalizacao.registros,
+            total_horas_normais: parseFloat(totalHorasNormais.toFixed(2)),
+            total_horas_extras_50: parseFloat((totalExtra50 / 60).toFixed(2)),
+            total_horas_extras_100: parseFloat((totalExtra100 / 60).toFixed(2)),
+            total_faltas: totalFaltas,
+            ultima_edicao_por_id: userProfile.id,
+            ultima_edicao_em: new Date().toISOString()
+          })
+          .eq('id', folha.id)
+
+        totalFolhasCorrigidas++
+        totalDiasCorrigidos += normalizacao.diasCorrigidos
+        resumoPorServidor.push({
+          folhaId: folha.id,
+          diasCorrigidos: normalizacao.diasCorrigidos,
+          detalhes: normalizacao.detalhes
+        })
+      }
+    }
+
+    revalidatePath('/folha-ponto')
+
+    return {
+      success: true,
+      totalFolhasCorrigidas,
+      totalDiasCorrigidos,
+      resumo: resumoPorServidor
+    }
+  } catch (error: any) {
+    console.error('Erro em autoCorrigirTodasFolhasPonto:', error)
+    return { error: error.message }
+  }
+}
+
 
 
