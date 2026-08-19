@@ -1,7 +1,7 @@
 'use client'
 
-import React from 'react'
-import { Printer, Calendar, Clock, ShieldCheck, PhoneCall, AlertCircle, Building2 } from 'lucide-react'
+import React, { useMemo } from 'react'
+import { Printer, Calendar, Clock, ShieldCheck, PhoneCall, AlertCircle, Building2, Layers } from 'lucide-react'
 
 interface PlantaoItem {
   dia: number
@@ -65,6 +65,42 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
   const nomeMes = new Date(ano, mes - 1, 1).toLocaleString('pt-BR', { month: 'long' }).toUpperCase()
   const unidadeNome = servidor?.unidades?.nome || 'SECRETARIA MUNICIPAL DE SAÚDE'
   const setorNome = servidor?.setores?.dicionario_setores?.nome || 'SETOR GERAL'
+
+  // Resumo agrupado por tipo individual de plantão
+  const resumoTiposPlantao = useMemo(() => {
+    const map = new Map<string, { nome: string; horario: string; qtd: number; horas: number }>()
+    plantoes.forEach(p => {
+      const key = `${p.turno_nome || 'Plantão'}__${p.horario_previsto || ''}`
+      const curr = map.get(key) || { 
+        nome: p.turno_nome || 'Plantão', 
+        horario: p.horario_previsto || '', 
+        qtd: 0, 
+        horas: 0 
+      }
+      curr.qtd += 1
+      curr.horas += (p.horas_computadas || 0)
+      map.set(key, curr)
+    })
+    return Array.from(map.values())
+  }, [plantoes])
+
+  // Resumo agrupado por tipo individual de sobreaviso
+  const resumoTiposSobreaviso = useMemo(() => {
+    const map = new Map<string, { nome: string; horario: string; qtd: number; horas: number }>()
+    sobreavisos.forEach(s => {
+      const key = `${s.turno_nome || 'Sobreaviso'}__${s.horario_previsto || ''}`
+      const curr = map.get(key) || { 
+        nome: s.turno_nome || 'Sobreaviso', 
+        horario: s.horario_previsto || '', 
+        qtd: 0, 
+        horas: 0 
+      }
+      curr.qtd += 1
+      curr.horas += (s.horas_prontidao || 0)
+      map.set(key, curr)
+    })
+    return Array.from(map.values())
+  }, [sobreavisos])
 
   const handlePrint = () => {
     window.print()
@@ -298,23 +334,85 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
       </div>
 
       {/* TOTALIZADORES CONSOLIDADOS */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 rounded-2xl bg-zinc-100/70 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 mb-8 print:border-zinc-300 print:p-3 print:mb-6">
-        <div className="text-center">
-          <div className="text-[9px] font-bold text-zinc-500 uppercase">Total de Plantões</div>
-          <div className="text-xl font-black text-zinc-900 dark:text-white print:text-black">{plantoes.length}</div>
+      <div className="p-4 md:p-5 rounded-2xl bg-zinc-100/70 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 mb-8 print:border-zinc-300 print:p-3 print:mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 md:gap-4 divide-y sm:divide-y-0 sm:divide-x divide-zinc-200 dark:divide-zinc-700">
+          <div className="text-center pt-2 sm:pt-0">
+            <div className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Total de Plantões</div>
+            <div className="text-xl md:text-2xl font-black text-zinc-900 dark:text-white print:text-black mt-0.5">{plantoes.length}</div>
+            <div className="text-[9px] font-medium text-zinc-400 uppercase">escala(s)</div>
+          </div>
+          <div className="text-center pt-2 sm:pt-0 sm:pl-3">
+            <div className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Horas de Plantão</div>
+            <div className="text-xl md:text-2xl font-black text-blue-600 dark:text-blue-400 print:text-black mt-0.5">{totalHorasPlantao}h</div>
+            <div className="text-[9px] font-medium text-zinc-400 uppercase">computadas</div>
+          </div>
+          <div className="text-center pt-2 sm:pt-0 sm:pl-3">
+            <div className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Total de Sobreavisos</div>
+            <div className="text-xl md:text-2xl font-black text-zinc-900 dark:text-white print:text-black mt-0.5">{sobreavisos.length}</div>
+            <div className="text-[9px] font-medium text-zinc-400 uppercase">escala(s)</div>
+          </div>
+          <div className="text-center pt-2 sm:pt-0 sm:pl-3">
+            <div className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Horas de Sobreaviso</div>
+            <div className="text-xl md:text-2xl font-black text-emerald-600 dark:text-emerald-400 print:text-black mt-0.5">{totalHorasSobreaviso}h</div>
+            <div className="text-[9px] font-medium text-zinc-400 uppercase">prontidão</div>
+          </div>
+          <div className="text-center pt-2 sm:pt-0 sm:pl-3 col-span-2 sm:col-span-1">
+            <div className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Acionamentos</div>
+            <div className="text-xl md:text-2xl font-black text-violet-600 dark:text-violet-400 print:text-black mt-0.5">{totalAcionamentos}</div>
+            <div className="text-[9px] font-medium text-zinc-400 uppercase">presenciais</div>
+          </div>
         </div>
-        <div className="text-center">
-          <div className="text-[9px] font-bold text-zinc-500 uppercase">Horas de Plantão</div>
-          <div className="text-xl font-black text-blue-600 dark:text-blue-400 print:text-black">{totalHorasPlantao}h</div>
-        </div>
-        <div className="text-center">
-          <div className="text-[9px] font-bold text-zinc-500 uppercase">Horas de Sobreaviso</div>
-          <div className="text-xl font-black text-emerald-600 dark:text-emerald-400 print:text-black">{totalHorasSobreaviso}h</div>
-        </div>
-        <div className="text-center">
-          <div className="text-[9px] font-bold text-zinc-500 uppercase">Acionamentos Presenciais</div>
-          <div className="text-xl font-black text-violet-600 dark:text-violet-400 print:text-black">{totalAcionamentos}</div>
-        </div>
+
+        {/* DETALHAMENTO DAS QUANTIDADES E HORAS INDIVIDUAIS POR TIPO */}
+        {(resumoTiposPlantao.length > 0 || resumoTiposSobreaviso.length > 0) && (
+          <div className="mt-4 pt-4 border-t border-zinc-200 dark:border-zinc-700/80 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs print:text-[8px] print:pt-2 print:mt-2">
+            {/* Detalhes de Plantões */}
+            <div>
+              <div className="text-[9px] font-black uppercase text-zinc-500 tracking-wider mb-1.5 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block"></span>
+                Detalhamento dos Plantões ({plantoes.length} escala{plantoes.length !== 1 ? 's' : ''} • {totalHorasPlantao}h)
+              </div>
+              {resumoTiposPlantao.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {resumoTiposPlantao.map((item, idx) => (
+                    <div key={idx} className="px-2.5 py-1 rounded-lg bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 font-medium text-zinc-700 dark:text-zinc-300 print:border-zinc-300 flex items-center gap-1.5 text-[10px] print:text-[8px]">
+                      <span className="font-bold text-zinc-900 dark:text-white print:text-black">{item.nome}</span>
+                      {item.horario && <span className="text-zinc-400 font-mono text-[9px]">({item.horario})</span>}:
+                      <span className="font-bold text-blue-600 dark:text-blue-400 print:text-black">{item.qtd} escala{item.qtd > 1 ? 's' : ''}</span>
+                      <span className="text-zinc-400">•</span>
+                      <span className="font-bold text-zinc-900 dark:text-white print:text-black">{item.horas}h</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-[10px] text-zinc-400 italic">Sem plantões no período.</div>
+              )}
+            </div>
+
+            {/* Detalhes de Sobreavisos */}
+            <div>
+              <div className="text-[9px] font-black uppercase text-zinc-500 tracking-wider mb-1.5 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
+                Detalhamento dos Sobreavisos ({sobreavisos.length} escala{sobreavisos.length !== 1 ? 's' : ''} • {totalHorasSobreaviso}h)
+              </div>
+              {resumoTiposSobreaviso.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {resumoTiposSobreaviso.map((item, idx) => (
+                    <div key={idx} className="px-2.5 py-1 rounded-lg bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 font-medium text-zinc-700 dark:text-zinc-300 print:border-zinc-300 flex items-center gap-1.5 text-[10px] print:text-[8px]">
+                      <span className="font-bold text-zinc-900 dark:text-white print:text-black">{item.nome}</span>
+                      {item.horario && <span className="text-zinc-400 font-mono text-[9px]">({item.horario})</span>}:
+                      <span className="font-bold text-emerald-600 dark:text-emerald-400 print:text-black">{item.qtd} escala{item.qtd > 1 ? 's' : ''}</span>
+                      <span className="text-zinc-400">•</span>
+                      <span className="font-bold text-zinc-900 dark:text-white print:text-black">{item.horas}h</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-[10px] text-zinc-400 italic">Sem sobreavisos no período.</div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* TERMO DE DECLARAÇÃO E ASSINATURAS */}
