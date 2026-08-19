@@ -651,20 +651,32 @@ export function FolhaPontoEditor({
   }
 
   return (
-    <div className="p-8 max-w-6xl mx-auto space-y-8 pb-32 print:p-0 print:max-w-none print:pb-0">
+    <div className="p-8 max-w-6xl mx-auto space-y-8 pb-32 print:p-0 print:max-w-none print:pb-0 print:space-y-0 print:m-0 print:block">
       
       {/* Print styles overrides */}
       <style jsx global>{`
         @media print {
           @page {
             size: A4 portrait;
-            margin: 8mm;
+            margin: 6mm 8mm;
           }
-          body {
+          html, body {
+            height: auto !important;
+            min-height: auto !important;
+            max-height: none !important;
+            overflow: visible !important;
             background-color: white !important;
             color: black !important;
+            margin: 0 !important;
+            padding: 0 !important;
           }
-          .dashboard-layout-nav, .sidebar-container, .print-hidden, header, footer, button, nav, input[type="checkbox"] {
+          /* Reset parent layout containers (Next.js layout, main, dashboard) */
+          main, div, section, article {
+            overflow: visible !important;
+            height: auto !important;
+            max-height: none !important;
+          }
+          .dashboard-layout-nav, .sidebar-container, .print-hidden, header, footer, button, nav, input[type="checkbox"], aside {
             display: none !important;
           }
           .print-full-width {
@@ -674,10 +686,23 @@ export function FolhaPontoEditor({
             padding: 0 !important;
             box-shadow: none !important;
             border: none !important;
+            overflow: visible !important;
+            height: auto !important;
+            background: white !important;
+          }
+          .print-page-1 {
+            page-break-after: always !important;
+            break-after: page !important;
+            margin-bottom: 0 !important;
+            padding-bottom: 0 !important;
+            display: block !important;
           }
           .print-page-break {
-            break-before: page !important;
             page-break-before: always !important;
+            break-before: page !important;
+            margin-top: 0 !important;
+            padding-top: 0 !important;
+            display: block !important;
           }
           input, select, textarea {
             border: none !important;
@@ -704,6 +729,7 @@ export function FolhaPontoEditor({
           }
           tr {
             page-break-inside: avoid !important;
+            break-inside: avoid !important;
           }
           table {
             border-collapse: collapse !important;
@@ -711,7 +737,7 @@ export function FolhaPontoEditor({
           }
           th, td {
             border: 1px solid #a1a1aa !important;
-            padding: 4px 6px !important;
+            padding: 3px 5px !important;
           }
         }
       `}</style>
@@ -876,7 +902,7 @@ export function FolhaPontoEditor({
       )}
 
       {/* Timesheet Document Wrapper */}
-      <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-xl overflow-hidden print-full-width">
+      <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-xl overflow-hidden print-full-width print-page-1 print:rounded-none print:border-none print:shadow-none">
         
         {/* Document Header */}
         <div className="p-8 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 print:bg-white print:border-zinc-300 print:p-4">
@@ -1249,7 +1275,7 @@ export function FolhaPontoEditor({
       {/* ========================================================================= */}
       {/* PÁGINA 2: VERSO DA FOLHA DE PONTO — RELATÓRIO DE JUSTIFICATIVAS E OCORRÊNCIAS */}
       {/* ========================================================================= */}
-      <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-xl overflow-hidden print-full-width print-page-break mt-12 print:mt-0">
+      <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-xl overflow-hidden print-full-width print-page-break mt-12 print:mt-0 print:rounded-none print:border-none print:shadow-none">
         {/* Verso Header */}
         <div className="p-8 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 print:bg-white print:border-zinc-300 print:p-4">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-6 border-b border-zinc-200/60 dark:border-zinc-700/60 print:pb-3 print:gap-2">
