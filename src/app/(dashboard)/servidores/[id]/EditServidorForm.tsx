@@ -115,6 +115,15 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
     )
   }, [filteredCargos, cargoSearch])
 
+  // Filtra apenas as escalas que estão ativas (não fechadas/arquivadas)
+  const escalasAtivas = useMemo(() => {
+    if (!Array.isArray(escalas)) return []
+    return escalas.filter(esc => {
+      const status = (esc.status || '').toLowerCase()
+      return status !== 'fechada' && status !== 'arquivada'
+    })
+  }, [escalas])
+
   const [showPin, setShowPin] = useState(false)
   const [currentPin, setCurrentPin] = useState(
     servidor.pin_acesso && (servidor.pin_acesso.startsWith('$2a$') || servidor.pin_acesso.startsWith('$2b$'))
@@ -408,21 +417,21 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
                   </p>
                 </div>
               </div>
-              {escalas && escalas.length > 0 && (
+              {escalasAtivas.length > 0 && (
                 <span className="self-start sm:self-auto text-[11px] font-bold px-2.5 py-1 bg-white dark:bg-zinc-800 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-zinc-700 rounded-full shadow-xs">
-                  {escalas.length} {escalas.length === 1 ? 'escala registrada' : 'escalas registradas'}
+                  {escalasAtivas.length} {escalasAtivas.length === 1 ? 'escala ativa' : 'escalas ativas'}
                 </span>
               )}
             </div>
 
-            {escalas && escalas.length > 0 ? (
+            {escalasAtivas.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {escalas.slice(0, 4).map((esc: any) => {
+                {escalasAtivas.slice(0, 4).map((esc: any) => {
                   const dataMes = new Date(esc.ano, esc.mes - 1, 1)
                   const mesNome = dataMes.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
                   
                   let statusClass = 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 border-amber-200 dark:border-amber-800'
-                  if (esc.status === 'Publicada' || esc.status === 'Fechada') {
+                  if (esc.status === 'Publicada') {
                     statusClass = 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
                   } else if (esc.status === 'Em Andamento') {
                     statusClass = 'bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-300 border-blue-200 dark:border-blue-800'
@@ -465,10 +474,7 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
             ) : (
               <div className="p-4 bg-white/70 dark:bg-zinc-800/40 border border-dashed border-blue-200 dark:border-zinc-700 rounded-xl text-center">
                 <p className="text-xs text-zinc-500 dark:text-zinc-400 font-medium">
-                  Nenhuma escala ativa cadastrada para este servidor no momento.
-                </p>
-                <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-0.5">
-                  Consulte a aba <strong>Histórico & Relatórios</strong> para o histórico completo.
+                  Nenhuma escala ativa no momento (as escalas fechadas/passadas constam na aba <strong>Histórico & Relatórios</strong>).
                 </p>
               </div>
             )}
