@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { ArrowLeft, Save } from 'lucide-react'
 import { GeoLocationPicker } from '@/components/GeoLocationPicker'
 import { UnidadeIntervaloSettings } from '@/components/UnidadeIntervaloSettings'
+import { UnidadeAvisoPontoSettings } from '@/components/UnidadeAvisoPontoSettings'
 import { UnidadeDadosFiscais } from '@/components/UnidadeDadosFiscais'
 
 export default function NovaUnidadePage() {
@@ -83,6 +84,8 @@ export default function NovaUnidadePage() {
           <GeoLocationPicker />
 
           <UnidadeIntervaloSettings />
+
+          <UnidadeAvisoPontoSettings />
         </div>
 
         {error && (

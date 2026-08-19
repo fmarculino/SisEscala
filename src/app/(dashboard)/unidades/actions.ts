@@ -78,9 +78,16 @@ export async function createUnidade(formData: FormData) {
   const latitude = formData.get('latitude') ? parseFloat(formData.get('latitude') as string) : null
   const longitude = formData.get('longitude') ? parseFloat(formData.get('longitude') as string) : null
   const raio_geofence = formData.get('raio_geofence') ? parseInt(formData.get('raio_geofence') as string) : 100
-  const permite_marca_intervalo = formData.get('permite_marca_intervalo') === 'true'
+  const permite_marca_intervalo = formData.has('permite_marca_intervalo') 
+    ? formData.get('permite_marca_intervalo') === 'true' 
+    : true
   const tipo_intervalo = (formData.get('tipo_intervalo') as string) || 'flexivel'
-  const tolerancia_intervalo_minutos = formData.get('tolerancia_intervalo_minutos') ? parseInt(formData.get('tolerancia_intervalo_minutos') as string) : 5
+  const tolerancia_intervalo_minutos = formData.get('tolerancia_intervalo_minutos') 
+    ? parseInt(formData.get('tolerancia_intervalo_minutos') as string) 
+    : 5
+  const aviso_ponto_whatsapp = formData.has('aviso_ponto_whatsapp')
+    ? formData.get('aviso_ponto_whatsapp') === 'true'
+    : true
 
   const id = crypto.randomUUID()
   const logoFile = formData.get('logo') as File | null
@@ -126,6 +133,7 @@ export async function createUnidade(formData: FormData) {
     permite_marca_intervalo,
     tipo_intervalo,
     tolerancia_intervalo_minutos,
+    aviso_ponto_whatsapp,
     ...fiscais
   })
 

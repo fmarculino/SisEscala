@@ -10,7 +10,7 @@ interface UnidadeIntervaloSettingsProps {
 }
 
 export function UnidadeIntervaloSettings({
-  initialPermiteIntervalo = false,
+  initialPermiteIntervalo = true,
   initialTipoIntervalo = 'flexivel',
   initialToleranciaMinutos = 5
 }: UnidadeIntervaloSettingsProps) {

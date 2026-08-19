@@ -26,8 +26,8 @@ interface Props {
   sobreposicoes?: { nome: string; habilitado: boolean }[]
 }
 
-export function UnidadeAvisoPontoSettings({ initialHabilitado, sobreposicoes = [] }: Props) {
-  const [habilitado, setHabilitado] = useState<boolean>(!!initialHabilitado)
+export function UnidadeAvisoPontoSettings({ initialHabilitado = true, sobreposicoes = [] }: Props) {
+  const [habilitado, setHabilitado] = useState<boolean>(initialHabilitado === null ? false : initialHabilitado ?? true)
 
   return (
     <div className="space-y-5 pt-4 border-t border-zinc-200 dark:border-zinc-800">
