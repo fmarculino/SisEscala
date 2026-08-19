@@ -11,6 +11,7 @@ import { resolverFaltaAutomatica, isFaltaDefinitiva } from '@/utils/folha/faltaA
 import { normalizarRegistrosFolha } from '@/utils/folha/normalizarHorarios'
 import { sequenciarDia, PASSOS_FOLHA } from '@/utils/folha/sequenciaDia'
 import { preservarCampo } from '@/utils/folha/preservacao'
+import { montarCargaPorJornada, horasNormaisDoDia } from '@/utils/folha/cargaDiaria'
 
 // Helper: Get user profile with unit/sector permissions
 async function getUserProfile(supabase: any): Promise<UserProfile> {
@@ -1675,6 +1676,14 @@ export async function salvarFolhaPonto(folhaId: string, registros: any[], status
     const jornadaDetails = escala.jornadas ? (escala.jornadas as any) : null
     const horasNormaisDiarias = jornadaDetails?.horas_totais ?? 8
 
+    // Carga de cada dia: a jornada do mes e so o PADRAO. Dias cobertos por vigencia
+    // (servidores_jornadas_temporarias) valem a carga da jornada que a geracao gravou em
+    // registro.jornada_nome. Ver src/utils/folha/cargaDiaria.ts.
+    const { data: todasJornadas } = await supabase
+      .from('jornadas')
+      .select('nome, horas_totais')
+    const cargaPorJornada = montarCargaPorJornada(todasJornadas)
+
     // Fetch holidays of the month for overtime classification
     const startDate = `${folha.ano}-${String(folha.mes).padStart(2, '0')}-01`
     const daysInMonth = new Date(folha.ano, folha.mes, 0).getDate()
@@ -1733,9 +1742,9 @@ export async function salvarFolhaPonto(folhaId: string, registros: any[], status
 
     registros.forEach(r => {
       if (r.turno_codigo) {
-        totalHorasNormais += horasNormaisDiarias
+        totalHorasNormais += horasNormaisDoDia(r, cargaPorJornada, horasNormaisDiarias)
       }
-      
+
       if (isFaltaDefinitiva(r.observacao)) {
         totalFaltas++
       }
@@ -2302,6 +2311,13 @@ export async function autoCorrigirFolhaPonto(folhaId: string) {
 
     // Recalcular totais consolidados da folha
     const horasNormaisDiarias = jornadaInfo?.horas_totais ?? 8
+
+    // Mesma regra de carga por dia de salvarFolhaPonto: a jornada do mes e so o padrao.
+    const { data: todasJornadasAuto } = await supabase
+      .from('jornadas')
+      .select('nome, horas_totais')
+    const cargaPorJornada = montarCargaPorJornada(todasJornadasAuto)
+
     let totalHorasNormais = 0
     let totalExtra50 = 0
     let totalExtra100 = 0
@@ -2309,7 +2325,7 @@ export async function autoCorrigirFolhaPonto(folhaId: string) {
 
     normalizacao.registros.forEach((r: any) => {
       if (r.turno_codigo) {
-        totalHorasNormais += horasNormaisDiarias
+        totalHorasNormais += horasNormaisDoDia(r, cargaPorJornada, horasNormaisDiarias)
       }
       if (isFaltaDefinitiva(r.observacao)) {
         totalFaltas++
@@ -2376,6 +2392,12 @@ export async function autoCorrigirTodasFolhasPonto(mes?: number, ano?: number) {
     const { data: folhas, error } = await query
     if (error) throw error
 
+    // Fora do laco: a carga por jornada e a mesma para todas as folhas.
+    const { data: todasJornadasLote } = await supabase
+      .from('jornadas')
+      .select('nome, horas_totais')
+    const cargaPorJornada = montarCargaPorJornada(todasJornadasLote)
+
     let totalFolhasCorrigidas = 0
     let totalDiasCorrigidos = 0
     const resumoPorServidor: any[] = []
@@ -2395,7 +2417,7 @@ export async function autoCorrigirTodasFolhasPonto(mes?: number, ano?: number) {
         let totalFaltas = 0
 
         normalizacao.registros.forEach((r: any) => {
-          if (r.turno_codigo) totalHorasNormais += horasNormaisDiarias
+          if (r.turno_codigo) totalHorasNormais += horasNormaisDoDia(r, cargaPorJornada, horasNormaisDiarias)
           if (isFaltaDefinitiva(r.observacao)) totalFaltas++
           if (r.hora_extra_minutos && r.hora_extra_minutos > 0) {
             if (r.hora_extra_tipo === '100%') totalExtra100 += r.hora_extra_minutos

@@ -72,6 +72,32 @@ export async function fetchGeneratorData(
     if (ps.servidor_id && ps.jornada_id) prevJornadasMap.set(ps.servidor_id, ps.jornada_id)
   })
 
+  // A jornada a herdar e a que o servidor estava CUMPRINDO no fim do mes anterior, e essa nem
+  // sempre e escala_mensal.jornada_id: uma vigencia (servidores_jornadas_temporarias) sobrepoe
+  // o padrao do mes por intervalo de datas. Sem esta consulta, quem mudou de horario no meio do
+  // mes — reducao judicial, acordo — voltava SILENCIOSAMENTE ao horario antigo no mes seguinte,
+  // porque a vigencia acabava com o mes e a heranca copiava o padrao antigo de volta.
+  //
+  // O criterio e o ULTIMO DIA do mes anterior de proposito: uma vigencia curta no meio do mes
+  // (um curso de 5 dias) nao alcanca essa data e corretamente NAO e herdada; a que vale ate o
+  // fim do mes e a que representa "passou a cumprir isto".
+  const ultimoDiaPrevStr = `${prevAno}-${String(prevMes).padStart(2, '0')}-${String(lastDayPrev).padStart(2, '0')}`
+  const { data: vigenciasFimMes } = await supabase
+    .from('servidores_jornadas_temporarias')
+    .select('servidor_id, jornada_id, data_inicio, created_at')
+    .in('servidor_id', servidorIds)
+    .lte('data_inicio', ultimoDiaPrevStr)
+    .gte('data_fim', ultimoDiaPrevStr)
+
+  // Mesmo desempate de obter_jornada_servidor_data: a vigencia registrada por ultimo vence.
+  const vigenciaOrdenada = [...(vigenciasFimMes || [])].sort((a, b) =>
+    String(a.created_at || '').localeCompare(String(b.created_at || '')) ||
+    String(a.data_inicio || '').localeCompare(String(b.data_inicio || ''))
+  )
+  vigenciaOrdenada.forEach(v => {
+    if (v.servidor_id && v.jornada_id) prevJornadasMap.set(v.servidor_id, v.jornada_id)
+  })
+
   // 2. Buscar escalas diárias do mês anterior para detectar o padrão
   const prevScaleIds = prevScales?.map(ps => ps.id) || []
   let prevDailies: any[] = []

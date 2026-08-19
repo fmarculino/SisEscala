@@ -265,7 +265,7 @@ export function ServidorDetalhesClient({
           }`}
         >
           <Clock className="h-4 w-4" />
-          Jornadas Temporárias
+          Alterações de Jornada
         </button>
         <button
           onClick={() => setActiveTab('historico')}
@@ -326,7 +326,7 @@ export function ServidorDetalhesClient({
             <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-8 rounded-2xl shadow-sm space-y-6">
               <h2 className="text-lg font-bold text-zinc-900 dark:text-white flex items-center gap-2">
                 <Plus className="h-5 w-5 text-blue-500" />
-                Cadastrar Jornada Temporária (Alteração por Período)
+                Alterar Jornada por Período (vigência)
               </h2>
 
               <form onSubmit={handleAddJornadaTemporaria} className="space-y-4">
@@ -338,7 +338,7 @@ export function ServidorDetalhesClient({
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Jornada Temporária *</label>
+                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Nova Jornada *</label>
                     <select
                       value={selectedJornada}
                       onChange={(e) => setSelectedJornada(e.target.value)}
@@ -404,7 +404,7 @@ export function ServidorDetalhesClient({
               </h2>
 
               {jornadasTemporarias.length === 0 ? (
-                <p className="text-sm text-zinc-400 italic">Nenhuma jornada temporária cadastrada para este servidor.</p>
+                <p className="text-sm text-zinc-400 italic">Nenhuma alteração de jornada por período cadastrada para este servidor.</p>
               ) : (
                 <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
                   <table className="w-full text-left text-sm text-zinc-500 dark:text-zinc-400">
@@ -436,7 +436,7 @@ export function ServidorDetalhesClient({
                             <button
                               onClick={() => handleDeleteJornada(jt.id)}
                               className="p-2 bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 hover:bg-red-100 rounded-lg transition-colors border border-red-100/30"
-                              title="Remover jornada temporária"
+                              title="Remover alteração de jornada"
                             >
                               <Trash2 className="h-4 w-4" />
                             </button>

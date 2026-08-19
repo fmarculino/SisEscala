@@ -760,6 +760,47 @@ duas ficam em `folha-ponto/actions.ts` e duas em `consultar-escala/actions.ts`. 
 entre si antes (foi o que criou `sequenciaDia.ts`). Use um script que conte as ocorrências e aborte
 na divergência (`scratchpad/aplica_preservacao.js` é o modelo).
 
+⚠️ **O RECÁLCULO de totais tem outras quatro cópias, e elas não são as mesmas quatro.** As da
+geração são `executeGerarFolhaPonto` · `sincronizarFolhaPonto` · `gerarFolhaPontoServidor` ·
+`sincronizarFolhaPontoServidor`. As do recálculo de `total_horas_normais` são
+`salvarFolhaPonto` · `autoCorrigirFolhaPonto` · `salvarFolhaPontoServidor` ·
+**`autoCorrigirTodasFolhasPonto`** — esta última roda sobre **todas as folhas de uma vez** e é a
+mais fácil de esquecer (foi o que quase aconteceu em 19/08/2026). Ao mexer em carga horária,
+confira as oito, e lembre que as duas listas se sobrepõem só em nome.
+
+### A jornada do mês não tem vigência, e trocá-la reescreve o mês inteiro (19/08/2026)
+
+⚠️ **`escala_mensal.jornada_id` é UMA jornada por (servidor, mês).** Trocá-la no dia 12 **não**
+muda "dali pra frente": reescreve a premissa dos dias 1 a 11 também, porque
+`fn_blocos_previstos_dia`, `fn_confirmar_presenca` e a geração da folha leem essa coluna para
+**todo** dia do mês. Batida real não se perde (`marcacoes_ponto` é INSERT-only), mas o **julgamento**
+dela muda: hora extra e falta dos dias passados são recalculadas contra um horário que não valia
+neles. Diário em
+[`docs/evolucao/2026-08-19-mudanca-de-jornada-no-meio-da-escala.md`](docs/evolucao/2026-08-19-mudanca-de-jornada-no-meio-da-escala.md).
+
+**A peça datada é `servidores_jornadas_temporarias`**, resolvida por
+`obter_jornada_servidor_data(servidor, data, jornada_do_mês)` — chamada **de dentro** de
+`fn_confirmar_presenca` e `fn_blocos_previstos_dia`, então terminal, REP, reconciliação e folha já
+a respeitam por data. É o caminho da redução judicial e do acordo; a troca da coluna é o caminho do
+**engano**, e desde `20260819230000` exige justificativa e vira linha em
+`escala_mensal_jornada_historico`.
+
+⚠️ **Vigência que acaba no fim do mês precisa sobreviver à virada.** O Gerador Inteligente herda a
+jornada do mês anterior; até 19/08/2026 herdava `escala_mensal.jornada_id` e **desfazia
+silenciosamente** a vigência. Hoje consulta a vigência do **último dia** do mês anterior — critério
+escolhido para que vigência curta no meio do mês (um curso de 5 dias) corretamente **não** seja
+herdada.
+
+⚠️ **Não bloqueie a troca "porque já existe batida".** Foi a primeira ideia e está errada: proíbe a
+redução judicial (que vai acontecer) e não resolve o engano (que sem histórico é indistinguível da
+correção). Medido em produção em 19/08/2026, competência 08/2026: **zero** quebras de horário
+praticado no meio do mês em 134 escalas mensuráveis, e **zero** jornadas desalinhadas do praticado
+em 145. O risco é estrutural; a ocorrência era nenhuma.
+
+⚠️ **`updated_at` de `escala_mensal` NÃO mede troca de jornada.** O `handleSave` da grade faz upsert
+de todas as linhas a cada "Salvar Previsão", então o carimbo sobe sempre (75% das escalas com
+batida, medido). Para medir troca, use a quebra no horário **praticado** — ou, agora, o histórico.
+
 ### Seleção da batida real na validação manual (v1.26.0)
 
 Plano em [`docs/planos/2026-08-09-selecao-de-batida-real-na-validacao-manual.md`](docs/planos/2026-08-09-selecao-de-batida-real-na-validacao-manual.md),
@@ -1005,6 +1046,15 @@ registro de ponto falso.
 Por isso `fn_ingerir_afd` passa `sintetica = false` explicitamente para origem `rep`, e
 `marcacoes_ponto.sintetica` é campo gravado, não derivado na leitura. Nunca reintroduzir a
 inferência por segundos em cima de marcação de relógio.
+
+⚠️ **E ela falha na direção contrária em dado anterior a 08/08/2026: segundos reais NÃO provam
+batida real.** A validação em massa antiga gravava o **instante da validação** nos campos de
+presença — com segundos e microssegundos, indistinguível de terminal pela heurística. Medido em
+19/08/2026: HUGO MARCELO OSORIO tem os dias 1 a 17 de junho/2026 **todos** com entrada *e* saída em
+`18/06 20:3x`; LUCIA LAYANE, idem. Competências **Fechadas**, comportamento corrigido pela v1.22.0.
+Para separar fato de artefato use `escala_diaria.presenca_*_origem` (`rep`/`terminal` = real) — mas
+essa coluna só existe desde `20260808020000`, então **junho e julho/2026 não são auditáveis por
+horário**, por nenhum dos dois caminhos. Não tire conclusão sobre horário praticado nesses meses.
 
 ### 6. Fusão de blocos: Sobreaviso nunca funde
 

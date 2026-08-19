@@ -9,6 +9,7 @@ import { podePreAssinalarIntervalo } from '@/utils/folha/preAssinalacao'
 import { resolverFaltaAutomatica, isFaltaDefinitiva } from '@/utils/folha/faltaAutomatica'
 import { TERMO_ATIVACAO, TERMO_DESATIVACAO, TERMO_VERSAO } from '@/utils/avisoPonto'
 import { preservarCampo } from '@/utils/folha/preservacao'
+import { montarCargaPorJornada, horasNormaisDoDia } from '@/utils/folha/cargaDiaria'
 
 
 export async function findServidorByMatricula(matricula: string) {
@@ -815,6 +816,13 @@ export async function salvarFolhaPontoServidor(folhaId: string, registros: any[]
     const jornadaDetails = escala.jornadas ? (escala.jornadas as any) : null
     const horasNormaisDiarias = jornadaDetails?.horas_totais ?? 8
 
+    // Carga de cada dia: a jornada do mes e so o PADRAO; dias cobertos por vigencia valem a
+    // carga gravada em registro.jornada_nome. Ver src/utils/folha/cargaDiaria.ts.
+    const { data: todasJornadas } = await supabase
+      .from('jornadas')
+      .select('nome, horas_totais')
+    const cargaPorJornada = montarCargaPorJornada(todasJornadas)
+
     // Fetch holidays
     const startDate = `${folha.ano}-${String(folha.mes).padStart(2, '0')}-01`
     const daysInMonth = new Date(folha.ano, folha.mes, 0).getDate()
@@ -833,7 +841,7 @@ export async function salvarFolhaPontoServidor(folhaId: string, registros: any[]
 
     registros.forEach(r => {
       if (r.turno_codigo) {
-        totalHorasNormais += horasNormaisDiarias
+        totalHorasNormais += horasNormaisDoDia(r, cargaPorJornada, horasNormaisDiarias)
       }
 
       if (isFaltaDefinitiva(r.observacao)) {

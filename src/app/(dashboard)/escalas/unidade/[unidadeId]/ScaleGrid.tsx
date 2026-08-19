@@ -21,6 +21,7 @@ import { SwapRequestPanel } from '@/components/SwapRequestPanel'
 import { sendWhatsAppMessageAction } from '@/app/actions/communication'
 import { AcionarSobreavisoModal } from '@/components/sobreaviso/AcionarSobreavisoModal'
 import { AutorizacaoExcecaoModal } from '@/components/escalas/AutorizacaoExcecaoModal'
+import { AlterarJornadaModal, type AlterarJornadaAlvo } from '@/components/escalas/AlterarJornadaModal'
 
 interface ScaleGridProps {
   unidadeId: string
@@ -376,6 +377,10 @@ export function ScaleGrid({
   
   const [logsTentativas, setLogsTentativas] = useState<any[]>([])
   const [marcacoesPendentes, setMarcacoesPendentes] = useState<any[]>([])
+
+  // Alvo do AlterarJornadaModal. Preenchido quando alguem troca a jornada de um servidor que
+  // ja tem ponto registrado no mes; null significa "nenhuma troca pendente de decisao".
+  const [jornadaModalAlvo, setJornadaModalAlvo] = useState<AlterarJornadaAlvo | null>(null)
 
   const [manualPresenceModal, setManualPresenceModal] = useState<{
     isOpen: boolean;
@@ -1067,6 +1072,27 @@ export function ScaleGrid({
     )
     return hasOnCallArrival
   }, [presenceData, logsSobreaviso])
+
+  /**
+   * Dias do mes em que este servidor ja tem entrada ou saida registrada, em qualquer categoria
+   * de trabalho presencial. Sobreaviso fica de fora: nao marca presenca e tem ciclo proprio.
+   *
+   * Usado para decidir se trocar a jornada precisa passar pelo AlterarJornadaModal — e para
+   * mostrar ali quantos dias ja trabalhados seriam reavaliados pela troca.
+   */
+  const diasComBatidaDoServidor = useCallback((servidorId: string): number[] => {
+    const presenceForServer = presenceData[servidorId]
+    if (!presenceForServer) return []
+    const dias = new Set<number>()
+    for (const cat of ['Regular', 'Extra', 'Plantão'] as RowCategory[]) {
+      const days = presenceForServer[cat]
+      if (!days) continue
+      for (const [dia, p] of Object.entries(days)) {
+        if (p?.entrada || p?.saida) dias.add(parseInt(dia))
+      }
+    }
+    return [...dias].sort((a, b) => a - b)
+  }, [presenceData])
 
   const hasPresenceForDay = useCallback((servidorId: string, escalaMensalId: string, categoria: RowCategory, day: number) => {
     // Check regular presence
@@ -3618,11 +3644,33 @@ export function ScaleGrid({
                             value={em.jornada_id || ''}
                             onChange={(e) => {
                               const newJornadaId = e.target.value
-                              setEscalaMensal(prev => prev.map(item => 
+                              // A jornada do mes vale para TODOS os dias: trocar aqui reavalia
+                              // tambem os ja trabalhados. Com ponto registrado, a escolha entre
+                              // "mudou a partir de X" e "estava errada desde o dia 1" e de quem
+                              // sabe o que aconteceu — ver AlterarJornadaModal.
+                              const dias = diasComBatidaDoServidor(em.servidor_id)
+                              if (newJornadaId && em.jornada_id && newJornadaId !== em.jornada_id && dias.length > 0) {
+                                setJornadaModalAlvo({
+                                  escalaMensalId: em.id,
+                                  servidorId: em.servidor_id,
+                                  servidorNome: em.servidores?.nome || 'servidor',
+                                  jornadaAtualId: em.jornada_id,
+                                  jornadaAtualNome: jornadas.find(j => j.id === em.jornada_id)?.nome || '—',
+                                  jornadaNovaId: newJornadaId,
+                                  jornadaNovaNome: jornadas.find(j => j.id === newJornadaId)?.nome || '—',
+                                  diasComBatida: dias,
+                                })
+                                return
+                              }
+                              setEscalaMensal(prev => prev.map(item =>
                                 item.id === em.id ? { ...item, jornada_id: newJornadaId } : item
                               ))
                             }}
-                            className={`w-full ${!em.jornada_id ? 'bg-red-50 dark:bg-red-900/10 text-red-500 animate-pulse' : 'bg-transparent'} border-none outline-none text-[10px] font-bold uppercase focus:ring-1 focus:ring-blue-500 rounded p-0 transition-colors`}
+                            // Mesmo guard das celulas de turno. O seletor de jornada nunca teve
+                            // um: dava para trocar a jornada de uma escala Fechada ou de
+                            // competencia encerrada na tela (o Salvar e que barrava depois).
+                            disabled={isCompetenciaEncerrada || escalaMensal[0]?.status === 'Fechada' || (isClosed && userProfile?.role !== 'admin' && userProfile?.role !== 'super_admin')}
+                            className={`w-full ${!em.jornada_id ? 'bg-red-50 dark:bg-red-900/10 text-red-500 animate-pulse' : 'bg-transparent'} border-none outline-none text-[10px] font-bold uppercase focus:ring-1 focus:ring-blue-500 rounded p-0 transition-colors disabled:opacity-60 disabled:cursor-not-allowed`}
                           >
                             <option value="">Selecione...</option>
                             {jornadas.filter(j => j.ativo || j.id === em.jornada_id).map(j => (
@@ -6042,6 +6090,28 @@ export function ScaleGrid({
           excecaoExistente={excecoesEscala.find(e => e.servidor_id === autorizacaoModalState.servidorId)}
         />
       )}
+      <AlterarJornadaModal
+        isOpen={!!jornadaModalAlvo}
+        onClose={() => setJornadaModalAlvo(null)}
+        alvo={jornadaModalAlvo}
+        mes={mes}
+        ano={ano}
+        unidadeId={unidadeId}
+        onCorrigido={(escalaMensalId, jornadaId) => {
+          // A RPC ja gravou no banco. O estado local so acompanha, para o select nao voltar
+          // a mostrar a jornada antiga ate o proximo carregamento.
+          setEscalaMensal(prev => prev.map(item =>
+            item.id === escalaMensalId ? { ...item, jornada_id: jornadaId } : item
+          ))
+        }}
+        onVigenciaCriada={() => {
+          // A jornada do MES nao mudou de proposito: quem passa a valer a partir da data e a
+          // vigencia, resolvida por obter_jornada_servidor_data. Refaz o fetch da grade (e nao
+          // router.refresh()) porque jornadasTemporarias e estado deste client component: o
+          // refresh recarregaria os Server Components sem repopular esta lista.
+          fetchJornadasTemporarias()
+        }}
+      />
     </>
   )
 }

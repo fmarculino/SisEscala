@@ -1,4 +1,4 @@
-# SisEscala 📅[![Version](https://img.shields.io/badge/version-2.2.0-green.svg)](https://github.com/fmarculino/SisEscala)
+# SisEscala 📅[![Version](https://img.shields.io/badge/version-2.3.0-green.svg)](https://github.com/fmarculino/SisEscala)
 [![Next.js](https://img.shields.io/badge/framework-Next.js%2015-black.svg)](https://nextjs.org/)
 [![Supabase](https://img.shields.io/badge/backend-Supabase-green.svg)](https://supabase.com/)
 [![Tailwind CSS](https://img.shields.io/badge/styling-Tailwind%20CSS-38B2AC.svg)](https://tailwindcss.com/)
@@ -10,6 +10,13 @@ O sistema foca em **governança, segurança jurídica e eficiência operacional*
 ---
 
 ## 🚀 Principais Funcionalidades
+
+### 🕘 Alteração de Jornada no Meio da Escala com Vigência por Data (v2.3.0)
+- **Dois caminhos, porque são dois fatos diferentes**: a jornada do mês (`escala_mensal.jornada_id`) vale para **todos os dias**, então trocá-la no dia 12 reavalia também os dias 1 a 11. Ao alterar a jornada de um servidor que já tem ponto registrado, a grade passa a exigir a escolha entre **"passou a cumprir o novo horário a partir do dia X"** (redução judicial, acordo, mudança de setor — cria vigência por data e preserva os dias anteriores) e **"a jornada estava errada desde o dia 1"** (erro de cadastro — reescreve o mês, com justificativa obrigatória).
+- **Histórico Auditável da Troca (`escala_mensal_jornada_historico`)**: tabela append-only que registra valor anterior, valor novo, autor, data e justificativa de toda alteração efetiva de jornada, inclusive as feitas pelo salvamento normal da grade.
+- **Vigência Determinística e Sem Sobreposição**: `obter_jornada_servidor_data` — a função consultada por dentro de `fn_confirmar_presenca` e `fn_blocos_previstos_dia`, e portanto respeitada por terminal, REP, reconciliação e folha — passa a ordenar explicitamente (a decisão mais recente vence), e períodos sobrepostos para o mesmo servidor são recusados no banco.
+- **Carga Horária Correta com Jornadas Diferentes no Mesmo Mês**: o total de horas normais da folha passa a resolver a jornada **dia a dia** (fonte única em `src/utils/folha/cargaDiaria.ts`), em vez de aplicar a jornada do mês a todos os dias.
+- **A Mudança Permanente Sobrevive à Virada do Mês**: o Gerador Inteligente passa a herdar a jornada vigente no último dia do mês anterior, e não mais a jornada do cadastro mensal — que desfazia silenciosamente a alteração na virada.
 
 ### 📄 Verso da Folha de Ponto & Relatório Anexo de Plantão/Sobreaviso (v2.2.0)
 - **Verso Oficial da Folha de Ponto**: Quadro analítico com detalhamento completo de ocorrências, justificativas registradas, atestados, declarações e histórico funcional para prestação de contas aos órgãos fiscalizadores.

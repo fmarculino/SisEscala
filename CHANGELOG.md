@@ -2,6 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.3.0] - 2026-08-19
+
+Alteração de jornada no meio da escala com vigência por data, histórico auditável da troca e correção do cálculo de carga horária quando o servidor cumpre jornadas diferentes no mesmo mês.
+
+Diário completo da investigação e das medições em [`docs/evolucao/2026-08-19-mudanca-de-jornada-no-meio-da-escala.md`](docs/evolucao/2026-08-19-mudanca-de-jornada-no-meio-da-escala.md).
+
+### Added
+- **Histórico Auditável da Troca de Jornada (`20260819230000_audit_jornada_change_escala_mensal.sql`)**:
+  - Nova tabela append-only `escala_mensal_jornada_historico`, alimentada pela trigger `trg_registrar_troca_jornada`, que registra valor anterior, valor novo, autor e data de **toda** alteração efetiva de `escala_mensal.jornada_id` — inclusive as feitas pelo upsert da grade. Até aqui a troca não deixava rastro nenhum, e o valor anterior era irrecuperável.
+  - O filtro `IS DISTINCT FROM` garante que o "Salvar Previsão" (que reenvia todas as linhas da escala) não gere linhas de ruído.
+  - Nova RPC `fn_alterar_jornada_escala_mensal(escala_mensal_id, jornada_id, justificativa)`: exige justificativa, recusa escala `Fechada` e publica o texto num GUC local à transação para a trigger consumir — um único ponto de gravação do histórico, dois caminhos de entrada.
+- **Modal "Alterar Jornada" na Grade de Escala (`AlterarJornadaModal.tsx`, `jornadaActions.ts`)**:
+  - Ao trocar a jornada de um servidor que **já possui ponto registrado no mês**, a grade passa a exigir uma decisão explícita entre dois caminhos distintos, em vez de aplicar a troca em silêncio:
+    - **"Passou a cumprir o novo horário a partir do dia X"** — redução de jornada por decisão judicial, acordo interno ou mudança de setor. Cria a vigência por data e **não** altera a jornada do mês; os dias anteriores continuam julgados pelo horário que valia neles.
+    - **"A jornada estava errada desde o dia 1"** — erro de cadastro. Reescreve o mês inteiro, com justificativa obrigatória registrada no histórico.
+  - O dia de início vem pré-preenchido com o dia seguinte à última batida registrada, e o modal informa quantos dias já trabalhados seriam reavaliados pela troca.
+  - Sem batida no mês, a troca continua acontecendo direto, sem modal.
+
+### Fixed
+- **Carga Horária Ignorava a Jornada Vigente por Data (`src/utils/folha/cargaDiaria.ts`)**:
+  - O recálculo de totais da folha somava `horas_totais` da jornada do **mês** para todo dia com turno, enquanto o registro de cada dia já gravava a jornada correta em `jornada_nome`. Servidor com jornada alterada por vigência tinha o total do mês computado pela jornada errada — medido em produção: uma folha somava 76h onde o correto eram 100h.
+  - A regra existia em **quatro** cópias (`salvarFolhaPonto`, `autoCorrigirFolhaPonto`, `salvarFolhaPontoServidor` e `autoCorrigirTodasFolhasPonto`, esta última aplicada a todas as folhas de uma vez). Todas passam a usar a fonte única `horasNormaisDoDia`.
+- **Vigência de Jornada Voltava Sozinha ao Horário Antigo no Mês Seguinte (`intelligentScaleGenerator.ts`)**:
+  - O Gerador Inteligente herdava `escala_mensal.jornada_id` do mês anterior sem consultar `servidores_jornadas_temporarias`. Uma mudança permanente registrada como vigência era **silenciosamente desfeita** na virada do mês. A herança passa a considerar a jornada vigente no **último dia** do mês anterior — critério que preserva o comportamento correto para vigências curtas no meio do mês, que continuam não sendo herdadas.
+- **Resolução de Jornada por Data Não Era Determinística (`20260819240000_journey_vigencia_determinism.sql`)**:
+  - `obter_jornada_servidor_data` usava `SELECT ... LIMIT 1` **sem `ORDER BY`**: com duas vigências cobrindo a mesma data, a mesma batida podia ser julgada contra janelas diferentes em execuções diferentes. Passa a ordenar por `created_at DESC, data_inicio DESC, id DESC` (a decisão mais recente vence).
+  - Nova trigger `trg_vigencia_jornada_sem_sobreposicao` recusa a criação de períodos sobrepostos para o mesmo servidor, com mensagem indicando o período conflitante. Períodos encostados (sem sobreposição real) continuam permitidos.
+- **Seletor de Jornada Sem Bloqueio em Escala Fechada (`ScaleGrid.tsx`)**:
+  - O seletor de jornada da grade nunca teve o guard de escala `Fechada` / competência encerrada que as células de turno já tinham — era possível alterá-lo na tela, e só o botão Salvar barrava depois. Passa a usar o mesmo critério.
+
+### Changed
+- **Nomenclatura: "Jornada Temporária" → "Alteração de Jornada por Período (vigência)"**:
+  - O rótulo antigo afastava o coordenador do caminho correto: redução de jornada por decisão judicial não é "temporária", então quem precisava registrá-la não procurava essa aba e acabava trocando a jornada do mês, o que reescreve os dias já trabalhados. A tabela e a resolução por data sempre serviram aos dois casos.
+
 ## [2.2.0] - 2026-08-19
 
 Verso oficial da Folha de Ponto com justificativas e anexo de plantão/sobreaviso, suporte a afastamentos fracionados (por horas), auto-reconciliação em massa de marcações REP com resolução por duplo vínculo, e coletor REP v0.7.0 com higiene automatizada em segundo plano e CI no GitHub Actions.
