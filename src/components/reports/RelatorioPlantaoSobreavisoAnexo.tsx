@@ -303,10 +303,23 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
                     <td className="py-2 px-3 text-zinc-600 dark:text-zinc-400 print:text-black uppercase truncate max-w-[140px]">{s.setor}</td>
                     <td className="py-2 px-3">
                       {s.acionamentos.length > 0 ? (
-                        <div className="space-y-1">
-                          {s.acionamentos.map((ac, acIdx) => (
-                            <div key={acIdx} className="font-mono text-[10px] print:text-[8px] font-bold text-zinc-800 dark:text-zinc-200 print:text-black">
-                              Chamado: {ac.hora_acionamento} • Chegada: {ac.hora_chegada} • Término: {ac.hora_saida}
+                        <div className="space-y-1.5">
+                          {s.acionamentos.map((ac: any, acIdx: number) => (
+                            <div key={acIdx} className="bg-zinc-50 dark:bg-zinc-800/60 print:bg-transparent p-1.5 rounded-lg border border-zinc-200/80 dark:border-zinc-700/80 print:border-none print:p-0">
+                              <div className="font-mono text-[10px] print:text-[8px] font-bold text-zinc-800 dark:text-zinc-200 print:text-black flex flex-wrap items-center gap-x-2">
+                                <span className="text-violet-600 dark:text-violet-400 print:text-black">Chamado: {ac.hora_acionamento}</span>
+                                {ac.hora_chegada && ac.hora_chegada !== '-' && (
+                                  <span className="text-emerald-600 dark:text-emerald-400 print:text-black">• Chegada: {ac.hora_chegada}</span>
+                                )}
+                                {ac.hora_saida && ac.hora_saida !== '-' && (
+                                  <span className="text-blue-600 dark:text-blue-400 print:text-black">• Saída: {ac.hora_saida}</span>
+                                )}
+                              </div>
+                              {ac.destino && (
+                                <div className="text-[9px] print:text-[7px] text-zinc-500 font-sans font-medium mt-0.5">
+                                  Destino: {ac.destino}
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -314,11 +327,20 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
                         <span className="text-zinc-400 italic">Disponível sem acionamento presencial</span>
                       )}
                     </td>
-                    <td className="py-2 px-3 text-zinc-500 print:text-black italic">
+                    <td className="py-2 px-3 text-zinc-600 dark:text-zinc-300 print:text-black">
                       {s.acionamentos.length > 0 ? (
-                        s.acionamentos.map((ac, acIdx) => <div key={acIdx}>{ac.motivo}</div>)
+                        <div className="space-y-1">
+                          {s.acionamentos.map((ac: any, acIdx: number) => (
+                            <div key={acIdx} className="text-xs print:text-[8px]">
+                              <span className="font-semibold text-zinc-900 dark:text-white print:text-black">{ac.motivo}</span>
+                              {ac.status && (
+                                <span className="ml-1 text-[9px] font-bold text-emerald-600 dark:text-emerald-400 print:text-black uppercase">({ac.status})</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
                       ) : (
-                        'Cumprimento regular do período de prontidão'
+                        <span className="text-zinc-400 italic">Cumprimento regular do período de prontidão</span>
                       )}
                     </td>
                   </tr>

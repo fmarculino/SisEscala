@@ -2055,16 +2055,33 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
     })
 
     // 6. Fetch on-call logs (logs_sobreaviso) for this server in that month/year
-    const startDate = `${ano}-${String(mes).padStart(2, '0')}-01`
-    const endDate = `${ano}-${String(mes).padStart(2, '0')}-31`
-    
-    const { data: logsSobreaviso } = await supabase
-      .from('logs_sobreaviso')
-      .select('id, data, hora_acionamento, hora_chegada, hora_saida, motivo, status, observacoes, created_at')
-      .eq('servidor_id', servidorId)
-      .gte('data', startDate)
-      .lte('data', endDate)
-      .order('data', { ascending: true })
+    let logsSobreaviso: any[] = []
+    if (escalaMensalIds.length > 0) {
+      const { data: lsData, error: lsErr } = await supabase
+        .from('logs_sobreaviso')
+        .select(`
+          id, escala_mensal_id, dia, status, motivo_acionamento, acionado_por,
+          data_hora_acionamento, data_hora_chegada, data_hora_validacao,
+          destino_referencia,
+          destino_unidade:unidades!destino_unidade_id(nome),
+          destino_setor:setores!fk_logs_sobreaviso_destino_setor(dicionario_setores(nome)),
+          acionador:profiles!acionado_por(full_name)
+        `)
+        .in('escala_mensal_id', escalaMensalIds)
+        .order('dia', { ascending: true })
+
+      if (lsErr) {
+        console.warn('Busca de logs_sobreaviso com joins falhou, tentando consulta simples:', lsErr.message)
+        const { data: fallbackData } = await supabase
+          .from('logs_sobreaviso')
+          .select('id, escala_mensal_id, dia, status, motivo_acionamento, acionado_por, data_hora_acionamento, data_hora_chegada, data_hora_validacao, destino_referencia')
+          .in('escala_mensal_id', escalaMensalIds)
+          .order('dia', { ascending: true })
+        logsSobreaviso = fallbackData || []
+      } else {
+        logsSobreaviso = lsData || []
+      }
+    }
 
     // 7. Organize Plantões and Sobreavisos
     const plantoes: any[] = []
@@ -2106,8 +2123,10 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
         })
       } else if (cat.includes('sobreaviso')) {
         const dateObj = new Date(ano, mes - 1, ed.dia)
-        const dateStr = `${ano}-${String(mes).padStart(2, '0')}-${String(ed.dia).padStart(2, '0')}`
-        const acionamentos = logsSobreaviso?.filter((l: any) => l.data === dateStr) || []
+        // Filtra acionamentos pelo dia e pela escala mensal do servidor
+        const acionamentos = logsSobreaviso.filter((l: any) => 
+          Number(l.dia) === Number(ed.dia) && l.escala_mensal_id === ed.escala_mensal_id
+        )
         const turnoDesc = turno?.descricao || turno?.codigo || 'Sobreaviso'
         const horarioPrevisto = turno?.codigo ? `${turno.codigo} (${turno.horas_computadas || 12}h)` : `${turno?.horas_computadas || 12}h`
 
@@ -2121,13 +2140,33 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
           unidade: uNome,
           setor: sNome,
           justificativa: justTexto,
-          acionamentos: acionamentos.map((a: any) => ({
-            hora_acionamento: a.hora_acionamento ? a.hora_acionamento.slice(0,5) : '-',
-            hora_chegada: a.hora_chegada ? a.hora_chegada.slice(0,5) : '-',
-            hora_saida: a.hora_saida ? a.hora_saida.slice(0,5) : '-',
-            motivo: a.motivo || justTexto || 'Atendimento de urgência/emergência',
-            status: a.status || 'Concluído'
-          }))
+          acionamentos: acionamentos.map((a: any) => {
+            const horaAcionamento = a.data_hora_acionamento 
+              ? new Date(a.data_hora_acionamento).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }) 
+              : '-'
+            const horaChegada = a.data_hora_chegada 
+              ? new Date(a.data_hora_chegada).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }) 
+              : '-'
+            const horaSaida = a.data_hora_validacao
+              ? new Date(a.data_hora_validacao).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' })
+              : '-'
+            
+            const destUnidade = a.destino_unidade?.nome
+            const destDict = a.destino_setor?.dicionario_setores
+            const destSetor = Array.isArray(destDict) ? destDict[0]?.nome : destDict?.nome
+
+            const destino = [destUnidade, destSetor, a.destino_referencia].filter(Boolean).join(' • ')
+
+            return {
+              id: a.id,
+              hora_acionamento: horaAcionamento,
+              hora_chegada: horaChegada,
+              hora_saida: horaSaida,
+              motivo: a.motivo_acionamento || justTexto || 'Atendimento presencial de sobreaviso',
+              status: a.status || 'Atendido',
+              destino: destino || ''
+            }
+          })
         })
       }
     }
