@@ -43,6 +43,12 @@ export default async function UnidadeEscalaPage({
     if (!hasSectorAccess(profile, setor, unidadeId)) {
       return <div className="p-8 text-center text-red-600 font-bold">Acesso negado: Setor não permitido.</div>
     }
+  } else if (profile?.role === 'rh_unidade') {
+    // RH da Unidade e escopado por profile_unidades (mesma base da RLS de escala_mensal,
+    // 20260812070000). Sem setor: por desenho, vincular a unidade ja da todos os setores dela.
+    if (!hasUnitAccess(profile, unidadeId)) {
+      return <div className="p-8 text-center text-red-600 font-bold">Acesso negado: Unidade nao permitida.</div>
+    }
   } else if (profile?.role === 'comum' || profile?.role === 'servidor') {
     // Check if the user is in the scale being viewed
     const { data: servidor } = await supabase

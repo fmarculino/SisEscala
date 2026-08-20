@@ -3249,6 +3249,26 @@ export function ScaleGrid({
 
   const isInactive = escalaMensal[0]?.ativo === false || isAutoInactivated
   const isComum = userProfile?.role === 'comum' || userProfile?.role === 'servidor'
+
+  // Quem pode validar presenca manualmente, celula a celula. RH Geral e RH da Unidade entram
+  // aqui (20/08/2026): e o papel que apura a folha e precisa justificar quem esqueceu de bater.
+  // O banco nunca os barrou - fn_validar_presenca_manual e SECURITY DEFINER com GRANT a
+  // `authenticated`, e a RLS de escala_diaria reconhece os dois desde 20260812070000. O unico
+  // bloqueio era este gate de tela, e o sintoma era clicar no segmento e nada acontecer, sem
+  // erro nenhum.
+  const isAdminRole = userProfile?.role === 'admin' || userProfile?.role === 'super_admin'
+  const isRh = userProfile?.role === 'rh' || userProfile?.role === 'rh_unidade'
+  const podeValidarPresenca = isAdminRole || isRh
+    || userProfile?.role === 'coordenador' || userProfile?.role === 'ass_adm'
+  // isClosed embute governanceLock (prazo de planejamento) e isInactive - regras sobre a
+  // PREVISAO da escala, nao sobre apurar presenca do que ja passou. RH e COORDENADOR
+  // acompanham admin aqui (decisao do usuario, 20/08/2026): apurar o ponto depois do dia
+  // limite, ou de um mes ja virado, e justamente o trabalho deles - sem isto o coordenador
+  // perdia a validacao manual do mes corrente a partir do dia limite de planejamento, pelo
+  // mesmo `return` mudo. ass_adm NAO entra, por decisao do usuario na mesma data.
+  // Competencia encerrada e escala Fechada continuam barrando todo mundo, nos dois primeiros
+  // termos de canEditPresence.
+  const ignoraTravaDePrevisao = isAdminRole || isRh || userProfile?.role === 'coordenador'
   
   const closedPeriodsRaw = configsGlobais?.find(c => c.chave === 'competencias_encerradas')?.valor
   const closedPeriods = Array.isArray(closedPeriodsRaw) ? closedPeriodsRaw : []
@@ -4078,7 +4098,7 @@ export function ScaleGrid({
                                   const redEntrada = isRedIndicator(day, cat, 'entrada')
                                   const redSaida = isRedIndicator(day, cat, 'saida')
 
-                                  const canEditPresence = !isCompetenciaEncerrada && escalaMensal[0]?.status !== 'Fechada' && (!isClosed || userProfile?.role === 'admin' || userProfile?.role === 'super_admin') && (userProfile?.role === 'admin' || userProfile?.role === 'super_admin' || userProfile?.role === 'coordenador' || userProfile?.role === 'ass_adm')
+                                  const canEditPresence = !isCompetenciaEncerrada && escalaMensal[0]?.status !== 'Fechada' && (!isClosed || ignoraTravaDePrevisao) && podeValidarPresenca
 
                                   // Espelha public.fn_jornada_tem_intervalo (CLT Art. 71): jornadas de até 6h
                                   // não possuem intervalo intrajornada, então a célula mostra 2 segmentos em vez de 4.
@@ -4095,8 +4115,10 @@ export function ScaleGrid({
 
                                   const handleSegmentClick = (tipo: 'entrada' | 'intervalo_saida' | 'intervalo_retorno' | 'saida', isDone: boolean, isManualFlag?: boolean) => {
                                     if (!canEditPresence) return
-                                    // Block coordinators from altering real terminal records
-                                    if (isDone && !isManualFlag && (userProfile?.role === 'coordenador' || userProfile?.role === 'ass_adm')) {
+                                    // Batida real de terminal/REP so e alterada por administrador. Vale para
+                                    // coordenador, ass_adm e tambem RH (Geral e da Unidade): validar o passo que
+                                    // faltou e o caso de uso deles; mexer no que a pessoa realmente bateu, nao.
+                                    if (isDone && !isManualFlag && !isAdminRole) {
                                       setAlertModal({
                                         isOpen: true,
                                         title: 'Acesso Restrito',
