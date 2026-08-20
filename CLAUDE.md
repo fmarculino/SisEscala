@@ -47,6 +47,31 @@ faseado de 0 a 9. **Fases 0–3 aplicadas em produção.** A 4 ganhou o resto do
 rodada (sem Go instalado nem acesso ao device na sessão que o escreveu), e o critério de saída
 da Fase 4 (coleta contínua por N dias, ver seção "Piloto" abaixo) continua sem começar a contar.
 
+✅ **Estado medido em produção em 19/08/2026 — o parágrafo acima é histórico.** A Fase 4 está
+**materialmente cumprida**: **6 relógios** ativos (Reg/TI/TFD, SMS, LACEM, CEI, ENF-ZEZINHA,
+Almox-Pat-CAF), 414.301 registros AFD, 1.514 sincronizações e **zero falhas** nas últimas 1.000
+(todas `concluida`). A rampa é recente: 2 batidas/dia em 07/08 → **441 batidas de 169 servidores em
+6 relógios em 19/08**.
+
+⚠️ **E a Fase 4 deixou de ser "sem afetar a folha".** Desde `20260818080000`, `fn_ingerir_afd`
+chama `fn_reconciliar_marcacoes_dia` para todo servidor com vínculo — a batida do relógio **já
+escreve em `escala_diaria`**, em qualquer unidade. Eram 408 linhas de 08/2026 com entrada de origem
+`rep` em 19/08/2026.
+
+A infraestrutura da **Fase 5** foi criada em 19–20/08/2026 e está **inerte** (toda unidade em
+`fonte_ponto_oficial = 'terminal'`):
+
+| migration | o que dá |
+|---|---|
+| `20260820000000` | a coluna `unidades.fonte_ponto_oficial` — **a chave de corte nunca tinha sido criada**, só existia em comentários da `20260808060000` |
+| `20260820010000` | criar vínculo aciona o reparse e reconcilia **só os pares que ganharam dono** |
+| `20260820020000` | em unidade `rep`, a escrita direta é **neutralizada** (não abortada) e a marcação dispara a reconciliação, aplicando a precedência |
+
+⚠️ **O motivo da `20260820020000`, medido:** dos 580 pares (servidor, dia) com batida REP em
+08/2026, **41 ficaram gravados com entrada de origem `terminal` e 8 com `ajuste_coordenador`** — em
+49 dias o REP perdeu para quem está **abaixo** dele em `fn_precedencia_origem`, porque
+`fn_confirmar_presenca` escreve `escala_diaria` direto, sem passar pela precedência.
+
 O relógio é um **REP-C certificado** (Control iD iDClass, AFD assinado, memória inviolável) e o
 SisEscala passa a ser o **PTRP** da Portaria 671/2021: pode complementar e tratar, **nunca**
 alterar o dado original, e deve manter histórico.
@@ -123,9 +148,14 @@ registros AFD e **2 marcações de origem `rep`** — a data de início não é 
 marcada.
 
 Duas lacunas conhecidas, registradas no plano:
-- A SMS tem `permite_marca_intervalo = false` → o piloto exercita **só o fluxo de 2 batidas**.
-  **A Fase 5 tem que começar por unidade sem marcação de intervalo**; as com intervalo exigem
-  segundo piloto.
+- ⚠️ ~~A SMS tem `permite_marca_intervalo = false` → o piloto exercita só o fluxo de 2 batidas.
+  **A Fase 5 tem que começar por unidade sem marcação de intervalo**~~ — **desatualizado, e a
+  premissa caiu (19/08/2026).** Medido em produção: as **4 unidades com relógio marcam intervalo**
+  (CEI, LACEM e SMS `flexivel`; ENF-ZEZINHA `rigido`). Não existe mais unidade candidata pelo
+  critério original. O critério novo é **cobertura de ponto**, e o CEI é o único com 100%
+  (17/17) — ver [`docs/planos/2026-08-20-virada-do-cei-fase5.md`](docs/planos/2026-08-20-virada-do-cei-fase5.md).
+  Consequência prática: o fluxo de 4 batidas, que o plano dizia nunca ter sido exercitado, **já
+  roda em produção**.
 - Nenhum turno do grupo cruza a meia-noite → o cursor de "ontem" fica sem teste. Escalar um
   `Plantão N` no mês resolve.
 
@@ -551,6 +581,18 @@ reconhecendo PIS, `fn_enfileirar_cadastros_rep` gravando o identificador do tipo
 `remove_users.fcgi`, validada em campo com `cadastros-testar`). Provavelmente precisa de uma coluna
 em `dispositivos_rep` dizendo o tipo de identificador — hoje CPF e PIS convivem em produção sem nada
 no schema distinguindo.
+
+✅ **RESOLVIDO em 17–18/08/2026 — o quadro acima é histórico.** O código saiu em
+`20260817170000` (resolução de identidade por CPF **ou** PIS), `20260817180000` (identificador do
+tipo certo na fila) e `20260818200000`. Reconferido em produção em 19/08/2026, agosto/2026: os
+**6 relógios** têm `sem_vinculo = 0`, `fora_do_relogio = 0` e `batidas_perdidas = 0`. Na SMS são 58
+escalados, 33 `ok` e 24 `sem_biometria` — o gargalo deixou de ser identificador e passou a ser
+**biometria presencial** (93 servidores no parque todo). **Não decida nada com base na tabela
+acima; reconfira contra produção.**
+
+⚠️ **E a solução mudou uma premissa do modelo:** `fn_servidor_por_identificador_afd` resolve a
+identidade **direto em `servidores`**, por CPF ou PIS, **sem exigir `rep_vinculos_servidor`**. Ver
+a armadilha 13.
 
 ℹ️ Observação registrada, ainda **não tratada**: a cadeia de hash de `rep_afd_registros` é montada
 na **ordem de chegada** (`v_hash_ant` vem do maior NSR já presente), e a fila offline reenvia em
@@ -1293,6 +1335,11 @@ O registro tipo 3 do AFD (a marcação) carrega apenas `NSR + data/hora + identi
 Por isso `rep_vinculos_servidor` é a única ponte, e precisa ser populada **antes** de qualquer
 `remove_users.fcgi`: apagado o usuário do relógio, os NSRs antigos ficam órfãos para sempre.
 
+⚠️ **"única ponte" deixou de ser verdade em 17–18/08/2026.** `fn_servidor_por_identificador_afd`
+tenta o vínculo primeiro, mas **cai para busca direta em `servidores` por CPF ou PIS** quando não
+acha. O vínculo continua tendo prioridade e continua sendo o que você deve popular antes de
+remover cadastro — mas **não é mais o que decide se a batida ganha dono**. Ver armadilha 13.
+
 O identificador é o CPF preenchido a 12 posições. A inversa é `right(ident, 11)`, **nunca**
 `ltrim(ident, '0')`:
 
@@ -1388,6 +1435,30 @@ com dia ou servidor divergente — nenhum dado foi corrompido.
 Lição transferível: **quando uma tela filtra as opções, a RPC ainda precisa recusar as
 inválidas.** Tela corrigida não protege quem chama a RPC direto — e todas elas são `GRANT`adas
 a `authenticated`.
+
+### 13. Estar cadastrado num relógio basta para a batida virar ponto (19/08/2026)
+
+⚠️ **Desde 17–18/08/2026, `rep_vinculos_servidor` deixou de ser obrigatório para a batida ganhar
+dono.** `fn_servidor_por_identificador_afd` (`20260818200000`) tenta o vínculo, e **cai para busca
+direta em `servidores` por CPF ou PIS**. Isso resolveu a SMS, mas criou um caso novo:
+
+**Quem administra o parque precisa estar cadastrado em TODOS os equipamentos** — para configurá-los
+e para cadastrar os outros administradores — **e passa a ter cada teste de biometria convertido em
+ponto.** Caso real medido: o administrador testou o relógio do CEI em 15/08/2026 (11:24, 12:12,
+12:41) e a batida das 11:24 virou a **entrada do Plantão dele na folha**. Ele **não tinha vínculo no
+CEI** — a resolução por CPF bastou. O problema multiplica a cada administrador novo.
+
+A defesa é `rep_excecoes_ponto` (`20260820030000`): pares (servidor, dispositivo) em que a batida
+**não** é atribuída, consultada por `fn_ponto_excecao` **nos três caminhos** de resolução (vínculo,
+CPF, PIS) — cobrir só um deixa o furo aberto para quem tem vínculo. A batida continua gravada em
+`rep_afd_registros` e `marcacoes_ponto`; ela apenas não ganha dono, então não projeta na folha.
+
+O seed é por `SELECT` sobre `dispositivos_rep` (todos menos o relógio onde a pessoa realmente bate),
+e não por lista de UUID, **para que todo relógio novo já entre**.
+
+⚠️ **Duas alternativas foram consideradas e descartadas**: encerrar o vínculo não resolve (no CEI
+não havia vínculo nenhum), e restringir a resolução à unidade do dispositivo quebraria
+**"Servidor Externo"** (v1.2.4), que é escalado numa unidade e lotado em outra.
 
 ## Papéis de RH: Geral vs da Unidade (12/08/2026)
 
