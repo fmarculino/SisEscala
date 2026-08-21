@@ -17,6 +17,12 @@ import { canEditScale, UserRole } from '@/utils/governance'
 import { runComplianceCheck, getViolationsForCell, type ComplianceViolation } from '@/utils/complianceEngine'
 import { generateTemplate, TEMPLATE_OPTIONS, type TemplateType, countWorkDays } from '@/utils/scaleTemplates'
 import { generateIntelligentScale } from '@/utils/intelligentScaleGenerator'
+import {
+  encontrarAfastamentoBloqueante,
+  dataISODoDia,
+  siglaAfastamento,
+  type AfastamentoEvento
+} from '@/utils/afastamentos'
 import { SwapRequestPanel } from '@/components/SwapRequestPanel'
 import { sendWhatsAppMessageAction } from '@/app/actions/communication'
 import { AcionarSobreavisoModal } from '@/components/sobreaviso/AcionarSobreavisoModal'
@@ -260,6 +266,32 @@ export function ScaleGrid({
       dateStr <= se.data_fim
     )
   }, [servidoresEventos, mes, ano])
+
+  const permitirPlantaoExtraEventos = configsGlobais.some(
+    c => c.chave === 'permitir_plantao_extra_durante_eventos' && String(c.valor) === 'true'
+  )
+
+  /**
+   * Afastamento que impede lancar este turno neste dia, ou null. Mesma regra do trigger
+   * fn_prevent_shift_during_event: por horas nao bloqueia, por slot bloqueia so o periodo,
+   * Regular e Sobreaviso nunca sao liberados pela configuracao de governanca.
+   * Celula vazia entra com turnoSlots = [] — so afastamento integral a bloqueia.
+   */
+  const getAfastamentoBloqueante = useCallback((
+    servidorId: string,
+    day: number,
+    categoria: RowCategory | string,
+    turnoSlots?: string[] | null
+  ): AfastamentoEvento | null => {
+    return encontrarAfastamentoBloqueante({
+      eventos: servidoresEventos as AfastamentoEvento[],
+      servidorId,
+      dataISO: dataISODoDia(ano, mes, day),
+      categoria,
+      turnoSlots,
+      permitirPlantaoExtra: permitirPlantaoExtraEventos
+    })
+  }, [servidoresEventos, mes, ano, permitirPlantaoExtraEventos])
 
   useEffect(() => {
     const saved = localStorage.getItem('scale-totals-collapsed')
@@ -1310,22 +1342,21 @@ export function ScaleGrid({
       return
     }
 
-    // Validação de Afastamento / Evento
-    const activeEvent = getActiveEventForDay(servidorId, day)
-    if (activeEvent && turnoId) {
-      const permitirPlantaoExtra = configs['permitir_plantao_extra_durante_eventos'] === 'true'
-      const isRegular = categoria === 'Regular'
-      const isBlocked = isRegular || !permitirPlantaoExtra
-      
-      if (isBlocked) {
-        setAlertModal({
-          isOpen: true,
-          title: '⚠️ Servidor Afastado',
-          message: `Este servidor está afastado (${activeEvent.tipos_eventos?.nome || 'Afastamento'}) no dia ${day} e não pode ser escalado nesta linha.`,
-          type: 'warning'
-        })
-        return
-      }
+    // Validação de Afastamento / Evento — mesma regra do trigger do banco
+    // (fn_prevent_shift_during_event), pelo helper compartilhado src/utils/afastamentos.ts.
+    // Antes esta checagem ignorava os slots do turno e o afastamento por horas: recusava
+    // o que o banco aceita (declaração de comparecimento de 2h bloqueava o dia inteiro) e,
+    // do outro lado, deixava passar Sobreaviso quando a config de governança estava ligada.
+    const turnoDigitado = turnos.find(t => t.id === turnoId)
+    const afastamentoBloqueante = getAfastamentoBloqueante(servidorId, day, categoria, turnoDigitado?.slots || [])
+    if (afastamentoBloqueante) {
+      setAlertModal({
+        isOpen: true,
+        title: '⚠️ Servidor Afastado',
+        message: `Este servidor está afastado (${afastamentoBloqueante.tipos_eventos?.nome || 'Afastamento'}) no dia ${day}${afastamentoBloqueante.slots && afastamentoBloqueante.slots.length > 0 ? ` no período ${afastamentoBloqueante.slots.join(', ')}` : ''} e não pode receber nenhum lançamento nesta linha.`,
+        type: 'warning'
+      })
+      return
     }
 
     // Validação de Conflito Interno (Checa mudanças não salvas na grade atual)
@@ -2670,6 +2701,39 @@ export function ScaleGrid({
         return
       }
     }
+
+    // Validação de Afastamento — última barreira antes do banco.
+    // O trigger fn_prevent_shift_during_event recusa linha a linha, mas o upsert vai em
+    // lote: um único lançamento em dia de afastamento aborta TODO o "Salvar Previsão", e o
+    // coordenador perde o resto do trabalho com uma mensagem crua de exceção do Postgres.
+    // Aqui a recusa é específica e diz qual servidor, dia e linha precisam ser corrigidos.
+    const conflitosAfastamento: string[] = []
+    escalaMensal.forEach(em => {
+      const serverData = gridData[em.servidor_id]
+      if (!serverData) return
+      Object.entries(serverData).forEach(([categoria, days]) => {
+        Object.entries(days).forEach(([dayStr, turnoId]) => {
+          if (!turnoId) return
+          const day = parseInt(dayStr)
+          const turnoCel = turnos.find(t => t.id === turnoId)
+          const ev = getAfastamentoBloqueante(em.servidor_id, day, categoria as RowCategory, turnoCel?.slots || [])
+          if (ev) {
+            conflitosAfastamento.push(`Dia ${day} — ${em.servidores?.nome || 'Servidor'} (${categoria}: ${turnoCel?.codigo || '?'}) em ${ev.tipos_eventos?.nome || 'afastamento'}`)
+          }
+        })
+      })
+    })
+
+    if (conflitosAfastamento.length > 0) {
+      setAlertModal({
+        isOpen: true,
+        title: '⚠️ Lançamento em Dia de Afastamento',
+        message: `Não é possível salvar: há ${conflitosAfastamento.length} lançamento(s) em dias de afastamento. Remova-os da grade antes de salvar.\n\n${conflitosAfastamento.slice(0, 8).join('\n')}${conflitosAfastamento.length > 8 ? `\n...e mais ${conflitosAfastamento.length - 8}.` : ''}`,
+        type: 'warning'
+      })
+      return
+    }
+
     // Validação: Todas as Jornadas devem estar selecionadas
     const servidorSemJornada = escalaMensal.find(em => !em.jornada_id)
     if (servidorSemJornada) {
@@ -3793,14 +3857,9 @@ export function ScaleGrid({
 
                         const activeEvent = getActiveEventForDay(em.servidor_id, day)
                         const dayTempJourney = serverTempJourneys.find(jt => dateStr >= jt.data_inicio && dateStr <= jt.data_fim)
-                        const permitirPlantaoExtra = configs['permitir_plantao_extra_durante_eventos'] === 'true'
-                        const isRegular = cat === 'Regular'
-                        const isCellBlockedByEvent = activeEvent && (isRegular || !permitirPlantaoExtra) && (
-                          !activeEvent.slots || 
-                          activeEvent.slots.length === 0 || 
-                          activeEvent.slots.some((s: string) => currentSlots.includes(s))
-                        )
-                        const eventAbbr = activeEvent ? activeEvent.tipos_eventos?.nome.substring(0, 3).toUpperCase() : ''
+                        const blockingEvent = getAfastamentoBloqueante(em.servidor_id, day, cat, currentSlots)
+                        const isCellBlockedByEvent = !!blockingEvent
+                        const eventAbbr = blockingEvent ? siglaAfastamento(blockingEvent) : ''
 
                         return (
                           <td 
@@ -3813,7 +3872,7 @@ export function ScaleGrid({
                             title={
                               `${dayTempJourney ? `🕒 Jornada Temporária Ativa: ${dayTempJourney.jornadas?.nome}\n` : ''}${
                               isCellBlockedByEvent 
-                                ? `⚠️ BLOQUEADO: Servidor em afastamento (${activeEvent.tipos_eventos?.nome})${activeEvent.slots && activeEvent.slots.length > 0 ? ` [Período: ${activeEvent.slots.join(', ')}]` : ''}${activeEvent.observacao ? ` - ${activeEvent.observacao}` : ''}`
+                                ? `⚠️ BLOQUEADO: Servidor em afastamento (${blockingEvent!.tipos_eventos?.nome})${blockingEvent!.slots && blockingEvent!.slots.length > 0 ? ` [Período: ${blockingEvent!.slots.join(', ')}]` : ''}${blockingEvent!.observacao ? ` - ${blockingEvent!.observacao}` : ''}`
                                 : hasExternalConflict 
                                   ? `⚠️ CONFLITO REAL: ${realConflictDetails}` 
                                   : isBusyElsewhere
@@ -3823,7 +3882,7 @@ export function ScaleGrid({
                                       : isHoliday
                                         ? `🎉 Feriado: ${feriado?.descricao}`
                                         : activeEvent
-                                          ? `ℹ️ Servidor em afastamento (${activeEvent.tipos_eventos?.nome}) - Alocação permitida por governança`
+                                          ? `ℹ️ Servidor em afastamento (${activeEvent.tipos_eventos?.nome})${(activeEvent.periodo_tipo === 'horas' || activeEvent.hora_inicio) ? ' por horas - não bloqueia a escala do dia' : ' - alocação permitida nesta linha'}`
                                           : ''
                               }`
                             }
@@ -3831,7 +3890,7 @@ export function ScaleGrid({
                             {isCellBlockedByEvent ? (
                               <div 
                                 className="w-full h-full flex items-center justify-center text-[9px] font-black text-white cursor-not-allowed select-none px-0.5 py-2"
-                                style={{ backgroundColor: activeEvent.tipos_eventos?.cor || '#EF4444' }}
+                                style={{ backgroundColor: blockingEvent!.tipos_eventos?.cor || '#EF4444' }}
                               >
                                 {eventAbbr}
                               </div>
@@ -4841,7 +4900,7 @@ export function ScaleGrid({
 
               <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 p-3 rounded-lg">
                 <p className="text-[10px] text-purple-700 dark:text-purple-400">
-                  ⚠️ Dias com presença já confirmada <strong>não serão sobrescritos</strong>. O template preenche apenas a linha <strong>Regular</strong>.
+                  ⚠️ Dias com presença já confirmada <strong>não serão sobrescritos</strong>, e dias de <strong>afastamento</strong> não serão preenchidos. O template preenche apenas a linha <strong>Regular</strong>.
                 </p>
               </div>
             </div>
@@ -4868,6 +4927,22 @@ export function ScaleGrid({
                     }
                   }
 
+                  // Dias de afastamento não recebem template. O banco já recusa isso no
+                  // trigger fn_prevent_shift_during_event, mas a recusa só chegava no
+                  // "Salvar Previsão" — e derrubava o lote inteiro, perdendo todo o resto
+                  // do trabalho. Aqui o dia simplesmente não é preenchido.
+                  const turnoTemplate = turnos.find(t => t.id === templateModal.turnoId)
+                  const leaveDays = new Set<number>()
+                  for (let d = templateModal.startDay; d <= daysInMonth; d++) {
+                    if (getAfastamentoBloqueante(sId, d, 'Regular', turnoTemplate?.slots || [])) {
+                      leaveDays.add(d)
+                    }
+                  }
+
+                  // generateTemplate não escreve nos dias que recebe como protegidos —
+                  // presença confirmada e afastamento entram pelo mesmo canal.
+                  const skipDays = new Set<number>([...protectedDays, ...leaveDays])
+
                   const templateResult = generateTemplate(
                     {
                       type: templateModal.templateType,
@@ -4878,7 +4953,7 @@ export function ScaleGrid({
                     daysInMonth,
                     mes,
                     ano,
-                    protectedDays
+                    skipDays
                   )
 
                   // Injetar no gridData apenas na linha Regular, preservando os dias anteriores ao dia de início
@@ -4886,11 +4961,14 @@ export function ScaleGrid({
                     const existingRegular = prev[sId]?.['Regular'] || {}
                     const updatedRegular = { ...existingRegular }
 
-                    // Limpa escalas do dia de início em diante e aplica as geradas pelo template
+                    // Limpa escalas do dia de início em diante e aplica as geradas pelo template.
+                    // Dia com presença confirmada é preservado como está — a tela promete que
+                    // ele "não será sobrescrito", e apagar o turno de um dia já batido deixaria
+                    // a marcação real sem escala correspondente.
                     for (let d = templateModal.startDay; d <= daysInMonth; d++) {
                       if (templateResult[d]) {
                         updatedRegular[d] = templateResult[d]
-                      } else {
+                      } else if (!protectedDays.has(d)) {
                         delete updatedRegular[d]
                       }
                     }
@@ -4966,14 +5044,16 @@ export function ScaleGrid({
                     servidor_id: sId,
                     template: templateModal.templateType,
                     dias_preenchidos: workDays,
-                    dias_protegidos: protectedDays.size
+                    dias_protegidos: protectedDays.size,
+                    dias_afastamento: leaveDays.size
                   })
 
                   setTemplateModal(null)
+                  const diasAfastado = [...leaveDays].sort((a, b) => a - b)
                   setAlertModal({
                     isOpen: true,
                     title: 'Template Aplicado',
-                    message: `Template ${templateModal.templateType} aplicado com sucesso! ${workDays} dias preenchidos${protectedDays.size > 0 ? `, ${protectedDays.size} dias protegidos por presença` : ''}. Lembre-se de salvar a escala.`,
+                    message: `Template ${templateModal.templateType} aplicado com sucesso! ${workDays} dias preenchidos${protectedDays.size > 0 ? `, ${protectedDays.size} dias protegidos por presença` : ''}${diasAfastado.length > 0 ? `, ${diasAfastado.length} dias não preenchidos por afastamento (dias ${diasAfastado.join(', ')})` : ''}. Lembre-se de salvar a escala.`,
                     type: 'success'
                   })
                 }}
@@ -5092,6 +5172,14 @@ export function ScaleGrid({
                             // Se o dia tem presença confirmada, NÃO sobrescreve
                             const em = escalaMensal.find(x => x.servidor_id === servidorId)
                             if (em && hasPresenceForDay(servidorId, em.id, cat, day)) {
+                              return
+                            }
+
+                            // Dia de afastamento não recebe lançamento nenhum, ainda que a
+                            // opção "Evitar Dias de Afastamento" esteja desmarcada: aquela
+                            // opção governa o padrão de folgas, não a regra do banco.
+                            const turnoGerado = turnos.find(t => t.id === turnoId)
+                            if (getAfastamentoBloqueante(servidorId, day, cat, turnoGerado?.slots || [])) {
                               return
                             }
 

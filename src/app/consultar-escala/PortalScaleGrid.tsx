@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useMemo } from 'react'
+import { encontrarAfastamentoBloqueante, dataISODoDia, siglaAfastamento } from '@/utils/afastamentos'
 
 interface PortalScaleGridProps {
   data: {
@@ -144,21 +145,26 @@ export function PortalScaleGrid({ data, servidorId }: PortalScaleGridProps) {
                         const currentTurno = turnos.find((t: any) => t.id === currentTurnoId)
                         const currentSlots = currentTurno?.slots || []
 
-                        const isCellBlockedByEvent = activeEvent && (cat === 'Regular' || !permitirPlantaoExtra) && (
-                          !activeEvent.slots || 
-                          activeEvent.slots.length === 0 || 
-                          activeEvent.slots.some((s: string) => currentSlots.includes(s))
-                        )
+                        // Mesma regra do banco, pelo helper compartilhado: afastamento por
+                        // horas não bloqueia, afastamento por slot bloqueia só o período, e
+                        // Regular/Sobreaviso nunca são liberados pela config de governança.
+                        const blockingEvent = encontrarAfastamentoBloqueante({
+                          eventos: servidoresEventos as any[],
+                          servidorId: em.servidor_id,
+                          dataISO: dataISODoDia(ano, mes, day),
+                          categoria: cat,
+                          turnoSlots: currentSlots,
+                          permitirPlantaoExtra
+                        })
 
-                        if (isCellBlockedByEvent) {
-                          const eventAbbr = activeEvent.tipos_eventos?.nome.substring(0, 3).toUpperCase() || ''
+                        if (blockingEvent) {
                           return (
                             <td 
                               key={day} 
                               className="p-1 border border-zinc-200 dark:border-zinc-700 text-center font-black text-white"
-                              style={{ backgroundColor: activeEvent.tipos_eventos?.cor || '#EF4444' }}
+                              style={{ backgroundColor: blockingEvent.tipos_eventos?.cor || '#EF4444' }}
                             >
-                              {eventAbbr}
+                              {siglaAfastamento(blockingEvent)}
                             </td>
                           )
                         }

@@ -1460,6 +1460,39 @@ e não por lista de UUID, **para que todo relógio novo já entre**.
 não havia vínculo nenhum), e restringir a resolução à unidade do dispositivo quebraria
 **"Servidor Externo"** (v1.2.4), que é escalado numa unidade e lotado em outra.
 
+### 14. Nem todo caminho que escreve na grade passa por `handleCellChange` (20/08/2026)
+
+⚠️ **`ScaleGrid.tsx` tem três caminhos que escrevem em `gridData`, e só um deles valida.**
+Digitar na célula passa por `handleCellChange` (validação local **+** RPC `fn_check_shift_conflicts`);
+**Aplicar Template** e **Gerador Inteligente** escrevem direto no estado. Foi assim que um `MT`
+apareceu no meio de umas férias: a célula recusava, o template não.
+
+O dado nunca chegou ao banco — o trigger `fn_prevent_shift_during_event` (`BEFORE INSERT OR
+UPDATE ON escala_diaria`, desde `20260601130000`) recusa cada linha, e a medição de 20/08/2026
+achou **zero** linhas gravadas dentro de afastamento em 2.340 linhas de escala com 131
+afastamentos. **Mas a recusa só chegava no "Salvar Previsão", e o upsert é em lote**: uma linha
+inválida aborta o mês inteiro de todos os servidores da grade, com a mensagem crua do Postgres.
+Ao acrescentar um caminho novo de escrita na grade, valide **antes** de salvar.
+
+A regra de afastamento tem **fonte única no frontend**: `src/utils/afastamentos.ts`
+(`encontrarAfastamentoBloqueante`), espelhando o SQL. Estava copiada em quatro telas, cada uma
+com uma divergência própria. Três eixos, e os três precisam bater com o banco:
+
+| eixo | regra |
+|---|---|
+| por **horas** (`periodo_tipo = 'horas'` ou `hora_inicio`) | **não bloqueia nada** — é a declaração de comparecimento (`20260817210000`); o servidor trabalha o resto do dia |
+| por **slot** (`slots = ['M']`) | bloqueia só os turnos cujos slots cruzam o período; integral bloqueia qualquer turno |
+| **categoria** | `Regular` e `Sobreaviso` sempre; `Plantão`/`Extra` conforme `permitir_plantao_extra_durante_eventos` (`false` em produção) |
+
+⚠️ **`Sobreaviso` nunca foi coberto pelo nome daquela configuração** e ficava liberado junto com
+plantão/extra quando ela era ligada — fechado em `20260820120000`, na mesma migration que faz
+`fn_clean_conflicting_shifts` limpar `Sobreaviso` além de `Regular`. Diário em
+[`docs/evolucao/2026-08-20-afastamento-e-aplicar-template.md`](docs/evolucao/2026-08-20-afastamento-e-aplicar-template.md).
+
+⚠️ **Bloquear o dia inteiro em afastamento parcial foi considerado e descartado** (usuário,
+20/08/2026): mataria a declaração de comparecimento por horas, que existe justamente para o
+servidor continuar escalado no resto do dia.
+
 ## Papéis de RH: Geral vs da Unidade (12/08/2026)
 
 `role = 'rh'` ("RH Geral") enxerga tudo; `role = 'rh_unidade'` ("RH da Unidade") é escopado por

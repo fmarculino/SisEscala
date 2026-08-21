@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { createClient } from '@/utils/supabase/client'
+import { encontrarAfastamentoBloqueante, dataISODoDia, siglaAfastamento } from '@/utils/afastamentos'
 
 type RowCategory = 'Regular' | 'Extra' | 'Plantão' | 'Sobreaviso'
 
@@ -262,24 +263,28 @@ export function ScalePrintView({
                           const currentTurno = turnos.find((t: any) => t.id === currentTurnoId)
                           const currentSlots = currentTurno?.slots || []
 
-                          const isCellBlockedByEvent = activeEvent && (cat === 'Regular' || !permitirPlantaoExtra) && (
-                            !activeEvent.slots || 
-                            activeEvent.slots.length === 0 || 
-                            activeEvent.slots.some((s: string) => currentSlots.includes(s))
-                          )
+                          // Mesma regra do banco e das demais grades (src/utils/afastamentos.ts)
+                          const blockingEvent = encontrarAfastamentoBloqueante({
+                            eventos: (servidoresEventos || []) as any[],
+                            servidorId: em.servidor_id,
+                            dataISO: dataISODoDia(ano, mes, day),
+                            categoria: cat,
+                            turnoSlots: currentSlots,
+                            permitirPlantaoExtra
+                          })
+                          const isCellBlockedByEvent = !!blockingEvent
 
-                          if (isCellBlockedByEvent) {
-                            const eventAbbr = activeEvent.tipos_eventos?.nome.substring(0, 3).toUpperCase() || ''
+                          if (blockingEvent) {
                             return (
                               <td 
                                 key={day} 
                                 className="event-cell"
                                 style={{ 
-                                  backgroundColor: activeEvent.tipos_eventos?.cor || '#EF4444',
+                                  backgroundColor: blockingEvent.tipos_eventos?.cor || '#EF4444',
                                   verticalAlign: 'middle',
                                 }}
                               >
-                                {eventAbbr}
+                                {siglaAfastamento(blockingEvent)}
                               </td>
                             )
                           }

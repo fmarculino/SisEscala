@@ -8,6 +8,7 @@
  */
 
 import { SupabaseClient } from '@supabase/supabase-js'
+import { afastamentoBloqueiaEscala, afastamentoConflitaComSlots } from '@/utils/afastamentos'
 
 export interface GeneratorOptions {
   respectContinuity: boolean
@@ -363,9 +364,18 @@ export async function generateIntelligentScale(
     }
 
     // 3. Bloqueio por afastamentos (Veredito do Usuário: Limpar dias de férias/licenças)
+    //
+    // A limpeza segue a mesma regra do banco (fn_prevent_shift_during_event), pelo helper
+    // compartilhado: afastamento por HORAS (declaração de comparecimento) não tira ninguém
+    // da escala, e afastamento por SLOT só derruba o turno cujos slots cruzam o período
+    // afastado. Antes daqui, qualquer evento apagava o dia inteiro — inclusive o de horas,
+    // que a migration 20260817210000 criou justamente para preservar a escala.
+    // Sobreaviso entra na limpeza junto com as demais: ele nunca foi liberado pela
+    // configuração "permitir plantão/extra durante eventos".
     if (options.respectEvents) {
+      const categoriasLimpaveis: RowCategory[] = ['Regular', 'Extra', 'Plantão', 'Sobreaviso']
       data.events
-        .filter(ev => ev.servidor_id === sId)
+        .filter(ev => ev.servidor_id === sId && afastamentoBloqueiaEscala(ev))
         .forEach(ev => {
           const start = new Date(ev.data_inicio + 'T00:00:00')
           const end = new Date(ev.data_fim + 'T23:59:59')
@@ -373,10 +383,13 @@ export async function generateIntelligentScale(
           for (let day = 1; day <= daysInMonth; day++) {
             const currentDayDate = new Date(ano, mes - 1, day)
             if (currentDayDate >= start && currentDayDate <= end) {
-              // Limpar o turno alocado regular para este dia de afastamento
-              delete resultGrid[sId]['Regular'][day]
-              delete resultGrid[sId]['Extra'][day]
-              delete resultGrid[sId]['Plantão'][day]
+              categoriasLimpaveis.forEach(cat => {
+                const turnoAlocado = turnos.find(t => t.id === resultGrid[sId][cat][day])
+                if (!resultGrid[sId][cat][day]) return
+                if (afastamentoConflitaComSlots(ev, turnoAlocado?.slots || [])) {
+                  delete resultGrid[sId][cat][day]
+                }
+              })
             }
           }
         })
