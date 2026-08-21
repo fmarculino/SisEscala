@@ -8,7 +8,7 @@ import { autoCloseExpiredScalesAndTimesheets, isCompetencyClosed } from '@/utils
 import { resolverMarcacaoDoDia, turnosDaFolha, COLUNAS_PRESENCA_FOLHA, type PassoPresenca } from '@/utils/folha/origemMarcacao'
 import { podePreAssinalarIntervalo } from '@/utils/folha/preAssinalacao'
 import { resolverFaltaAutomatica, isFaltaDefinitiva } from '@/utils/folha/faltaAutomatica'
-import { resolverPendenciaRevisao } from '@/utils/folha/diaIncompleto'
+import { resolverPendenciaRevisao, resolverBatidaNaoAproveitada, carregarDiasComBatidaFisica } from '@/utils/folha/diaIncompleto'
 import { normalizarRegistrosFolha } from '@/utils/folha/normalizarHorarios'
 import { sequenciarDia, PASSOS_FOLHA } from '@/utils/folha/sequenciaDia'
 import { preservarCampo } from '@/utils/folha/preservacao'
@@ -441,6 +441,11 @@ export async function executeGerarFolhaPonto(
 
     const weekDaysShort = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
+    // Um dia sem passo nenhum pode ser FALTA ou pode ser batida que a alocacao nao aproveitou.
+    // escala_diaria sozinha nao distingue os dois — ela nao sabe que a marcacao existe. Sem
+    // isto, quem tem batida com NSR de AFD assinado recebe falta (3 casos medidos em 21/08/2026).
+    const diasComBatidaFisica = await carregarDiasComBatidaFisica(supabase, servidorId, resolvedMes, resolvedAno)
+
     for (let day = 1; day <= daysInMonth; day++) {
       const dateObj = new Date(resolvedAno, resolvedMes - 1, day)
       const dayOfWeekStr = weekDaysShort[dateObj.getDay()]
@@ -690,6 +695,21 @@ export async function executeGerarFolhaPonto(
         const diaJaPassou = (resolvedAno < currentYear) ||
           (resolvedAno === currentYear && resolvedMes < currentMonth) ||
           (resolvedAno === currentYear && resolvedMes === currentMonth && day < currentDay)
+
+        // Dia vazio COM batida fisica registrada NAO e falta — e batida que nao virou passo.
+        // Vem ANTES da falta automatica de proposito: as duas disputam o mesmo dia vazio, e
+        // chamar de falta quem tem batida assinada e o pior erro que a folha pode cometer.
+        // Nao force a batida num passo: a projecao ja recusou, e forcar seria fabricar horario.
+        if (!registro.observacao && !temMarcacao) {
+          const batidaNaoAproveitada = resolverBatidaNaoAproveitada({
+            diaJaPassou,
+            temMarcacao,
+            temBatidaFisicaNoDia: diasComBatidaFisica.has(day)
+          })
+          if (batidaNaoAproveitada) {
+            registro.observacao = batidaNaoAproveitada
+          }
+        }
 
         // Falta automatica: dia sem nenhuma observacao ainda e sem NENHUMA marcacao (real ou manual)
         if (!registro.observacao && !temMarcacao) {
@@ -1148,6 +1168,11 @@ export async function sincronizarFolhaPonto(folhaId: string) {
 
     const weekDaysShort = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
+    // Um dia sem passo nenhum pode ser FALTA ou pode ser batida que a alocacao nao aproveitou.
+    // escala_diaria sozinha nao distingue os dois — ela nao sabe que a marcacao existe. Sem
+    // isto, quem tem batida com NSR de AFD assinado recebe falta (3 casos medidos em 21/08/2026).
+    const diasComBatidaFisica = await carregarDiasComBatidaFisica(supabase, folha.servidor_id, folha.mes, folha.ano)
+
     for (let day = 1; day <= daysInMonth; day++) {
       const dateObj = new Date(folha.ano, folha.mes - 1, day)
       const dayOfWeekStr = weekDaysShort[dateObj.getDay()]
@@ -1395,6 +1420,21 @@ export async function sincronizarFolhaPonto(folhaId: string) {
         const diaJaPassou = (folha.ano < currentYear) ||
           (folha.ano === currentYear && folha.mes < currentMonth) ||
           (folha.ano === currentYear && folha.mes === currentMonth && day < currentDay)
+
+        // Dia vazio COM batida fisica registrada NAO e falta — e batida que nao virou passo.
+        // Vem ANTES da falta automatica de proposito: as duas disputam o mesmo dia vazio, e
+        // chamar de falta quem tem batida assinada e o pior erro que a folha pode cometer.
+        // Nao force a batida num passo: a projecao ja recusou, e forcar seria fabricar horario.
+        if (!registro.observacao && !temMarcacao) {
+          const batidaNaoAproveitada = resolverBatidaNaoAproveitada({
+            diaJaPassou,
+            temMarcacao,
+            temBatidaFisicaNoDia: diasComBatidaFisica.has(day)
+          })
+          if (batidaNaoAproveitada) {
+            registro.observacao = batidaNaoAproveitada
+          }
+        }
 
         // Falta automatica: dia sem nenhuma observacao ainda e sem NENHUMA marcacao (real ou manual)
         if (!registro.observacao && !temMarcacao) {

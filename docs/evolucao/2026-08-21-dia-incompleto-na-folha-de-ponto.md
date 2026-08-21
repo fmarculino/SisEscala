@@ -72,8 +72,8 @@ IVANA MARIA HERENIO DOS SANTOS (65717) dia 19  19:06  AFD NSR 17927
 JANIA REGIA MILHOMEM CASAIS (1281)     dia 20  18:07  AFD NSR 269308
 ```
 
-São faltas indevidas contra prova assinada. **Não foram corrigidas nesta rodada** — mexer nelas é
-mexer em ponto passado e exige decisão à parte.
+São faltas indevidas contra prova assinada. **Tratadas na seção 8**, no mesmo dia — e lá se
+descobriu que os três não são o mesmo problema.
 
 ## 4. O recorte, e por que não é "todo dia incompleto"
 
@@ -200,16 +200,106 @@ até a saída, sem descontar atraso na entrada. Quem chega 2h atrasado e sai 11 
 previsto continua ganhando 11 min de extra. Isso é regime de apuração, não defeito — mexer nisso é
 decisão de RH/jurídico, não de código.
 
-## 8. O que ficou de fora, de propósito
+## 8. As 3 faltas indevidas — e a descoberta de que não eram o mesmo problema
 
-1. **As 3 faltas indevidas continuam.** Mexem em ponto passado.
+Também atacadas no mesmo dia. A pergunta que abriu o trabalho: por que a batida existe e o dia
+ficou zerado?
+
+### Duas correções ao diagnóstico inicial
+
+**`reconciliado_em` não prova o que eu achei que provava.** Medido: entre as linhas com turno de
+agosto, **0** estão reconciliadas-e-vazias contra **3.224** reconciliadas-e-preenchidas. O carimbo
+só aparece quando **algo foi alocado** — então `reconciliado_em = NULL` não distingue "a
+reconciliação nunca rodou" de "rodou e não aproveitou nada".
+
+**A classe é pequena, mas cresce.** Das 1.911 marcações REP de agosto, **108 não viraram passo
+nenhum**, em 60 pares (servidor, dia). Só **3** caem em dia totalmente vazio — que é o caso que
+vira FALTA.
+
+### A projeção read-only resolveu a dúvida
+
+`fn_projecao_marcacoes_dia` é `STABLE` — dá para perguntar o que a alocação faria **sem escrever
+nada**. E os três casos não são o mesmo problema:
+
+| caso | batida | turno | projeção |
+|---|---|---|---|
+| MESSIAS DA SILVA LEITE (54007), 17/08 | 08:20 | `MT` | **aloca como entrada, `confirmada = true`** |
+| IVANA MARIA HERENIO (65717), 19/08 | 19:06 | `M` 07–13 | **zero linhas — recusa** |
+| JANIA REGIA MILHOMEM (1281), 20/08 | 18:07 | `M` 08–12 | **zero linhas — recusa** |
+
+**MESSIAS é recuperação de dado.** A causa é datada: a ingestão do AFD só passou a chamar
+`fn_reconciliar_marcacoes_dia` na migration `20260818080000`, do dia **18**. A batida dele entrou
+no dia 17, antes disso, e nunca teve a reconciliação acionada. Reconciliar materializa exatamente
+o que a projeção já diz.
+
+**IVANA e JANIA a recusa está certa.** As batidas estão ~6h fora do turno previsto. Forçar um
+passo ali seria fabricar horário — a vedação 2 da Portaria 671/2021 e o oposto de "nunca fabricar
+horário". O que não pode é o sistema chamar isso de **falta**: a pessoa tem batida em AFD assinado,
+e o que aquilo significa é decisão do coordenador.
+
+### O que foi feito
+
+| peça | onde |
+|---|---|
+| regra: dia vazio **com** batida física não é falta | `resolverBatidaNaoAproveitada` em `diaIncompleto.ts` |
+| carga dos dias com batida, 1x por folha | `carregarDiasComBatidaFisica` — usa `fn_marcacoes_mes` |
+| aplicação nas **4 cópias**, **antes** da falta automática | script com contagem-e-aborta |
+| recuperação do MESSIAS | migration `20260821120000` |
+
+Texto novo: `REVISAR: HÁ BATIDA REGISTRADA E NENHUM PASSO PREENCHIDO`.
+
+⚠️ **A regra tem que rodar ANTES da falta automática** — as duas disputam o mesmo dia vazio, e
+chamar de falta quem tem batida assinada é o pior erro que a folha pode cometer.
+
+⚠️ **Só `rep` e `terminal` contam como batida física.** `ajuste_coordenador`/`ajuste_servidor` são
+declaração — e boa parte delas é **espelho gravado a partir de um passo já preenchido**
+(`"Sincronizada de escala_diaria … passo entrada"`), o que produziria pendência circular.
+
+⚠️ **`fn_marcacoes_mes` não tem guard de escopo**, e por isso serve aos quatro sítios: dois rodam
+com a sessão do coordenador (`createClient`) e **dois com `createAdminClient`** — o portal
+autentica por PIN, não por Supabase Auth. Uma RPC com guard de papel devolveria vazio nesses dois
+e a folha do servidor divergiria da do coordenador, em silêncio.
+
+⚠️ **O dia do calendário não pode sair de `new Date(iso).getDate()`** (armadilha 12): o processo
+roda em UTC e uma batida das 22:00 viraria o dia seguinte. `carregarDiasComBatidaFisica` usa `Intl`
+com timezone.
+
+### Efeito medido
+
+Simulação das três regras juntas sobre agosto/2026, 3.731 dias com turno já passados:
+
+```
+3061  (sem observacao)
+ 318  FALTA - AGUARDANDO JUSTIFICATIVA     (era 321)
+ 191  REVISAR: SEM REGISTRO DE SAÍDA
+ 144  REVISAR: SEM REGISTRO DE ENTRADA
+  14  REVISAR: SEM REGISTRO DE ENTRADA E DE SAÍDA
+   3  REVISAR: HÁ BATIDA REGISTRADA E NENHUM PASSO PREENCHIDO
+```
+
+Exatamente os 3 dias saem de FALTA. Nenhum efeito colateral.
+
+Depois de aplicada a migration, o dia 17 do MESSIAS passa a ter entrada 08:20 e nenhum outro passo
+— ou seja, cai na regra da seção 5 e vira `REVISAR: SEM REGISTRO DE SAÍDA`. As duas mudanças
+compõem corretamente.
+
+### Um caso deixado em aberto de propósito
+
+A varredura achou um **segundo** dia recuperável: **ELIZABETH COELHO MARQUES (1133), 20/08** —
+4 passos gravados, a projeção devolveria 8, em 4 linhas de escala. Mas uma das linhas projeta
+`entrada 13:01` com `saída 06:57`, saída **antes** da entrada. Isso tem cara do caso conhecido do
+bloco que cruza a meia-noite sendo alocado em dois dias com conjuntos de slots concorrentes. **Não
+entrou na migration** — reconciliar às cegas ali pode gravar par invertido em ponto real.
+
+## 9. O que ficou de fora, de propósito
 2. **Observação de texto livre não é preservada na regeneração.** Só textos contendo `MANUAL` ou
    `FALTA` sobrevivem — defeito anterior a esta mudança. Consequência prática: justificar uma
    pendência digitando texto não a resolve de forma durável; o caminho que funciona é **preencher o
    horário**.
-3. **Nenhuma migration.** Mudança 100% em TypeScript; o banco não foi tocado.
+2. **ELIZABETH 20/08** — ver seção 8, precisa de olho humano antes de reconciliar.
+3. **Uma migration**, só de dado e de escopo mínimo (`20260821120000`). O restante é TypeScript.
 
-## 9. Verificação
+## 10. Verificação
 
 - `npx tsc --noEmit` — limpo.
 - `npm run build` — executado.

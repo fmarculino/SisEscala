@@ -57,3 +57,95 @@ export function isPendenciaRevisao(observacao?: string | null): boolean {
   if (!observacao) return false
   return observacao.toUpperCase().includes(MARCADOR_REVISAR)
 }
+
+/* ------------------------------------------------------------------------------------------
+ * O DIA VAZIO QUE TEM BATIDA — e que a folha chamava de FALTA
+ *
+ * A falta automatica olha so `escala_diaria.presenca_*`. Ela nao sabe que existe marcacao
+ * naquele dia se a alocacao nao aproveitou nenhuma. Resultado medido em producao em
+ * 21/08/2026: TRES servidores iam receber FALTA tendo batida com NSR de AFD assinado —
+ * MESSIAS DA SILVA LEITE (54007) dia 17, IVANA MARIA HERENIO (65717) dia 19 e JANIA REGIA
+ * MILHOMEM (1281) dia 20.
+ *
+ * A projecao read-only (`fn_projecao_marcacoes_dia`) mostrou que os tres NAO sao o mesmo caso:
+ *
+ *   MESSIAS  batida 08:20, turno MT  -> a projecao ALOCA como entrada (confirmada=true).
+ *                                       So faltou reconciliar o dia. E recuperacao de dado.
+ *   IVANA    batida 19:06, turno M 07-13 -> a projecao devolve ZERO linha: recusa a batida.
+ *   JANIA    batida 18:07, turno M 08-12 -> idem.
+ *
+ * Nos dois ultimos a recusa esta CERTA: a batida esta ~6h fora do turno e forcar um passo
+ * seria fabricar horario (a vedacao 2 da Portaria 671/2021 e a regra "nunca fabricar horario"
+ * do modulo de marcacoes). O que nao pode e o sistema chamar isso de falta — o servidor tem
+ * prova assinada de que esteve la, e quem decide o que aquilo significa e o coordenador.
+ *
+ * Por isso: dia vazio COM batida fisica registrada vira pendencia de revisao, nao falta.
+ * A batida continua registrada e continua nao alocada — nada e fabricado, nada e descartado.
+ * ------------------------------------------------------------------------------------------ */
+
+export function resolverBatidaNaoAproveitada(opts: {
+  diaJaPassou: boolean
+  /** Ha passo preenchido no dia. Se houver, o dia cai em resolverPendenciaRevisao, nao aqui. */
+  temMarcacao: boolean
+  /** Ha marcacao de origem `rep` ou `terminal` no dia — batida fisica de gente. */
+  temBatidaFisicaNoDia: boolean
+}): string | null {
+  if (!opts.diaJaPassou) return null
+  if (opts.temMarcacao) return null
+  if (!opts.temBatidaFisicaNoDia) return null
+  return `${MARCADOR_REVISAR} HÁ BATIDA REGISTRADA E NENHUM PASSO PREENCHIDO`
+}
+
+/**
+ * Dias do mes em que o servidor tem batida FISICA (`rep` ou `terminal`).
+ *
+ * ⚠️ So `rep` e `terminal` contam. `ajuste_coordenador`/`ajuste_servidor` sao declaracao, nao
+ * batida — e boa parte delas e espelho gravado A PARTIR de um passo ja preenchido
+ * ("Sincronizada de escala_diaria ... passo entrada"), o que produziria pendencia circular.
+ *
+ * ⚠️ O dia do calendario NAO pode sair de `new Date(iso).getDate()`: o processo Node roda em UTC
+ * (armadilha 12) e uma batida das 22:00 viraria o dia seguinte. Usa Intl com timezone, igual ao
+ * resto da folha.
+ *
+ * `fn_marcacoes_mes` e SECURITY DEFINER e **nao tem guard de escopo** — funciona tanto com a
+ * sessao do coordenador (`createClient`) quanto com o admin client do portal
+ * (`createAdminClient`), que e o que as duas copias de `consultar-escala` usam.
+ */
+export async function carregarDiasComBatidaFisica(
+  // PromiseLike, nao Promise: `supabase.rpc()` devolve um PostgrestFilterBuilder que e thenable
+  // mas nao tem catch/finally. Exigir Promise aqui rejeita o cliente real (TS2345).
+  supabase: { rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: any; error: any }> },
+  servidorId: string,
+  mes: number,
+  ano: number,
+  timezone: string = 'America/Sao_Paulo'
+): Promise<Set<number>> {
+  const dias = new Set<number>()
+  if (!servidorId) return dias
+
+  try {
+    const { data, error } = await supabase.rpc('fn_marcacoes_mes', {
+      p_servidor_ids: [servidorId],
+      p_mes: mes,
+      p_ano: ano
+    })
+    if (error || !Array.isArray(data)) return dias
+
+    const fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit'
+    })
+    for (const m of data) {
+      if (m?.origem !== 'rep' && m?.origem !== 'terminal') continue
+      if (!m?.ocorrido_em) continue
+      const [a, mm, dd] = fmt.format(new Date(m.ocorrido_em)).split('-').map(Number)
+      // fn_marcacoes_mes devolve com folga de 1 dia dos dois lados; so o mes alvo interessa.
+      if (a === ano && mm === mes) dias.add(dd)
+    }
+  } catch {
+    // Falhar aqui nao pode impedir a folha de ser gerada. Sem o conjunto, o comportamento volta
+    // a ser o de antes (dia vazio = falta) — degradacao para o lado conhecido, nunca silenciosa
+    // para um estado novo.
+    return dias
+  }
+  return dias
+}
