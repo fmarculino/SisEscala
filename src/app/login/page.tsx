@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { login } from './actions'
 import { createClient } from '@/utils/supabase/client'
 
-import { Eye, EyeOff } from 'lucide-react'
+import { Eye, EyeOff, CalendarDays, ChevronRight } from 'lucide-react'
 
 export default function LoginPage() {
   const [error, setError] = useState<string | null>(null)
@@ -144,11 +144,21 @@ export default function LoginPage() {
           </div>
 
           <div className="mt-6 space-y-3">
+            {/* Porta de entrada do servidor: e o caminho mais usado desta tela, mas era o
+                elemento mais apagado dela. Cor propria (indigo), para nao competir com o
+                "Entrar" azul do formulario de coordenador. */}
             <Link
               href="/consultar-escala"
-              className="flex w-full justify-center items-center rounded-md border border-zinc-300 bg-white py-2 px-4 text-sm font-medium text-zinc-700 shadow-sm hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 transition-all duration-200"
+              className="group flex w-full items-center gap-3 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-500 py-3.5 px-4 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-indigo-700/20 hover:from-indigo-700 hover:to-indigo-600 hover:shadow-indigo-500/40 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-zinc-900 transition-all duration-200"
             >
-              🗓️ Sou Servidor: Consultar Escala
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/15">
+                <CalendarDays className="h-5 w-5" />
+              </span>
+              <span className="flex flex-col text-left leading-tight">
+                <span className="text-sm font-bold uppercase tracking-wide">Portal do Servidor</span>
+                <span className="text-[11px] font-medium text-indigo-100">Consulte sua escala e folha de ponto</span>
+              </span>
+              <ChevronRight className="ml-auto h-5 w-5 text-indigo-100 transition-transform duration-200 group-hover:translate-x-0.5" />
             </Link>
             
             {terminalClassicoHabilitado && (
