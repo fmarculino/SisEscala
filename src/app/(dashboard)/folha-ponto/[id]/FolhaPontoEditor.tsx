@@ -12,6 +12,7 @@ import { salvarFolhaPonto, verificarDivergenciaEscala, sincronizarFolhaPonto, ge
 import { Modal } from '@/components/ui/Modal'
 import { createClient } from '@/utils/supabase/client'
 import { isFaltaDefinitiva } from '@/utils/folha/faltaAutomatica'
+import { isPendenciaRevisao, resolverPendenciaRevisao } from '@/utils/folha/diaIncompleto'
 import { sequenciarDia, temViradaDeDia } from '@/utils/folha/sequenciaDia'
 import { RelatorioPlantaoSobreavisoAnexo } from '@/components/reports/RelatorioPlantaoSobreavisoAnexo'
 
@@ -370,6 +371,18 @@ export function FolhaPontoEditor({
       const hasAnyTime = !!updated.entrada || !!updated.saida || !!updated.saida_intervalo || !!updated.retorno_intervalo
       if (hasAnyTime && updated.observacao && (updated.observacao.includes('FALTA') || updated.observacao.includes('AGUARDANDO JUSTIFICATIVA'))) {
         updated.observacao = ''
+      }
+
+      // A pendência de revisão é RECALCULADA, não apagada: preencher só a entrada de um dia que
+      // também não tem saída deve virar "SEM REGISTRO DE SAÍDA", não sumir. Mesma fonte única da
+      // geração — se cada lado decidisse por conta própria, a tela e a folha divergiriam.
+      if (isPendenciaRevisao(updated.observacao)) {
+        updated.observacao = resolverPendenciaRevisao({
+          diaJaPassou: true,
+          temMarcacao: hasAnyTime,
+          temEntrada: !!updated.entrada,
+          temSaida: !!updated.saida
+        }) || ''
       }
 
       // If entrance/exit changed, dynamically compute overtime

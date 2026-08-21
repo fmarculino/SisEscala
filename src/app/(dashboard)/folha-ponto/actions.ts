@@ -8,6 +8,7 @@ import { autoCloseExpiredScalesAndTimesheets, isCompetencyClosed } from '@/utils
 import { resolverMarcacaoDoDia, turnosDaFolha, COLUNAS_PRESENCA_FOLHA, type PassoPresenca } from '@/utils/folha/origemMarcacao'
 import { podePreAssinalarIntervalo } from '@/utils/folha/preAssinalacao'
 import { resolverFaltaAutomatica, isFaltaDefinitiva } from '@/utils/folha/faltaAutomatica'
+import { resolverPendenciaRevisao } from '@/utils/folha/diaIncompleto'
 import { normalizarRegistrosFolha } from '@/utils/folha/normalizarHorarios'
 import { sequenciarDia, PASSOS_FOLHA } from '@/utils/folha/sequenciaDia'
 import { preservarCampo } from '@/utils/folha/preservacao'
@@ -684,11 +685,14 @@ export async function executeGerarFolhaPonto(
           }
         }
 
+        // diaJaPassou serve a DUAS regras: falta automatica (dia vazio) e pendencia de revisao
+        // (dia incompleto). Nenhuma das duas pode marcar o dia corrente — ver diaIncompleto.ts.
+        const diaJaPassou = (resolvedAno < currentYear) ||
+          (resolvedAno === currentYear && resolvedMes < currentMonth) ||
+          (resolvedAno === currentYear && resolvedMes === currentMonth && day < currentDay)
+
         // Falta automatica: dia sem nenhuma observacao ainda e sem NENHUMA marcacao (real ou manual)
         if (!registro.observacao && !temMarcacao) {
-          const diaJaPassou = (resolvedAno < currentYear) ||
-            (resolvedAno === currentYear && resolvedMes < currentMonth) ||
-            (resolvedAno === currentYear && resolvedMes === currentMonth && day < currentDay)
           const faltaObservacao = resolverFaltaAutomatica({
             diaJaPassou,
             temMarcacao,
@@ -699,6 +703,22 @@ export async function executeGerarFolhaPonto(
           })
           if (faltaObservacao) {
             registro.observacao = faltaObservacao
+          }
+        }
+
+        // Pendencia de revisao: o dia TEM batida mas falta entrada ou saida — sem esses dois
+        // nao da para saber quanto a pessoa trabalhou. Intervalo ausente NAO entra aqui
+        // (recorte de 21/08/2026: eram 1.010 dias so de intervalo contra 151 destes, na SMS).
+        // Nao conta falta, nao desconta hora: sinaliza. Ver src/utils/folha/diaIncompleto.ts.
+        if (!registro.observacao) {
+          const pendenciaRevisao = resolverPendenciaRevisao({
+            diaJaPassou,
+            temMarcacao,
+            temEntrada: !!registro.entrada,
+            temSaida: !!registro.saida
+          })
+          if (pendenciaRevisao) {
+            registro.observacao = pendenciaRevisao
           }
         }
 
@@ -1363,11 +1383,14 @@ export async function sincronizarFolhaPonto(folhaId: string) {
           }
         }
 
+        // diaJaPassou serve a DUAS regras: falta automatica (dia vazio) e pendencia de revisao
+        // (dia incompleto). Nenhuma das duas pode marcar o dia corrente — ver diaIncompleto.ts.
+        const diaJaPassou = (folha.ano < currentYear) ||
+          (folha.ano === currentYear && folha.mes < currentMonth) ||
+          (folha.ano === currentYear && folha.mes === currentMonth && day < currentDay)
+
         // Falta automatica: dia sem nenhuma observacao ainda e sem NENHUMA marcacao (real ou manual)
         if (!registro.observacao && !temMarcacao) {
-          const diaJaPassou = (folha.ano < currentYear) ||
-            (folha.ano === currentYear && folha.mes < currentMonth) ||
-            (folha.ano === currentYear && folha.mes === currentMonth && day < currentDay)
           const faltaObservacao = resolverFaltaAutomatica({
             diaJaPassou,
             temMarcacao,
@@ -1378,6 +1401,22 @@ export async function sincronizarFolhaPonto(folhaId: string) {
           })
           if (faltaObservacao) {
             registro.observacao = faltaObservacao
+          }
+        }
+
+        // Pendencia de revisao: o dia TEM batida mas falta entrada ou saida — sem esses dois
+        // nao da para saber quanto a pessoa trabalhou. Intervalo ausente NAO entra aqui
+        // (recorte de 21/08/2026: eram 1.010 dias so de intervalo contra 151 destes, na SMS).
+        // Nao conta falta, nao desconta hora: sinaliza. Ver src/utils/folha/diaIncompleto.ts.
+        if (!registro.observacao) {
+          const pendenciaRevisao = resolverPendenciaRevisao({
+            diaJaPassou,
+            temMarcacao,
+            temEntrada: !!registro.entrada,
+            temSaida: !!registro.saida
+          })
+          if (pendenciaRevisao) {
+            registro.observacao = pendenciaRevisao
           }
         }
 

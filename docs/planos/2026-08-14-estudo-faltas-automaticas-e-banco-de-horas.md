@@ -9,6 +9,14 @@ nas 4 cópias de geração de folha + nos 3 lugares que recontam faltas a partir
 salvos. Banco de horas (seção 3) continua **só estudo** — nenhum código foi alterado, aguardando
 você validar com jurídico/RH os pontos levantados ali antes de eu desenhar a arquitetura.
 
+> ⚠️ **Correção de 21/08/2026 — uma premissa da seção 2.2 estava errada.**
+> A frase *"é distinto de uma batida parcial (só entrada, por exemplo), que já tem tratamento
+> próprio"* **não se sustentava**: dia parcial não tinha tratamento nenhum na folha — sem cor, sem
+> observação, sem contagem, contando jornada cheia e podendo gerar hora extra a partir de uma saída
+> sem entrada. Medido na SMS em agosto/2026: **1.196 de 2.307 dias (51,8%) estavam nesse estado**.
+> Resolvido em 21/08/2026 com a pendência de revisão, recortada aos dias sem entrada ou sem saída —
+> ver [`docs/evolucao/2026-08-21-dia-incompleto-na-folha-de-ponto.md`](../evolucao/2026-08-21-dia-incompleto-na-folha-de-ponto.md).
+
 ---
 
 ## 1. Duas perguntas, não uma

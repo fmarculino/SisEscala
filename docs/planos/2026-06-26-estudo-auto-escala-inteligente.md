@@ -1,6 +1,18 @@
 # Estudo Técnico e Arquitetural: Auto-Escala Inteligente
 **SisEscala — Junho de 2026**
 
+> ⚠️ **Estado em 21/08/2026 — leia antes de usar este documento como base.**
+> A "Opção B vencedora" da seção 4 (heurística gulosa **com pontuação, cobertura e equidade**)
+> **nunca foi implementada**. O que existe hoje em `src/utils/intelligentScaleGenerator.ts` é
+> menos que isso: replica o padrão do mês anterior servidor a servidor, sem score, **sem usar o
+> dimensionamento de `setores`** (`servidores_manha_min`/`_ideal`/`_max`) e sem equidade — ou seja,
+> a lacuna que este estudo se propôs a fechar continua aberta.
+> A reanálise de 21/08/2026, com o diagnóstico medido do gerador atual, a distinção entre histórico
+> de **previsão** (utilizável) e de **realizado** (não auditável antes de 08/2026) e o pré-requisito
+> de validar antes de salvar (armadilha 14), está em
+> [`2026-08-21-estudo-aplicacao-de-ia-no-sisescala.md`](2026-08-21-estudo-aplicacao-de-ia-no-sisescala.md),
+> seção 4.D. **Comece por lá.**
+
 Este documento apresenta um estudo de viabilidade, análise técnica e proposta de implementação para a funcionalidade de **Auto-Escala Inteligente**, identificada originalmente no documento de melhorias como prioridade de longo prazo.
 
 ---
