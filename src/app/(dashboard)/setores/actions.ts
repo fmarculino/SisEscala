@@ -14,6 +14,76 @@ function translateError(error: string): string {
   return AUTH_ERRORS_PT[error] || error
 }
 
+// O nome do setor mora em dicionario_setores (setores guarda so' o dicionario_setor_id), entao
+// renomear um setor e' resolver/criar a entrada do dicionario. A ESCRITA nessa tabela e' restrita
+// a admin/super_admin pela policy "Permitir gerenciamento de setores para administradores"
+// (20260523000000); a LEITURA e' liberada a todos ("Permitir leitura para todos").
+//
+// Por isso aqui e' SELECT primeiro, INSERT so' quando o nome e' realmente novo. O
+// `upsert({ nome }, { onConflict: 'nome' })` que existia antes emitia INSERT ... ON CONFLICT em
+// TODOS os casos, entao ate escolher um nome JA padronizado (o caso dominante — e' o que a lista
+// de sugestoes do formulario induz) era recusado pela RLS para coordenador/RH. Com o SELECT na
+// frente, renomear para um nome existente passa a funcionar para qualquer perfil que ja edite
+// setor, e a exigencia de administrador fica onde ela realmente significa algo: criar um nome
+// novo no dicionario municipal.
+//
+// ⚠️ Nao trocar por upsert de novo sem repor equivalente: o modo de falha era silencioso dos dois
+// lados (a action devolvia { error } e o formulario descartava o retorno, ver EditSetorForm).
+async function resolverDicionarioSetor(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  nomeBruto: string
+): Promise<{ id: string } | { error: string }> {
+  const nome = (nomeBruto || '').trim()
+  if (!nome) {
+    return { error: 'Informe o nome do setor.' }
+  }
+
+  const { data: existente, error: buscaError } = await supabase
+    .from('dicionario_setores')
+    .select('id')
+    .eq('nome', nome)
+    .maybeSingle()
+
+  if (buscaError) {
+    return { error: 'Erro ao consultar o dicionário de setores: ' + buscaError.message }
+  }
+  if (existente) {
+    return { id: existente.id }
+  }
+
+  const { data: criado, error: criaError } = await supabase
+    .from('dicionario_setores')
+    .insert({ nome })
+    .select('id')
+    .single()
+
+  if (criaError) {
+    // Corrida: outro salvamento criou o mesmo nome entre o SELECT e o INSERT. Reler resolve sem
+    // devolver erro para quem so' queria usar o nome.
+    const { data: recuperado } = await supabase
+      .from('dicionario_setores')
+      .select('id')
+      .eq('nome', nome)
+      .maybeSingle()
+    if (recuperado) {
+      return { id: recuperado.id }
+    }
+
+    // 42501 = insufficient_privilege (RLS). Sem esta traducao o usuario recebe o texto cru do
+    // Postgres e nao tem como saber que basta escolher um nome ja existente na lista.
+    if (criaError.code === '42501') {
+      return {
+        error: `"${nome}" ainda não existe no dicionário municipal de setores, e apenas ` +
+          `administradores podem cadastrar um nome novo. Escolha um nome já padronizado na ` +
+          `lista de sugestões ou peça a um administrador para cadastrar este.`
+      }
+    }
+    return { error: 'Erro ao processar dicionário de setores: ' + criaError.message }
+  }
+
+  return { id: criado.id }
+}
+
 export async function createSetor(formData: FormData) {
   const supabase = await createClient()
 
@@ -47,14 +117,9 @@ export async function createSetor(formData: FormData) {
   const raio_geofence = (latitude !== null && longitude !== null && formData.get('raio_geofence')) ? parseInt(formData.get('raio_geofence') as string) : null
 
   // 1. Garantir que o nome existe no dicionário
-  const { data: dictEntry, error: dictError } = await supabase
-    .from('dicionario_setores')
-    .upsert({ nome }, { onConflict: 'nome' })
-    .select('id')
-    .single()
-
-  if (dictError) {
-    return { error: 'Erro ao processar dicionário de setores: ' + dictError.message }
+  const dict = await resolverDicionarioSetor(supabase, nome)
+  if ('error' in dict) {
+    return { error: dict.error }
   }
 
   const id = crypto.randomUUID()
@@ -88,7 +153,7 @@ export async function createSetor(formData: FormData) {
   const { error } = await supabase.from('setores').insert({
     id,
     unidade_id,
-    dicionario_setor_id: dictEntry.id,
+    dicionario_setor_id: dict.id,
     parent_id: parent_id || null,
     logo_url,
     servidores_manha_min,
@@ -148,19 +213,14 @@ export async function updateSetor(id: string, formData: FormData) {
   const raio_geofence = (latitude !== null && longitude !== null && formData.get('raio_geofence')) ? parseInt(formData.get('raio_geofence') as string) : null
 
   // 1. Garantir que o nome existe no dicionário
-  const { data: dictEntry, error: dictError } = await supabase
-    .from('dicionario_setores')
-    .upsert({ nome }, { onConflict: 'nome' })
-    .select('id')
-    .single()
-
-  if (dictError) {
-    return { error: 'Erro ao processar dicionário de setores: ' + dictError.message }
+  const dict = await resolverDicionarioSetor(supabase, nome)
+  if ('error' in dict) {
+    return { error: dict.error }
   }
 
   const updateData: any = {
     unidade_id,
-    dicionario_setor_id: dictEntry.id,
+    dicionario_setor_id: dict.id,
     parent_id: parent_id || null,
     servidores_manha_min,
     servidores_manha_ideal,

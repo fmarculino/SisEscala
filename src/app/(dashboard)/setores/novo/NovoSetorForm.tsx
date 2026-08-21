@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { Save, Layers, Building2, ChevronRight, Info } from 'lucide-react'
+import { Save, Layers, Building2, ChevronRight, Info, AlertTriangle } from 'lucide-react'
 import { createSetor } from '../actions'
 import { GeoLocationPicker } from '@/components/GeoLocationPicker'
 
@@ -15,6 +15,7 @@ export default function NovoSetorForm({ unidades, setoresExistentes, dicionario 
   const [selectedUnidade, setSelectedUnidade] = useState('')
   const [nomeSetor, setNomeSetor] = useState('')
   const [loading, setLoading] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
 
   // Nomes sugeridos para padronização (vindo do dicionário)
   const nomesPadronizados = useMemo(() => {
@@ -31,11 +32,26 @@ export default function NovoSetorForm({ unidades, setoresExistentes, dicionario 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setLoading(true)
+    setErro(null)
     const formData = new FormData(e.currentTarget)
     try {
-      await createSetor(formData)
+      // Mesmo defeito que EditSetorForm tinha: createSetor sinaliza falha com `return { error }`,
+      // nao com excecao, entao descartar o retorno prendia o botao em "Processando..." para
+      // sempre — sem mensagem nenhuma na tela.
+      const resultado = await createSetor(formData)
+      if (resultado?.error) {
+        setErro(resultado.error)
+        setLoading(false)
+      }
+      // Sucesso termina em redirect('/setores') — nao ha estado para restaurar aqui.
     } catch (error) {
+      // redirect() do Next chega ate o cliente como excecao com digest NEXT_REDIRECT. E'
+      // navegacao, nao falha: precisa subir para o framework em vez de virar erro na tela.
+      if (typeof (error as any)?.digest === 'string' && (error as any).digest.startsWith('NEXT_REDIRECT')) {
+        throw error
+      }
       console.error(error)
+      setErro('Não foi possível criar o setor. Verifique sua conexão e tente novamente.')
       setLoading(false)
     }
   }
@@ -283,7 +299,17 @@ export default function NovoSetorForm({ unidades, setoresExistentes, dicionario 
         </div>
       </div>
 
-      <div className="pt-6">
+      <div className="pt-6 space-y-4">
+        {erro && (
+          <div
+            role="alert"
+            className="flex items-start gap-3 rounded-2xl border-2 border-red-200 bg-red-50 p-4 dark:border-red-900/50 dark:bg-red-900/20"
+          >
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600 dark:text-red-400" />
+            <p className="text-sm font-bold leading-relaxed text-red-700 dark:text-red-300">{erro}</p>
+          </div>
+        )}
+
         <button
           type="submit"
           disabled={loading || !selectedUnidade}
