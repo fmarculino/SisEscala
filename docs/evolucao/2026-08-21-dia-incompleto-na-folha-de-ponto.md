@@ -148,19 +148,68 @@ Por unidade — só as 5 com relógio REP são atingidas, o que é coerente:
 ⚠️ A simulação lê `escala_diaria.presenca_*`; a folha lê `registro.entrada/saida`, que também pode
 vir de edição manual preservada. Os números são a ordem de grandeza, não o valor exato.
 
-## 7. O que ficou de fora, de propósito
+## 7. A hora extra fantasma — resolvida logo em seguida (mesma data)
 
-1. **A hora extra fantasma continua.** O cálculo segue creditando extra a partir de uma saída sem
-   entrada. É defeito à parte, com efeito em pagamento — não entrou aqui para não misturar
-   sinalização com cálculo de verba.
-2. **As 3 faltas indevidas continuam.** Mexem em ponto passado.
-3. **Observação de texto livre não é preservada na regeneração.** Só textos contendo `MANUAL` ou
+Estava listada aqui como "fica de fora"; o usuário mandou atacar em seguida. Registrado nesta
+mesma seção porque é o outro lado do mesmo dia incompleto.
+
+**O defeito:** a geração creditava hora extra comparando **só a saída** com o fim previsto, sem
+nunca exigir entrada. Um dia com uma batida solitária às 18:11 e nada mais virava 11 minutos de
+extra — o sistema afirmando quanto a pessoa trabalhou sem saber quando ela chegou. E isso vira
+**verba na folha**.
+
+**Não era decisão de política, era divergência entre implementações.** Havia três cálculos de hora
+extra no projeto e **dois já exigiam entrada**:
+
+| implementação | exigia entrada? |
+|---|---|
+| `recalculateOvertimeForDay` (`FolhaPontoEditor.tsx`) | **sim** — `if (!entrada \|\| !saida) return { minutes: 0 }` |
+| `normalizarRegistrosFolha` (`normalizarHorarios.ts`) | **sim** — `if (r.entrada && r.saida) { … } else { 0 }` |
+| **geração da folha (4 cópias)** | **não** |
+
+Efeito colateral disso: a mesma folha mudava de valor **só por alguém tocar na célula na tela** —
+a geração gravava o extra, o editor recalculava para zero.
+
+**A correção** é uma condição a mais nas 4 cópias, aplicada por script com contagem-e-aborta
+(`scratchpad/gen_extra_exige_entrada.js`):
+
+```ts
+if (evalExit && registro.entrada && evalExit > effectiveScheduledExit) {
+```
+
+**Impacto medido em produção antes de aplicar** (`folha_ponto.registros`, 06–08/2026, 460 folhas):
+
+| competência | dias com extra | **dias com extra e sem entrada** | folhas afetadas |
+|---|---|---|---|
+| 06/2026 (71 folhas, todas Revisadas) | 463 (606h22) | **0** | 0 |
+| 07/2026 (77 folhas) | 744 (556h06) | **0** | 0 |
+| **08/2026** (312 folhas, 300 em Rascunho) | 814 (477h29) | **31 (12h16)** | **27** |
+
+A exposição é inteiramente do mês corrente — apareceu com o REP, que é o que produz dia parcial.
+**2,6% da hora extra de agosto.** Os 783 dias restantes com extra têm entrada e não mudam: a
+condição só acrescenta uma exigência, nunca cria extra novo.
+
+O maior caso isolado: ELIZABETH COELHO MARQUES (1133), 17/08 — entrada vazia, saída 18:53,
+**353 minutos (5h53) de extra 50%** creditados sem nenhuma entrada registrada.
+
+**Os 31 dias se curam sozinhos** na próxima geração/sincronização da folha — nenhuma correção de
+dado foi feita à mão, e competência fechada não é regerada.
+
+⚠️ **O que NÃO mudou, e é decisão consciente:** o extra continua sendo medido do **fim previsto**
+até a saída, sem descontar atraso na entrada. Quem chega 2h atrasado e sai 11 min depois do
+previsto continua ganhando 11 min de extra. Isso é regime de apuração, não defeito — mexer nisso é
+decisão de RH/jurídico, não de código.
+
+## 8. O que ficou de fora, de propósito
+
+1. **As 3 faltas indevidas continuam.** Mexem em ponto passado.
+2. **Observação de texto livre não é preservada na regeneração.** Só textos contendo `MANUAL` ou
    `FALTA` sobrevivem — defeito anterior a esta mudança. Consequência prática: justificar uma
    pendência digitando texto não a resolve de forma durável; o caminho que funciona é **preencher o
    horário**.
-4. **Nenhuma migration.** Mudança 100% em TypeScript; o banco não foi tocado.
+3. **Nenhuma migration.** Mudança 100% em TypeScript; o banco não foi tocado.
 
-## 8. Verificação
+## 9. Verificação
 
 - `npx tsc --noEmit` — limpo.
 - `npm run build` — executado.

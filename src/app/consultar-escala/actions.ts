@@ -1405,7 +1405,14 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
           }
         }
 
-        if (evalExit && evalExit > effectiveScheduledExit) {
+        // Sem ENTRADA registrada nao da para afirmar que houve sobrejornada: o que se sabe e a
+        // hora em que a pessoa saiu, nao quanto ela trabalhou. Creditar extra a partir de uma
+        // saida solitaria e o sistema afirmar o que nao sabe — e vira verba na folha.
+        // recalculateOvertimeForDay (FolhaPontoEditor) e normalizarRegistrosFolha JA exigiam
+        // entrada; a geracao era a unica que nao exigia, e por isso a mesma folha mudava de
+        // valor so por alguem tocar na celula na tela. Medido em producao em 21/08/2026:
+        // 31 dias, 12h16 de extra, em 27 folhas de agosto (junho e julho: zero).
+        if (evalExit && registro.entrada && evalExit > effectiveScheduledExit) {
           let extra50Min = 0
           let extra100Min = 0
 
@@ -1962,7 +1969,14 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
           }
         }
 
-        if (evalExit && evalExit > effectiveScheduledExit) {
+        // Sem ENTRADA registrada nao da para afirmar que houve sobrejornada: o que se sabe e a
+        // hora em que a pessoa saiu, nao quanto ela trabalhou. Creditar extra a partir de uma
+        // saida solitaria e o sistema afirmar o que nao sabe — e vira verba na folha.
+        // recalculateOvertimeForDay (FolhaPontoEditor) e normalizarRegistrosFolha JA exigiam
+        // entrada; a geracao era a unica que nao exigia, e por isso a mesma folha mudava de
+        // valor so por alguem tocar na celula na tela. Medido em producao em 21/08/2026:
+        // 31 dias, 12h16 de extra, em 27 folhas de agosto (junho e julho: zero).
+        if (evalExit && registro.entrada && evalExit > effectiveScheduledExit) {
           let extra50Min = 0
           let extra100Min = 0
 
