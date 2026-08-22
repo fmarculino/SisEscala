@@ -1441,6 +1441,14 @@ export function ScaleGrid({
     }
 
     // Validação de Conflito Externo (Cross-Unit/Cross-Sector via Banco)
+    //
+    // p_escala_mensal_id diz à RPC QUAL célula está sendo editada. Sem ele a função busca
+    // conflito em todas as linhas do servidor naquele dia — inclusive a própria célula — e
+    // trocar um código já salvo por outro que compartilhe qualquer slot conflitava com ele
+    // mesmo (medido em 21/08/2026: MT -> MT devolvia conflito). Junto com o Direito Adquirido,
+    // que impede apagar célula com presença, isso congelava o dia que já tinha ponto: não dava
+    // para apagar nem para trocar — nem para lançar a dobra de plantão (T -> TN).
+    // Ver 20260821100000_conflict_check_ignores_own_cell.sql.
     try {
       const { data, error } = await supabase.rpc('fn_check_shift_conflicts', {
         p_servidor_id: servidorId,
@@ -1448,7 +1456,8 @@ export function ScaleGrid({
         p_mes: mes,
         p_ano: ano,
         p_turno_id: turnoId,
-        p_categoria: categoria
+        p_categoria: categoria,
+        p_escala_mensal_id: emRecord?.id || null
       })
 
       if (error) throw error
