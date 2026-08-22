@@ -1493,6 +1493,41 @@ plantão/extra quando ela era ligada — fechado em `20260820120000`, na mesma m
 20/08/2026): mataria a declaração de comparecimento por horas, que existe justamente para o
 servidor continuar escalado no resto do dia.
 
+### 15. A célula com ponto ficava congelada, e a dobra de plantão não tinha onde ser dita (21/08/2026)
+
+⚠️ **`fn_check_shift_conflicts` conflitava a célula com ela mesma.** A busca do passo 3 varria
+todas as linhas do servidor naquele dia **sem excluir a linha que estava sendo editada** — medido
+chamando a RPC contra uma linha real de Plantão `MT`: digitar `MT` (o **mesmo** código já gravado)
+devolvia "Conflito com o turno MT no setor ...", e `MT4`/`MTN` idem; só `N` passava, por não
+compartilhar slot. Quem não tem ponto no dia contorna sem perceber (apaga a célula, salva, digita
+de novo); **com ponto, apagar é barrado pelo "Direito Adquirido"** e o dia ficava impossível de
+corrigir. `20260821100000` acrescenta `p_escala_mensal_id` e exclui `(escala_mensal, categoria,
+dia)` — a chave exata de uma célula. NULL preserva o comportamento antigo; a detecção real
+(mesmo servidor em **duas** escalas no mesmo dia com slots sobrepostos) continua intacta.
+
+⚠️ **Dobra de plantão não precisa de duas linhas — o dicionário já tem o código combinado.**
+`TN` (18h, slots `[T,N]`, âncora 13:00) é T 13–19 emendado no N 19–07; a família `T?N` termina
+sempre às 07:00 e a `M?N` começa às 19:00. A grade guarda **um turno por (servidor, categoria,
+dia)**, então dois plantões só coexistem em escalas diferentes — o que já funciona, porque
+`fn_confirmar_presenca` monta bloco por servidor/dia **sem filtrar unidade** e funde os dois.
+
+⚠️ **Trocar o turno de um dia com ponto exige justificativa, e a regra é do banco**
+(`20260821110000`). `trg_registrar_troca_turno` recusa o UPDATE quando a linha tem ponto e nenhuma
+justificativa foi publicada no GUC `sisescala.justificativa_turno`; `fn_alterar_turno_escala_diaria`
+é o único caminho que publica. Mesmo padrão de `20260819230000` (troca de jornada): trigger como
+rede de segurança, RPC para carregar o texto. O motivo vira linha em
+`escala_diaria_turno_historico` (append-only, com `de → para`, autor e `tinha_ponto`) **e é
+acrescentado** — nunca substitui — à justificativa daquele dia em `justificativas_eventos`, que é
+o que o relatório de plantão imprime (decisão do usuário, 21/08/2026: as duas coisas são verdade).
+Por isso o relatório precisa de `whitespace-pre-line`.
+
+⚠️ **Dia SEM ponto continua livre** — é planejamento. E nenhum caminho em massa é afetado:
+`generateTemplate` recebe `skipDays` e nunca gera turno para dia protegido por presença, e o
+Gerador Inteligente pula `hasPresenceForDay`. O `handleSave` reenvia a mesma linha e o
+`IS NOT DISTINCT FROM` sai na hora — mas uma **aba desatualizada** mandaria o turno antigo e
+derrubaria o lote inteiro no trigger, então `handleSave` compara com o que buscou do banco antes
+do upsert e recusa com mensagem específica.
+
 ## Papéis de RH: Geral vs da Unidade (12/08/2026)
 
 `role = 'rh'` ("RH Geral") enxerga tudo; `role = 'rh_unidade'` ("RH da Unidade") é escopado por

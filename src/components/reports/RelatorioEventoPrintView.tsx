@@ -224,7 +224,11 @@ export function RelatorioEventoPrintView({
                   <td className="border border-black p-2 text-center font-mono">
                     {ev.turno_codigo || '—'}
                   </td>
-                  <td className="border border-black p-2 leading-relaxed">
+                  {/* whitespace-pre-line: a justificativa pode ter mais de um parágrafo — a
+                      alteração de turno em dia já trabalhado (dobra de plantão) é ACRESCENTADA
+                      ao texto do dia, separada por linha em branco, em vez de substituí-lo.
+                      Sem isto o carimbo da alteração colaria no motivo original. */}
+                  <td className="border border-black p-2 leading-relaxed whitespace-pre-line">
                     {ev.texto_justificativa}
                   </td>
                 </tr>

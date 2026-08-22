@@ -393,6 +393,17 @@ export function ScaleGrid({
     day: number, turnoCodigo: string, horasComputadas: number, valor: string, ancorado: boolean
   }>({ isOpen: false, servidorId: '', servidorNome: '', categoria: 'Plantão', day: 0, turnoCodigo: '', horasComputadas: 0, valor: '', ancorado: false })
 
+  // Troca de turno em dia que JÁ TEM PONTO — o caso da dobra: a servidora estava no Plantão T,
+  // o plantonista seguinte não compareceu e o coordenador a convocou a emendar a noite (T → TN).
+  // Trocar o turno reescreve o previsto contra o qual aquele ponto é julgado, então o motivo é
+  // obrigatório e vira histórico + justificativa do evento (aparece no relatório de plantão).
+  // A regra é do BANCO: trg_registrar_troca_turno recusa o UPDATE sem justificativa.
+  const [trocaTurnoModal, setTrocaTurnoModal] = useState<{
+    isOpen: boolean, servidorId: string, servidorNome: string, escalaMensalId: string,
+    categoria: RowCategory, day: number, turnoNovoId: string,
+    codigoAnterior: string, codigoNovo: string, texto: string, salvando: boolean
+  }>({ isOpen: false, servidorId: '', servidorNome: '', escalaMensalId: '', categoria: 'Plantão', day: 0, turnoNovoId: '', codigoAnterior: '', codigoNovo: '', texto: '', salvando: false })
+
   const [alertModal, setAlertModal] = useState<{ isOpen: boolean, title: string, message: string, type: 'default' | 'danger' | 'success' | 'warning' }>({
     isOpen: false,
     title: '',
@@ -791,6 +802,9 @@ export function ScaleGrid({
   // Mapa: escala_diaria_id -> bloco previsto (já com fusão de blocos e intervalo aplicados).
   // Enquanto não carrega, ou para célula ainda não salva no banco, cai no cálculo local.
   const [blocosPrevistos, setBlocosPrevistos] = useState<Map<string, any>>(new Map())
+  // Bumpado quando a grade altera o previsto de um dia direto no banco (troca de turno com
+  // justificativa), para o mapa não ficar desenhando a janela do turno antigo.
+  const [previsaoVersao, setPrevisaoVersao] = useState(0)
 
   useEffect(() => {
     const ids = escalaMensal.map(e => e.id).filter(Boolean)
@@ -812,7 +826,7 @@ export function ScaleGrid({
       setBlocosPrevistos(m)
     })()
     return () => { cancelado = true }
-  }, [supabase, escalaMensal])
+  }, [supabase, escalaMensal, previsaoVersao])
 
   // (servidor, categoria, dia) -> escala_diaria_id, para achar o bloco da célula.
   // Só cobre o que está salvo no banco; célula recém-lançada ainda não tem id.
@@ -1615,6 +1629,32 @@ export function ScaleGrid({
       }
     }
 
+    // Dia que JÁ TEM PONTO não troca de turno em silêncio: exige justificativa, que vira
+    // histórico (escala_diaria_turno_historico) e entra na justificativa do evento daquele dia,
+    // que é o que o relatório de plantão imprime. É o caso da dobra (Plantão T → TN).
+    // O banco recusa o UPDATE sem justificativa (trg_registrar_troca_turno); a tela existe para
+    // coletar o texto e usar a RPC que sabe carregá-lo, em vez de deixar o "Salvar Previsão"
+    // morrer em lote com a exceção crua do Postgres. Ver 20260821110000.
+    const turnoAtualCelula = gridData[servidorId]?.[categoria]?.[day]
+    if (emRecord && turnoAtualCelula && turnoAtualCelula !== turnoId &&
+        hasPresenceForDay(servidorId, emRecord.id, categoria, day)) {
+      const servidor = todosServidoresSetor.find(s => s.id === servidorId)
+      setTrocaTurnoModal({
+        isOpen: true,
+        servidorId,
+        servidorNome: servidor?.nome || '',
+        escalaMensalId: emRecord.id,
+        categoria,
+        day,
+        turnoNovoId: turnoId,
+        codigoAnterior: turnos.find(t => t.id === turnoAtualCelula)?.codigo || '',
+        codigoNovo: turnos.find(t => t.id === turnoId)?.codigo || '',
+        texto: '',
+        salvando: false
+      })
+      return
+    }
+
     // Turno de duração livre: o código não determina a hora, então pergunta ao coordenador.
     // A sugestão vem do encadeamento com o que já existe no dia; ele pode alterar.
     if (precisaHoraInicio(categoria, turnoId)) {
@@ -1663,6 +1703,57 @@ export function ScaleGrid({
         }
       }
     })
+  }
+
+  // Aplica a troca de turno de um dia que já tem ponto. Vai direto ao banco pela RPC, sem
+  // esperar o "Salvar Previsão": a justificativa e a troca precisam ser a MESMA transação — é a
+  // RPC que publica o texto para a trigger que grava o histórico. Depois disso a grade e o banco
+  // ficam com o mesmo valor, então o "Salvar Previsão" seguinte reenvia o mesmo turno e o
+  // IS NOT DISTINCT FROM da trigger sai na hora, sem histórico duplicado.
+  const confirmarTrocaTurno = async () => {
+    const m = trocaTurnoModal
+    if (m.texto.trim().length < 10) return
+
+    setTrocaTurnoModal(prev => ({ ...prev, salvando: true }))
+    try {
+      const { error } = await supabase.rpc('fn_alterar_turno_escala_diaria', {
+        p_escala_mensal_id: m.escalaMensalId,
+        p_dia: m.day,
+        p_categoria: m.categoria,
+        p_dicionario_turnos_id: m.turnoNovoId,
+        p_justificativa: m.texto.trim()
+      })
+      if (error) throw error
+
+      setGridData(prev => {
+        const serverData = prev[m.servidorId] || { 'Regular': {}, 'Extra': {}, 'Plantão': {}, 'Sobreaviso': {} }
+        return {
+          ...prev,
+          [m.servidorId]: {
+            ...serverData,
+            [m.categoria]: { ...(serverData[m.categoria] || {}), [m.day]: m.turnoNovoId }
+          }
+        }
+      })
+      // O previsto daquele dia mudou; recarrega fn_blocos_previstos_mes para a grade não
+      // continuar desenhando a janela do turno antigo.
+      setPrevisaoVersao(v => v + 1)
+      setTrocaTurnoModal(prev => ({ ...prev, isOpen: false, salvando: false }))
+      setAlertModal({
+        isOpen: true,
+        title: 'Turno Alterado',
+        message: `${m.servidorNome} — dia ${m.day}: ${m.codigoAnterior} → ${m.codigoNovo}.\n\nA alteração já está salva no banco, com a justificativa no histórico e no relatório de ${m.categoria}. As marcações de ponto do dia foram preservadas.`,
+        type: 'success'
+      })
+    } catch (err: any) {
+      setTrocaTurnoModal(prev => ({ ...prev, salvando: false }))
+      setAlertModal({
+        isOpen: true,
+        title: 'Não foi possível alterar o turno',
+        message: err?.message || 'Erro desconhecido ao alterar o turno.',
+        type: 'danger'
+      })
+    }
   }
 
   const calculateTotals = (servidorId: string) => {
@@ -2813,6 +2904,7 @@ export function ScaleGrid({
       const toUpdate: any[] = []
       const toInsert: any[] = []
       const processedKeys = new Set()
+      const trocasDesatualizadas: string[] = []
 
       // 2. Mapear o que deve ser inserido/atualizado
       escalaMensal.forEach(em => {
@@ -2974,17 +3066,44 @@ export function ScaleGrid({
               confirmado_por_id: confBy
             }
 
+            // Aba desatualizada salvando por cima de uma troca de turno já aplicada no banco
+            // (dobra feita em outra sessão, ou nesta mesma antes de recarregar). O trigger
+            // trg_registrar_troca_turno recusaria a linha por falta de justificativa e o upsert
+            // vai em LOTE: a exceção crua do Postgres derrubaria o mês inteiro de todo mundo.
+            // Aqui a recusa é específica e diz o que recarregar. Ver armadilha 14 do CLAUDE.md.
+            const existingTemPonto = !!existing && (
+              !!existing.presenca_entrada_em || !!existing.presenca_saida_em ||
+              !!existing.presenca_intervalo_saida_em || !!existing.presenca_intervalo_retorno_em ||
+              existing.presenca_confirmada === true
+            )
+            if (existingTemPonto && existing.dicionario_turnos_id !== turnoId) {
+              trocasDesatualizadas.push(
+                `Dia ${day} — ${em.servidores?.nome || 'Servidor'} (${categoria}): a grade tem ${turnos.find(t => t.id === turnoId)?.codigo || '?'} e o banco já está com ${turnos.find(t => t.id === existing.dicionario_turnos_id)?.codigo || '?'}`
+              )
+            }
+
             if (existing?.id) {
               item.id = existing.id
               toUpdate.push(item)
             } else {
               toInsert.push(item)
             }
-            
+
             processedKeys.add(key)
           })
         })
       })
+
+      if (trocasDesatualizadas.length > 0) {
+        setLoading(false)
+        setAlertModal({
+          isOpen: true,
+          title: '⚠️ Escala Desatualizada nesta Tela',
+          message: `O turno de ${trocasDesatualizadas.length} dia(s) com ponto registrado foi alterado no banco depois que esta tela carregou. Recarregue a página antes de salvar, para não desfazer a alteração.\n\n${trocasDesatualizadas.slice(0, 8).join('\n')}${trocasDesatualizadas.length > 8 ? `\n...e mais ${trocasDesatualizadas.length - 8}.` : ''}`,
+          type: 'warning'
+        })
+        return
+      }
 
       // 3. Identificar o que deve ser deletado (apenas se não houver presença)
       const idsToDelete = existingDailies
@@ -5270,6 +5389,67 @@ export function ScaleGrid({
           </div>
         </div>
       )}
+
+      {/* Troca de turno em dia que já tem ponto (dobra de plantão, correção de turno trabalhado).
+          Não é confirmação: é justificativa. O motivo vira histórico com de→para e autor, e é
+          acrescentado à justificativa do evento daquele dia — que é o que sai no relatório.
+          Ver 20260821110000_shift_change_history_and_justification.sql */}
+      <Modal
+        isOpen={trocaTurnoModal.isOpen}
+        onClose={() => { if (!trocaTurnoModal.salvando) setTrocaTurnoModal(prev => ({ ...prev, isOpen: false })) }}
+        title="Justificativa da alteração de turno"
+        footer={
+          <>
+            <button
+              onClick={() => setTrocaTurnoModal(prev => ({ ...prev, isOpen: false }))}
+              disabled={trocaTurnoModal.salvando}
+              className="flex-1 px-4 py-2 rounded-xl border border-zinc-300 dark:border-zinc-700 font-bold disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={confirmarTrocaTurno}
+              disabled={trocaTurnoModal.salvando || trocaTurnoModal.texto.trim().length < 10}
+              className="flex-1 inline-flex items-center justify-center px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold disabled:opacity-50"
+            >
+              {trocaTurnoModal.salvando && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Alterar e justificar
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <div className="rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 p-3">
+            <p className="text-sm font-bold text-amber-900 dark:text-amber-200">
+              {trocaTurnoModal.servidorNome} — dia {trocaTurnoModal.day} ({trocaTurnoModal.categoria})
+            </p>
+            <p className="text-sm text-amber-900 dark:text-amber-200 mt-1">
+              <span className="font-black">{trocaTurnoModal.codigoAnterior || '—'}</span>
+              {' → '}
+              <span className="font-black">{trocaTurnoModal.codigoNovo}</span>
+            </p>
+          </div>
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            Este dia <span className="font-bold">já tem ponto registrado</span>. Trocar o turno muda o
+            horário previsto contra o qual esse ponto é julgado — hora extra, falta e o horário que o
+            terminal vai cobrar. As marcações já registradas <span className="font-bold">não se perdem</span>.
+            Descreva o motivo: ele fica no histórico da escala e sai no relatório de {trocaTurnoModal.categoria}.
+          </p>
+          <textarea
+            value={trocaTurnoModal.texto}
+            onChange={(e) => setTrocaTurnoModal(prev => ({ ...prev, texto: e.target.value }))}
+            rows={4}
+            autoFocus
+            placeholder="Ex.: o servidor do plantão noturno não compareceu e a servidora foi convocada a dobrar."
+            className="w-full px-3 py-2 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-transparent text-sm"
+          />
+          <p className="text-xs text-zinc-500">
+            {trocaTurnoModal.texto.trim().length < 10
+              ? 'Descreva o motivo com pelo menos 10 caracteres.'
+              : 'A alteração é gravada assim que você confirmar — não depende do "Salvar Previsão".'}
+          </p>
+        </div>
+      </Modal>
 
       {/* Hora de início de turno de duração livre (T4, N4, N6, M7...).
           O código do turno diz a duração e o período, não a hora — só quem escala sabe.
