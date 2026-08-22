@@ -82,8 +82,10 @@ compartilhado.
    - **Name:** `CRON_SECRET`
    - **Value:** outro valor gerado pelo mesmo comando
 
-   ⚠️ Hoje o código usa `sis-escala-cron-token-2026` como padrão quando `CRON_SECRET` não existe.
-   Esse valor está no código-fonte, ou seja, **não é segredo**. Definir a variável fecha isso.
+   🚨 **Isto deixou de ser opcional em 22/08/2026.** Havia um valor padrão embutido no código, e
+   como o repositório é público ele **não era segredo nenhum** — qualquer pessoa disparava
+   `/api/cron` (que fecha escalas e folhas) e o despacho de avisos. O fallback foi removido: sem
+   `CRON_SECRET` no ambiente, as duas rotas respondem **500** e o cron não roda.
 5. **Save** e depois **Redeploy** a aplicação.
 
 Guarde os dois valores no gerenciador de senhas da secretaria — você vai precisar deles no passo 3.

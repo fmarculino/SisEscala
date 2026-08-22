@@ -30,7 +30,17 @@ export async function GET(request: Request) {
     const secret = searchParams.get('secret')
     const authHeader = request.headers.get('authorization')
 
-    const expectedSecret = process.env.CRON_SECRET || 'sis-escala-cron-token-2026'
+    // Sem fallback. O valor que ficava aqui estava embutido no código de um repositório PÚBLICO —
+    // quem lesse o repo disparava o despacho de avisos sem credencial nenhuma.
+    // Mesmo padrão de TERMINAL_LOCAL_SESSION_SECRET: falha explícita, nunca um segredo embutido.
+    const expectedSecret = process.env.CRON_SECRET
+    if (!expectedSecret) {
+      return NextResponse.json(
+        { error: 'CRON_SECRET não configurado no ambiente (Coolify em produção).' },
+        { status: 500 }
+      )
+    }
+
     const providedSecret = secret || (authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null)
 
     if (providedSecret !== expectedSecret) {

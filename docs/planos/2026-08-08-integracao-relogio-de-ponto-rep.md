@@ -246,7 +246,8 @@ O coletor **nunca ajusta o relógio do device em silêncio** — num REP-C isso 
 
 ### Protocolo (`src/app/api/rep/v1/`)
 
-**Não copiar o padrão de `/api/cron`** (segredo compartilhado com fallback hardcoded `'sis-escala-cron-token-2026'`).
+**Não copiar o padrão de `/api/cron`** (segredo compartilhado, e até 22/08/2026 com fallback
+embutido no código de um repositório público — corrigido: a rota agora exige `CRON_SECRET`).
 
 - Token **por dispositivo**, exibido uma vez, guardado como sha256 em `dispositivos_rep.token_hash`.
 - `Authorization: Bearer <token>` + `X-SisEscala-Dispositivo: <uuid>`.

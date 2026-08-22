@@ -1,7 +1,40 @@
 import { normalizarRegistrosFolha } from '../src/utils/folha/normalizarHorarios.ts'
 
-const SUPABASE_URL = 'https://mtgfmxsbsyknotvwzdcr.supabase.co'
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im10Z2ZteHNic3lrbm90dnd6ZGNyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDM0NTU0OSwiZXhwIjoyMDk1OTIxNTQ5fQ.fdz9Ios0JLLHg_0mIJHkqZhIWGfaNwgvSg8hI_DfRZQ'
+// NUNCA embutir a chave aqui. Este repositorio e PUBLICO, e a service_role key ignora a RLS
+// por completo -- quem a tem le e escreve tudo, inclusive auth.users. A versao anterior deste
+// arquivo trazia a chave de homologacao literal e foi detectada pelo GitGuardian em 21/08/2026;
+// a chave teve de ser rotacionada, porque apagar do git nao desfaz o que ja e publico (o repo
+// tem fork, e o GitHub guarda objetos de commits antigos).
+//
+// Uso: SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/corrigir_folhas_banco.mjs
+// (ou deixe que ele leia .env.local, que esta no .gitignore)
+import { readFileSync } from 'node:fs'
+
+function lerEnv(arquivo) {
+  try {
+    return Object.fromEntries(
+      readFileSync(arquivo, 'utf8')
+        .split(/\r?\n/)
+        .filter(l => l.includes('=') && !l.trim().startsWith('#'))
+        .map(l => [l.slice(0, l.indexOf('=')).trim(), l.slice(l.indexOf('=') + 1).trim()])
+    )
+  } catch {
+    return {}
+  }
+}
+
+const env = { ...lerEnv('.env.local'), ...process.env }
+const SUPABASE_URL = env.SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL
+const SUPABASE_KEY = env.SUPABASE_SERVICE_ROLE_KEY
+
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  console.error('Faltam SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY (env ou .env.local).')
+  process.exit(1)
+}
+
+// Este script ESCREVE em folha_ponto. Confirme em qual banco voce esta antes de rodar --
+// homologacao e producao sao bancos diferentes (armadilha 3 do CLAUDE.md).
+console.log('Banco alvo:', SUPABASE_URL)
 
 function isFaltaDefinitiva(observacao) {
   if (!observacao) return false

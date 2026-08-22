@@ -1600,6 +1600,37 @@ numa consulta à parte por isso.
 
 Diário em [`docs/evolucao/2026-08-22-vinculo-usuario-servidor.md`](docs/evolucao/2026-08-22-vinculo-usuario-servidor.md).
 
+### 18. O repositório é PÚBLICO — nenhum segredo pode encostar no código (22/08/2026)
+
+🚨 `github.com/fmarculino/SisEscala` é **público** (com fork). Isso é uma escolha, não um
+descuido — mas significa que **tudo** que entra num commit é publicado para sempre: o GitHub
+preserva objetos de commits antigos, e um fork guarda o histórico inteiro. **Apagar do git não
+desfaz um vazamento.** A única correção real é **rotacionar o segredo**.
+
+Dois casos reais, achados na mesma varredura:
+
+| o que | onde | gravidade |
+|---|---|---|
+| `service_role` JWT de **homologação**, literal | `scripts/corrigir_folhas_banco.mjs`, desde 19/08/2026 (`0f525c9`) | alta — ignora RLS por completo, válida até 2036. Detectada pelo GitGuardian em 21/08 |
+| fallback `CRON_SECRET` embutido | `/api/cron` e `/api/avisos-ponto/despachar` | alta — `/api/cron` **fecha escalas e folhas**, e o valor estava no código público |
+
+✅ **Chaves de PRODUÇÃO nunca entraram no histórico** — conferido varrendo todos os commits
+(`git log --all -p`): existe **um único** JWT em toda a história do repositório, e é o de
+homologação. `.env.local`/`.env.production` estão no `.gitignore` e nunca foram rastreados.
+
+⚠️ **`process.env.X || 'valor-padrão'` num repositório público não é conveniência, é um segredo
+publicado.** O padrão correto já existia no projeto e é o de `TERMINAL_LOCAL_SESSION_SECRET`:
+**falhar explicitamente** quando a variável não está no ambiente. As duas rotas de cron passaram a
+seguir esse padrão em 22/08/2026 — sem `CRON_SECRET` no Coolify elas devolvem **500** e o cron não
+roda, o que é o modo de falha desejado.
+
+⚠️ **Ao documentar um vazamento, não repita o valor vazado no comentário nem no runbook** — foi o
+que quase aconteceu ao escrever esta seção. Descreva o que era, nunca qual era.
+
+**Ao escrever script avulso em `scripts/`**, leia a chave de `.env.local` ou do ambiente e recuse
+rodar sem ela. Nunca cole o valor, nem "só para testar": o commit é que publica, e ninguém lembra
+de tirar depois.
+
 ## Papéis de RH: Geral vs da Unidade (12/08/2026)
 
 `role = 'rh'` ("RH Geral") enxerga tudo; `role = 'rh_unidade'` ("RH da Unidade") é escopado por
