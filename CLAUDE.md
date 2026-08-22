@@ -1631,6 +1631,51 @@ que quase aconteceu ao escrever esta seção. Descreva o que era, nunca qual era
 rodar sem ela. Nunca cole o valor, nem "só para testar": o commit é que publica, e ninguém lembra
 de tirar depois.
 
+### 19. Sair do relógio não tirava o vínculo — e a tela dizia que a pessoa estava lá (22/08/2026)
+
+⚠️ **`rep_vinculos_servidor` nunca era reconciliado com o snapshot do equipamento.** A única
+limpeza de vínculo vivia em `fn_confirmar_remocao_usuario_dispositivo`, que só alcança quem saiu
+**pela fila de remoção**. Quem é apagado na telinha do relógio — ou nunca chegou nele — some do
+equipamento e continua vinculado aqui, para sempre. Os dois lados são silenciosos:
+
+| onde | o que acontecia |
+|---|---|
+| `fn_cobertura_ponto_dispositivo` | classifica por vínculo quando não acha a pessoa no snapshot → a aba **Cobertura da Escala** mostrava `ok` + "com biometria" com `identificador_afd` **nulo** |
+| `fn_enfileirar_cadastros_rep` | pula quem tem vínculo vigente → "Sincronizar cadastros" **nunca** reenviaria essa pessoa |
+
+Medido em 22/08/2026 — vínculo vigente cujo identificador não está no snapshot do próprio
+dispositivo: **HMM-01 53** (relógio reaproveitado, 1.211 cadastros do sistema anterior, higiene de
+1.157 + limpeza manual do resto), **ENF-ZEZINHA 7**, **SMS 2**, os outros 10 relógios **0**.
+
+Fonte única desde `20260822200000`: **o snapshot é a verdade sobre quem está no equipamento.**
+`fn_registrar_snapshot_usuarios_dispositivo` encerra (`vigente_ate`) o vínculo ausente da leitura e
+devolve `vinculos_encerrados`. **Duas guardas que não podem sair:** lista **vazia** nunca reconcilia
+(payload vazio é indistinguível de leitura que falhou — a rota cai para `[]`), e vínculo criado há
+**menos de 15 min** é poupado (corrida entre ler o relógio, paginado de 100 em 100, e publicar o
+snapshot).
+
+⚠️ **A outra metade é obrigatória:** `fn_enfileirar_cadastros_rep` passou a pular também quem
+**está no snapshot**, não só quem tem vínculo. Sem isso, encerrar vínculo órfão faria reenviar
+cadastro de quem está no relógio **sob outro identificador** — 6 dos 7 casos do ENF-ZEZINHA —
+duplicando cadastro no equipamento.
+
+⚠️ **Encerrar vínculo não mexe em ponto passado** (a autoria é resolvida pelo vínculo vigente *na
+data da batida*) e é reversível: reenviar o cadastro abre um vínculo novo, e
+`fn_confirmar_cadastro_rep` já fecha o anterior antes de inserir. Nenhum dos 62 identificadores
+tinha batida dentro da vigência.
+
+ℹ️ Descartado por falta de caso real: sincronizar `tem_biometria` do vínculo com o snapshot.
+Divergência medida nos 13 dispositivos: **0**. `fn_atualizar_biometria_vinculos` continua só
+ligando, nunca desligando.
+
+🚨 **Achado separado, sem correção, medido no mesmo dia: a resolução de identidade não tem
+vigência.** `fn_servidor_por_identificador_afd` cai para CPF/PIS **sem olhar a data da batida**,
+então o AFD inteiro de um relógio reaproveitado vira ponto atribuído já na ingestão —
+`p_vigente_de` só protege o caminho do *vínculo*, e a armadilha 10 fala dele como se fosse a única
+porta. No HMM-01 isso deu **3.715 marcações de 2021–2025 com dono**. **Nada projetou em folha** (só
+existe `escala_mensal` a partir de 07/2026, e zero dessas marcações é de 2026), mas a próxima
+instalação num relógio com histórico recente não teria essa sorte.
+
 ## Papéis de RH: Geral vs da Unidade (12/08/2026)
 
 `role = 'rh'` ("RH Geral") enxerga tudo; `role = 'rh_unidade'` ("RH da Unidade") é escopado por

@@ -321,7 +321,7 @@ export async function enfileirarCadastrosRep(dispositivoId: string) {
   if (error) return { error: error.message }
 
   revalidatePath('/marcacoes')
-  return data as { enfileirados: number; sem_cpf: number; ja_vinculados: number }
+  return data as { enfileirados: number; sem_cpf: number; ja_vinculados: number; ja_no_relogio: number }
 }
 
 export async function listarPendenciasBiometria(dispositivoId?: string | null) {

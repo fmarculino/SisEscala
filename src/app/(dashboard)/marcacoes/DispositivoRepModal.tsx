@@ -69,7 +69,7 @@ export function DispositivoRepModal({
   const [dispositivoId, setDispositivoId] = useState<string | null>(dispositivo?.id || null)
   const [baixando, setBaixando] = useState(false)
   const [sincronizandoCadastros, setSincronizandoCadastros] = useState(false)
-  const [resultadoCadastros, setResultadoCadastros] = useState<{ enfileirados: number; sem_cpf: number; ja_vinculados: number } | null>(null)
+  const [resultadoCadastros, setResultadoCadastros] = useState<{ enfileirados: number; sem_cpf: number; ja_vinculados: number; ja_no_relogio: number } | null>(null)
 
   const setoresDaUnidade = opcoes.setores.filter((s) => s.unidade_id === unidadeId)
 
@@ -438,6 +438,7 @@ export function DispositivoRepModal({
               <p className="text-[11px] text-zinc-500">
                 {resultadoCadastros.enfileirados} enfileirado(s) para envio
                 {resultadoCadastros.ja_vinculados > 0 && ` · ${resultadoCadastros.ja_vinculados} já vinculado(s)`}
+                {resultadoCadastros.ja_no_relogio > 0 && ` · ${resultadoCadastros.ja_no_relogio} já cadastrado(s) no relógio`}
                 {resultadoCadastros.sem_cpf > 0 && ` · ${resultadoCadastros.sem_cpf} sem CPF cadastrado (não enviados)`}
                 . O aplicativo local aplica no relógio no próximo ciclo.
               </p>
