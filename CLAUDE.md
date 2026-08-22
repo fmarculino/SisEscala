@@ -1528,6 +1528,32 @@ Gerador Inteligente pula `hasPresenceForDay`. O `handleSave` reenvia a mesma lin
 derrubaria o lote inteiro no trigger, então `handleSave` compara com o que buscou do banco antes
 do upsert e recusa com mensagem específica.
 
+### 16. Plantão vale as UNIDADES que contém, não a faixa da duração (21/08/2026)
+
+⚠️ **`PL12`/`PL6`/`PL4` são unidades de pagamento, não faixas.** Não existe `PL24` nem `PL18`
+porque nenhum plantão é pago assim: `MTN` (24h) é **2×PL12** e `TN` (18h) é **PL6 + PL12** —
+regra do RH, confirmada pelo usuário. `calculateTotals` classificava o código **inteiro** por
+faixa (`>=12 → PL12`) e multiplicava pela **faixa**: **44 dos 53 códigos** de plantão contavam
+errado, e nos dois sentidos — `MTN` valia 12h em vez de 24, `TN` 12h em vez de 18, e `N1` (1h)
+valia 4h. Todos os relatórios (RH, consolidado, plantão/sobreaviso) já somavam
+`horas_computadas` direto, então a grade **discordava deles** na mesma competência.
+
+Fonte única: **`src/utils/plantaoUnidades.ts`** (`decomporPlantao`). Quebra o código na estrutura
+real de períodos (`TN`→[6,12], `MTN`→[12,12], `MT4`→[6,4], `M{n}N`→[n,12], `MT{n}`→[6,n]) e
+converte cada pedaço em unidades, da maior para a menor. **O resto não vira unidade** — PL6
+arredondado para cima é pagar plantão que não houve —, mas entra no TOTAL, que passa a ser a soma
+exata. Não replicar essa regra na tela.
+
+⚠️ **Medido em produção em 21/08/2026** (autorizado pelo usuário; 636 lançamentos de Plantão,
+06–08/2026): só **10 códigos em uso** — `MT`(355) `T`(90) `T4`(81) `M`(66) `N6`(15) `N`(11)
+`N4`(11) `MTN`(3) `TN`(3) `M7`(1). Sete não mudam nada. Os **7 lançamentos** que mudam (3 `MTN`,
+3 `TN`, 1 `M7`, +55h) estão **todos em 08/2026** — 06 e 07, fechadas, exibem exatamente o mesmo
+número de antes. **Nada é recalculado nem migrado**: o totalizador é derivado na renderização, e
+o PDF (`ScalePrintView`) nem recebe essas colunas.
+
+⚠️ Se `N8`/`N9` entrarem em uso, a quebra deles merece decisão do RH — 9h dá "PL6 + 3h soltas"
+por esta regra, e "2×PL4 + 1h" desperdiçaria menos. Com um caso real (`M7`), não vale inventar.
+
 ## Papéis de RH: Geral vs da Unidade (12/08/2026)
 
 `role = 'rh'` ("RH Geral") enxerga tudo; `role = 'rh_unidade'` ("RH da Unidade") é escopado por

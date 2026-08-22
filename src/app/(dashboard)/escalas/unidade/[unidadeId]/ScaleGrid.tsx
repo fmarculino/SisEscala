@@ -16,6 +16,7 @@ import React from 'react'
 import { canEditScale, UserRole } from '@/utils/governance'
 import { runComplianceCheck, getViolationsForCell, type ComplianceViolation } from '@/utils/complianceEngine'
 import { generateTemplate, TEMPLATE_OPTIONS, type TemplateType, countWorkDays } from '@/utils/scaleTemplates'
+import { decomporPlantao } from '@/utils/plantaoUnidades'
 import { generateIntelligentScale } from '@/utils/intelligentScaleGenerator'
 import {
   encontrarAfastamentoBloqueante,
@@ -1763,6 +1764,10 @@ export function ScaleGrid({
     let v_ch = 0, v_he100 = 0, v_he50 = 0, v_pl12 = 0, v_pl6 = 0, v_pl4 = 0, v_so12 = 0
     // Contadores para o Total Planejado (Cálculo bruto da grade)
     let p_ch = 0, p_he100 = 0, p_he50 = 0, p_pl12 = 0, p_pl6 = 0, p_pl4 = 0, p_so12 = 0
+    // Horas de plantão que não formam unidade de pagamento (ex.: a 7ª hora de um M7). Entram no
+    // total — nenhuma hora se perde — mas em coluna nenhuma: PL6 arredondado para cima seria
+    // pagar plantão que não houve. Em produção isso é 1 lançamento em 636 (medido em 21/08/2026).
+    let v_plAvulso = 0, p_plAvulso = 0
 
     const exigirPresenca = configs['exigir_confirmacao_presenca'] === 'true'
     const today = new Date()
@@ -1832,29 +1837,34 @@ export function ScaleGrid({
     })
 
     // Sum Plantões
+    //
+    // Um plantão vale as UNIDADES DE PAGAMENTO que ele contém, não a faixa em que a duração
+    // total cai. `MTN` (24h) é 2×PL12, `TN` (18h) é PL6 + PL12 — por isso não existe coluna
+    // PL24 nem PL18. A regra inteira mora em src/utils/plantaoUnidades.ts; não replicar aqui.
+    //
+    // A conta anterior classificava o código inteiro por faixa e multiplicava pela FAIXA:
+    // 44 dos 53 códigos do dicionário contavam errado (MTN valia 12h em vez de 24, TN valia 12
+    // em vez de 18, e N1 de 1h valia 4h). O total da grade discordava de todos os relatórios,
+    // que já somavam horas_computadas direto.
     Object.entries(serverData['Plantão']).forEach(([day, turnoId]) => {
       const t = turnos.find(x => x.id === turnoId)
       if (t) {
         const d = parseInt(day)
         const isPast = nAno < currentYear || (nAno === currentYear && nMes < currentMonth) || (nAno === currentYear && nMes === currentMonth && d < currentDay)
         const presence = presenceData[servidorId]?.['Plantão']?.[d]
-        const horas = Number(t.horas_computadas)
+        const dec = decomporPlantao(t.codigo, Number(t.horas_computadas))
 
-        const incrementP = () => {
-          if (horas >= 12) p_pl12++
-          else if (horas >= 6) p_pl6++
-          else p_pl4++
-        }
-        const incrementV = () => {
-          if (horas >= 12) v_pl12++
-          else if (horas >= 6) v_pl6++
-          else v_pl4++
-        }
+        p_pl12 += dec.pl12
+        p_pl6 += dec.pl6
+        p_pl4 += dec.pl4
+        p_plAvulso += dec.horasAvulsas
 
-        incrementP()
         const isValidated = (isPast && !exigirPresenca) || presence?.entrada
         if (isValidated) {
-          incrementV()
+          v_pl12 += dec.pl12
+          v_pl6 += dec.pl6
+          v_pl4 += dec.pl4
+          v_plAvulso += dec.horasAvulsas
         }
       }
     })
@@ -1895,8 +1905,11 @@ export function ScaleGrid({
     })
 
     // O Sobreaviso NÃO entra no cálculo do total de horas (totalValidado e totalPlanejado)
-    const totalValidado = v_ch + v_he100 + v_he50 + (v_pl12 * 12) + (v_pl6 * 6) + (v_pl4 * 4)
-    const totalPlanejado = p_ch + p_he100 + p_he50 + (p_pl12 * 12) + (p_pl6 * 6) + (p_pl4 * 4)
+    // As unidades já somam as horas do plantão; `plAvulso` é só o resto que não virou unidade.
+    // Somando os dois, o total é exatamente a soma de horas_computadas — que é o que o relatório
+    // de RH, o consolidado e o de plantão/sobreaviso sempre mostraram.
+    const totalValidado = v_ch + v_he100 + v_he50 + (v_pl12 * 12) + (v_pl6 * 6) + (v_pl4 * 4) + v_plAvulso
+    const totalPlanejado = p_ch + p_he100 + p_he50 + (p_pl12 * 12) + (p_pl6 * 6) + (p_pl4 * 4) + p_plAvulso
 
     return { 
       chTotal: v_ch, he100: v_he100, he50: v_he50, pl12: v_pl12, pl6: v_pl6, pl4: v_pl4, 
