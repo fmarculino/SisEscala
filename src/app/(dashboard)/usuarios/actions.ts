@@ -19,11 +19,40 @@ function translateError(error: string): string {
   return AUTH_ERRORS_PT[error] || error
 }
 
+// Um servidor tem no maximo um usuario do sistema (indice uq_profiles_servidor_id, migration
+// 20260822100000). A UI ja evita oferecer um servidor ocupado, mas a action e chamavel direto —
+// mesma licao da armadilha 12 do CLAUDE.md: tela filtrada nao protege a RPC/action.
+async function validarServidorLivre(
+  supabaseAdmin: any,
+  servidorId: string,
+  ignorarProfileId: string | null
+): Promise<string | null> {
+  let q = supabaseAdmin
+    .from('profiles')
+    .select('id, full_name')
+    .eq('servidor_id', servidorId)
+
+  if (ignorarProfileId) q = q.neq('id', ignorarProfileId)
+
+  const { data: ocupado } = await q.maybeSingle()
+
+  if (ocupado) {
+    return `Este servidor ja esta vinculado ao usuario "${ocupado.full_name || 'sem nome'}". ` +
+      'Desvincule-o daquele usuario antes de vincular a este.'
+  }
+  return null
+}
+
 export async function createUser(formData: FormData) {
   const email = formData.get('email') as string
   const fullName = formData.get('full_name') as string
   const role = formData.get('role') as string
   const password = formData.get('password') as string || 'sisEscala2026'
+  // Vinculo com o cadastro de servidor. Ate 22/08/2026 este campo chegava no FormData e nenhuma
+  // action o lia: escolher o servidor so autopreenchia nome/e-mail na tela e nada era gravado.
+  // Sem ele, a unica ponte entre usuario e servidor era casar por e-mail ou por nome iguais — e
+  // era isso que quebrava quando o e-mail do cadastro do servidor era corrigido depois.
+  const servidorId = (formData.get('servidor_id') as string) || null
   
   // Multiple assignments
   const unidadeIds = formData.getAll('unidade_ids') as string[]
@@ -44,6 +73,13 @@ export async function createUser(formData: FormData) {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   )
 
+  // Conferir ANTES de criar no Auth: o profile so e atualizado no passo 2, e falhar la deixaria
+  // um usuario de autenticacao orfao (sem perfil) para tras.
+  if (servidorId) {
+    const erroVinculo = await validarServidorLivre(supabaseAdmin, servidorId, null)
+    if (erroVinculo) return { error: erroVinculo }
+  }
+
   // 1. Create user in Auth
   const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
     email,
@@ -62,6 +98,7 @@ export async function createUser(formData: FormData) {
         role: role,
         acesso_todas_unidades: acessoTodasUnidades,
         acesso_todos_setores: acessoTodosSetores,
+        servidor_id: servidorId,
         ativo: true
       })
       .eq('id', authData.user.id)
@@ -89,6 +126,11 @@ export async function updateUser(formData: FormData) {
   const userId = formData.get('userId') as string
   const fullName = formData.get('full_name') as string
   const role = formData.get('role') as string
+  // Vincular na EDICAO tambem, nao so na criacao: sem isso as contas que ja existiam (e as
+  // criadas antes de 22/08/2026, quando nada era gravado) ficariam para sempre sem vinculo, e
+  // justamente elas sao as que precisam dele. Campo ausente no FormData = nao mexer no vinculo.
+  const temCampoServidor = formData.has('servidor_id')
+  const servidorId = (formData.get('servidor_id') as string) || null
   
   // Multiple assignments
   const unidadeIds = formData.getAll('unidade_ids') as string[]
@@ -112,7 +154,7 @@ export async function updateUser(formData: FormData) {
   // clássico de qualquer auditoria de sistema, e o único que responde "quem deu esse acesso".
   const { data: perfilAntes } = await supabaseAdmin
     .from('profiles')
-    .select('full_name, role, acesso_todas_unidades, acesso_todos_setores')
+    .select('full_name, role, acesso_todas_unidades, acesso_todos_setores, servidor_id')
     .eq('id', userId)
     .maybeSingle()
 
@@ -120,6 +162,11 @@ export async function updateUser(formData: FormData) {
     .from('profile_unidades').select('unidade_id').eq('profile_id', userId)
   const { data: setoresAntes } = await supabaseAdmin
     .from('profile_setores').select('setor_id').eq('profile_id', userId)
+
+  if (temCampoServidor && servidorId && servidorId !== perfilAntes?.servidor_id) {
+    const erroVinculo = await validarServidorLivre(supabaseAdmin, servidorId, userId)
+    if (erroVinculo) return { error: erroVinculo }
+  }
 
   // 1. Update Auth user metadata
   const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
@@ -135,7 +182,8 @@ export async function updateUser(formData: FormData) {
       full_name: fullName,
       role: role,
       acesso_todas_unidades: acessoTodasUnidades,
-      acesso_todos_setores: acessoTodosSetores
+      acesso_todos_setores: acessoTodosSetores,
+      ...(temCampoServidor ? { servidor_id: servidorId } : {}),
     })
     .eq('id', userId)
 
@@ -159,12 +207,14 @@ export async function updateUser(formData: FormData) {
   // corrigir a grafia de um nome, e numa lista cronológica as duas ficariam indistinguíveis.
   const antes = {
     ...perfilAntes,
+    servidor_id: perfilAntes?.servidor_id ?? null,
     unidades: (unidadesAntes || []).map(u => u.unidade_id).sort(),
     setores: (setoresAntes || []).map(s => s.setor_id).sort(),
   }
   const depois = {
     full_name: fullName,
     role,
+    servidor_id: temCampoServidor ? servidorId : (perfilAntes?.servidor_id ?? null),
     acesso_todas_unidades: acessoTodasUnidades,
     acesso_todos_setores: acessoTodosSetores,
     unidades: acessoTodasUnidades ? [] : [...unidadeIds].sort(),

@@ -1553,6 +1553,52 @@ o PDF (`ScalePrintView`) nem recebe essas colunas.
 
 ⚠️ Se `N8`/`N9` entrarem em uso, a quebra deles merece decisão do RH — 9h dá "PL6 + 3h soltas"
 por esta regra, e "2×PL4 + 1h" desperdiçaria menos. Com um caso real (`M7`), não vale inventar.
+### 17. O usuário do sistema e o cadastro de servidor não tinham vínculo nenhum (22/08/2026)
+
+⚠️ **Até aqui a associação era recalculada a cada render, casando por e-mail OU por nome iguais**
+(`usuarios/page.tsx`). A tela de usuários tinha um `<input type="hidden" name="servidor_id">` desde
+sempre, e **nenhuma action jamais o leu** — escolher o servidor no formulário só autopreenchia nome
+e e-mail; nada era gravado.
+
+Consequência medida em produção: corrigir o e-mail na ficha do servidor **não** alcançava
+`auth.users`. O login continuava com o valor antigo (a tela de usuários bloqueia editá-lo ali de
+propósito), o casamento por e-mail quebrava e sobrava só o casamento por nome. Caso real: ALDENIR
+DA SILVA BARBOSA logava com `...@gamil.com` (typo) enquanto a ficha já dizia `...@gmail.com`.
+
+⚠️ **O estrago não parava na tela de usuários.** Três telas identificam o servidor logado por
+`servidores.email = auth.email` — [`escalas/page.tsx`](src/app/(dashboard)/escalas/page.tsx),
+[`escalas/unidade/[unidadeId]/page.tsx`](src/app/(dashboard)/escalas/unidade/[unidadeId]/page.tsx) e
+[`ScaleGrid.tsx`](src/app/(dashboard)/escalas/unidade/[unidadeId]/ScaleGrid.tsx) — então um usuário
+de papel `comum`/`servidor` perdia acesso à própria escala assim que os dois e-mails divergiam.
+
+✅ **Aplicada em produção em 22/08/2026**: 61 dos 63 usuários vinculados, **zero** servidores com
+mais de um usuário. Ficaram de fora `admin@admin.com` (não é servidor) e PAULA DHESSICA — nome e
+e-mail divergentes nos dois lados, então nenhum critério do backfill a alcança; resolve-se pela
+sugestão que a tela de usuários passou a mostrar.
+
+**Fonte única desde `20260822100000`: `profiles.servidor_id`** (índice único parcial —
+1 servidor → no máximo 1 usuário; a maioria dos servidores não tem usuário, 499 para 63 em
+22/08/2026). O casamento heurístico sobrevive **apenas como sugestão de exibição** para conta ainda
+não vinculada, nunca como vínculo.
+
+| regra | onde |
+|---|---|
+| e-mail do servidor propaga para `auth.users.email` do usuário vinculado | `updateServidor` |
+| **só `super_admin`/`rh` propagam** — a alteração é RECUSADA para os demais | mesma régua de `isSuperAdminEditor` da transferência direta |
+| conta que existe mas não foi vinculada é resgatada pelo **e-mail antigo**, e o vínculo é gravado | `updateServidor` |
+| vincular/desvincular na criação **e** na edição do usuário | `createUser` / `updateUser` |
+
+⚠️ **Trocar esse e-mail troca a CREDENCIAL DE LOGIN** — daí a restrição de papel. Sem ela, um
+coordenador apontaria o login de um administrador para um endereço próprio e dispararia "esqueci
+minha senha". Para quem não pode, a alteração é **recusada por inteiro** em vez de gravada pela
+metade: deixar os dois lados divergentes é exatamente o defeito que a correção fecha.
+
+⚠️ **O dropdown de servidores filtra por `status = 'Ativo'`, mas o vínculo tem que ser resolvido
+mesmo para servidor inativado** — senão a página devolve `servidor_id: null` e o próximo "Salvar"
+do formulário de edição **desvincula sozinho**. `usuarios/page.tsx` busca os vinculados que faltam
+numa consulta à parte por isso.
+
+Diário em [`docs/evolucao/2026-08-22-vinculo-usuario-servidor.md`](docs/evolucao/2026-08-22-vinculo-usuario-servidor.md).
 
 ## Papéis de RH: Geral vs da Unidade (12/08/2026)
 

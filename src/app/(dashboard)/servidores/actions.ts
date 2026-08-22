@@ -1,6 +1,6 @@
 'use server'
 
-import { createClient } from '@/utils/supabase/server'
+import { createClient, createAdminClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { registrarLog, calcularAlteracoes } from '@/utils/auditoria'
@@ -1035,6 +1035,95 @@ export async function updateServidor(id: string, formData: FormData) {
     return { error: erroLotacao }
   }
 
+  // ---------------------------------------------------------------------------------------------
+  // E-mail do servidor x e-mail de LOGIN do usuario vinculado
+  //
+  // Nem todo servidor tem usuario (499 servidores para 63 usuarios em 22/08/2026), mas quando tem,
+  // o e-mail e o mesmo dado nos dois lugares — a tela de usuarios deliberadamente bloqueia a edicao
+  // dele ali e manda buscar no cadastro do servidor. Ate aqui, porem, corrigir o e-mail aqui NAO
+  // alcancava `auth.users`: o login continuava com o valor antigo, e as telas que identificam o
+  // servidor logado por `servidores.email = auth.email` deixavam de achar a pessoa.
+  //
+  // Trocar esse e-mail troca a CREDENCIAL DE LOGIN. Por isso a propagacao e restrita a quem ja tem
+  // poder sobre o cadastro de acessos (super_admin/rh, a mesma regua da transferencia direta acima):
+  // sem isso, um coordenador poderia apontar o login de um administrador para um endereco proprio e
+  // disparar "esqueci minha senha". Para os demais a alteracao e RECUSADA em vez de gravada pela
+  // metade — deixar os dois lados divergentes e exatamente o defeito que esta correcao fecha.
+  const emailNovo = (email || '').trim() || null
+  const emailAntigo = (currentServidor.email || '').trim() || null
+  const emailMudou = (emailNovo || '').toLowerCase() !== (emailAntigo || '').toLowerCase()
+
+  let supabaseAdmin: Awaited<ReturnType<typeof createAdminClient>> | null = null
+  let profileVinculado: { id: string; full_name: string | null } | null = null
+  let vincularProfileDepois = false
+
+  if (emailMudou) {
+    supabaseAdmin = await createAdminClient()
+
+    const { data: perfil } = await supabaseAdmin
+      .from('profiles')
+      .select('id, full_name')
+      .eq('servidor_id', id)
+      .maybeSingle()
+
+    profileVinculado = perfil || null
+
+    // Conta que existe mas ainda nao foi vinculada (criada antes de 22/08/2026, quando o campo
+    // `servidor_id` chegava na action de usuarios e era ignorado). Sem este resgate, trocar o
+    // e-mail aqui deixaria o login orfao em silencio — exatamente o defeito original. Achando pelo
+    // e-mail ANTIGO, aproveitamos para gravar o vinculo que faltava.
+    if (!profileVinculado && emailAntigo) {
+      const { data: listaAuth } = await supabaseAdmin.auth.admin.listUsers()
+      const candidatos = (listaAuth?.users || []).filter(
+        (u: any) => (u.email || '').toLowerCase().trim() === emailAntigo.toLowerCase()
+      )
+
+      if (candidatos.length === 1) {
+        const { data: perfilOrfao } = await supabaseAdmin
+          .from('profiles')
+          .select('id, full_name, servidor_id')
+          .eq('id', candidatos[0].id)
+          .maybeSingle()
+
+        // Só adota a conta se ela não pertencer a OUTRO servidor — dois cadastros com o mesmo
+        // e-mail roubariam o login um do outro.
+        if (perfilOrfao && !perfilOrfao.servidor_id) {
+          profileVinculado = { id: perfilOrfao.id, full_name: perfilOrfao.full_name }
+          vincularProfileDepois = true
+        }
+      }
+    }
+
+    if (profileVinculado) {
+      if (!emailNovo) {
+        return {
+          error: 'Este servidor tem acesso ao sistema e o e-mail dele é também o login. ' +
+            'Não é possível deixar o campo vazio — informe o e-mail correto ou remova o acesso em Usuários.',
+        }
+      }
+
+      if (!isSuperAdminEditor) {
+        return {
+          error: 'Este servidor tem acesso ao sistema, e o e-mail dele é o login usado para entrar. ' +
+            'Alterar esse endereço muda a credencial de acesso, então só o Administrador Geral ou o RH ' +
+            'pode fazer isso. Peça a correção a um deles — as demais alterações desta ficha podem ser ' +
+            'salvas normalmente removendo a mudança de e-mail.',
+        }
+      }
+
+      // O Auth recusaria com "User already registered" depois do UPDATE em servidores, deixando os
+      // dois lados divergentes de novo. Recusar antes de gravar qualquer coisa.
+      const { data: listaAuth } = await supabaseAdmin!.auth.admin.listUsers()
+      const conflito = listaAuth?.users?.find(
+        (u: any) => u.id !== profileVinculado!.id &&
+          (u.email || '').toLowerCase().trim() === emailNovo.toLowerCase()
+      )
+      if (conflito) {
+        return { error: 'Este e-mail já está em uso por outro usuário do sistema.' }
+      }
+    }
+  }
+
   const dadosComplementares = extractDadosComplementares(formData)
 
   const updateData: any = {
@@ -1112,6 +1201,41 @@ export async function updateServidor(id: string, formData: FormData) {
         'Você consegue visualizar a ficha porque ele aparece nas escalas da sua unidade, mas a edição ' +
         'é restrita a quem administra o setor de lotação.',
     }
+  }
+
+  // Só depois do UPDATE passar: a RLS pode filtrar a linha e devolver zero linhas gravadas (o
+  // caso tratado logo acima). Trocar o login antes disso mudaria a credencial de alguém sem que
+  // nada tivesse sido salvo na ficha.
+  if (emailMudou && emailNovo && profileVinculado && supabaseAdmin) {
+    if (vincularProfileDepois) {
+      await supabaseAdmin
+        .from('profiles')
+        .update({ servidor_id: id })
+        .eq('id', profileVinculado.id)
+    }
+
+    const { error: erroAuth } = await supabaseAdmin.auth.admin.updateUserById(profileVinculado.id, {
+      email: emailNovo,
+      email_confirm: true,
+    })
+
+    if (erroAuth) {
+      return {
+        error: 'O cadastro do servidor foi salvo, mas o e-mail de login não pôde ser atualizado: ' +
+          `${erroAuth.message}. Ajuste o acesso em Usuários antes que a pessoa tente entrar.`,
+      }
+    }
+
+    // Trocar a credencial de acesso de alguém é ato de administração, não edição de cadastro — e
+    // some do diff da ficha, que só vê a tabela `servidores`.
+    await registrarLog({
+      acao: 'USUARIO_EMAIL_LOGIN_ALTERADO',
+      entidade: 'profile',
+      entidadeId: profileVinculado.id,
+      userId: usuarioEditor?.id || null,
+      alteracoes: { email_login: { de: emailAntigo, para: emailNovo } },
+      detalhes: { alvo: profileVinculado.full_name, origem: 'cadastro do servidor', servidorId: id },
+    })
   }
 
   // A transferência só é EFETIVADA depois que o UPDATE passa. Gravar o histórico antes deixava

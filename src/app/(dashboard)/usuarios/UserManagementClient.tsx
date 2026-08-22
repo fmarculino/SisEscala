@@ -83,6 +83,11 @@ export default function UserManagementClient({
     setEditingUser(user)
     setFormFullName(user.full_name || '')
     setFormEmail(user.email || '')
+    // O vínculo agora é gravado (profiles.servidor_id), então a edição precisa mostrar o que está
+    // valendo — e permitir corrigir. É por aqui que se conserta a conta criada antes de 22/08/2026,
+    // quando o campo chegava na action e era ignorado.
+    setSelectedServidor(user.servidor_id || '')
+    setSearchTerm(user.servidor_id ? (user.servidor_nome || '') : '')
     setFormRole(user.role || 'coordenador')
     setSelectedUnidades(user.permitted_unidades || [])
     setSelectedSetores(user.permitted_setores || [])
@@ -357,6 +362,16 @@ export default function UserManagementClient({
     return tree
   }, [setores, unidades])
 
+  // Um servidor tem no máximo um usuário. Oferecer quem já está vinculado só produziria o erro
+  // que a action devolve — a tela filtra, a action recusa; as duas camadas, nunca uma só.
+  const servidoresOcupados = useMemo(() => {
+    const ocupados = new Set<string>()
+    initialProfiles.forEach(p => {
+      if (p.servidor_id && p.id !== editingUser?.id) ocupados.add(p.servidor_id)
+    })
+    return ocupados
+  }, [initialProfiles, editingUser])
+
   // Filtered servidores based on search input (checks name, email, matricula, and cpf)
   const filteredServidores = useMemo(() => {
     const normalizeStr = (str: string) => {
@@ -364,9 +379,10 @@ export default function UserManagementClient({
       return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
     }
     const term = normalizeStr(searchTerm).replace(/[.\-/]/g, '').trim()
-    if (!term) return servidores
+    const disponiveis = servidores.filter(s => !servidoresOcupados.has(s.id))
+    if (!term) return disponiveis
 
-    return servidores.filter(s => {
+    return disponiveis.filter(s => {
       const normNome = normalizeStr(s.nome || '')
       const normMatricula = normalizeStr(s.matricula || '')
       const normCpf = normalizeStr(s.cpf || '').replace(/[.\-/]/g, '')
@@ -376,7 +392,7 @@ export default function UserManagementClient({
              normCpf.includes(term) ||
              normEmail.includes(term)
     })
-  }, [servidores, searchTerm])
+  }, [servidores, searchTerm, servidoresOcupados])
 
   const toggleSectorRecursive = (sector: any, checked: boolean) => {
     let newSelected = [...selectedSetores]
@@ -560,100 +576,116 @@ export default function UserManagementClient({
                 </div>
               )}
 
-              {!editingUser && (
-                <div className="relative" ref={dropdownRef}>
-                  <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
-                    Vincular a Servidor existente (Opcional)
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      placeholder="Pesquisar por nome, matrícula ou CPF..."
-                      value={searchTerm}
-                      onFocus={() => setIsDropdownOpen(true)}
-                      onChange={(e) => {
-                        setSearchTerm(e.target.value)
-                        setIsDropdownOpen(true)
-                        if (selectedServidor) {
-                          setSelectedServidor('')
-                          setFormFullName(e.target.value)
-                        } else {
-                          setFormFullName(e.target.value)
-                        }
-                      }}
-                      className="w-full rounded-md border border-zinc-300 bg-zinc-50 py-2 pl-3 pr-10 text-sm focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 outline-none"
-                    />
-                    <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                      <Search className="h-4 w-4 text-zinc-400" />
-                    </div>
+              <div className="relative" ref={dropdownRef}>
+                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                  Vincular a Servidor existente (Opcional)
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Pesquisar por nome, matrícula ou CPF..."
+                    value={searchTerm}
+                    onFocus={() => setIsDropdownOpen(true)}
+                    onChange={(e) => {
+                      setSearchTerm(e.target.value)
+                      setIsDropdownOpen(true)
+                      if (selectedServidor) {
+                        setSelectedServidor('')
+                        setFormFullName(e.target.value)
+                      } else {
+                        setFormFullName(e.target.value)
+                      }
+                    }}
+                    className="w-full rounded-md border border-zinc-300 bg-zinc-50 py-2 pl-3 pr-10 text-sm focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 outline-none"
+                  />
+                  <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                    <Search className="h-4 w-4 text-zinc-400" />
                   </div>
-
-                  <input type="hidden" name="servidor_id" value={selectedServidor} />
-
-                  {isDropdownOpen && (
-                    <div className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-md bg-white py-1 text-base shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none dark:bg-zinc-800 dark:ring-zinc-700 sm:text-sm">
-                      {filteredServidores.length === 0 ? (
-                        <div className="relative cursor-default select-none py-2 px-4 text-zinc-500 dark:text-zinc-400">
-                          Nenhum servidor encontrado.
-                        </div>
-                      ) : (
-                        filteredServidores.map((s) => {
-                          const isSelected = selectedServidor === s.id
-                          return (
-                            <button
-                              key={s.id}
-                              type="button"
-                              onClick={() => {
-                                setSelectedServidor(s.id)
-                                setSearchTerm(s.nome)
-                                setFormFullName(s.nome || '')
-                                setFormEmail(s.email || '')
-                                setIsDropdownOpen(false)
-                              }}
-                              className={`relative w-full text-left cursor-pointer select-none py-2.5 pl-3 pr-9 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors ${
-                                isSelected ? 'bg-blue-50 text-blue-900 dark:bg-blue-900/20 dark:text-blue-200' : 'text-zinc-900 dark:text-zinc-100'
-                              }`}
-                            >
-                              <div className="font-semibold text-sm truncate">{s.nome}</div>
-                              <div className="text-[11px] text-zinc-500 dark:text-zinc-400 flex flex-wrap gap-x-2 mt-0.5">
-                                {s.email && <span className="truncate">{s.email}</span>}
-                                {s.matricula && <span>• Matrícula: {s.matricula}</span>}
-                                {s.cpf && <span>• CPF: {s.cpf}</span>}
-                              </div>
-                              {isSelected && (
-                                <span className="absolute inset-y-0 right-0 flex items-center pr-4 text-blue-600 dark:text-blue-400">
-                                  <Check className="h-4 w-4" />
-                                </span>
-                              )}
-                            </button>
-                          )
-                        })
-                      )}
-                    </div>
-                  )}
-
-                  {selectedServidor && (
-                    <div className="mt-1 flex items-center justify-between text-xs bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 p-2 rounded-md border border-blue-100 dark:border-blue-900/30">
-                      <span className="truncate">
-                        Vinculado a: <strong>{servidores.find(s => s.id === selectedServidor)?.nome}</strong>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedServidor('')
-                          setSearchTerm('')
-                          setFormFullName('')
-                          setFormEmail('')
-                        }}
-                        className="text-blue-500 hover:text-blue-700 dark:hover:text-blue-200 ml-2"
-                        title="Desvincular servidor"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  )}
                 </div>
-              )}
+
+                <input type="hidden" name="servidor_id" value={selectedServidor} />
+
+                {isDropdownOpen && (
+                  <div className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-md bg-white py-1 text-base shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none dark:bg-zinc-800 dark:ring-zinc-700 sm:text-sm">
+                    {filteredServidores.length === 0 ? (
+                      <div className="relative cursor-default select-none py-2 px-4 text-zinc-500 dark:text-zinc-400">
+                        Nenhum servidor encontrado.
+                      </div>
+                    ) : (
+                      filteredServidores.map((s) => {
+                        const isSelected = selectedServidor === s.id
+                        return (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedServidor(s.id)
+                              setSearchTerm(s.nome)
+                              setFormFullName(s.nome || '')
+                              // Na criação o e-mail do servidor VIRA o login. Na edição não:
+                              // o login já existe e trocá-lo é ato do cadastro do servidor
+                              // (updateServidor propaga), nunca efeito colateral de escolher
+                              // alguém num dropdown.
+                              if (!editingUser) setFormEmail(s.email || '')
+                              setIsDropdownOpen(false)
+                            }}
+                            className={`relative w-full text-left cursor-pointer select-none py-2.5 pl-3 pr-9 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors ${
+                              isSelected ? 'bg-blue-50 text-blue-900 dark:bg-blue-900/20 dark:text-blue-200' : 'text-zinc-900 dark:text-zinc-100'
+                            }`}
+                          >
+                            <div className="font-semibold text-sm truncate">{s.nome}</div>
+                            <div className="text-[11px] text-zinc-500 dark:text-zinc-400 flex flex-wrap gap-x-2 mt-0.5">
+                              {s.email && <span className="truncate">{s.email}</span>}
+                              {s.matricula && <span>• Matrícula: {s.matricula}</span>}
+                              {s.cpf && <span>• CPF: {s.cpf}</span>}
+                            </div>
+                            {isSelected && (
+                              <span className="absolute inset-y-0 right-0 flex items-center pr-4 text-blue-600 dark:text-blue-400">
+                                <Check className="h-4 w-4" />
+                              </span>
+                            )}
+                          </button>
+                        )
+                      })
+                    )}
+                  </div>
+                )}
+
+                {selectedServidor && (
+                  <div className="mt-1 flex items-center justify-between text-xs bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 p-2 rounded-md border border-blue-100 dark:border-blue-900/30">
+                    <span className="truncate">
+                      Vinculado a: <strong>{servidores.find(s => s.id === selectedServidor)?.nome}</strong>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedServidor('')
+                        setSearchTerm('')
+                        setFormFullName('')
+                        setFormEmail('')
+                      }}
+                      className="text-blue-500 hover:text-blue-700 dark:hover:text-blue-200 ml-2"
+                      title="Desvincular servidor"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
+
+                {editingUser && !selectedServidor && editingUser.vinculo_sugerido_id && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedServidor(editingUser.vinculo_sugerido_id)
+                      setSearchTerm(editingUser.vinculo_sugerido_nome || '')
+                    }}
+                    className="mt-1 w-full text-left text-xs bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 p-2 rounded-md border border-amber-200 dark:border-amber-900/40 hover:bg-amber-100 dark:hover:bg-amber-950/50"
+                  >
+                    Sem vínculo gravado. Provável correspondência:{' '}
+                    <strong>{editingUser.vinculo_sugerido_nome}</strong> — clique para vincular.
+                  </button>
+                )}
+              </div>
 
               <div>
                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Nome Completo</label>
@@ -685,7 +717,11 @@ export default function UserManagementClient({
                   </p>
                 )}
                 {editingUser && (
-                  <p className="mt-1 text-xs text-zinc-500 italic">O email não pode ser alterado.</p>
+                  <p className="mt-1 text-xs text-zinc-500 italic">
+                    {selectedServidor
+                      ? 'Este e-mail é o login e vem do cadastro do servidor. Para trocá-lo, edite o e-mail na ficha do servidor — o login é atualizado junto (só Administrador Geral e RH podem fazer isso).'
+                      : 'O e-mail não pode ser alterado por aqui. Vincule este usuário a um servidor acima e altere o e-mail na ficha dele.'}
+                  </p>
                 )}
               </div>
 
