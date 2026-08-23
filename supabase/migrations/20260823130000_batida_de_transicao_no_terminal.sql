@@ -657,6 +657,9 @@ BEGIN
             idx INTEGER;
             v_b_inicio INTEGER; v_b_fim INTEGER; v_b_ids UUID[]; v_b_entradas TIMESTAMP WITH TIME ZONE[]; v_b_int_saidas TIMESTAMP WITH TIME ZONE[]; v_b_int_retornos TIMESTAMP WITH TIME ZONE[]; v_b_saidas TIMESTAMP WITH TIME ZONE[]; v_b_cat TEXT; v_b_int_ini INTEGER; v_b_int_fim INTEGER; v_b_permite_int BOOLEAN;
             v_b_total_count INTEGER;
+            -- Preenchidas pela copia do bloco, nao usadas aqui: o cursor de ontem so trata a
+            -- saida. Declaradas para que o escopo case com o cursor de hoje.
+            v_b_turnos_ini INTEGER[]; v_b_turnos_fim INTEGER[];
         BEGIN
             FOR idx IN 1..v_blocks_count LOOP
                 IF idx = 1 THEN

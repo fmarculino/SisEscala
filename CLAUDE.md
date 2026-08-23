@@ -964,6 +964,22 @@ Os passos de intervalo em todos eles são condicionados a `v_tem_intervalo`.
 
 Nada disso quebra build ou deploy: **plpgsql resolve nomes de coluna e operadores só em tempo de
 execução do statement**, e `CREATE OR REPLACE FUNCTION` aceita a função feliz da vida.
+
+⚠️ **Mas VARIÁVEL desconhecida o Postgres pega no `CREATE`** — e a diferença importa na hora de
+decidir quanto conferir. `check_function_bodies` (ligado por padrão) valida a *sintaxe* e as
+*variáveis* do corpo plpgsql; não valida nome de coluna, de função nem operador. Então:
+
+| erro | quando aparece |
+|---|---|
+| `v_x` não declarada | **no `CREATE`**, `42601 "v_x" is not a known variable` — a função antiga fica intacta |
+| coluna inexistente, função inexistente, operador errado | só quando o statement **executa** |
+
+Aconteceu em 23/08/2026 com a `20260823130000`: `fn_confirmar_presenca` tem **dois blocos DECLARE
+com escopo próprio** (o cursor de ontem e o de hoje), e uma variável nova foi declarada só no de
+hoje enquanto o gerador a usava nos dois. O `CREATE` foi recusado e nada mudou em produção — mas
+uma chamada a função inexistente, no mesmo commit, teria passado e só estourado no terminal, com o
+servidor na frente. **Ao acrescentar variável a essas funções, confira que os dois cursores a
+declaram.**
 `npx tsc --noEmit` e `npm run build` não detectam nenhum desses cinco casos — mudança em função
 de presença exige executar o caminho real.
 

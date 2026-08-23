@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.12.1] - 2026-08-23
+
+### Fixed
+- **`20260823130000` foi recusada pelo Postgres na primeira aplicação** (`42601: "v_b_turnos_ini" is not a known variable`) e é corrigida aqui. `fn_confirmar_presenca` tem **dois blocos DECLARE com escopo próprio** — o cursor de ontem e o de hoje —, e a variável nova foi declarada só no de hoje, enquanto o gerador a usava nos dois. Nada chegou a ser aplicado: o `CREATE` falhou e a função anterior ficou intacta.
+- O gerador ganhou a checagem que teria pego isso: **todo bloco que declara `v_b_ids` precisa declarar `v_b_turnos_ini`**, e os 9 usos são conferidos contra as declarações.
+- `CLAUDE.md`, armadilha 1: registrada a distinção que essa falha expôs — **variável desconhecida o Postgres pega no `CREATE`** (`check_function_bodies`), enquanto coluna, função e operador inexistentes só falham em runtime. A recusa aqui foi barata; uma função inexistente teria passado e estourado no terminal.
+
 ## [2.12.0] - 2026-08-23
 
 O terminal passa a **aceitar** a batida de transição entre turnos fundidos.

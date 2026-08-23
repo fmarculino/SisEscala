@@ -83,9 +83,23 @@ fn = fn.replace(COPIA_RE, (todo, n) =>
   todo + ' v_b_turnos_ini := v_b' + n + '_turnos_ini; v_b_turnos_fim := v_b' + n + '_turnos_fim;')
 
 // ------------------------- 4. declara as variaveis de trabalho e o alvo da fronteira
-// ⚠️ `v_b_total_count INTEGER;` aparece nos DOIS blocos DECLARE (cursor de ontem e cursor de
-// hoje). Ancorar nele pegaria os dois. `v_transicao` so existe no laco de HOJE, que e onde a
-// fronteira precisa viver.
+// ⚠️ SAO DOIS BLOCOS DECLARE, cada um com escopo proprio: o cursor de ONTEM e o de HOJE. O passo
+// 3 acima copiou `v_b_turnos_* := v_bN_turnos_*` nos NOVE sitios, inclusive nos tres do cursor de
+// ontem — entao a variavel precisa estar declarada NOS DOIS, senao o Postgres recusa o CREATE com
+// 42601 "v_b_turnos_ini is not a known variable". Foi exatamente esse o erro da primeira tentativa
+// de aplicar esta migration (23/08/2026): declarei so no de hoje.
+//
+// No cursor de ontem elas ficam preenchidas e NAO usadas — ele so trata a saida do bloco, nao tem
+// passo de fronteira. Declarar mesmo assim mantem a simetria dos dois cursores, que e o que
+// permite copiar um do outro sem pensar.
+fn = troca(fn,
+  '            v_b_total_count INTEGER;',
+  '            v_b_total_count INTEGER;' + NL +
+  '            -- Preenchidas pela copia do bloco, nao usadas aqui: o cursor de ontem so trata a' + NL +
+  '            -- saida. Declaradas para que o escopo case com o cursor de hoje.' + NL +
+  '            v_b_turnos_ini INTEGER[]; v_b_turnos_fim INTEGER[];',
+  1, 'declaracao no cursor de ontem')
+
 fn = troca(fn,
   '        v_transicao BOOLEAN := false;',
   '        v_transicao BOOLEAN := false;' + NL +
@@ -193,6 +207,18 @@ for (const [sub, n] of INVARIANTES) {
   const c = conta(fn, sub)
   if (c !== n) die('invariante DEPOIS fora de conta: ' + JSON.stringify(sub.slice(0, 48)) + ' esperava ' + n + ', achei ' + c)
 }
+
+// ESCOPO: toda declaracao local de `v_b_ids UUID[]` (uma por cursor) precisa ter ao lado a de
+// `v_b_turnos_ini`. Sem esta checagem o erro so aparece no CREATE, em producao — foi o que
+// aconteceu na primeira tentativa (42601 "v_b_turnos_ini is not a known variable").
+const declLocais = conta(fn, 'v_b_ids UUID[];')
+const declTurnos = conta(fn, 'v_b_turnos_ini INTEGER[]; v_b_turnos_fim INTEGER[];')
+if (declLocais !== declTurnos) {
+  die('escopo: ' + declLocais + ' blocos declaram v_b_ids mas so ' + declTurnos + ' declaram v_b_turnos_ini')
+}
+// E nenhum uso pode ficar fora de um bloco que a declare.
+const usos = conta(fn, 'v_b_turnos_ini := v_b')
+if (usos !== 9) die('esperava 9 usos de v_b_turnos_ini :=, achei ' + usos)
 
 // ------------------------------------------------------------ cabecalho + saida
 const CAB = nl(`-- ============================================================================
