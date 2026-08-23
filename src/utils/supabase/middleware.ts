@@ -50,6 +50,10 @@ export async function updateSession(request: NextRequest) {
     '/api/cron',           // protegida por CRON_SECRET
     '/api/avisos-ponto',   // despachar (CRON_SECRET) e webhook (WHATSAPP_WEBHOOK_SECRET)
     '/api/rep',            // chamada pelo coletor-rep — token de dispositivo + assinatura HMAC
+    '/implantacao',        // painel PUBLICO de acompanhamento da implantacao — sem login por
+                           // desenho (link para a diretoria e a Secretaria). So dado agregado:
+                           // a consulta vive em src/app/implantacao/dados.ts e nao devolve nome,
+                           // matricula, CPF nem horario de servidor.
     '/api/folha-ponto',    // regerar-competencia — protegida por CRON_SECRET ou service role key
                            // dentro da própria rota. Quem chama é máquina (sem cookie de sessão),
                            // então o redirect daqui devolveria 307 + HTML do login e a chamada
