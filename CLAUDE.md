@@ -1482,6 +1482,34 @@ byte cru é.
 
 ### 12. O processo Node roda em UTC — `new Date(iso).getDate()` mente
 
+✅ **Desde 23/08/2026 (v2.10.0) a EXIBIÇÃO tem fonte única: `src/utils/horario.ts`.** Toda
+formatação de data/hora passa por ela e **sempre** fixa o fuso — nunca herda o do navegador nem
+o do processo. O fuso vem de **`configuracoes_globais.timezone`** (a chave sempre existiu; só o
+SQL a respeitava), publicado pelo layout raiz em `window.__SISESCALA_TZ__` e editável em
+Configurações → Regras.
+
+⚠️ **`toLocaleTimeString`/`toLocaleDateString`/`toLocaleString` sem `timeZone` usam o fuso da
+MÁQUINA de quem abriu a tela.** Num sistema de ponto isso significa a mesma batida com horários
+diferentes por computador. Caso real: AGNA (mat. 205), 10/08/2026, batida
+`2026-08-10T11:03:40+00:00` = **08:03:40** em Marabá — a folha mostrava `08:03` e o tooltip da
+grade `11:03`. Medido: **96** formatações sem fuso contra 56 com; 125 reescritas por
+`scratchpad/gen_fuso_unico.js`. **Ao escrever código novo, use `formatarHora`/`formatarData`/
+`formatarDataHora` — nunca `toLocale*` direto.**
+
+⚠️ **Data pura (`'2026-08-10'`) NÃO é timestamp e não pode ser convertida.**
+`new Date('2026-08-10')` é meia-noite UTC; convertido para `America/Sao_Paulo` vira **09/08**. Era
+por isso que o projeto colava `+ 'T00:00:00'` em toda data de calendário. `formatarData` detecta
+a forma `YYYY-MM-DD` e formata **sem conversão nenhuma** — então passe a data pura, não o
+`T00:00:00`. Manter o sufixo *e* fixar o fuso traz o erro de volta pelo outro lado (a string sem
+offset é lida no fuso do processo, UTC na VPS, e vira 09/08 21:00).
+
+⚠️ **`new Date(new Date().toLocaleString('en-US', { timeZone }))` NÃO é exibição — é cálculo,**
+e continua sendo o padrão para obter a hora local. O resultado alimenta `getDate()/getMonth()`.
+Trocá-lo por uma função de formatação quebra a lógica de negócio, não só a tela; o ensaio do
+gerador pegou exatamente essa troca indevida antes de aplicar. Para derivar a data de domínio de
+um instante, use `dataISOLocal()`.
+
+
 Não há `Dockerfile` nem `TZ` em lugar nenhum do repo, e o container do Coolify sobe em UTC.
 Confirmado empiricamente desde a **v1.2.8** (folha mostrando `10:59` onde o real era `07:59` —
 exatamente UTC−3).
