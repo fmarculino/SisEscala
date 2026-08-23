@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.12.0] - 2026-08-23
+
+O terminal passa a **aceitar** a batida de transição entre turnos fundidos.
+
+### Fixed
+- **`fn_confirmar_presenca` ganhou os slots de fronteira** (migration `20260823130000`). A `20260819200000` os deu à reconciliação (`fn_blocos_previstos_dia`, `fn_alocar_marcacoes_dia`, `fn_projecao_marcacoes_dia`) e **não** ao terminal — quem batia na transição recebia `Fora da janela de presença permitida`. A batida não se perdia (virava marcação pendente), mas o **servidor via recusa e parava de bater**: AGNA (mat. 205) teve 13 recusas em 08/2026, e nos dias 5, 6 e 7 desistiu — a folha ficou com `REVISAR: SEM REGISTRO DE SAÍDA`.
+  - Desde a `20260823100000` o dano financeiro já tinha acabado; o custo virou **trabalho manual** — sem a batida de transição, a saída do expediente fica vazia e vira pendência para o coordenador, dia após dia. Esta migration remove esse custo.
+  - O bloco passa a carregar o previsto de **cada turno fundido**, e o laço ganha o passo **1.b**: na janela da fronteira, fecha o turno que termina ali; se já fechado, abre o seguinte. Grava na **linha** daquele turno, nunca no bloco inteiro.
+  - ⚠️ **Posição no laço e desempate são deliberados.** Depois do checkin (não se fecha turno que não foi aberto) e **antes** do intervalo: em unidade de intervalo flexível o passo 2 aceita "qualquer momento após a entrada" e engoliria a transição, gravando-a como saída para o almoço (MAISA, mat. 32269, 18/08/2026). E o desempate contra o intervalo é por **proximidade**, o mesmo critério da alocação — senão terminal e reconciliação discordariam sobre a mesma batida.
+  - **Nada é fabricado e nada passa a ser exigido**: sem batida na fronteira não há passo nenhum, como antes. Uma batida só continua bastando — ela fecha o turno e a reconciliação espelha para a entrada do seguinte.
+
+### Verificação (armadilha 1 — seis regressões já saíram desta função)
+- Corpo **copiado** da `20260822130000` por `scratchpad/gen_fronteira_no_terminal.js`, que **deriva** os arrays de turnos da própria lista de ids e aborta em qualquer divergência: 3 declarações, 22 atribuições, 9 cópias de bloco, 8 invariantes conferidos antes e depois.
+- O gerador **abortou três vezes** antes de produzir a versão final — contagens de invariante erradas, âncora ambígua entre o cursor de ontem e o de hoje, e uma chamada a `fn_registrar_marcacao_terminal`, que **não existe** (em plpgsql isso só estouraria em runtime).
+- Assinatura estrutural (`scratchpad/confere_estrutura_plpgsql.js`) **idêntica** à da versão em produção, item por item — os blocos abertos e fechados são exatamente os mesmos.
+
 ## [2.11.0] - 2026-08-23
 
 Tolerância de variação no registro de ponto (CLT Art. 58 §1º), configurável.
