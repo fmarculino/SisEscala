@@ -254,6 +254,44 @@ simulação (`scratchpad/sim_fronteira.js`), não de um `UPDATE` por critério a
 
 ---
 
+## 4.1 Status final da sessão (23/08/2026)
+
+| # | item | status |
+|---|---|---|
+| **C1** | passo do bloco pertence a um turno só | ✅ `20260823100000` aplicada · 131 dias reconciliados, 176 linhas, 0 falhas |
+| **C2** | batida solitária na fronteira espelha | ✅ mesma migration · encerra a regra dos "5 minutos" |
+| **C3** | terminal aceita a batida de transição | ✅ `20260823130000` aplicada — **falta o teste de campo** |
+| — | fuso único vindo da configuração global | ✅ `20260823110000` + v2.10.0 · 125 chamadas reescritas |
+| — | tolerância do Art. 58 §1º, configurável | ✅ `20260823120000` + v2.11.0 · 5 min / 10 min, editável |
+| — | folhas de 08/2026 regeradas | ✅ 406 regeradas, 26 preservadas, 0 falhas |
+| **C4** | reclassificar batida entre linhas do dia | ⬜ não feito |
+| — | auditoria das 533 marcações sintéticas | ⬜ não feito |
+
+Releases: **v2.9.0 → v2.12.1**. Migrations: `20260823100000`, `110000`, `120000`, `130000`.
+
+Hora extra em dia com plantão escalado, em 08/2026: **75h12 → 3h21**.
+
+⚠️ **O que continua aberto e é decisão de operação, não de software:**
+
+- **10 dias (13h30) com campo de origem `manual`** — `preservacao.ts` os preserva por desenho, e
+  nem a correção de banco nem a regeneração os alcança. Só o coordenador desfaz: ANDRESA d10
+  (6h), LUCAS 6 dias com entrada `00:00`, ILMAR d16, MAISA e ELIZABETH d17.
+- **A escala da AGNA marca `T` (6h) para um plantão de ~3h55.** Enquanto for `T`, o bloco prevê
+  saída às 20:00 e a batida dela às 18:00 segue recusada — o C3 não alcança isso.
+- **`fn_salvar_saida_bloco` continua fabricando** o horário de transição pelo caminho do terminal
+  (§2.3). Não foi tocada.
+
+⚠️ **A `20260823130000` não tem como ser validada por simulação** — só executando o caminho real.
+Depois de aplicada, confirme a versão da função com:
+
+```sql
+SELECT position('fronteira_saida' in prosrc) > 0 AS c3_aplicada
+  FROM pg_proc WHERE proname = 'fn_confirmar_presenca';
+```
+
+E o teste de campo: num dia de Regular emendado com Plantão, bater no horário da fronteira deve
+responder *"Saída do turno confirmada às HH:MM. Registre a entrada do próximo turno."*
+
 ## 5. Decisão tomada (usuário, 23/08/2026)
 
 **Sem batida na transição, a saída do expediente fica VAZIA, com pendência de revisão.**
