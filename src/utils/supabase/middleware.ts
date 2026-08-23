@@ -50,6 +50,11 @@ export async function updateSession(request: NextRequest) {
     '/api/cron',           // protegida por CRON_SECRET
     '/api/avisos-ponto',   // despachar (CRON_SECRET) e webhook (WHATSAPP_WEBHOOK_SECRET)
     '/api/rep',            // chamada pelo coletor-rep — token de dispositivo + assinatura HMAC
+    '/api/folha-ponto',    // regerar-competencia — protegida por CRON_SECRET ou service role key
+                           // dentro da própria rota. Quem chama é máquina (sem cookie de sessão),
+                           // então o redirect daqui devolveria 307 + HTML do login e a chamada
+                           // "daria certo" sem fazer nada — o mesmo sintoma silencioso de
+                           // /api/version (09/08) e de /api/coletor-rep (13/08).
     '/api/presenca-local', // chamada pelo terminal local — token de dispositivo ou cookie assinado
     '/api/coletor-rep',    // tray-version/tray-download sao publicas por natureza (o app de
                            // bandeja nao tem sessao de navegador); download/download-cli tem

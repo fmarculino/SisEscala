@@ -2,13 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2.10.1] - 2026-08-23
+## [2.10.2] - 2026-08-23
 
 ### Added
 - **`POST /api/folha-ponto/regerar-competencia`** — regera as folhas de uma competência inteira em lote, reusando `executeGerarFolhaPonto` (a mesma função da tela e do cron; nenhuma regra de folha é reescrita).
   - `folha_ponto.registros` é um snapshot jsonb: corrigir a escala **não** corrige a folha. Depois de uma correção de dados ampla, alguém precisa regerar — e a tela só regera a unidade filtrada, exigindo de um perfil irrestrito escolher uma unidade antes de listar. "Regerar o município" viravam dezenas de cliques.
   - **Só mexe em folha `Rascunho`.** `Gerada`/`Revisada`/`Fechada` são puladas e reportadas: regerar uma folha revisada como rascunho a rebaixaria, perdendo o trabalho do coordenador em silêncio.
   - **Ensaio por padrão** — sem `{"aplicar": true}` no corpo, apenas relata quantas seriam regeradas.
+  - Entrou na lista de rotas de API que o middleware **não** redireciona para `/login`. Quem chama é máquina, sem cookie de sessão: sem isso a chamada devolveria 307 + o HTML do login e "daria certo" sem fazer nada — o mesmo sintoma silencioso já corrigido para `/api/version` (09/08) e `/api/coletor-rep` (13/08).
   - Autoriza por `CRON_SECRET` ou `SUPABASE_SERVICE_ROLE_KEY` (comparação de tempo constante). A segunda não amplia privilégio: quem a possui já escreve direto em `folha_ponto` pelo PostgREST. **Sem nenhuma das duas no ambiente, devolve 500** — nunca um segredo embutido (armadilha 18).
 
 ## [2.10.0] - 2026-08-23
