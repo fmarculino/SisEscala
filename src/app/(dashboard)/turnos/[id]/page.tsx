@@ -2,6 +2,7 @@ import { createClient } from '@/utils/supabase/server'
 import { AcessoNegado } from '@/components/AcessoNegado'
 import { updateTurno, toggleStatusTurno } from '../actions'
 import { StatusToggleButton } from '@/components/ui/StatusToggleButton'
+import { IntervaloTurnoField } from '@/components/turnos/IntervaloTurnoField'
 import { ArrowLeft, Save } from 'lucide-react'
 import Link from 'next/link'
 
@@ -137,6 +138,11 @@ export default async function EditTurnoPage({
                 className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 dark:bg-zinc-800 dark:text-white sm:text-sm focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
+
+            <IntervaloTurnoField
+              horasComputadas={turno.horas_computadas}
+              defaultValue={turno.intervalo_minutos}
+            />
           </div>
 
           <div className="pt-4">

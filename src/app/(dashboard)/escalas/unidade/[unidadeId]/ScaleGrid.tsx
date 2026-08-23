@@ -17,6 +17,7 @@ import { canEditScale, UserRole } from '@/utils/governance'
 import { runComplianceCheck, getViolationsForCell, type ComplianceViolation } from '@/utils/complianceEngine'
 import { generateTemplate, TEMPLATE_OPTIONS, type TemplateType, countWorkDays } from '@/utils/scaleTemplates'
 import { decomporPlantao } from '@/utils/plantaoUnidades'
+import { celulaTemPassosDeIntervalo } from '@/utils/intervaloIntrajornada'
 import { generateIntelligentScale } from '@/utils/intelligentScaleGenerator'
 import {
   encontrarAfastamentoBloqueante,
@@ -4300,18 +4301,28 @@ export function ScaleGrid({
 
                                   const canEditPresence = !isCompetenciaEncerrada && escalaMensal[0]?.status !== 'Fechada' && (!isClosed || ignoraTravaDePrevisao) && podeValidarPresenca
 
-                                  // Espelha public.fn_jornada_tem_intervalo (CLT Art. 71): jornadas de até 6h
-                                  // não possuem intervalo intrajornada, então a célula mostra 2 segmentos em vez de 4.
-                                  // A jornada temporária do dia prevalece sobre a jornada fixa, como no backend
-                                  // (obter_jornada_servidor_data). Para Plantão/Extra a duração vem do turno,
-                                  // não da jornada regular do servidor.
+                                  // Espelho de public.fn_jornada_tem_intervalo + fn_intervalo_previsto_minutos
+                                  // (CLT Art. 71, caput): trabalho contínuo de até 6h não tem intervalo, então a
+                                  // célula mostra 2 segmentos em vez de 4. A jornada temporária do dia prevalece
+                                  // sobre a fixa, como no backend (obter_jornada_servidor_data).
+                                  //
+                                  // ⚠️ Para Plantão/Extra, DURAÇÃO e INTERVALO vêm os dois do turno. Até 22/08/2026
+                                  // só a duração vinha — o intervalo era herdado da jornada Regular do servidor, e o
+                                  // `intervalo_minutos = 0` de uma jornada de 6h suprimia o intervalo de um plantão
+                                  // de 12h. A regra agora vive em src/utils/intervaloIntrajornada.ts, fonte única.
                                   const jornadaDoDia = dayTempJourney?.jornadas || jornadas.find(j => j.id === em.jornada_id)
-                                  const duracaoHoras = cat === 'Regular'
-                                    ? Number(jornadaDoDia?.horas_totais || 0)
-                                    : Number(turnos.find(t => t.id === turnoId)?.horas_computadas || 0)
-                                  const jornadaTemIntervalo = duracaoHoras > 6 && Number(jornadaDoDia?.intervalo_minutos ?? 60) > 0
+                                  const turnoDaCelula = turnos.find(t => t.id === turnoId)
+                                  const duracaoMinutos = cat === 'Regular'
+                                    ? Number(jornadaDoDia?.horas_totais || 0) * 60
+                                    : Number(turnoDaCelula?.horas_computadas || 0) * 60
 
-                                  const isUnitInterval = (cat === 'Regular' || cat === 'Plantão') && (unidadedata?.permite_marca_intervalo || false) && jornadaTemIntervalo
+                                  const isUnitInterval = celulaTemPassosDeIntervalo({
+                                    categoria: cat,
+                                    duracaoMinutos,
+                                    permiteMarcaIntervalo: unidadedata?.permite_marca_intervalo,
+                                    jornadaIntervaloMinutos: jornadaDoDia?.intervalo_minutos,
+                                    turnoIntervaloMinutos: turnoDaCelula?.intervalo_minutos
+                                  })
 
                                   const handleSegmentClick = (tipo: 'entrada' | 'intervalo_saida' | 'intervalo_retorno' | 'saida', isDone: boolean, isManualFlag?: boolean) => {
                                     if (!canEditPresence) return
@@ -5160,9 +5171,16 @@ export function ScaleGrid({
                           const dateStr = `${ano}-${mes.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`
                           const dayTempJourney = serverTempJourneys.find(jt => dateStr >= jt.data_inicio && dateStr <= jt.data_fim)
                           const jornadaDoDia = dayTempJourney?.jornadas || jornadas.find(j => j.id === em.jornada_id)
-                          const duracaoHoras = Number(jornadaDoDia?.horas_totais || 0)
-                          const jornadaTemIntervalo = duracaoHoras > 6 && Number(jornadaDoDia?.intervalo_minutos ?? 60) > 0
-                          const isUnitInterval = (unidadedata?.permite_marca_intervalo || false) && jornadaTemIntervalo
+                          // Aplicar Template só escreve a linha Regular, então a duração é a da jornada e
+                          // não há turno de plantão em jogo. Passa pela mesma fonte única mesmo assim, para
+                          // não voltar a existir duas versões da regra na mesma tela.
+                          const isUnitInterval = celulaTemPassosDeIntervalo({
+                            categoria: 'Regular',
+                            duracaoMinutos: Number(jornadaDoDia?.horas_totais || 0) * 60,
+                            permiteMarcaIntervalo: unidadedata?.permite_marca_intervalo,
+                            jornadaIntervaloMinutos: jornadaDoDia?.intervalo_minutos,
+                            turnoIntervaloMinutos: null
+                          })
 
                           updatedRegular[d] = isUnitInterval
                             ? { entrada: true, intervalo_saida: true, intervalo_retorno: true, saida: true }

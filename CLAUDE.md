@@ -1253,12 +1253,63 @@ for (let from = 0; ; from += 1000) {
 
 ### 9. Regra de intervalo intrajornada (CLT Art. 71)
 
-Intervalo só para jornadas **acima de 6h**. Fonte única:
+Intervalo só para trabalho contínuo **acima de 6h**. Fonte única:
 
 ```sql
 public.fn_jornada_tem_intervalo(p_duracao_minutos, p_intervalo_minutos)
   -- duração > 360 min E intervalo_minutos > 0
 ```
+
+⚠️ **Os dois argumentos vêm de fontes diferentes, e por um ano só um deles conhecia o plantão**
+(corrigido em 22/08/2026 por `20260822100000` + `20260822110000`; diário em
+[`docs/evolucao/2026-08-22-intervalo-do-plantao.md`](docs/evolucao/2026-08-22-intervalo-do-plantao.md)).
+A **duração** já vinha do turno (`horas_computadas`) para Plantão/Extra; o **intervalo** vinha
+sempre de `jornadas.intervalo_minutos`, a jornada Regular do servidor. Como **toda jornada ≤ 6h
+tem `intervalo_minutos = 0`** — correto para o expediente dela —, esse zero **anulava o guard
+inteiro** em qualquer plantão daquela pessoa, de qualquer duração.
+
+Caso real, mesmo sábado, mesmo turno `MT` de 12h: AGNES (jornada 10h) ganhou bloco 08:00–20:00
+com intervalo 12:00–14:00; INGRID (jornada 6h) ganhou 07:00–19:00 **sem intervalo nenhum**.
+E o prejuízo já tinha acontecido com batida assinada do relógio: a batida REP das **14:41** da
+INGRID e a das **13:00** da GISELE foram gravadas como **saída** de plantões que iam até 19:00 —
+não havia passo de intervalo para elas caírem, e **nenhuma tentativa recusada foi gerada**.
+
+A resolução agora tem fonte única, e o cadastro do plantão mora no lugar certo:
+
+| camada | onde | papel |
+|---|---|---|
+| expediente | `jornadas.intervalo_minutos` | intervalo do turno **Regular** |
+| plantão | **`dicionario_turnos.intervalo_minutos`** (nullable) | intervalo do **turno**. `NULL` = não regulamentado |
+| piso | **`fn_intervalo_minimo_legal(duracao)`** | > 360 min → 60; senão 0 |
+| resolução | **`fn_intervalo_previsto_minutos(cat, dur, jornada, turno)`** | `GREATEST(cadastro, piso)` |
+
+⚠️ **Só a coluna nova não bastaria** — dependeria de alguém cadastrar os 53 códigos de plantão, e
+um código esquecido volta a ser o bug, em silêncio. O piso derivado da duração é o que torna a
+regra impossível de esquecer. Por isso todos os códigos ficam `NULL` de propósito: preencher só
+serve para **elevar** acima do piso (o caput admite até 2h), nunca para rebaixar.
+
+⚠️ **A faixa de 15 min do Art. 71 §1º (acima de 4h e até 6h) NÃO é implementada** — decisão do
+usuário em 22/08/2026: *jornada de até 6h registra só entrada e saída*. Não reintroduzir sem
+decisão nova; a fronteira de `fn_intervalo_minimo_legal` e a de `fn_jornada_tem_intervalo`
+precisam continuar sendo **a mesma** (360 min), senão o terminal aceita uma janela que a
+reconciliação não prevê.
+
+**Base legal**, para quem for reabrir a decisão: a Lei 17.331/2008 (RJU de Marabá), Art. 17 §2º,
+manda **regulamento próprio** disciplinar o regime de turno ou plantão — e esse regulamento não
+existe. Enquanto não existir, vale subsidiariamente o Art. 71 caput da CLT, cuja âncora é
+*"trabalho contínuo, cuja duração exceda"* — a duração do que foi trabalhado, não o contrato de
+quem trabalhou. É daí que sai a decisão de o intervalo do plantão ser propriedade do turno.
+
+**Espelho no frontend:** `src/utils/intervaloIntrajornada.ts` (`celulaTemPassosDeIntervalo`), usado
+pelos dois sítios de `ScaleGrid.tsx`. Ao mexer no SQL, mexa nele.
+
+Medido em produção em 22/08/2026, simulando a regra nova sobre as **10.152 linhas** de
+`escala_diaria`: **106 plantões ganham** o passo de intervalo, **zero perdem**, `Regular` e `Extra`
+ficam **inteiramente inalterados**, e 68 plantões de quem tem jornada de 10h passam de 120 para
+60 min de intervalo previsto — os dois riscos disso foram medidos e estão vazios
+(`servidores.intervalo_flexivel = true` em **0 de 500**, então `fn_ajuste_intervalo_flexivel` está
+inerte e nada antecipa a saída esperada; e o maior intervalo realmente praticado nesses 68 foi de
+**94 min**).
 
 **Modo do intervalo** — três níveis, do mais geral ao mais específico:
 
@@ -1296,6 +1347,13 @@ padrão. Diário em
 hoje e cursor de ontem) e um em `fn_blocos_previstos_dia`. Corrigir só um lado faz o terminal
 aceitar uma janela e a reconciliação prever outra. Use um gerador com contagem
 (`scratchpad/gen_intervalo_dentro_do_turno.js` é o modelo).
+
+⚠️ **E existe um QUARTO sítio, que não vive na mesma migration: `fn_confirmar_presenca_manual`.**
+A versão vigente dela é mais antiga que a das outras três (`20260809000000` contra
+`20260819220000`), então quem regenerar só o arquivo "mais recente" a deixa para trás — foi o que
+quase aconteceu em 22/08/2026. Corrigir só o lado do terminal deixa a **validação manual do
+coordenador** ainda gravando 2 passos num plantão de 12h. `scratchpad/gen_intervalo_plantao.js` é
+o modelo de gerador que lê **duas fontes** e confere invariantes contra cada uma.
 
 ### 10. O identificador do AFD é CPF com **um** zero à esquerda — ⚠️ **só em alguns relógios**
 
@@ -1774,6 +1832,12 @@ servidor sempre que esse papel for escolhido — os dois foram feitos pra `rh_un
   Migrations SQL sem acentos nos comentários.
 - **Migrations:** `YYYYMMDDHHMMSS_descricao_em_ingles.sql`. Arquivos usam **CRLF** — scripts que
   fazem substituição de texto precisam tratar isso.
+  ⚠️ **Confira se o prefixo já existe antes de criar** (`ls supabase/migrations | grep <prefixo>`).
+  Em 22/08/2026 duas sessões trabalhando em paralelo geraram **duas** migrations
+  `20260822100000_*` — a ordem de aplicação entre elas fica indefinida, e o nome deixa de
+  identificar uma migration. A do plantão foi renumerada para `20260822120000`/`20260822130000`
+  (a companheira precisou ir junto para não inverter a ordem do par), junto com as **26**
+  referências ao número antigo espalhadas por migration, diário e script gerador.
 - **Nunca** rode migration direto em produção sem validar em homologação antes.
 - Timezone padrão: `configuracoes_globais`, fallback `America/Sao_Paulo`. ⚠️ **A tabela é
   chave/valor, com `valor` jsonb** — não existe coluna `timezone`. Em SQL, a forma usada por

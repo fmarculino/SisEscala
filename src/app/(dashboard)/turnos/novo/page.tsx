@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { ArrowLeft, Save, Loader2 } from 'lucide-react'
 import { createClient } from '@/utils/supabase/client'
 import { AcessoNegado } from '@/components/AcessoNegado'
+import { IntervaloTurnoField } from '@/components/turnos/IntervaloTurnoField'
 
 export default function NovoTurnoPage() {
   const [loading, setLoading] = useState(false)
@@ -131,6 +132,8 @@ export default function NovoTurnoPage() {
               className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white sm:text-sm"
             />
           </div>
+
+          <IntervaloTurnoField horasComputadas={null} />
         </div>
 
         {error && (
