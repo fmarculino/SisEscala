@@ -1826,6 +1826,63 @@ Um papel pensado como "toda unidade vinculada, sem setor por setor" (como `rh_un
 de um branch de RLS próprio que não exija a flag, ou forçar `acesso_todos_setores = true` no
 servidor sempre que esse papel for escolhido — os dois foram feitos pra `rh_unidade`.
 
+### O RH passou a cadastrar usuários, e a tela nunca foi a defesa (22/08/2026)
+
+`/usuarios` era `super_admin` puro. Desde 22/08/2026 **RH Geral e RH da Unidade também abrem a
+tela** (item "Usuários" liberado dentro do grupo SISTEMA do menu; Configurações, Backup e
+Segurança continuam exclusivos). **Diretor, Coordenador e Ass. Administrativo continuam de fora**
+— decisão do usuário.
+
+🚨 **O que a abertura revelou: NENHUMA das cinco server actions daquele arquivo conferia papel.**
+`createUser`/`updateUser`/`resetPassword`/`deleteUser`/`toggleUserStatus` usavam `service_role`
+direto, e a única autorização era o `if` da página. Server action é um POST cujo id sai no bundle
+— qualquer autenticado podia criar um Administrador Geral para si. É a armadilha 12 outra vez
+("tela filtrada não protege a RPC"), agora do lado do Next. Cada action passou a autorizar sozinha.
+
+Fonte única das regras: **`src/utils/gestaoUsuarios.ts`**, aplicada nos três lugares — página (o
+que a lista mostra), client (o que o `<select>` oferece) e actions (o que o servidor aceita).
+
+| gestor | vê / administra | pode atribuir |
+|---|---|---|
+| `super_admin` | todos | todos |
+| `rh` | todos, **menos** `super_admin` | todos menos `super_admin` |
+| `rh_unidade` | só conta cujo escopo **cabe inteiro** dentro das unidades dele | `ass_adm`, `coordenador`, `rh_unidade` |
+
+⚠️ **A lista de papéis do `rh_unidade` não é conservadorismo, é o fecho da escalada.** `rh` tem
+bypass total em `applyAccessFilters` e `admin` carrega gestão ampla — criar uma conta dessas com
+senha que ele mesmo define contorna o próprio escopo em um clique. Pelo mesmo motivo ele não
+concede `acesso_todas_unidades` (a caixa "Acesso Total" some da tela **e** a action recusa).
+
+⚠️ **A regra de gravação é uma só, e vale para criar e editar: o gestor não pode deixar no ar uma
+conta que ele mesmo não enxergaria** (`validarPayload` chama `alcancaUsuario` sobre o resultado).
+Isso resolve papel, "Acesso Total" e unidades/setores de uma vez, sem três listas de exceção. Em
+`updateUser` o alcance é conferido **sobre o estado ATUAL** do alvo *antes* do payload — senão um
+RH da Unidade "puxaria" uma conta de outra unidade para dentro do escopo só mandando as unidades
+certas no formulário.
+
+⚠️ **Conta vinculada só por `profile_setores` conta como sendo da unidade** (o caso do coordenador
+sem a unidade-pai, ver `fn_unidade_alcancavel_por_setor`). O mapa setor→unidade vem dos setores já
+carregados pela tela/action; setor desconhecido é tratado como **fora** do escopo — a dúvida fecha.
+
+**Excluir usuário continua só com o Administrador Geral** (é irreversível e não gera log). O RH
+inativa, que é reversível e auditado. Redefinir senha e ativar/inativar valem dentro do escopo.
+
+⚠️ **`profiles` tem que ser lido pelo client ADMIN nessa tela.** A policy "Users can view own
+profile" só libera a tabela inteira para `super_admin` — com a sessão do RH, a consulta devolvia
+**uma linha só**. Quem restringe a lista é o filtro de escopo em JS, não a RLS.
+
+⚠️ **`supabase.auth.admin.listUsers()` devolve no máximo 50 contas, em silêncio** (perPage padrão
+do supabase-js — o mesmo tipo de corte da armadilha 8). Com 63 contas em produção, **13 pessoas
+não apareciam** em `/usuarios`, e a checagem de e-mail duplicado de `updateServidor` deixava passar
+conflito que o Auth recusaria logo depois. Fonte única desde 22/08/2026:
+`listarTodosUsuariosAuth` (`src/utils/authAdmin.ts`), que pagina. **Nunca chame `listUsers()` cru.**
+
+Portão (não há framework de teste): `node scratchpad/sim_gestao_usuarios.js` — 34 casos de
+alcance/payload/exclusão. Transpile antes com
+`npx tsc src/utils/gestaoUsuarios.ts --outDir scratchpad/_sim --module commonjs --target es2020`.
+
+Diário em [`docs/evolucao/2026-08-22-gestao-de-usuarios-pelo-rh.md`](docs/evolucao/2026-08-22-gestao-de-usuarios-pelo-rh.md).
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.

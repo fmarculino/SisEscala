@@ -61,3 +61,6 @@ tools/coletor-rep/cmd/**/*.exe
 # commitado - dois commits ja subiram para o origin antes deste .gitignore existir, precisa
 # de reescrita de historico + force-push separado disso aqui.
 relogio/
+
+# saida do tsc para o portao de gestaoUsuarios (scratchpad/sim_gestao_usuarios.js)
+scratchpad/_sim/

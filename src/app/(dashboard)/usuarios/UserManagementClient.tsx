@@ -6,6 +6,7 @@ import { createUser, updateUser, resetPassword, deleteUser, toggleUserStatus } f
 import { useRouter } from 'next/navigation'
 import { Modal } from '@/components/ui/Modal'
 import { ROLE_LABELS, getRoleLabel } from '@/utils/roles'
+import { PAPEIS_ATRIBUIVEIS, type PapelGestor } from '@/utils/gestaoUsuarios'
 
 interface UserManagementClientProps {
   initialProfiles: any[]
@@ -13,6 +14,7 @@ interface UserManagementClientProps {
   setores: any[]
   currentUserRole: string
   servidores: any[]
+  podeExcluir: boolean
 }
 
 export default function UserManagementClient({
@@ -20,7 +22,8 @@ export default function UserManagementClient({
   unidades,
   setores,
   currentUserRole,
-  servidores
+  servidores,
+  podeExcluir
 }: UserManagementClientProps) {
   const router = useRouter()
   const [editingUser, setEditingUser] = useState<any>(null)
@@ -45,6 +48,13 @@ export default function UserManagementClient({
   const [acessoTodasUnidades, setAcessoTodasUnidades] = useState(false)
   const [acessoTodosSetores, setAcessoTodosSetores] = useState(false)
   const [formRole, setFormRole] = useState('coordenador')
+  // Os papéis que ESTE gestor pode atribuir vêm da fonte única (src/utils/gestaoUsuarios.ts) — a
+  // mesma lista que a server action aplica. Montar o <select> à mão aqui foi o que deixou
+  // "Administrador Geral" aparecendo no filtro para todo mundo.
+  const papeisDisponiveis = PAPEIS_ATRIBUIVEIS[currentUserRole as PapelGestor] || []
+  // RH da Unidade não concede alcance global: a caixa "Acesso Total" de unidades some para ele,
+  // e a action recusa o payload mesmo que alguém a mande na mão.
+  const gestorEscopadoPorUnidade = currentUserRole === 'rh_unidade'
   // RH da Unidade sempre enxerga todos os setores das unidades vinculadas — nunca setor por
   // setor (é a diferença dele pro RH Geral, que enxerga tudo). A action força o mesmo no
   // servidor (createUser/updateUser), então isto é só a UI refletindo o que vai valer de fato.
@@ -754,12 +764,9 @@ export default function UserManagementClient({
                   onChange={(e) => setFormRole(e.target.value)}
                   className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 py-2 px-3 text-sm focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
                 >
-                  <option value="ass_adm">{ROLE_LABELS.ass_adm}</option>
-                  <option value="coordenador">{ROLE_LABELS.coordenador}</option>
-                  <option value="admin">{ROLE_LABELS.admin}</option>
-                  <option value="rh">{ROLE_LABELS.rh}</option>
-                  <option value="rh_unidade">{ROLE_LABELS.rh_unidade}</option>
-                  {currentUserRole === 'super_admin' && <option value="super_admin">{ROLE_LABELS.super_admin}</option>}
+                  {papeisDisponiveis.map(r => (
+                    <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                  ))}
                 </select>
               </div>
 
@@ -767,18 +774,20 @@ export default function UserManagementClient({
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Unidades Vinculadas</label>
-                  <label className="flex items-center text-xs text-zinc-500 cursor-pointer">
-                    <input 
-                      type="checkbox" 
-                      className="mr-1 h-3 w-3 rounded border-zinc-300" 
-                      checked={acessoTodasUnidades}
-                      onChange={(e) => {
-                        setAcessoTodasUnidades(e.target.checked)
-                        if (e.target.checked) setSelectedUnidades([])
-                      }}
-                    />
-                    Acesso Total
-                  </label>
+                  {!gestorEscopadoPorUnidade && (
+                    <label className="flex items-center text-xs text-zinc-500 cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        className="mr-1 h-3 w-3 rounded border-zinc-300" 
+                        checked={acessoTodasUnidades}
+                        onChange={(e) => {
+                          setAcessoTodasUnidades(e.target.checked)
+                          if (e.target.checked) setSelectedUnidades([])
+                        }}
+                      />
+                      Acesso Total
+                    </label>
+                  )}
                 </div>
                 
                 {!acessoTodasUnidades && (
@@ -922,12 +931,9 @@ export default function UserManagementClient({
                 className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
               >
                 <option value="">Todos os Níveis de Acesso</option>
-                <option value="ass_adm">{ROLE_LABELS.ass_adm}</option>
-                <option value="coordenador">{ROLE_LABELS.coordenador}</option>
-                <option value="admin">{ROLE_LABELS.admin}</option>
-                <option value="rh">{ROLE_LABELS.rh}</option>
-                <option value="rh_unidade">{ROLE_LABELS.rh_unidade}</option>
-                <option value="super_admin">{ROLE_LABELS.super_admin}</option>
+                {papeisDisponiveis.map(r => (
+                  <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                ))}
               </select>
 
               <select
@@ -1083,7 +1089,7 @@ export default function UserManagementClient({
                         <Pencil className="h-5 w-5" />
                       </button>
                       
-                      {p.isOrphaned && currentUserRole === 'super_admin' ? (
+                      {p.isOrphaned && podeExcluir ? (
                         <button
                           onClick={() => startDelete(p)}
                           className="p-2 text-zinc-400 hover:text-red-600 dark:text-zinc-500 dark:hover:text-red-400"
@@ -1092,7 +1098,7 @@ export default function UserManagementClient({
                           <Trash2 className="h-5 w-5" />
                         </button>
                       ) : (
-                        currentUserRole === 'super_admin' && (
+                        !p.isOrphaned && (
                           <button
                             onClick={() => handleToggleStatus(p)}
                             className={`p-2 ${p.ativo ? 'text-zinc-400 hover:text-red-600 dark:text-zinc-500 dark:hover:text-red-400' : 'text-green-500 hover:text-green-600'}`}

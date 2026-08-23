@@ -173,6 +173,11 @@ export function Sidebar({ user }: { user?: any }) {
     'Cargos', 'Feriados', 'Jornadas', 'Dicionário de Turnos', 'Tipos de Afastamento',
   ]
 
+  // Único item do grupo SISTEMA que o RH (Geral e da Unidade) alcança, desde 22/08/2026 — o resto
+  // (Configurações, Backup, Segurança) continua exclusivo do Administrador Geral. A tela e as
+  // server actions escopam quem cada um vê e cria (src/utils/gestaoUsuarios.ts); aqui é só o menu.
+  const itensSistemaParaRh = ['Usuários']
+
   const filteredGroups = menuGroups.map(group => {
     // Filter items within group
     const filteredItems = group.items.filter(item => {
@@ -181,8 +186,8 @@ export function Sidebar({ user }: { user?: any }) {
       if (isSuperAdmin) return true
 
       if (isRhGeral) {
-        // RH Geral vê tudo, inclusive o catálogo global (itensSoRhGeral), menos SISTEMA.
-        if (group.title === 'SISTEMA') return false
+        // RH Geral vê tudo, inclusive o catálogo global (itensSoRhGeral). De SISTEMA, só Usuários.
+        if (group.title === 'SISTEMA') return itensSistemaParaRh.includes(item.name)
         return true
       }
 
@@ -195,9 +200,10 @@ export function Sidebar({ user }: { user?: any }) {
       }
 
       if (isRhUnidade) {
-        // Mesmo alcance de RH Geral, exceto SISTEMA e os itens que só fazem sentido pra quem
-        // enxerga a secretaria inteira (ver itensSoRhGeral acima).
-        if (group.title === 'SISTEMA') return false
+        // Mesmo alcance de RH Geral, exceto os itens que só fazem sentido pra quem enxerga a
+        // secretaria inteira (ver itensSoRhGeral acima). De SISTEMA, só Usuários — e lá ele
+        // enxerga apenas as contas das unidades dele.
+        if (group.title === 'SISTEMA') return itensSistemaParaRh.includes(item.name)
         if (itensSoRhGeral.includes(item.name)) return false
         return true
       }

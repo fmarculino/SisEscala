@@ -1,4 +1,4 @@
-# SisEscala 📅[![Version](https://img.shields.io/badge/version-2.3.0-green.svg)](https://github.com/fmarculino/SisEscala)
+# SisEscala 📅[![Version](https://img.shields.io/badge/version-2.8.0-green.svg)](https://github.com/fmarculino/SisEscala)
 [![Next.js](https://img.shields.io/badge/framework-Next.js%2015-black.svg)](https://nextjs.org/)
 [![Supabase](https://img.shields.io/badge/backend-Supabase-green.svg)](https://supabase.com/)
 [![Tailwind CSS](https://img.shields.io/badge/styling-Tailwind%20CSS-38B2AC.svg)](https://tailwindcss.com/)
@@ -10,6 +10,16 @@ O sistema foca em **governança, segurança jurídica e eficiência operacional*
 ---
 
 ## 🚀 Principais Funcionalidades
+
+### 👥 Gestão de Usuários pelo RH, com Escopo Real (v2.8.0)
+- **RH Geral e RH da Unidade passam a cadastrar usuários**: o item **Usuários** foi liberado no menu SISTEMA para os dois perfis de RH — Configurações, Backup e Segurança seguem exclusivos do Administrador Geral, e Diretor, Coordenador e Ass. Administrativo continuam sem acesso à tela.
+- **RH Geral** administra todos os usuários **exceto os de perfil Administrador Geral**. **RH da Unidade** enxerga apenas as contas cujo escopo cabe inteiro dentro das unidades dele, e só atribui papéis escopados por unidade — não consegue criar uma conta com alcance maior que o próprio.
+- **Autorização nas server actions, não só na tela**: as cinco actions de gestão de usuários passaram a verificar papel e escopo por conta própria. Até aqui a única barreira era o `if` da página — e server action é um endpoint POST cujo id sai no bundle do cliente.
+- **Excluir usuário continua exclusivo do Administrador Geral** (irreversível e sem log); o RH inativa, que é reversível e auditado. Redefinir senha e ativar/inativar valem dentro do escopo.
+
+### 🍽️ Intervalo do Plantão é Propriedade do Turno, Não da Jornada (v2.8.0)
+- **O intervalo intrajornada do plantão deixa de ser herdado da jornada Regular do servidor**: como toda jornada de até 6h tem `intervalo_minutos = 0` — correto para o expediente dela —, esse zero anulava o guard do Art. 71 em **qualquer** plantão daquela pessoa, de qualquer duração. Dois servidores no mesmo turno de 12h recebiam tratamento diferente conforme o contrato de cada um.
+- **Nova coluna `dicionario_turnos.intervalo_minutos` e piso derivado da duração** (`fn_intervalo_minimo_legal`): o piso é o que torna a regra impossível de esquecer — um código de plantão não cadastrado não volta a ser o bug. O cadastro serve apenas para elevar o intervalo acima do piso, nunca para rebaixá-lo.
 
 ### 🕘 Alteração de Jornada no Meio da Escala com Vigência por Data (v2.3.0)
 - **Dois caminhos, porque são dois fatos diferentes**: a jornada do mês (`escala_mensal.jornada_id`) vale para **todos os dias**, então trocá-la no dia 12 reavalia também os dias 1 a 11. Ao alterar a jornada de um servidor que já tem ponto registrado, a grade passa a exigir a escolha entre **"passou a cumprir o novo horário a partir do dia X"** (redução judicial, acordo, mudança de setor — cria vigência por data e preserva os dias anteriores) e **"a jornada estava errada desde o dia 1"** (erro de cadastro — reescreve o mês, com justificativa obrigatória).
@@ -197,10 +207,12 @@ O sistema foca em **governança, segurança jurídica e eficiência operacional*
 
 O SisEscala utiliza uma hierarquia de acesso rigorosa via **Row Level Security (RLS)**:
 
-- **Super Admin**: Acesso total ao sistema, configurações estruturais e gestão de usuários.
-- **Admin**: Gerencia unidades e setores específicos vinculados ao seu perfil.
-- **Coordenador**: Elabora escalas, aprova trocas e valida a presença dos servidores.
-- **Servidor**: Acesso restrito ao Portal do Servidor para consulta e solicitações de troca.
+- **Administrador Geral (`super_admin`)**: acesso total ao sistema, configurações estruturais e gestão de usuários — inclusive a criação de outros Administradores Gerais e a exclusão definitiva de contas, que não são delegadas a ninguém.
+- **RH Geral (`rh`)**: enxerga a secretaria inteira e administra usuários de todas as unidades, **exceto** os de perfil Administrador Geral.
+- **RH da Unidade (`rh_unidade`)**: mesmo alcance operacional do RH Geral, restrito às unidades vinculadas ao perfil (com acesso a todos os setores delas). Administra somente usuários cujo escopo cabe inteiro dentro dessas unidades.
+- **Diretor (`admin`)**: gerencia unidades e setores específicos vinculados ao seu perfil.
+- **Coordenador (`coordenador`) e Ass. Administrativo (`ass_adm`)**: elaboram escalas, aprovam trocas e validam a presença dos servidores dentro do escopo vinculado.
+- **Servidor (`servidor` / `comum`)**: acesso restrito ao Portal do Servidor para consulta e solicitações de troca.
 
 ---
 

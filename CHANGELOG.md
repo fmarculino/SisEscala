@@ -2,6 +2,82 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.8.0] - 2026-08-22
+
+Gestão de usuários liberada para os dois perfis de RH — com autorização de verdade nas server actions, que até aqui não existia — e o intervalo intrajornada do plantão deixando de ser herdado da jornada Regular do servidor.
+
+Diários completos em [`docs/evolucao/2026-08-22-gestao-de-usuarios-pelo-rh.md`](docs/evolucao/2026-08-22-gestao-de-usuarios-pelo-rh.md) e [`docs/evolucao/2026-08-22-intervalo-do-plantao.md`](docs/evolucao/2026-08-22-intervalo-do-plantao.md).
+
+### Added
+- **RH Geral e RH da Unidade passam a cadastrar usuários (`src/utils/gestaoUsuarios.ts`)**:
+  - O item **Usuários** do grupo SISTEMA foi liberado para os dois perfis de RH. Configurações, Backup e Segurança continuam exclusivos do Administrador Geral. **Diretor, Coordenador e Ass. Administrativo continuam sem acesso.**
+  - **RH Geral** enxerga e administra todos os usuários **exceto os de perfil Administrador Geral**, e pode atribuir qualquer papel menos esse.
+  - **RH da Unidade** enxerga apenas as contas cujo escopo cabe **inteiro** dentro das unidades dele, e só pode atribuir papéis escopados por unidade (Ass. Administrativo, Coordenador e RH da Unidade). Não concede "Acesso Total" a unidades: a caixa some da tela **e** a action recusa o payload.
+  - A restrição de papéis do RH da Unidade fecha uma escalada de privilégio: `rh` tem bypass total em `applyAccessFilters` e `admin` carrega gestão ampla — criar uma conta dessas com senha que ele mesmo define contornaria o próprio escopo em um clique.
+  - **Uma regra só para gravar**: `validarPayload` aplica `alcancaUsuario` sobre o **resultado** da gravação — o gestor não pode deixar no ar uma conta que ele mesmo não enxergaria. Isso cobre papel, "Acesso Total" e unidades/setores sem listas de exceção paralelas.
+  - Conta vinculada apenas por `profile_setores` (coordenador sem a unidade-pai vinculada) conta como sendo da unidade; setor desconhecido é tratado como **fora** do escopo.
+  - **Redefinir senha** e **ativar/inativar** liberados dentro do escopo. **Excluir usuário continua exclusivo do Administrador Geral** — é irreversível e não deixa log; o RH inativa, que é reversível e auditado.
+  - Portão de verificação: `scratchpad/sim_gestao_usuarios.js`, 34 casos de alcance, payload e exclusão.
+- **Intervalo do plantão como propriedade do turno (`20260822120000_plantao_interval_from_shift_dictionary.sql`)**:
+  - Nova coluna `dicionario_turnos.intervalo_minutos` (nullable) e as funções `fn_intervalo_minimo_legal(duracao)` e `fn_intervalo_previsto_minutos(categoria, duracao, jornada, turno)` — fonte única que resolve `GREATEST(cadastro, piso legal)`.
+  - Todos os 53 códigos de plantão ficam `NULL` de propósito: o piso derivado da duração (> 6h → 60 min) é o que torna a regra impossível de esquecer. Preencher a coluna serve apenas para **elevar** acima do piso, nunca para rebaixar.
+  - Espelho no frontend em `src/utils/intervaloIntrajornada.ts` (`celulaTemPassosDeIntervalo`), consumido pelos dois sítios de `ScaleGrid.tsx`.
+
+### Fixed
+- **Nenhuma server action de `/usuarios` conferia papel (`src/app/(dashboard)/usuarios/actions.ts`)**:
+  - `createUser`, `updateUser`, `resetPassword`, `deleteUser` e `toggleUserStatus` montavam um client com `SUPABASE_SERVICE_ROLE_KEY` e escreviam direto: a única autorização do módulo era o `if` da página. Server action do Next é um endpoint POST cujo id sai no bundle — **qualquer usuário autenticado podia criar para si um Administrador Geral**, sem passar por tela nenhuma. Falha pré-existente, anterior a esta versão. Cada action passou a autorizar sozinha, sobre o estado **atual** do alvo.
+  - Em `updateUser` a ordem é deliberada: alcance sobre o que a conta **é hoje** antes de validar o que ela **vai virar** — invertendo, um RH da Unidade "puxaria" para dentro do escopo uma conta de outra unidade só mandando as unidades certas no formulário.
+- **`supabase.auth.admin.listUsers()` devolvia no máximo 50 contas, em silêncio (`src/utils/authAdmin.ts`)**:
+  - O `perPage` padrão do supabase-js é 50. Com 63 contas em produção, **13 pessoas nunca apareceram** em `/usuarios`; e a checagem de e-mail duplicado de `updateServidor` varria essa lista truncada, podendo deixar passar um conflito que o Auth recusaria em seguida — deixando login e ficha divergentes, exatamente o defeito que ela existe para evitar. Fonte única paginada (`listarTodosUsuariosAuth`) aplicada nos três pontos de chamada.
+- **Intervalo do plantão herdado da jornada Regular (`20260822130000_plantao_interval_presence_functions.sql`)**:
+  - `fn_jornada_tem_intervalo(duracao, intervalo_minutos)` recebia os dois argumentos de fontes diferentes: a **duração** já vinha do turno (`horas_computadas`) para Plantão/Extra, mas o **intervalo** vinha sempre de `jornadas.intervalo_minutos`. Como toda jornada de até 6h tem `intervalo_minutos = 0` — correto para o expediente dela —, esse zero **anulava o guard inteiro** em qualquer plantão daquela pessoa, de qualquer duração.
+  - Caso real, mesmo sábado e mesmo turno `MT` de 12h: uma servidora de jornada 10h recebeu bloco 08:00–20:00 com intervalo 12:00–14:00; outra, de jornada 6h, recebeu 07:00–19:00 **sem intervalo nenhum**. O prejuízo já tinha ocorrido com batida assinada do relógio: batidas REP das 14:41 e das 13:00 foram gravadas como **saída** de plantões que iam até 19:00, sem gerar sequer tentativa recusada.
+  - Simulado sobre as 10.152 linhas de `escala_diaria` de produção antes de aplicar: **106 plantões ganham** o passo de intervalo, **zero perdem**, `Regular` e `Extra` ficam inteiramente inalterados.
+
+### Changed
+- **`profiles` passa a ser lido pelo client admin em `/usuarios`**: a policy `"Users can view own profile"` libera a tabela inteira apenas para `super_admin` — com a sessão do RH, a listagem devolveria uma linha só. Quem restringe a lista é o filtro de escopo em JS. **Nenhuma policy de RLS foi alterada.**
+- **Migrations do plantão renumeradas para `20260822120000` e `20260822130000`**: duas sessões de trabalho em paralelo geraram duas migrations com o prefixo `20260822100000`, o que deixa a ordem de aplicação indefinida. A companheira foi renumerada junto para não inverter a ordem do par, com as 26 referências ao número antigo atualizadas em migration, diário e script gerador.
+
+## [2.7.1] - 2026-08-22
+
+### Fixed
+- **Segredos fora do código de um repositório público**: removido o JWT `service_role` de homologação embutido em `scripts/corrigir_folhas_banco.mjs` e o fallback de `CRON_SECRET` embutido em `/api/cron` e `/api/avisos-ponto/despachar`. As duas rotas passam a **falhar explicitamente** (500) sem a variável no ambiente — mesmo padrão já adotado para `TERMINAL_LOCAL_SESSION_SECRET`. Chaves de produção nunca entraram no histórico (conferido em todos os commits).
+- **Snapshot do relógio passa a encerrar o vínculo de quem saiu (`20260822200000`)**: `rep_vinculos_servidor` nunca era reconciliado com o que o equipamento realmente tem — quem era apagado na telinha do relógio continuava vinculado aqui para sempre, e a aba Cobertura da Escala exibia `ok` para quem não estava mais no aparelho. Duas guardas: lista vazia nunca reconcilia, e vínculo criado há menos de 15 min é poupado.
+
+### Added
+- **Corte de ponto por dispositivo (`20260822210000`)**: nova coluna `dispositivos_rep.ponto_valido_desde`. A resolução de identidade caía para CPF e depois PIS **sem olhar a data da batida**, então o AFD inteiro de um relógio reaproveitado virava ponto atribuído já na ingestão — 9.626 marcações com dono anteriores a 07/2026, a mais antiga de 2019, em sete equipamentos. O corte age na **atribuição**, nunca na ingestão, o que o torna reversível.
+
+## [2.7.0] - 2026-08-22
+
+### Added
+- **Vínculo explícito usuário ↔ servidor (`20260822100000_add_profiles_servidor_id.sql`)**: nova coluna `profiles.servidor_id` com índice único parcial. Até aqui a associação era recalculada a cada render casando por e-mail **ou** por nome iguais, e o `<input type="hidden" name="servidor_id">` da tela nunca era lido por action nenhuma.
+- **E-mail do servidor propaga para o login (`auth.users.email`)**, restrito a `super_admin` e `rh`. Corrigir o e-mail na ficha deixava o login com o valor antigo, quebrava o casamento e derrubava o acesso do próprio servidor à escala dele em três telas.
+
+## [2.6.0] - 2026-08-21
+
+### Fixed
+- **Dia vazio COM batida deixa de ser falta**: três servidores da SMS receberiam FALTA na folha de agosto tendo batida com NSR de AFD assinado, porque a falta automática olha só `escala_diaria`. FALTA cai de 321 para 318 em agosto; os três viram pendência de revisão. Inclui `20260821120000`, que recupera uma batida que apenas não tinha sido reconciliada.
+
+## [2.5.1] - 2026-08-21
+
+### Fixed
+- **Hora extra passa a exigir ENTRADA registrada**: crédito de hora extra a partir de saída solitária, sem entrada — 31 dias, 12h16, em 27 folhas de agosto/2026 (2,6% da hora extra do mês). Alinha a geração ao que o editor e o normalizador já faziam.
+
+## [2.5.0] - 2026-08-21
+
+### Added
+- **Dia incompleto sinalizado na folha de ponto**: "REVISAR: SEM REGISTRO DE ENTRADA/SAÍDA" no dia que tem batida mas não tem os passos necessários para saber quanto a pessoa trabalhou — 51,8% dos dias com turno da SMS em agosto estavam nesse estado, sem nenhuma sinalização.
+- Recolhe também os commits de feature que ficaram sem tag depois da v2.4.0, entre eles a troca de turno com histórico e justificativa (`20260821110000`), o conflito que a célula fazia consigo mesma (`20260821100000`) e a decomposição do plantão em unidades de pagamento (`src/utils/plantaoUnidades.ts`).
+
+### Changed
+- `package.json` volta a acompanhar a tag: estava parado em 2.3.0 desde a v2.2.0. Isso importa porque `NEXT_PUBLIC_APP_VERSION` vem dali e é o que faz o terminal de presença detectar o deploy e recarregar.
+
+## [2.4.0] - 2026-08-20
+
+### Added
+- **Infraestrutura da Fase 5 do REP**: a chave de corte por unidade (`unidades.fonte_ponto_oficial`, `20260820000000`), reparse acionado pela criação de vínculo (`20260820010000`), escrita direta neutralizada com aplicação da precedência em unidade `rep` (`20260820020000`) e exceção de ponto por (servidor, dispositivo) para quem administra o parque (`rep_excecoes_ponto`, `20260820030000`).
+- **Afastamento passa a bloquear todos os caminhos de escrita da grade (`20260820120000`)**: "Aplicar Template" e Gerador Inteligente escreviam direto no estado sem passar pela validação da célula, e `Sobreaviso` nunca esteve coberto pelo nome da configuração que liberava plantão/extra. Fonte única no frontend em `src/utils/afastamentos.ts`.
+
 ## [2.3.0] - 2026-08-19
 
 Alteração de jornada no meio da escala com vigência por data, histórico auditável da troca e correção do cálculo de carga horária quando o servidor cumpre jornadas diferentes no mesmo mês.

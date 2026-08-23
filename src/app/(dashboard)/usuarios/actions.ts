@@ -4,6 +4,14 @@ import { createClient } from '@/utils/supabase/server'
 import { createClient as createSupabaseAdmin } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 import { registrarLog, calcularAlteracoes } from '@/utils/auditoria'
+import {
+  alcancaUsuario,
+  ehPapelGestor,
+  podeExcluirUsuarios,
+  validarPayload,
+  type AlvoEscopo,
+  type Gestor,
+} from '@/utils/gestaoUsuarios'
 
 const AUTH_ERRORS_PT: Record<string, string> = {
   'User already registered': 'Este e-mail já está cadastrado no sistema.',
@@ -18,6 +26,82 @@ const AUTH_ERRORS_PT: Record<string, string> = {
 function translateError(error: string): string {
   return AUTH_ERRORS_PT[error] || error
 }
+
+// AUTORIZACAO — ate 22/08/2026 NENHUMA action deste arquivo conferia papel: quem segurava tudo
+// era o `if` da pagina. Server action e um POST descoberto pelo bundle, entao a tela nunca foi
+// a defesa (mesma licao da armadilha 12 do CLAUDE.md). Com /usuarios aberta ao RH, cada action
+// passa a decidir sozinha quem chama e sobre quem.
+type ResultadoGestor =
+  | { ok: false; erro: string }
+  | { ok: true; gestor: Gestor; mapaSetorUnidade?: Map<string, string> }
+
+async function autorizarGestor(supabaseAdmin: any): Promise<ResultadoGestor> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { ok: false, erro: 'Sessao expirada. Entre novamente para continuar.' }
+
+  const { data: perfil } = await supabaseAdmin
+    .from('profiles')
+    .select('role, ativo')
+    .eq('id', user.id)
+    .maybeSingle()
+
+  if (!perfil || perfil.ativo === false || !ehPapelGestor(perfil.role)) {
+    return { ok: false, erro: 'Seu perfil nao tem permissao para gerenciar usuarios.' }
+  }
+
+  const gestor: Gestor = { id: user.id, role: perfil.role, unidades: [] }
+  let mapaSetorUnidade: Map<string, string> | undefined
+
+  if (perfil.role === 'rh_unidade') {
+    const { data: vinculos } = await supabaseAdmin
+      .from('profile_unidades')
+      .select('unidade_id')
+      .eq('profile_id', user.id)
+    gestor.unidades = (vinculos || []).map((v: any) => v.unidade_id)
+
+    // So os setores das unidades dele: qualquer setor fora dessa lista esta fora do escopo de
+    // qualquer jeito, e buscar a tabela inteira esbarraria no corte de 1000 linhas do PostgREST
+    // (armadilha 8) sem nenhum aviso.
+    if (gestor.unidades.length > 0) {
+      const { data: setores } = await supabaseAdmin
+        .from('setores')
+        .select('id, unidade_id')
+        .in('unidade_id', gestor.unidades)
+      mapaSetorUnidade = new Map((setores || []).map((x: any) => [x.id, x.unidade_id]))
+    } else {
+      mapaSetorUnidade = new Map()
+    }
+  }
+
+  return { ok: true, gestor, mapaSetorUnidade }
+}
+
+// Escopo ATUAL do alvo — a checagem tem que ser sobre o que a conta e hoje, nao sobre o que o
+// formulario diz que ela vai virar.
+async function carregarEscopoAlvo(supabaseAdmin: any, userId: string): Promise<AlvoEscopo | null> {
+  const { data: perfil } = await supabaseAdmin
+    .from('profiles')
+    .select('role, acesso_todas_unidades')
+    .eq('id', userId)
+    .maybeSingle()
+
+  if (!perfil) return null
+
+  const { data: us } = await supabaseAdmin
+    .from('profile_unidades').select('unidade_id').eq('profile_id', userId)
+  const { data: ss } = await supabaseAdmin
+    .from('profile_setores').select('setor_id').eq('profile_id', userId)
+
+  return {
+    role: perfil.role,
+    acesso_todas_unidades: perfil.acesso_todas_unidades === true,
+    permitted_unidades: (us || []).map((u: any) => u.unidade_id),
+    permitted_setores: (ss || []).map((x: any) => x.setor_id),
+  }
+}
+
+const ERRO_FORA_DE_ESCOPO = 'Este usuario esta fora do seu escopo de gestao.'
 
 // Um servidor tem no maximo um usuario do sistema (indice uq_profiles_servidor_id, migration
 // 20260822100000). A UI ja evita oferecer um servidor ocupado, mas a action e chamavel direto —
@@ -72,6 +156,24 @@ export async function createUser(formData: FormData) {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY
   )
+
+  const auth = await autorizarGestor(supabaseAdmin)
+  if (!auth.ok) return { error: auth.erro }
+
+  // A regra e uma so, e vale para criar e editar: ninguem pode deixar no ar uma conta que ele
+  // mesmo nao enxergaria. Resolve papel atribuido, "Acesso Total" e unidades/setores de uma vez.
+  const erroEscopo = validarPayload(
+    auth.gestor,
+    {
+      role,
+      acesso_todas_unidades: acessoTodasUnidades,
+      unidade_ids: unidadeIds,
+      setor_ids: setorIds,
+      acesso_todos_setores: acessoTodosSetores,
+    },
+    auth.mapaSetorUnidade
+  )
+  if (erroEscopo) return { error: erroEscopo }
 
   // Conferir ANTES de criar no Auth: o profile so e atualizado no passo 2, e falhar la deixaria
   // um usuario de autenticacao orfao (sem perfil) para tras.
@@ -163,6 +265,37 @@ export async function updateUser(formData: FormData) {
   const { data: setoresAntes } = await supabaseAdmin
     .from('profile_setores').select('setor_id').eq('profile_id', userId)
 
+  const auth = await autorizarGestor(supabaseAdmin)
+  if (!auth.ok) return { error: auth.erro }
+
+  if (!perfilAntes) return { error: 'Usuario nao encontrado.' }
+
+  // Alcance sobre o estado ATUAL da conta — quem nao enxerga, nao edita. Confere antes do
+  // payload de propósito: sem isso, um RH da Unidade poderia "puxar" para dentro do escopo dele
+  // uma conta de outra unidade so mandando as unidades certas no formulario.
+  const alvoAtual: AlvoEscopo = {
+    role: perfilAntes.role,
+    acesso_todas_unidades: perfilAntes.acesso_todas_unidades === true,
+    permitted_unidades: (unidadesAntes || []).map((u: any) => u.unidade_id),
+    permitted_setores: (setoresAntes || []).map((x: any) => x.setor_id),
+  }
+  if (!alcancaUsuario(auth.gestor, alvoAtual, auth.mapaSetorUnidade)) {
+    return { error: ERRO_FORA_DE_ESCOPO }
+  }
+
+  const erroEscopo = validarPayload(
+    auth.gestor,
+    {
+      role,
+      acesso_todas_unidades: acessoTodasUnidades,
+      unidade_ids: unidadeIds,
+      setor_ids: setorIds,
+      acesso_todos_setores: acessoTodosSetores,
+    },
+    auth.mapaSetorUnidade
+  )
+  if (erroEscopo) return { error: erroEscopo }
+
   if (temCampoServidor && servidorId && servidorId !== perfilAntes?.servidor_id) {
     const erroVinculo = await validarServidorLivre(supabaseAdmin, servidorId, userId)
     if (erroVinculo) return { error: erroVinculo }
@@ -252,6 +385,15 @@ export async function resetPassword(userId: string, newPassword: string) {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   )
 
+  const auth = await autorizarGestor(supabaseAdmin)
+  if (!auth.ok) return { error: auth.erro }
+
+  const alvo = await carregarEscopoAlvo(supabaseAdmin, userId)
+  if (!alvo) return { error: 'Usuario nao encontrado.' }
+  if (!alcancaUsuario(auth.gestor, alvo, auth.mapaSetorUnidade)) {
+    return { error: ERRO_FORA_DE_ESCOPO }
+  }
+
   const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, {
     password: newPassword
   })
@@ -282,6 +424,15 @@ export async function deleteUser(userId: string) {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   )
 
+  const auth = await autorizarGestor(supabaseAdmin)
+  if (!auth.ok) return { error: auth.erro }
+
+  // Excluir apaga do Auth e do banco, e irreversivel e nao deixa log. Decisao do usuario em
+  // 22/08/2026: fica so com o Administrador Geral. Para tirar alguem do ar, o RH inativa.
+  if (!podeExcluirUsuarios(auth.gestor.role)) {
+    return { error: 'Apenas o Administrador Geral pode excluir usuarios. Use "Inativar" para retirar o acesso.' }
+  }
+
   // Auth delete will trigger profile delete if FK is set to cascade, 
   // but we should delete user from Auth first.
   const { error } = await supabaseAdmin.auth.admin.deleteUser(userId)
@@ -303,6 +454,15 @@ export async function toggleUserStatus(userId: string, currentStatus: boolean) {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY
   )
+
+  const auth = await autorizarGestor(supabaseAdmin)
+  if (!auth.ok) return { error: auth.erro }
+
+  const alvo = await carregarEscopoAlvo(supabaseAdmin, userId)
+  if (!alvo) return { error: 'Usuario nao encontrado.' }
+  if (!alcancaUsuario(auth.gestor, alvo, auth.mapaSetorUnidade)) {
+    return { error: ERRO_FORA_DE_ESCOPO }
+  }
 
   const { error } = await supabaseAdmin
     .from('profiles')

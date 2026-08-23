@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache'
 import { registrarLog, calcularAlteracoes } from '@/utils/auditoria'
 import { erroDocumento, normalizarDoc } from '@/utils/documentos'
 import { validarDataTransferencia } from '@/utils/transferValidation'
+import { listarTodosUsuariosAuth } from '@/utils/authAdmin'
 
 const normalizarCpf = (cpf?: string | null) => (cpf || '').replace(/\D/g, '')
 
@@ -1073,8 +1074,8 @@ export async function updateServidor(id: string, formData: FormData) {
     // e-mail aqui deixaria o login orfao em silencio — exatamente o defeito original. Achando pelo
     // e-mail ANTIGO, aproveitamos para gravar o vinculo que faltava.
     if (!profileVinculado && emailAntigo) {
-      const { data: listaAuth } = await supabaseAdmin.auth.admin.listUsers()
-      const candidatos = (listaAuth?.users || []).filter(
+      const listaAuth = await listarTodosUsuariosAuth(supabaseAdmin)
+      const candidatos = listaAuth.filter(
         (u: any) => (u.email || '').toLowerCase().trim() === emailAntigo.toLowerCase()
       )
 
@@ -1113,8 +1114,8 @@ export async function updateServidor(id: string, formData: FormData) {
 
       // O Auth recusaria com "User already registered" depois do UPDATE em servidores, deixando os
       // dois lados divergentes de novo. Recusar antes de gravar qualquer coisa.
-      const { data: listaAuth } = await supabaseAdmin!.auth.admin.listUsers()
-      const conflito = listaAuth?.users?.find(
+      const listaAuth = await listarTodosUsuariosAuth(supabaseAdmin!)
+      const conflito = listaAuth.find(
         (u: any) => u.id !== profileVinculado!.id &&
           (u.email || '').toLowerCase().trim() === emailNovo.toLowerCase()
       )

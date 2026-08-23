@@ -1,12 +1,20 @@
 import { createClient, createAdminClient } from '@/utils/supabase/server'
 import { Shield } from 'lucide-react'
 import UserManagementClient from './UserManagementClient'
+import { listarTodosUsuariosAuth } from '@/utils/authAdmin'
+import {
+  alcancaUsuario,
+  ehPapelGestor,
+  podeExcluirUsuarios,
+  type Gestor,
+} from '@/utils/gestaoUsuarios'
 
 export default async function UsuariosPage() {
   const supabase = await createClient()
   const supabaseAdmin = await createAdminClient()
 
-  // 1. Check permissions (only super_admin and admin)
+  // 1. Quem abre a tela: Administrador Geral, RH Geral e RH da Unidade (22/08/2026). Diretor,
+  // Coordenador e Ass. Administrativo continuam de fora — decisão do usuário.
   const { data: { user } } = await supabase.auth.getUser()
   const { data: profile } = await supabase
     .from('profiles')
@@ -14,7 +22,7 @@ export default async function UsuariosPage() {
     .eq('id', user?.id)
     .single()
 
-  const isAuthorized = profile?.role === 'super_admin'
+  const isAuthorized = !!user && ehPapelGestor(profile?.role)
 
   if (!isAuthorized) {
     return (
@@ -28,8 +36,29 @@ export default async function UsuariosPage() {
     )
   }
 
-  // 2. Fetch profiles with new multi-assignment structure
-  const { data: profiles } = await supabase
+  // 2. Escopo de quem está gerenciando. Só o RH da Unidade é limitado por unidade — para
+  // Administrador Geral e RH Geral a lista fica vazia porque o alcance deles não é por unidade.
+  const gestor: Gestor = { id: user.id, role: profile!.role, unidades: [] }
+
+  if (gestor.role === 'rh_unidade') {
+    const { data: vinculos } = await supabase
+      .from('profile_unidades')
+      .select('unidade_id')
+      .eq('profile_id', user.id)
+    gestor.unidades = (vinculos || []).map(v => v.unidade_id)
+  }
+
+  const escopadoPorUnidade = gestor.role === 'rh_unidade'
+  // RH da Unidade sem nenhuma unidade vinculada não pode cair em "sem filtro": o `.in()` precisa
+  // de uma lista, e lista vazia no PostgREST não filtra nada.
+  const unidadesDoGestor = gestor.unidades.length > 0
+    ? gestor.unidades
+    : ['00000000-0000-0000-0000-000000000000']
+
+  // 3. Perfis — pelo client ADMIN de propósito: a policy "Users can view own profile" só deixa o
+  // super_admin ler a tabela inteira, então com a sessão do RH esta consulta devolveria uma linha
+  // só (a dele). Quem restringe a lista é o filtro de escopo do passo 8, não a RLS.
+  const { data: profiles } = await supabaseAdmin
     .from('profiles')
     .select(`
       *,
@@ -38,26 +67,32 @@ export default async function UsuariosPage() {
     `)
     .order('full_name')
 
-  // 3. Fetch auth users to get emails
-  const { data: { users: authUsers } } = await supabaseAdmin.auth.admin.listUsers()
+  // 3b. Contas do Auth (de onde vêm os e-mails). Paginado: `listUsers()` cru para em 50 e não
+  // avisa — com 63 contas, 13 pessoas simplesmente não apareciam nesta tela.
+  const authUsers = await listarTodosUsuariosAuth(supabaseAdmin)
 
-  // 5. Fetch units for dropdown
-  const { data: unidades } = await supabase
-    .from('unidades')
-    .select('id, nome')
-    .order('nome')
+  // 5. Unidades e setores oferecidos no formulário. O RH da Unidade só enxerga os dele — e o mapa
+  // setor→unidade sai daqui, então setor de fora fica desconhecido e é tratado como fora de
+  // escopo (a dúvida fecha, não abre).
+  let unidadesQuery = supabase.from('unidades').select('id, nome').order('nome')
+  if (escopadoPorUnidade) unidadesQuery = unidadesQuery.in('id', unidadesDoGestor)
+  const { data: unidades } = await unidadesQuery
 
-  const { data: sectorsRaw } = await supabase
+  let setoresQuery = supabase
     .from('setores')
     .select('id, unidade_id, parent_id, dicionario_setores(nome)')
-  
+  if (escopadoPorUnidade) setoresQuery = setoresQuery.in('unidade_id', unidadesDoGestor)
+  const { data: sectorsRaw } = await setoresQuery
+
   const setores = sectorsRaw?.map(s => ({
     ...s,
     nome: (s as any).dicionario_setores?.nome || 'SETOR SEM NOME'
   })) || []
 
+  const mapaSetorUnidade = new Map<string, string>(setores.map(s => [s.id, s.unidade_id]))
+
   // 6. Fetch active servers to link (with cargo and lotacao info)
-  const { data: servidoresRaw } = await supabase
+  let servidoresQuery = supabase
     .from('servidores')
     .select(`
       id, nome, email, matricula, cpf, cargo, vinculo, unidade_id, setor_id,
@@ -66,6 +101,8 @@ export default async function UsuariosPage() {
     `)
     .eq('status', 'Ativo')
     .order('nome')
+  if (escopadoPorUnidade) servidoresQuery = servidoresQuery.in('unidade_id', unidadesDoGestor)
+  const { data: servidoresRaw } = await servidoresQuery
 
   const servidores = servidoresRaw?.map((s: any) => ({
     id: s.id,
@@ -88,7 +125,7 @@ export default async function UsuariosPage() {
   const idsFaltando = idsVinculados.filter((sid: string) => !servidoresPorId.has(sid))
 
   if (idsFaltando.length > 0) {
-    const { data: extrasRaw } = await supabase
+    const { data: extrasRaw } = await supabaseAdmin
       .from('servidores')
       .select(`
         id, nome, email, matricula, cpf, cargo, vinculo, unidade_id, setor_id,
@@ -161,6 +198,17 @@ export default async function UsuariosPage() {
     }
   }).sort((a, b) => a.full_name.localeCompare(b.full_name))
 
+  // 8. O que este gestor enxerga — e, por consequência, administra: Administrador Geral nunca
+  // aparece para o RH, e o RH da Unidade só alcança conta cujo escopo cabe inteiro dentro das
+  // unidades dele. `alcancaUsuario` é a MESMA função que as server actions aplicam; esconder aqui
+  // é conveniência de tela, a defesa está lá (action é chamável direto).
+  const profilesVisiveis = profilesWithEmail.filter(p => alcancaUsuario(gestor, {
+    role: p.role,
+    acesso_todas_unidades: p.acesso_todas_unidades,
+    permitted_unidades: p.permitted_unidades,
+    permitted_setores: p.permitted_setores,
+  }, mapaSetorUnidade))
+
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between">
@@ -173,11 +221,12 @@ export default async function UsuariosPage() {
       </div>
 
       <UserManagementClient 
-        initialProfiles={profilesWithEmail}
+        initialProfiles={profilesVisiveis}
         unidades={unidades || []}
         setores={setores || []}
-        currentUserRole={profile.role}
+        currentUserRole={profile!.role}
         servidores={servidores || []}
+        podeExcluir={podeExcluirUsuarios(profile!.role)}
       />
     </div>
   )
