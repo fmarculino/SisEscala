@@ -64,3 +64,8 @@ relogio/
 
 # saida do tsc para o portao de gestaoUsuarios (scratchpad/sim_gestao_usuarios.js)
 scratchpad/_sim/
+
+# scratchpad: dado de producao com identificacao de servidor NAO entra no repo (e publico,
+# armadilha 18 do CLAUDE.md). Script pode; despejo com nome/matricula, nao.
+scratchpad/backup_reconciliacao_*.json
+scratchpad/reconciliar_agosto.json

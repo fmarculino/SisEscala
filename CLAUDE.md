@@ -1139,6 +1139,24 @@ cada turno, não no bloco. Três coisas não podem ser desfeitas:
   alocação, desempate em `fn_projecao_marcacoes_dia`). É o que faz a linha do plantão mostrar
   13:10 em vez de 07:04.
 
+⚠️ **SEM batida na fronteira, o par do bloco continua indo para TODAS as linhas — e isso é dupla
+contagem** (medido em 23/08/2026; plano em
+[`docs/planos/2026-08-23-turno-regular-emendado-com-plantao.md`](docs/planos/2026-08-23-turno-regular-emendado-com-plantao.md)).
+Regular `08:00–14:00` + Plantão `T 14:00–20:00`, duas batidas só (08:03 e 18:02): as duas linhas
+ficam `08:03 → 18:02`, a folha cobra **4h de extra** contra a jornada que acaba às 14:00, e o anexo
+já paga aquelas horas como plantão. **6h de jornada + 4h de extra + 6h de plantão para 10h
+trabalhadas.** Em 08/2026: **27 dias, 75h12** — AGNA (mat. 205), ANDRESA (54594), DORILENE (53612)
+e outros 4. `turnosDaFolha` (`origemMarcacao.ts`) exclui a linha do Plantão e **não basta**, porque
+quem carrega a saída errada é a própria linha Regular.
+
+⚠️ **Três coisas que só se descobrem medindo, e que mudam o conselho operacional:**
+
+| fato | consequência |
+|---|---|
+| `rep_janela_duplicidade_segundos = 60` descarta a 2ª batida em menos de 1 min | a regra folclórica de "sair, esperar 5 minutos e bater de novo" é margem de uma regra de **1 minuto**. Duas batidas às `14:00:00` (AGNA, dia 4) = a segunda some |
+| **`fn_confirmar_presenca` NÃO tem os slots de fronteira** — `20260819200000` só mexeu em `fn_blocos_previstos_dia`, `fn_alocar_marcacoes_dia` e `fn_projecao_marcacoes_dia` | no terminal a batida de transição é **recusada** (vira marcação pendente, que a reconciliação aproveita). Mandar o servidor bater na transição hoje é mandar ele levar recusa — e ele desiste (AGNA, dias 5, 6 e 7: nenhuma saída) |
+| `fn_salvar_saida_bloco` **FABRICA** os horários de transição a partir da escala (o comentário dela diz isso) | é por isso que ANDRESA tem `Regular 08:01 → 12:00` sem nunca ter batido às 12:00 — e a folha exibe origem **`real`**. 533 marcações `sintetica` de origem `terminal` em 08/2026, 244 já gravadas como presença. Parte é backfill de `20260808030000`, parte é fabricação viva. **Auditoria própria pendente** |
+
 **Sobreaviso não entra nessa conta.** Não é trabalho presencial, não marca presença e tem ciclo
 próprio em `logs_sobreaviso`. Agrava o fato de que o `start_hour` do Sobreaviso é alinhado ao fim
 do turno Regular (o 3º elemento do `COALESCE` de `start_hour` **não filtra por categoria**), então

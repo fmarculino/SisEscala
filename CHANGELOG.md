@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.9.0] - 2026-08-23
+
+Turno Regular emendado com Plantão: o passo do bloco deixa de ser copiado para todas as linhas dele, e uma batida solitária na transição passa a servir aos dois lados. Fim da dupla contagem que creditava 16h para 10h trabalhadas.
+
+Diário completo em [`docs/evolucao/2026-08-23-dono-do-passo-do-bloco.md`](docs/evolucao/2026-08-23-dono-do-passo-do-bloco.md); plano e medições em [`docs/planos/2026-08-23-turno-regular-emendado-com-plantao.md`](docs/planos/2026-08-23-turno-regular-emendado-com-plantao.md).
+
+### Fixed
+- **O passo do bloco pertence a UM turno (`fn_projecao_marcacoes_dia`, migration `20260823100000`)**:
+  - Turnos encostados fundem num bloco só (armadilha 6) e a projeção gravava o par entrada/saída do **bloco** em **todas** as linhas dele. Com duas batidas apenas (entrar e sair), a linha do **Regular** recebia a saída do **Plantão** — e a folha cobrava aquelas horas como **hora extra**, enquanto o anexo de plantões já as pagava. Caso real: AGNA CRISTINA RIBEIRO DO ROSÁRIO (mat. 205, LACEM), jornada `08H ÀS 14H` + Plantão `T`, dias 10 a 12 de 08/2026 — `EXTRA 04:03 (50%)` sobre um plantão de 6h.
+  - Agora a **entrada** do bloco alcança só a linha do **primeiro** turno, a **saída** só a do **último**, e o **intervalo** só a do turno cuja janela o contém. Critério **posicional**, sem tolerância de horário nova.
+  - **Nada é fabricado.** Sem batida na fronteira, a saída do expediente fica **vazia** e vira pendência de revisão — decisão explícita: o sistema não preenche onde o servidor **tem** como registrar (vedação 2 da Portaria 671/2021).
+  - Bloco `Regular + Extra` é **neutro** na folha: `turnosDaFolha` mantém as duas linhas e o `min(entrada)/max(saída)` dá o mesmo resultado de antes.
+- **Batida solitária na transição espelha para o slot irmão (`fn_alocar_marcacoes_dia`)**:
+  - Os dois slots de uma fronteira são previstos no mesmo instante, mas o alinhamento é 1-para-1: uma batida ocupava um só. Quem batia **uma** vez na transição fechava o turno e não abria o seguinte, e o plantão voltava a exibir a entrada do expediente (AGNA, dias 3 e 4).
+  - Isso encerra a regra folclórica de **"sair, esperar uns 5 minutos e bater de novo"**. O número real nunca foi 5 minutos: era **1 minuto**, o `rep_janela_duplicidade_segundos = 60` que descartava a segunda batida como duplicada — no dia 4 havia duas batidas às `14:00:00` e a segunda sumiu. Agora **uma** batida basta; duas continuam valendo mais e não regridem.
+  - `fn_alocar_marcacoes_dia` passa a devolver a chave **`turnos`** (aditiva), com a ordem e a janela de cada turno do bloco.
+- **Linha que perde todos os passos continua na projeção, com tudo nulo**: `fn_reconciliar_marcacoes_dia` grava a projeção inteira, nulos inclusive, **mas só alcança as linhas que a projeção devolve**. Sem isso a linha do Plantão de um dia em que só houve entrada ficaria para sempre com a entrada do expediente.
+
+### Changed
+- `CLAUDE.md`, armadilha 6: registrados os três fatos que mudam o conselho operacional — a janela de duplicidade de 60 s, `fn_confirmar_presenca` **não** ter os slots de fronteira (a batida de transição é recusada no terminal, vira marcação pendente e só a reconciliação a aproveita), e `fn_salvar_saida_bloco` **fabricar** os horários de transição a partir da escala.
+
+### Produção — 08/2026
+- Portão sobre os **283 dias** com 2+ turnos no mesmo dia: **0** linhas invertidas e **0** durações impossíveis na projeção.
+- Reconciliação **restrita aos 131 dias medidos** (19 servidores), nunca em massa, com backup do estado anterior antes de qualquer escrita: **176 linhas** de `escala_diaria` alteradas.
+- Hora extra nos 27 dias com plantão escalado: de **75h12** para **3h21**. Saldo nos 131 dias reconciliados: **26h a menos**.
+- Auditoria de piora: **nenhuma real**. Os dias que "perdem a saída" perdiam horário **fabricado** ou uma saída que pertence ao Plantão; os que "ganham extra" são turnos **Extra escalados** que a folha, num snapshot anterior ao `turnosDaFolha` de 19/08, não tinha.
+- **06/2026 e 07/2026 não foram tocadas.**
+
+### Pendente
+- **Auditoria das marcações sintéticas**: `fn_salvar_saida_bloco` fabrica horário de transição e a folha o exibe com origem `real`. Em 08/2026 são **533** marcações `sintetica` de origem `terminal`, 51 servidores, **244 já gravadas como presença**.
+- **O terminal ainda recusa a batida de transição** (`fn_confirmar_presenca` sem slots de fronteira) — a batida não se perde, mas o servidor vê recusa e deixa de bater.
+- **Reclassificar batida real entre linhas do mesmo dia**: `fn_reclassificar_passo_presenca` só move entre passos da **mesma** linha.
+
 ## [2.8.0] - 2026-08-22
 
 Gestão de usuários liberada para os dois perfis de RH — com autorização de verdade nas server actions, que até aqui não existia — e o intervalo intrajornada do plantão deixando de ser herdado da jornada Regular do servidor.
