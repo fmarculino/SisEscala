@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2.13.0] - 2026-08-23
+## [2.13.1] - 2026-08-23
 
 ### Added
 - **Painel público de acompanhamento da implantação** — `/implantacao`. Link aberto, sem login, para a diretoria e a Secretaria acompanharem a chegada do ponto digital às unidades.
@@ -11,6 +11,8 @@ All notable changes to this project will be documented in this file.
   - Mostra o funil da implantação (operando / em preparação / cadastrada), relógios ativos e data de ativação, servidores e setores por unidade, evolução mensal dos registros de ponto por origem, e o cronograma com os marcos de **01/09** (produção oficial) e **30/11** (cobertura total, incluindo a zona rural).
   - Gráficos em **SVG e CSS puros** — sem biblioteca nova para manter.
   - ⚠️ **Só dado agregado.** A consulta vive em `src/app/implantacao/dados.ts`, a única porta, e não devolve nome, matrícula, CPF nem horário de servidor. A página é aberta: o que não puder ser mostrado numa reunião de diretoria não pode ser consultado ali. Nome de unidade é informação pública; nome de pessoa, não.
+  - **Ranking de uso** por unidade na competência corrente: volume de registros e **adesão** (fatia dos servidores escalados que efetivamente registrou ponto). Contagem apenas — nenhum servidor é identificado.
+  - **Auditado contra o HTML publicado**, não só por desenho: os 500 servidores do cadastro foram cruzados com a página e **nenhum** nome, CPF, PIS, e-mail ou matrícula aparece. Só os 32 nomes de unidade, que são informação pública.
   - Entrou na lista de rotas que o middleware **não** redireciona para `/login` — sem isso a página aberta devolveria o formulário de login.
 
 ### Panorama na data (lido de produção)

@@ -26,6 +26,16 @@ export interface UnidadeStatus {
   fase: 'operando' | 'preparando' | 'cadastrada'
 }
 
+/** Ranking de uso real no mês corrente. Só contagem — nenhum servidor é identificado. */
+export interface UsoUnidade {
+  nome: string
+  registros: number
+  /** Quantos servidores distintos bateram ponto — número, nunca quem. */
+  servidoresAtivos: number
+  escalados: number
+  adesao: number
+}
+
 export interface PainelImplantacao {
   atualizadoEm: string
   unidades: UnidadeStatus[]
@@ -45,6 +55,7 @@ export interface PainelImplantacao {
   marcacoesPorMes: { mes: string; total: number; rep: number; terminal: number; ajuste: number }[]
   escalasPorMes: { mes: string; total: number }[]
   ativacoes: { data: string; unidade: string }[]
+  ranking: UsoUnidade[]
 }
 
 const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
@@ -100,6 +111,27 @@ export async function obterPainel(): Promise<PainelImplantacao> {
       }
     })
   )
+
+  // Uso real do mês corrente, por unidade. `marcacoes_ponto` já carrega unidade_id, então o
+  // ranking sai de uma consulta só — e devolve CONTAGEM, nunca a lista de quem bateu.
+  const compAtual = comps[comps.length - 1]
+  const iniAtual = `${compAtual.ano}-${String(compAtual.mes).padStart(2, '0')}-01`
+  const proxAtual = new Date(compAtual.ano, compAtual.mes, 1)
+  const fimAtual = `${proxAtual.getFullYear()}-${String(proxAtual.getMonth() + 1).padStart(2, '0')}-01`
+  const { data: marcAtual } = await supabase
+    .from('marcacoes_ponto')
+    .select('unidade_id, servidor_id')
+    .gte('ocorrido_em', iniAtual)
+    .lt('ocorrido_em', fimAtual)
+
+  const usoPorUn = new Map<string, { n: number; servs: Set<string> }>()
+  for (const m of (marcAtual || []) as any[]) {
+    if (!m.unidade_id) continue
+    if (!usoPorUn.has(m.unidade_id)) usoPorUn.set(m.unidade_id, { n: 0, servs: new Set() })
+    const u = usoPorUn.get(m.unidade_id)!
+    u.n++
+    if (m.servidor_id) u.servs.add(m.servidor_id)
+  }
 
   const afd = await contar(supabase, 'rep_afd_registros')
   const sincronizacoes = await contar(supabase, 'rep_sincronizacoes')
@@ -180,5 +212,19 @@ export async function obterPainel(): Promise<PainelImplantacao> {
       total: (escalas[i].data || []).length,
     })),
     ativacoes,
+    ranking: (unidades || [])
+      .filter((u: any) => u.ativo !== false && usoPorUn.has(u.id))
+      .map((u: any): UsoUnidade => {
+        const uso = usoPorUn.get(u.id)!
+        const esc = escaladosPorUn.get(u.id)?.size || 0
+        return {
+          nome: u.nome,
+          registros: uso.n,
+          servidoresAtivos: uso.servs.size,
+          escalados: esc,
+          adesao: esc > 0 ? Math.min(100, Math.round((uso.servs.size / esc) * 100)) : 0,
+        }
+      })
+      .sort((a, b) => b.registros - a.registros),
   }
 }

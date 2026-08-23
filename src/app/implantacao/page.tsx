@@ -1,4 +1,4 @@
-import { obterPainel, type UnidadeStatus } from './dados'
+import { obterPainel, type UnidadeStatus, type UsoUnidade } from './dados'
 import { formatarData, formatarDataHora } from '@/utils/horario'
 
 /**
@@ -195,6 +195,34 @@ export default async function PainelImplantacao() {
           </div>
         </section>
 
+        {p.ranking.length > 0 && (
+          <section className="bloco largo">
+            <h2>Ranking de uso <span className="cont">competência atual</span></h2>
+            <p className="bloco-sub">Unidades ordenadas pelo volume de registros de ponto no mês. <strong>Adesão</strong> é a fatia dos servidores escalados que efetivamente registrou ponto.</p>
+            <ol className="rank">
+              {p.ranking.slice(0, 12).map((u: UsoUnidade, i: number) => {
+                const maxR = p.ranking[0].registros || 1
+                return (
+                  <li key={u.nome} className={i < 3 ? 'top' : ''}>
+                    <span className="pos">{i + 1}</span>
+                    <div className="rank-corpo">
+                      <div className="rank-topo">
+                        <strong>{u.nome}</strong>
+                        <span className="rank-n">{nf(u.registros)} <i>registros</i></span>
+                      </div>
+                      <div className="rank-barra"><span style={{ width: `${Math.max(3, (u.registros / maxR) * 100)}%` }} /></div>
+                      <div className="rank-pe">
+                        {u.servidoresAtivos} servidor{u.servidoresAtivos === 1 ? '' : 'es'} registrando
+                        {u.escalados > 0 && <> · <b>{u.adesao}%</b> de adesão</>}
+                      </div>
+                    </div>
+                  </li>
+                )
+              })}
+            </ol>
+          </section>
+        )}
+
         <section className="bloco largo">
           <h2>Unidades <span className="cont">{t.unidades}</span></h2>
           <div className="cards">
@@ -302,6 +330,25 @@ export default async function PainelImplantacao() {
         .card dt{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.07em;font-weight:700}
         .card dd{margin:2px 0 0;font-size:18px;font-weight:800;letter-spacing:-.02em}
         .card-pe{margin:12px 0 0;font-size:11px;color:var(--dim);padding-top:10px;border-top:1px solid rgba(255,255,255,.07)}
+        .rank{list-style:none;margin:18px 0 0;padding:0;display:grid;gap:10px;counter-reset:r}
+        .rank li{display:flex;gap:14px;align-items:flex-start;padding:14px 16px;border-radius:14px;
+          background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.08)}
+        .rank li.top{background:linear-gradient(100deg,rgba(34,211,238,.12),rgba(255,255,255,.03));
+          border-color:rgba(34,211,238,.28)}
+        .pos{flex:0 0 auto;width:30px;height:30px;border-radius:10px;display:grid;place-items:center;
+          font-size:14px;font-weight:800;background:rgba(255,255,255,.08);color:#94a3b8}
+        .rank li.top .pos{background:linear-gradient(140deg,#22d3ee,#0ea5e9);color:#052030;
+          box-shadow:0 8px 20px -8px rgba(34,211,238,.9)}
+        .rank-corpo{flex:1;min-width:0}
+        .rank-topo{display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;justify-content:space-between}
+        .rank-topo strong{font-size:14px;font-weight:700;line-height:1.3}
+        .rank-n{font-size:15px;font-weight:800;white-space:nowrap;color:#67e8f9}
+        .rank-n i{font-size:10px;font-weight:700;color:#64748b;font-style:normal;text-transform:uppercase;letter-spacing:.07em}
+        .rank-barra{height:7px;border-radius:99px;background:rgba(255,255,255,.07);margin:9px 0 7px;overflow:hidden}
+        .rank-barra span{display:block;height:100%;border-radius:99px;
+          background:linear-gradient(90deg,#22d3ee,#a78bfa)}
+        .rank-pe{font-size:11px;color:var(--dim)}
+        .rank-pe b{color:#6ee7b7}
         .rodape{margin-top:34px;padding-top:22px;border-top:1px solid rgba(255,255,255,.09);
           font-size:12px;color:var(--dim);display:grid;gap:5px}
         .rodape strong{color:var(--txt)}
