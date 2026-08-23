@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.10.1] - 2026-08-23
+
+### Added
+- **`POST /api/folha-ponto/regerar-competencia`** — regera as folhas de uma competência inteira em lote, reusando `executeGerarFolhaPonto` (a mesma função da tela e do cron; nenhuma regra de folha é reescrita).
+  - `folha_ponto.registros` é um snapshot jsonb: corrigir a escala **não** corrige a folha. Depois de uma correção de dados ampla, alguém precisa regerar — e a tela só regera a unidade filtrada, exigindo de um perfil irrestrito escolher uma unidade antes de listar. "Regerar o município" viravam dezenas de cliques.
+  - **Só mexe em folha `Rascunho`.** `Gerada`/`Revisada`/`Fechada` são puladas e reportadas: regerar uma folha revisada como rascunho a rebaixaria, perdendo o trabalho do coordenador em silêncio.
+  - **Ensaio por padrão** — sem `{"aplicar": true}` no corpo, apenas relata quantas seriam regeradas.
+  - Autoriza por `CRON_SECRET` ou `SUPABASE_SERVICE_ROLE_KEY` (comparação de tempo constante). A segunda não amplia privilégio: quem a possui já escreve direto em `folha_ponto` pelo PostgREST. **Sem nenhuma das duas no ambiente, devolve 500** — nunca um segredo embutido (armadilha 18).
+
 ## [2.10.0] - 2026-08-23
 
 Fuso horário único em todo o sistema, vindo da configuração global. A mesma batida deixa de aparecer com horários diferentes conforme o computador de quem abre a tela.
