@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
+import { lerLimitesTolerancia, minutosEntre, toleranciaAbsorve, TOLERANCIA_CLT, type LimitesTolerancia } from '@/utils/folha/toleranciaExtra'
 import { formatarData, formatarHoraComSegundos } from '@/utils/horario'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -71,6 +72,14 @@ export function FolhaPontoEditor({
 }: FolhaPontoEditorProps) {
   const router = useRouter()
   const [instituicaoCabecalhoUrl, setInstituicaoCabecalhoUrl] = useState<string>('')
+  /**
+   * Limites da tolerância do Art. 58 §1º da CLT. O default é o da própria lei: se a leitura
+   * falhar (o Portal autentica por PIN, não por Supabase Auth, e a RLS de `configuracoes_globais`
+   * só libera a tabela para `authenticated`), a tela usa o mesmo valor que a geração usaria —
+   * nunca fica sem tolerância enquanto o servidor aplica uma, que faria o valor da folha mudar
+   * só por alguém tocar na célula.
+   */
+  const [limitesTolerancia, setLimitesTolerancia] = useState<LimitesTolerancia>(TOLERANCIA_CLT)
   const [closedPeriods, setClosedPeriods] = useState<any[]>([])
   const supabase = createClient()
 
@@ -90,6 +99,12 @@ export function FolhaPontoEditor({
       if (logoData?.valor) {
         setInstituicaoCabecalhoUrl(logoData.valor)
       }
+
+      const { data: cfgTolerancia } = await supabase
+        .from('configuracoes_globais')
+        .select('chave, valor')
+        .in('chave', ['tolerancia_extra_minutos_por_marcacao', 'tolerancia_extra_minutos_diaria'])
+      if (cfgTolerancia?.length) setLimitesTolerancia(lerLimitesTolerancia(cfgTolerancia))
 
       const { data: closedData } = await supabase
         .from('configuracoes_globais')
@@ -318,6 +333,19 @@ export function FolhaPontoEditor({
       }
       
       if (realExit <= scheduledExit) {
+        return { minutes: 0, type: null }
+      }
+
+      // TOLERÂNCIA DO ART. 58 §1º DA CLT — limiar, não franquia (Súmula 366 do TST).
+      // Precisa ser a MESMA conta da geração: se a tela calculasse diferente, o valor da folha
+      // mudaria só por alguém tocar na célula — o defeito que a exigência de entrada já corrigiu
+      // em 21/08/2026. Ver src/utils/folha/toleranciaExtra.ts.
+      const realEntrance = new Date(`${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(entH).padStart(2, '0')}:${String(entM).padStart(2, '0')}:00-03:00`)
+      if (toleranciaAbsorve({
+        excedenteSaidaMin: minutosEntre(realExit, scheduledExit),
+        antecipacaoEntradaMin: minutosEntre(scheduledEntrance, realEntrance),
+        limites: limitesTolerancia,
+      })) {
         return { minutes: 0, type: null }
       }
 

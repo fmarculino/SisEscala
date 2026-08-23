@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient, createAdminClient } from '@/utils/supabase/server'
+import { lerLimitesTolerancia, minutosEntre, toleranciaAbsorve } from '@/utils/folha/toleranciaExtra'
 import { definirTimezone, formatarHora } from '@/utils/horario'
 import { cookies } from 'next/headers'
 import { unstable_cache, revalidatePath } from 'next/cache'
@@ -1086,6 +1087,14 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
       .maybeSingle()
     const timezone = (configTimezone?.valor as string) || 'America/Sao_Paulo'
     definirTimezone(timezone)
+
+    // Tolerancia de variacao de horario (CLT Art. 58 §1º). Configuravel porque regra local pode
+    // divergir; ausente, cai no default da CLT. Ver src/utils/folha/toleranciaExtra.ts.
+    const { data: cfgTolerancia } = await supabase
+      .from('configuracoes_globais')
+      .select('chave, valor')
+      .in('chave', ['tolerancia_extra_minutos_por_marcacao', 'tolerancia_extra_minutos_diaria'])
+    const limitesTolerancia = lerLimitesTolerancia(cfgTolerancia)
     const nowLocal = new Date(new Date().toLocaleString('en-US', { timeZone: timezone }))
     const currentYear = nowLocal.getFullYear()
     const currentMonth = nowLocal.getMonth() + 1
@@ -1434,7 +1443,18 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
         // entrada; a geracao era a unica que nao exigia, e por isso a mesma folha mudava de
         // valor so por alguem tocar na celula na tela. Medido em producao em 21/08/2026:
         // 31 dias, 12h16 de extra, em 27 folhas de agosto (junho e julho: zero).
-        if (evalExit && registro.entrada && evalExit > effectiveScheduledExit) {
+        // TOLERANCIA DO ART. 58 §1º DA CLT — limiar, nao franquia (Sumula 366 do TST): dentro do
+        // limite nao ha hora extra nenhuma; fora dele, computa-se a TOTALIDADE do excedente.
+        // A antecipacao da entrada entra so na decisao, nunca no valor pago.
+        const excedenteSaidaMin = minutosEntre(evalExit, effectiveScheduledExit)
+        const antecipacaoEntradaMin = minutosEntre(scheduledEntrance, realEntradaTime)
+        const absorvidoPelaTolerancia = toleranciaAbsorve({
+          excedenteSaidaMin,
+          antecipacaoEntradaMin,
+          limites: limitesTolerancia,
+        })
+
+        if (evalExit && registro.entrada && evalExit > effectiveScheduledExit && !absorvidoPelaTolerancia) {
           let extra50Min = 0
           let extra100Min = 0
 
@@ -1613,6 +1633,14 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
       .maybeSingle()
     const timezone = (configTimezone?.valor as string) || 'America/Sao_Paulo'
     definirTimezone(timezone)
+
+    // Tolerancia de variacao de horario (CLT Art. 58 §1º). Configuravel porque regra local pode
+    // divergir; ausente, cai no default da CLT. Ver src/utils/folha/toleranciaExtra.ts.
+    const { data: cfgTolerancia } = await supabase
+      .from('configuracoes_globais')
+      .select('chave, valor')
+      .in('chave', ['tolerancia_extra_minutos_por_marcacao', 'tolerancia_extra_minutos_diaria'])
+    const limitesTolerancia = lerLimitesTolerancia(cfgTolerancia)
     const nowLocal = new Date(new Date().toLocaleString('en-US', { timeZone: timezone }))
     const currentYear = nowLocal.getFullYear()
     const currentMonth = nowLocal.getMonth() + 1
@@ -2019,7 +2047,18 @@ export async function gerarFolhaPontoServidor(servidorId: string, mes: number, a
         // entrada; a geracao era a unica que nao exigia, e por isso a mesma folha mudava de
         // valor so por alguem tocar na celula na tela. Medido em producao em 21/08/2026:
         // 31 dias, 12h16 de extra, em 27 folhas de agosto (junho e julho: zero).
-        if (evalExit && registro.entrada && evalExit > effectiveScheduledExit) {
+        // TOLERANCIA DO ART. 58 §1º DA CLT — limiar, nao franquia (Sumula 366 do TST): dentro do
+        // limite nao ha hora extra nenhuma; fora dele, computa-se a TOTALIDADE do excedente.
+        // A antecipacao da entrada entra so na decisao, nunca no valor pago.
+        const excedenteSaidaMin = minutosEntre(evalExit, effectiveScheduledExit)
+        const antecipacaoEntradaMin = minutosEntre(scheduledEntrance, realEntradaTime)
+        const absorvidoPelaTolerancia = toleranciaAbsorve({
+          excedenteSaidaMin,
+          antecipacaoEntradaMin,
+          limites: limitesTolerancia,
+        })
+
+        if (evalExit && registro.entrada && evalExit > effectiveScheduledExit && !absorvidoPelaTolerancia) {
           let extra50Min = 0
           let extra100Min = 0
 

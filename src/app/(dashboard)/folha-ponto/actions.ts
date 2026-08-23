@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient, createAdminClient } from '@/utils/supabase/server'
+import { lerLimitesTolerancia, minutosEntre, toleranciaAbsorve } from '@/utils/folha/toleranciaExtra'
 import { definirTimezone, formatarHora } from '@/utils/horario'
 import { revalidatePath } from 'next/cache'
 import { registrarLog, calcularAlteracoes, calcularAlteracoesFolha } from '@/utils/auditoria'
@@ -417,6 +418,18 @@ export async function buscarServidoresFolhaPonto(termo: string, mes: number, ano
 
 // Generate (or regenerate) a timesheet for a server
 // Core logic to generate or regenerate a timesheet for a server (bypasses permission checks for admin/cron use)
+/**
+ * Limites da tolerancia do Art. 58 §1º da CLT, lidos da configuracao global.
+ * Ausentes, caem no default da propria lei (ver src/utils/folha/toleranciaExtra.ts).
+ */
+async function obterLimitesTolerancia(supabase: any) {
+  const { data } = await supabase
+    .from('configuracoes_globais')
+    .select('chave, valor')
+    .in('chave', ['tolerancia_extra_minutos_por_marcacao', 'tolerancia_extra_minutos_diaria'])
+  return lerLimitesTolerancia(data)
+}
+
 export async function executeGerarFolhaPonto(
   supabase: any,
   servidorId: string,
@@ -601,6 +614,8 @@ export async function executeGerarFolhaPonto(
       .maybeSingle()
     const timezone = (configTimezone?.valor as string) || 'America/Sao_Paulo'
     definirTimezone(timezone)
+
+    const limitesTolerancia = await obterLimitesTolerancia(supabase)
     const nowLocal = new Date(new Date().toLocaleString('en-US', { timeZone: timezone }))
     const currentYear = nowLocal.getFullYear()
     const currentMonth = nowLocal.getMonth() + 1
@@ -955,7 +970,18 @@ export async function executeGerarFolhaPonto(
         // entrada; a geracao era a unica que nao exigia, e por isso a mesma folha mudava de
         // valor so por alguem tocar na celula na tela. Medido em producao em 21/08/2026:
         // 31 dias, 12h16 de extra, em 27 folhas de agosto (junho e julho: zero).
-        if (evalExit && registro.entrada && evalExit > effectiveScheduledExit) {
+        // TOLERANCIA DO ART. 58 §1º DA CLT — limiar, nao franquia (Sumula 366 do TST): dentro do
+        // limite nao ha hora extra nenhuma; fora dele, computa-se a TOTALIDADE do excedente.
+        // A antecipacao da entrada entra so na decisao, nunca no valor pago.
+        const excedenteSaidaMin = minutosEntre(evalExit, effectiveScheduledExit)
+        const antecipacaoEntradaMin = minutosEntre(scheduledEntrance, realEntradaTime)
+        const absorvidoPelaTolerancia = toleranciaAbsorve({
+          excedenteSaidaMin,
+          antecipacaoEntradaMin,
+          limites: limitesTolerancia,
+        })
+
+        if (evalExit && registro.entrada && evalExit > effectiveScheduledExit && !absorvidoPelaTolerancia) {
           let extra50Min = 0
           let extra100Min = 0
           
@@ -1327,6 +1353,8 @@ export async function sincronizarFolhaPonto(folhaId: string) {
       .maybeSingle()
     const timezone = (configTimezone?.valor as string) || 'America/Sao_Paulo'
     definirTimezone(timezone)
+
+    const limitesTolerancia = await obterLimitesTolerancia(supabase)
     const nowLocal = new Date(new Date().toLocaleString('en-US', { timeZone: timezone }))
     const currentYear = nowLocal.getFullYear()
     const currentMonth = nowLocal.getMonth() + 1
@@ -1681,7 +1709,18 @@ export async function sincronizarFolhaPonto(folhaId: string) {
         // entrada; a geracao era a unica que nao exigia, e por isso a mesma folha mudava de
         // valor so por alguem tocar na celula na tela. Medido em producao em 21/08/2026:
         // 31 dias, 12h16 de extra, em 27 folhas de agosto (junho e julho: zero).
-        if (evalExit && registro.entrada && evalExit > effectiveScheduledExit) {
+        // TOLERANCIA DO ART. 58 §1º DA CLT — limiar, nao franquia (Sumula 366 do TST): dentro do
+        // limite nao ha hora extra nenhuma; fora dele, computa-se a TOTALIDADE do excedente.
+        // A antecipacao da entrada entra so na decisao, nunca no valor pago.
+        const excedenteSaidaMin = minutosEntre(evalExit, effectiveScheduledExit)
+        const antecipacaoEntradaMin = minutosEntre(scheduledEntrance, realEntradaTime)
+        const absorvidoPelaTolerancia = toleranciaAbsorve({
+          excedenteSaidaMin,
+          antecipacaoEntradaMin,
+          limites: limitesTolerancia,
+        })
+
+        if (evalExit && registro.entrada && evalExit > effectiveScheduledExit && !absorvidoPelaTolerancia) {
           let extra50Min = 0
           let extra100Min = 0
           
@@ -2577,7 +2616,8 @@ export async function autoCorrigirFolhaPonto(folhaId: string) {
     }
 
     const jornadaInfo = escala?.jornadas || null
-    const normalizacao = normalizarRegistrosFolha(folha.registros, folha.mes, folha.ano, jornadaInfo)
+    const limitesTolerancia = await obterLimitesTolerancia(supabase)
+    const normalizacao = normalizarRegistrosFolha(folha.registros, folha.mes, folha.ano, jornadaInfo, limitesTolerancia)
 
     // Recalcular totais consolidados da folha
     const horasNormaisDiarias = jornadaInfo?.horas_totais ?? 8
@@ -2667,6 +2707,8 @@ export async function autoCorrigirTodasFolhasPonto(mes?: number, ano?: number) {
       .from('jornadas')
       .select('nome, horas_totais')
     const cargaPorJornada = montarCargaPorJornada(todasJornadasLote)
+    // Fora do laço pelo mesmo motivo: a tolerância é global, não muda por folha.
+    const limitesTolerancia = await obterLimitesTolerancia(supabase)
 
     let totalFolhasCorrigidas = 0
     let totalDiasCorrigidos = 0
@@ -2677,7 +2719,7 @@ export async function autoCorrigirTodasFolhasPonto(mes?: number, ano?: number) {
 
       const escala = folha.escala_mensal as any
       const jornadaInfo = escala?.jornadas || null
-      const normalizacao = normalizarRegistrosFolha(folha.registros, folha.mes, folha.ano, jornadaInfo)
+      const normalizacao = normalizarRegistrosFolha(folha.registros, folha.mes, folha.ano, jornadaInfo, limitesTolerancia)
 
       if (normalizacao.diasCorrigidos > 0) {
         const horasNormaisDiarias = jornadaInfo?.horas_totais ?? 8

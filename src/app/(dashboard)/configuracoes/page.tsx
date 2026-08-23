@@ -762,6 +762,52 @@ export default function ConfigPage() {
           </div>
         </div>
 
+            {/*
+              Tolerância do Art. 58 §1º da CLT. É um LIMIAR, não uma franquia (Súmula 366 do TST):
+              dentro do limite não há hora extra nenhuma; fora dele, computa-se a TOTALIDADE do
+              excedente. Zero nos dois campos desliga a tolerância. Ver
+              src/utils/folha/toleranciaExtra.ts e a migration 20260823120000.
+            */}
+        <div className="bg-white dark:bg-zinc-900 rounded-[2rem] border border-zinc-200 dark:border-zinc-800 p-8 shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex flex-col md:flex-row md:items-center gap-8">
+            <div className="p-4 bg-emerald-100 dark:bg-emerald-900/30 rounded-2xl text-emerald-600">
+              <Clock className="h-6 w-6" />
+            </div>
+            <div className="flex-1 space-y-1">
+              <h3 className="text-lg font-black text-zinc-900 dark:text-white uppercase tracking-tight">Tolerância de Variação no Registro de Ponto</h3>
+              <p className="text-sm text-zinc-500 leading-relaxed max-w-2xl">
+                Pequenas variações no horário não viram hora extra (CLT Art. 58 §1º). É um{' '}
+                <strong>limiar, não um desconto</strong>: dentro do limite não há hora extra; passando
+                dele, conta-se o <strong>tempo todo</strong> (Súmula 366 do TST). Ex.: sair 4 min depois → 0;
+                sair 12 min depois → 12 min. <strong>Zero nos dois campos desliga a tolerância.</strong>
+              </p>
+            </div>
+            <div className="flex items-center gap-3 bg-zinc-50 dark:bg-zinc-800 p-2 rounded-2xl border border-zinc-200 dark:border-zinc-700">
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Por marcação</span>
+                <input
+                  type="number"
+                  min={0}
+                  className="w-20 bg-white dark:bg-zinc-900 border-none rounded-xl px-3 py-3 text-lg focus:ring-2 focus:ring-blue-500 outline-none font-black text-center"
+                  value={String(getConfig('tolerancia_extra_minutos_por_marcacao')?.valor ?? 5)}
+                  onChange={(e) => updateConfig('tolerancia_extra_minutos_por_marcacao', Number(e.target.value))}
+                />
+              </div>
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">No dia</span>
+                <input
+                  type="number"
+                  min={0}
+                  className="w-20 bg-white dark:bg-zinc-900 border-none rounded-xl px-3 py-3 text-lg focus:ring-2 focus:ring-blue-500 outline-none font-black text-center"
+                  value={String(getConfig('tolerancia_extra_minutos_diaria')?.valor ?? 10)}
+                  onChange={(e) => updateConfig('tolerancia_extra_minutos_diaria', Number(e.target.value))}
+                />
+              </div>
+              <span className="pr-3 text-xs font-bold text-zinc-500 uppercase tracking-widest">min</span>
+            </div>
+          </div>
+        </div>
+
             {/* Inativação Automática */}
         <div className="bg-white dark:bg-zinc-900 rounded-[2rem] border border-zinc-200 dark:border-zinc-800 p-8 shadow-sm hover:shadow-md transition-shadow">
           <div className="flex flex-col md:flex-row md:items-center gap-8">

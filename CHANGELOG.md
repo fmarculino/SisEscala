@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.11.0] - 2026-08-23
+
+Tolerância de variação no registro de ponto (CLT Art. 58 §1º), configurável.
+
+### Added
+- **Tolerância de variação no registro de ponto** — `src/utils/folha/toleranciaExtra.ts`, migration `20260823120000`, editável em Configurações → Regras.
+  - Padrão da lei: **5 min por marcação, 10 min no dia**. **Zero nos dois desliga**, voltando ao comportamento anterior (cada minuto além da jornada virava hora extra).
+  - ⚠️ **É um limiar, não uma franquia.** Súmula 366 do TST: ultrapassado o limite, computa-se a **totalidade** do excedente. Sair 4 min depois → 0; sair 12 min depois → **12 min**, não 2. Medido sobre 08/2026: como limiar deixa de pagar **18h24**; como franquia deixaria de pagar 120h55 — a diferença de 102h31 é o tamanho do erro de leitura.
+  - **Os dois limites valem juntos.** Chegar 4 min antes e sair 4 min depois (8 min no dia) é tolerado; sair 8 min depois, sozinho, não é — estoura os 5 daquela marcação. É o que a lei diz, e é por isso que os dois parâmetros existem.
+  - ⚠️ **A antecipação da entrada entra só na decisão, nunca no valor pago.** O SisEscala computa hora extra apenas pelo excedente da saída; ignorar a entrada faria um dia de 4+4 ser tolerado com o mesmo critério de um dia de 4 apenas.
+  - Configurável porque o regime local pode divergir: o RJU de Marabá (Lei 17.331/2008) não disciplina tolerância, e a CLT vale subsidiariamente — a mesma lógica já aplicada ao intervalo intrajornada.
+  - Aplicada nos **6 sítios** que calculam hora extra: as 4 cópias da geração, a auto-correção (`normalizarRegistrosFolha`) e a tela (`recalculateOvertimeForDay`). A tela precisa usar a mesma conta, senão o valor da folha muda só por alguém tocar na célula — o defeito corrigido em 21/08/2026.
+  - Portão: `node scratchpad/sim_tolerancia_extra.js` — 24 casos (limites, desligamento, leitura de config, valor inválido, negativo e zero).
+
+### Efeito
+- **Não recalcula folha nenhuma.** O efeito aparece na próxima geração/sincronização/auto-correção. Sobre 08/2026 seriam 485h11 → 466h47.
+
 ## [2.10.2] - 2026-08-23
 
 ### Added

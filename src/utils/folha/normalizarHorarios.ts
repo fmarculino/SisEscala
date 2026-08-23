@@ -9,6 +9,8 @@
  * 5. Recálculo limpo de horas extras sem loops anômalos de múltiplos dias.
  */
 
+import { toleranciaAbsorve, type LimitesTolerancia } from './toleranciaExtra'
+
 import { sequenciarDia } from './sequenciaDia'
 
 export interface NormalizacaoResult {
@@ -34,7 +36,13 @@ export function normalizarRegistrosFolha(
   registros: any[],
   mes: number,
   ano: number,
-  jornadaPadrao?: { nome?: string; horas_totais?: number; intervalo_minutos?: number }
+  jornadaPadrao?: { nome?: string; horas_totais?: number; intervalo_minutos?: number },
+  /**
+   * Tolerância do Art. 58 §1º da CLT. Ausente, usa o default da própria lei — a auto-correção
+   * NUNCA pode devolver hora extra maior que a geração devolveria, senão o botão "Auto-Corrigir"
+   * passaria a criar verba que a folha regerada não tem.
+   */
+  limitesTolerancia?: LimitesTolerancia | null
 ): NormalizacaoResult {
   if (!Array.isArray(registros) || registros.length === 0) {
     return { registros: registros || [], diasCorrigidos: 0, detalhes: [] }
@@ -241,9 +249,18 @@ export function normalizarRegistrosFolha(
 
       if (realExitMin > scheduledExitMin) {
         const extraMin = realExitMin - scheduledExitMin
+        // TOLERÂNCIA DO ART. 58 §1º DA CLT — limiar, não franquia (Súmula 366 do TST).
+        // A antecipação da entrada entra só na decisão, nunca no valor pago.
+        const absorvido = toleranciaAbsorve({
+          excedenteSaidaMin: extraMin,
+          antecipacaoEntradaMin: Math.max(0, startMinOfficial - eM),
+          limites: limitesTolerancia,
+        })
         // Trava para evitar números anômalos (> 12h de extra num único dia)
-        r.hora_extra_minutos = Math.min(extraMin, 12 * 60)
-        r.hora_extra_tipo = (isNoturno || eM >= 22 * 60 || sM < 5 * 60) ? '100%' : '50%'
+        r.hora_extra_minutos = absorvido ? 0 : Math.min(extraMin, 12 * 60)
+        r.hora_extra_tipo = absorvido
+          ? null
+          : (isNoturno || eM >= 22 * 60 || sM < 5 * 60) ? '100%' : '50%'
       } else {
         r.hora_extra_minutos = 0
         r.hora_extra_tipo = null
