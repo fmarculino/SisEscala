@@ -66,7 +66,9 @@ const iniJ = n => { const i = (n || '').match(/^([0-9]+)/); return i ? Number(i[
 
     const uteis = g.linhas.filter(l => l.categoria !== 'Sobreaviso')
     const temReg = uteis.some(l => l.categoria === 'Regular')
-    const daFolha = temReg ? uteis.filter(l => l.categoria === 'Regular' || l.categoria === 'Extra') : uteis
+    // dia sem turno Regular nao entra no ramo "Work day!" do gerador: sem horario, sem extra.
+    if (!temReg) continue
+    const daFolha = uteis.filter(l => l.categoria === 'Regular' || l.categoria === 'Extra')
     const fim = fimJ(g.jornada), ini = iniJ(g.jornada)
     let e = null, s = null
     for (const l of daFolha) {

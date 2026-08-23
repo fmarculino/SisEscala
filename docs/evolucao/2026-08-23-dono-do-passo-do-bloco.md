@@ -99,6 +99,28 @@ Auditoria de piora nos 131 dias reconciliados: **nenhuma real.**
 
 Saldo nos 131 dias: **26h de hora extra a menos**.
 
+## Regeneração das folhas — o passo que falta, e o alcance dele
+
+`escala_diaria` está corrigida; **`folha_ponto` não**, porque é um snapshot jsonb (armadilha do
+19/08). O caminho é o botão **"Gerar Rascunhos"** em `/folha-ponto` (`gerarFolhasEmLote` com
+`forcarRascunho`), que regenera a competência inteira.
+
+⚠️ **O efeito líquido de regerar 08/2026 inteira é +44h53 de hora extra**, não uma redução. Isso
+não é regressão: a folha estava num snapshot antigo e **não tinha os dias 13 a 22**. Regerar traz
+os horários reais desses dias — e com eles a hora extra que eles de fato produzem (IZABELLA, `07H
+ÀS 16H` + Extra 2h escalado; HOLDA, `13:49 → 18:07`). As 59h45 de dupla contagem com plantão já
+estão embutidas nesse saldo.
+
+⚠️ **Erro de medição corrigido no meio desta sessão, registrado para não se repetir.** A primeira
+simulação da regeneração deu **+134h02** e apontou um suposto segundo defeito — "dia com Plantão e
+sem Regular contando o plantão inteiro como hora extra", 89h09 em 25 dias. **Não existe.** O
+gerador tem um ramo `else if (!shift)` (`shift` = a linha **Regular** do dia) que manda o dia sem
+turno Regular para SÁBADO/DOMINGO/FOLGA: ele não recebe horário **nem** hora extra. A simulação
+não replicava esse ramo e inflava a conta em 89h. Com o ramo replicado, o número é 44h53.
+
+**Ao simular a folha por fora, replique os ramos do gerador, não só a consolidação de horários.**
+`totalHorasNormais`, hora extra e observação vivem todos dentro do `else { /* Work day! */ }`.
+
 ## Achados registrados, sem correção nesta rodada
 
 ⚠️ **`fn_salvar_saida_bloco` FABRICA** os horários de transição a partir da escala — o comentário

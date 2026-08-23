@@ -39,6 +39,7 @@ const fimJ = n => {
 const iniJ = n => { const i = (n || '').match(/^([0-9]+)/); return i ? Number(i[1]) * 60 : null }
 
 ;(async () => {
+  const TODAS = process.argv.includes('--todas')
   const lista = JSON.parse(fs.readFileSync(path.join(__dirname, 'reconciliar_agosto.json'), 'utf8'))
   const alvo = new Set(lista.map(l => l.servidor_id + '|' + l.dia))
   const em = await page('escala_mensal?select=id,servidor_id,jornadas(nome)&mes=eq.8&ano=eq.2026')
@@ -52,7 +53,7 @@ const iniJ = n => { const i = (n || '').match(/^([0-9]+)/); return i ? Number(i[
     grupos.get(k).linhas.push(d)
   }
   const fp = await page('folha_ponto?select=servidor_id,registros&mes=eq.8&ano=eq.2026')
-  const sids = [...new Set(lista.map(l => l.servidor_id))]
+  const sids = [...new Set(TODAS ? fp.map(f => f.servidor_id) : lista.map(l => l.servidor_id))]
   const servs = []
   for (let i = 0; i < sids.length; i += 100) servs.push(...await page('servidores?select=id,nome,matricula&id=in.(' + sids.slice(i, i + 100).join(',') + ')'))
   const N = new Map(servs.map(s => [s.id, s]))
@@ -61,11 +62,14 @@ const iniJ = n => { const i = (n || '').match(/^([0-9]+)/); return i ? Number(i[
   const piores = []
   for (const f of fp) for (const r of (f.registros || [])) {
     const k = f.servidor_id + '|' + r.dia
-    if (!alvo.has(k)) continue
+    if (!TODAS && !alvo.has(k)) continue
     const g = grupos.get(k); if (!g) continue
     const uteis = g.linhas.filter(l => l.categoria !== 'Sobreaviso')
     const temReg = uteis.some(l => l.categoria === 'Regular')
-    const daFolha = temReg ? uteis.filter(l => l.categoria === 'Regular' || l.categoria === 'Extra') : uteis
+    // executeGerarFolhaPonto: `else if (!shift)` -> dia SEM turno Regular cai como
+    // SABADO/DOMINGO/FOLGA e nao recebe horario NEM hora extra. Nao simular isso inflava a conta.
+    if (!temReg) continue
+    const daFolha = uteis.filter(l => l.categoria === 'Regular' || l.categoria === 'Extra')
     let e = null, s = null
     for (const l of daFolha) {
       const x = l[COL.entrada], y = l[COL.saida]
@@ -90,7 +94,7 @@ const iniJ = n => { const i = (n || '').match(/^([0-9]+)/); return i ? Number(i[
     } else if (eB < eA || (r.entrada || '') !== HHMM(e) || (r.saida || '') !== HHMM(s)) melhora++
     else igual++
   }
-  console.log('### DIAS RECONCILIADOS x FOLHA REGERADA (' + lista.length + ' dias na lista)')
+  console.log('### FOLHA ATUAL x FOLHA REGERADA — ' + (TODAS ? 'TODAS as folhas de 08/2026' : lista.length + ' dias reconciliados'))
   console.log('  delta de hora extra: ' + hm(Math.abs(dExtra)) + (dExtra < 0 ? ' A MENOS' : ' A MAIS'))
   console.log('  dias que melhoram/mudam: ' + melhora + ' | iguais: ' + igual + ' | POSSIVEL PIORA: ' + piora)
   console.log('')
