@@ -1340,6 +1340,10 @@ tenta o vínculo primeiro, mas **cai para busca direta em `servidores` por CPF o
 acha. O vínculo continua tendo prioridade e continua sendo o que você deve popular antes de
 remover cadastro — mas **não é mais o que decide se a batida ganha dono**. Ver armadilha 13.
 
+⚠️ **E `p_vigente_de` nunca protegeu a queda para CPF/PIS.** Quem impede o histórico de um relógio
+reaproveitado de virar ponto daqui é `dispositivos_rep.ponto_valido_desde` (22/08/2026) — ver
+armadilha 20. Antes dela, 9.626 marcações de 2019–2025 de sete relógios já tinham ganhado dono.
+
 O identificador é o CPF preenchido a 12 posições. A inversa é `right(ident, 11)`, **nunca**
 `ltrim(ident, '0')`:
 
@@ -1668,13 +1672,69 @@ tinha batida dentro da vigência.
 Divergência medida nos 13 dispositivos: **0**. `fn_atualizar_biometria_vinculos` continua só
 ligando, nunca desligando.
 
-🚨 **Achado separado, sem correção, medido no mesmo dia: a resolução de identidade não tem
-vigência.** `fn_servidor_por_identificador_afd` cai para CPF/PIS **sem olhar a data da batida**,
-então o AFD inteiro de um relógio reaproveitado vira ponto atribuído já na ingestão —
-`p_vigente_de` só protege o caminho do *vínculo*, e a armadilha 10 fala dele como se fosse a única
-porta. No HMM-01 isso deu **3.715 marcações de 2021–2025 com dono**. **Nada projetou em folha** (só
-existe `escala_mensal` a partir de 07/2026, e zero dessas marcações é de 2026), mas a próxima
-instalação num relógio com histórico recente não teria essa sorte.
+ℹ️ O achado que esta seção registrava como "sem correção" — a resolução de identidade não ter
+vigência — virou a **armadilha 20**, logo abaixo.
+
+### 20. Relógio reaproveitado traz o ponto de outro sistema, e ele entrava por CPF/PIS (22/08/2026)
+
+⚠️ **A resolução de identidade não tinha vigência.** `fn_servidor_por_identificador_afd` cai para
+CPF e depois PIS (`20260818200000`, o que resolveu a SMS) **sem olhar a data da batida** —
+`p_vigente_de` só protege o caminho do **vínculo**, e a armadilha 10 fala dele como se fosse a
+única porta. Então o AFD inteiro de um equipamento reaproveitado virava ponto atribuído **já na
+ingestão**, sem erro nenhum:
+
+| relógio | marcações com dono anteriores ao cadastro | mais antiga |
+|---|---|---|
+| HMM-01 | 3.714 | 2021 |
+| USF-LARANJEIRAS | 2.362 | **2019** |
+| HMI-01 | 1.366 | 2021 |
+| USF-HIROSHI | 1.222 | 2023 |
+| USF-DAA · USF-PC · USF-JPA | 964 | 2021–2024 |
+
+**9.626 no total**, todas anteriores a 07/2026 — exatamente os sete relógios instalados em três
+dias. Não é resíduo de uma instalação infeliz: era o comportamento padrão de toda instalação nova.
+**Nada projetou em folha, e isso é sorte de calendário**: a escala mais antiga do SisEscala é de
+07/2026. O próximo relógio pode chegar com batida do mês passado.
+
+Fonte única desde `20260822210000`: **`dispositivos_rep.ponto_valido_desde`** (date), o dia em que
+o SisEscala assumiu o ponto daquele relógio. A resolução recebe o instante da batida e devolve
+`NULL` abaixo do corte — **antes** das três portas, porque nem vínculo explícito deve fazer o
+SisEscala assumir ponto de outro sistema. Relógio novo nasce protegido (`DEFAULT` = hoje no fuso
+configurado); a data é editável na tela do dispositivo, para a unidade que já registrava ponto
+pelo terminal antes de ganhar o REP.
+
+⚠️ **O corte age na ATRIBUIÇÃO, nunca na ingestão — e isso é o que o torna reversível.** A batida
+continua em `rep_afd_registros` e continua virando `marcacoes_ponto`, só que **órfã**. Data errada
+se conserta mudando a data e rodando `fn_reparse_afd_dispositivo`, que só mexe em órfã. Se a
+ingestão deixasse de criar a marcação não haveria o que reprocessar. O preço é volume — o HMM-01
+sozinho tem 69.619 marcações, quase todas órfãs; é o mesmo preço que a SMS já paga com ~250 mil.
+
+⚠️ **`p_ocorrido_em` não tem `DEFAULT`, e a assinatura de 2 argumentos foi DERRUBADA.** Com
+`DEFAULT`, as duas assinaturas conviveriam e qualquer chamada de 2 args passaria a pular o corte
+**em silêncio**. Os callers são quatro e estão todos na mesma migration: `fn_ingerir_afd`,
+`fn_reparse_afd_dispositivo`, `fn_registrar_snapshot_usuarios_dispositivo` (passa **NULL** — o
+snapshot é cadastro, não batida, e quem está no relógio hoje continua reconhecido) e a própria
+função.
+
+⚠️ **`fn_reparse_afd_dispositivo(uuid)` — sobrecarga de 1 argumento — foi derrubada junto.** Ela
+nasceu em `20260811190000` e nunca saiu quando a de 2 argumentos apareceu: as duas estavam vivas em
+produção, e chamar a RPC só com `p_dispositivo_id` já devolvia `PGRST203` ("could not choose the
+best candidate"). Depois do corte ela seria pior que ambígua — o corpo dela chamava a assinatura de
+2 args da resolução, então explodiria em runtime.
+
+⚠️ **O que ficou para trás continua atribuído.** `marcacoes_ponto` é INSERT-only e o único `UPDATE`
+que o trigger libera é órfã → com dono (`20260818001000`) — **não existe caminho para tirar o
+dono**, e não deve existir. A porta é `marcacoes_tratamentos` com `tipo = 'desconsiderar'`, que a
+alocação já honra (o último `desconsiderar`/`restaurar` vence). Não foi feito: as 9.626 são inertes
+e 9.626 tratamentos comprariam aparência de limpeza, não segurança.
+
+ℹ️ **`fn_data_local()`** nasceu aqui só porque `DEFAULT` de coluna não aceita subconsulta e o fuso
+mora em `configuracoes_globais`. `CURRENT_DATE` não serve: o banco roda em UTC, então nas últimas 3
+horas de todo dia ele já é amanhã (armadilha 12) — e um corte um dia adiantado orfanaria as batidas
+do próprio dia da instalação. As funções que já resolvem o fuso inline **não** foram convertidas.
+
+**Ao instalar um relógio novo**, confira o corte com a consulta 3 da conferência de
+`20260822210000` (quanto histórico alheio o equipamento trouxe e quanto dele ficou com dono).
 
 ## Papéis de RH: Geral vs da Unidade (12/08/2026)
 

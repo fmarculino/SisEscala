@@ -26,6 +26,10 @@ interface DispositivoRep {
   usuario_rep?: string | null
   porta?: number | null
   usa_https?: boolean | null
+  // Dia a partir do qual a batida deste relógio conta como ponto do SisEscala. O que é anterior
+  // continua gravado no AFD e em marcacoes_ponto, mas fica órfão — é assim que o histórico de um
+  // equipamento reaproveitado não vira ponto daqui.
+  ponto_valido_desde?: string | null
 }
 
 export function DispositivoRepModal({
@@ -61,6 +65,10 @@ export function DispositivoRepModal({
   const [senhaRep, setSenhaRep] = useState('')
   const [porta, setPorta] = useState(dispositivo?.porta ?? 443)
   const [usaHttps, setUsaHttps] = useState(dispositivo?.usa_https ?? true)
+  // Em branco ao CRIAR significa "usar o padrão do banco" (hoje, no fuso configurado) — de
+  // propósito: preencher aqui com a data do navegador reintroduziria a divergência de fuso que a
+  // coluna existe para evitar. Ao editar, vem preenchido com o valor gravado.
+  const [pontoValidoDesde, setPontoValidoDesde] = useState(dispositivo?.ponto_valido_desde || '')
 
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
@@ -110,6 +118,7 @@ export function DispositivoRepModal({
     formData.set('senha_rep', senhaRep)
     formData.set('porta', String(porta))
     formData.set('usa_https', String(usaHttps))
+    formData.set('ponto_valido_desde', pontoValidoDesde)
 
     const resultado = dispositivoId
       ? await atualizarDispositivoRep(dispositivoId, formData)
@@ -290,6 +299,27 @@ export function DispositivoRepModal({
               <option value="usb">Só pendrive (usb)</option>
               <option value="pull_com_fallback_usb">Online com fallback de pendrive</option>
             </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-zinc-600 dark:text-zinc-400 mb-1">
+              Ponto válido a partir de
+            </label>
+            <input
+              type="date"
+              value={pontoValidoDesde}
+              onChange={(e) => setPontoValidoDesde(e.target.value)}
+              className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm"
+            />
+            <p className="text-[11px] text-zinc-400 mt-1">
+              Dia em que o SisEscala assume o ponto deste relógio. Batida anterior a esta data
+              continua sendo guardada (o AFD é preservado por inteiro), mas <b>não vira ponto de
+              ninguém</b> — é o que impede o histórico de um equipamento reaproveitado de entrar
+              na folha. Em branco ao cadastrar = hoje.{' '}
+              {dispositivo
+                ? 'Recue a data só se esta unidade já registrava ponto no SisEscala antes de ganhar o relógio.'
+                : 'Só recue se a unidade já registrava ponto no SisEscala por outro caminho.'}
+            </p>
           </div>
 
           <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800">

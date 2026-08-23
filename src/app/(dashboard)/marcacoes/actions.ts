@@ -165,7 +165,7 @@ export async function listarDispositivosRep() {
       // senha_rep NAO entra aqui de proposito - a lista alimenta o estado do componente client,
       // e nao ha motivo para o valor em texto claro trafegar ate o navegador so para preencher
       // uma lista. O modal de edicao nunca preenche o campo de senha de volta (ver DispositivoRepModal).
-      'id, nome, unidade_id, numero_serie, endereco_ip, modo_operacao, ativo, '
+      'id, nome, unidade_id, numero_serie, endereco_ip, modo_operacao, ativo, ponto_valido_desde, '
       + 'usuario_rep, porta, usa_https, '
       + 'ultimo_nsr, ultimo_contato_em, deriva_segundos, created_at, unidades(nome), '
       + 'coletor_versao, coletor_host, coletor_versao_em, '
@@ -218,15 +218,23 @@ function lerCamposDispositivo(formData: FormData) {
   const senha_rep = String(formData.get('senha_rep') || '').trim() || null
   const porta = Number(formData.get('porta') || 443) || 443
   const usa_https = formData.get('usa_https') !== 'false'
-  return { nome, unidade_id, setor_ids, numero_serie, endereco_ip, modo_operacao, usuario_rep, senha_rep, porta, usa_https }
+  // Dia em que o SisEscala assume o ponto deste relógio: batida anterior a ele continua gravada,
+  // mas não ganha dono (é o que impede o histórico de um equipamento reaproveitado de virar ponto
+  // daqui). Em branco = deixar o banco decidir — o DEFAULT é hoje no fuso configurado, que é o
+  // certo para relógio novo; ao editar, em branco significa "manter o que já está lá", mesma
+  // convenção de senha_rep.
+  const ponto_valido_desde = String(formData.get('ponto_valido_desde') || '').trim() || null
+  return { nome, unidade_id, setor_ids, numero_serie, endereco_ip, modo_operacao, usuario_rep, senha_rep, porta, usa_https, ponto_valido_desde }
 }
 
 export async function criarDispositivoRep(formData: FormData) {
   await exigirAdmin()
-  const { setor_ids, ...campos } = lerCamposDispositivo(formData)
+  const { setor_ids, ...campos }: any = lerCamposDispositivo(formData)
   if (!campos.nome || !campos.unidade_id) {
     return { error: 'Nome e unidade são obrigatórios.' }
   }
+  // ponto_valido_desde é NOT NULL: mandar null apagaria o DEFAULT em vez de aceitá-lo.
+  if (campos.ponto_valido_desde === null) delete campos.ponto_valido_desde
 
   const supabase = await createAdminClient()
   const { data, error } = await supabase.from('dispositivos_rep').insert(campos).select('id').single()
@@ -255,6 +263,8 @@ export async function atualizarDispositivoRep(id: string, formData: FormData) {
   // Campo de senha vem em branco quando o admin nao digitou uma nova (o valor salvo nunca e
   // reenviado ao formulario) - omitir do update preserva a senha ja gravada em vez de apagar.
   if (campos.senha_rep === null) delete campos.senha_rep
+  // Mesma convenção para o corte de ponto: em branco preserva o que já está gravado.
+  if (campos.ponto_valido_desde === null) delete campos.ponto_valido_desde
 
   const supabase = await createAdminClient()
   const { error } = await supabase
