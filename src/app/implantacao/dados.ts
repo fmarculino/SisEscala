@@ -74,6 +74,17 @@ const INICIO_IMPLANTACAO = '2026-06-01'
 
 const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 
+/**
+ * ⚠️ ARMADILHA 8 DO CLAUDE.md: o PostgREST devolve no máximo 1.000 linhas e NÃO avisa.
+ *
+ * Foi exatamente o que aconteceu na primeira versão deste painel: os três meses do gráfico
+ * apareceram com "1.000" cravado, e o ranking contava no máximo mil marcações. O número não
+ * parecia errado — parecia redondo.
+ *
+ * Onde só se precisa de QUANTOS, a saída certa nem é paginar: é `count: 'exact', head: true`,
+ * que conta no banco e não traz linha nenhuma. Paginar fica para quando as linhas são
+ * necessárias de fato (o ranking precisa saber quais servidores são distintos).
+ */
 async function contar(supabase: any, tabela: string, filtro?: (q: any) => any): Promise<number> {
   let q = supabase.from(tabela).select('id', { count: 'exact', head: true })
   if (filtro) q = filtro(q)
@@ -81,13 +92,37 @@ async function contar(supabase: any, tabela: string, filtro?: (q: any) => any): 
   return count || 0
 }
 
+/** Traz TODAS as linhas, em páginas de 1.000. Use só quando as linhas importam. */
+async function todas(supabase: any, tabela: string, colunas: string, filtro?: (q: any) => any): Promise<any[]> {
+  const out: any[] = []
+  for (let de = 0; ; de += 1000) {
+    let q = supabase.from(tabela).select(colunas).range(de, de + 999)
+    if (filtro) q = filtro(q)
+    const { data } = await q
+    const p = data || []
+    out.push(...p)
+    if (p.length < 1000) break
+  }
+  return out
+}
+
+/** Início e fim (exclusivo) de uma competência, em ISO. */
+function janela(mes: number, ano: number) {
+  const prox = new Date(ano, mes, 1)
+  return {
+    ini: `${ano}-${String(mes).padStart(2, '0')}-01`,
+    fim: `${prox.getFullYear()}-${String(prox.getMonth() + 1).padStart(2, '0')}-01`,
+  }
+}
+
 export async function obterPainel(): Promise<PainelImplantacao> {
   const supabase = await createAdminClient()
 
   const [{ data: unidades }, { data: setores }, { data: servidores }, { data: disp }] = await Promise.all([
     supabase.from('unidades').select('id, nome, ativo, fonte_ponto_oficial').order('nome'),
-    supabase.from('setores').select('id, unidade_id'),
-    supabase.from('servidores').select('id, unidade_id, status'),
+    // Paginados: hoje cabem em 1.000, mas o painel não pode passar a mentir quando crescerem.
+    Promise.resolve({ data: await todas(supabase, 'setores', 'id, unidade_id') }),
+    Promise.resolve({ data: await todas(supabase, 'servidores', 'id, unidade_id, status') }),
     supabase.from('dispositivos_rep').select('id, unidade_id, ativo, created_at, ultimo_contato_em'),
   ])
 
@@ -101,27 +136,25 @@ export async function obterPainel(): Promise<PainelImplantacao> {
 
   const escalas = await Promise.all(
     comps.map(c =>
-      supabase.from('escala_mensal').select('id, unidade_id, servidor_id').eq('mes', c.mes).eq('ano', c.ano)
+      todas(supabase, 'escala_mensal', 'id, unidade_id, servidor_id',
+        (q: any) => q.eq('mes', c.mes).eq('ano', c.ano)).then(data => ({ data }))
     )
   )
 
   const marcacoes = await Promise.all(
     comps.map(async c => {
-      const ini = `${c.ano}-${String(c.mes).padStart(2, '0')}-01`
-      const prox = new Date(c.ano, c.mes, 1)
-      const fim = `${prox.getFullYear()}-${String(prox.getMonth() + 1).padStart(2, '0')}-01`
-      const { data } = await supabase
-        .from('marcacoes_ponto')
-        .select('origem')
-        .gte('ocorrido_em', ini)
-        .lt('ocorrido_em', fim)
-      const rows = data || []
+      const { ini, fim } = janela(c.mes, c.ano)
+      const noMes = (q: any) => q.gte('ocorrido_em', ini).lt('ocorrido_em', fim)
+      const [total, rep, terminal, ajusteCoord, ajusteServ] = await Promise.all([
+        contar(supabase, 'marcacoes_ponto', noMes),
+        contar(supabase, 'marcacoes_ponto', (q: any) => noMes(q).eq('origem', 'rep')),
+        contar(supabase, 'marcacoes_ponto', (q: any) => noMes(q).eq('origem', 'terminal')),
+        contar(supabase, 'marcacoes_ponto', (q: any) => noMes(q).eq('origem', 'ajuste_coordenador')),
+        contar(supabase, 'marcacoes_ponto', (q: any) => noMes(q).eq('origem', 'ajuste_servidor')),
+      ])
       return {
         mes: `${MESES[c.mes - 1]}/${String(c.ano).slice(2)}`,
-        total: rows.length,
-        rep: rows.filter((r: any) => r.origem === 'rep').length,
-        terminal: rows.filter((r: any) => r.origem === 'terminal').length,
-        ajuste: rows.filter((r: any) => String(r.origem).startsWith('ajuste')).length,
+        total, rep, terminal, ajuste: ajusteCoord + ajusteServ,
       }
     })
   )
@@ -129,17 +162,14 @@ export async function obterPainel(): Promise<PainelImplantacao> {
   // Uso real do mês corrente, por unidade. `marcacoes_ponto` já carrega unidade_id, então o
   // ranking sai de uma consulta só — e devolve CONTAGEM, nunca a lista de quem bateu.
   const compAtual = comps[comps.length - 1]
-  const iniAtual = `${compAtual.ano}-${String(compAtual.mes).padStart(2, '0')}-01`
-  const proxAtual = new Date(compAtual.ano, compAtual.mes, 1)
-  const fimAtual = `${proxAtual.getFullYear()}-${String(proxAtual.getMonth() + 1).padStart(2, '0')}-01`
-  const { data: marcAtual } = await supabase
-    .from('marcacoes_ponto')
-    .select('unidade_id, servidor_id')
-    .gte('ocorrido_em', iniAtual)
-    .lt('ocorrido_em', fimAtual)
+  const jAtual = janela(compAtual.mes, compAtual.ano)
+  // Aqui as LINHAS importam: o ranking precisa de servidores DISTINTOS por unidade, e isso não
+  // sai de um count. Então pagina — nunca um select cru, que pararia em 1.000.
+  const marcAtual = await todas(supabase, 'marcacoes_ponto', 'unidade_id, servidor_id',
+    (q: any) => q.gte('ocorrido_em', jAtual.ini).lt('ocorrido_em', jAtual.fim))
 
   const usoPorUn = new Map<string, { n: number; servs: Set<string> }>()
-  for (const m of (marcAtual || []) as any[]) {
+  for (const m of marcAtual as any[]) {
     if (!m.unidade_id) continue
     if (!usoPorUn.has(m.unidade_id)) usoPorUn.set(m.unidade_id, { n: 0, servs: new Set() })
     const u = usoPorUn.get(m.unidade_id)!

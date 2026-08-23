@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.13.3] - 2026-08-23
+
+### Fixed
+- **O gráfico mostrava "1.000" nos três meses — a armadilha 8 outra vez.** O PostgREST devolve no máximo 1.000 linhas e **não avisa**; as consultas do painel traziam as marcações sem paginar, então todo mês batia no teto. O número não parecia errado, parecia **redondo** — que é justamente o modo de falha que a armadilha descreve.
+  - Valores reais: jun **2.432** · jul **3.041** · ago **13.764**.
+  - **O ranking tinha o mesmo defeito** e contava no máximo 1.000 marcações do mês, distorcendo a ordem das unidades.
+- Onde só se precisa de *quantos*, a correção não é paginar: é `count: 'exact', head: true`, que **conta no banco e não traz linha nenhuma**. Paginação ficou só para o ranking, que precisa saber quais servidores são distintos.
+- `setores`, `servidores` e `escala_mensal` também passaram a paginar — hoje cabem em 1.000, mas o painel não pode começar a mentir quando crescerem.
+
 ## [2.13.2] - 2026-08-23
 
 ### Fixed
