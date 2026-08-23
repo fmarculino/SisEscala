@@ -240,6 +240,180 @@ export async function getServidoresFolhaPonto(mes: number, ano: number, unidadeI
   }
 }
 
+// Limite de candidatos da busca global. Nao e cosmetico: o resultado vira um `.in()` de UUIDs
+// na consulta de escalas, e foi exatamente uma URI com centenas de UUIDs que estourou o gateway
+// do Supabase em getServidoresFolhaPonto (ver comentario dela acima).
+const LIMITE_BUSCA_SERVIDORES = 60
+
+/**
+ * Busca global de servidor na competencia — por nome, CPF ou matricula.
+ *
+ * Existe porque a listagem normal (getServidoresFolhaPonto) so carrega depois de escolher uma
+ * Unidade, e quem procura uma pessoa nem sempre sabe onde ela esta escalada.
+ *
+ * O escopo NAO e afrouxado: o que sai daqui e sempre `escala_mensal` filtrada por
+ * applyAccessFilters + RLS. Coordenador acha so as escalas que ja gerencia, RH da Unidade so as
+ * unidades dele, e apenas super_admin/rh (isAccessUnrestricted) alcancam a rede inteira.
+ */
+export async function buscarServidoresFolhaPonto(termo: string, mes: number, ano: number) {
+  try {
+    // Sanitiza o termo antes de montar o `.or()`: virgula e parenteses sao separadores da
+    // sintaxe de filtro do PostgREST, e um termo com esses caracteres nao daria "sem
+    // resultado", daria uma query com outro significado.
+    const termoLimpo = (termo || '').replace(/[,()*%\\"']/g, ' ').trim()
+    if (termoLimpo.length < 3) {
+      return { servidores: [], semEscala: [], termoCurto: true }
+    }
+
+    const supabase = await createClient()
+    const userProfile = await getUserProfile(supabase)
+
+    // 1. Candidatos do cadastro, por nome/matricula/CPF.
+    //
+    // Cliente ADMIN de proposito: a policy de `servidores` escopa por LOTACAO, e "Servidor
+    // Externo" (v1.2.4) e justamente quem esta escalado numa unidade e lotado em outra — ele
+    // sumiria da busca de quem gerencia a escala dele. Nada daqui vai para a tela por si so:
+    // so entra no resultado quem sobreviver ao filtro de escopo do passo 2, que e por ESCALA
+    // (o mesmo criterio do guard de fn_blocos_previstos_dia).
+    const admin = await createAdminClient()
+    const cpfLimpo = termoLimpo.replace(/\D/g, '')
+
+    let queryServidores = admin
+      .from('servidores')
+      .select('id, nome, matricula, cargo, cpf')
+
+    if (cpfLimpo.length >= 3) {
+      queryServidores = queryServidores.or(
+        `nome.ilike.%${termoLimpo}%,matricula.ilike.%${termoLimpo}%,cpf.ilike.%${cpfLimpo}%`
+      )
+    } else {
+      queryServidores = queryServidores.or(
+        `nome.ilike.%${termoLimpo}%,matricula.ilike.%${termoLimpo}%`
+      )
+    }
+
+    const { data: candidatos, error: candError } = await queryServidores
+      .order('nome')
+      .limit(LIMITE_BUSCA_SERVIDORES + 1)
+
+    if (candError) throw candError
+    if (!candidatos || candidatos.length === 0) {
+      return { servidores: [], semEscala: [], nenhumCadastro: true }
+    }
+
+    const truncado = candidatos.length > LIMITE_BUSCA_SERVIDORES
+    const listaCandidatos = candidatos.slice(0, LIMITE_BUSCA_SERVIDORES)
+    const idsCandidatos = listaCandidatos.map((s: any) => s.id)
+
+    // 2. Escalas da competencia — aqui mora o escopo real (applyAccessFilters + RLS).
+    let queryEscalas = supabase
+      .from('escala_mensal')
+      .select('id, status, servidor_id, unidade_id, setor_id, jornada_id, jornadas(nome), servidores(id, nome, matricula, cargo)')
+      .eq('mes', mes)
+      .eq('ano', ano)
+      .eq('ativo', true)
+      .in('servidor_id', idsCandidatos)
+
+    queryEscalas = applyAccessFilters(queryEscalas, userProfile)
+
+    const { data: escalasMes, error: escError } = await queryEscalas
+    if (escError) throw escError
+
+    // 3. Quem o usuario enxerga por lotacao, para poder dizer "existe no cadastro, mas nao tem
+    //    escala nesta competencia" sem revelar a existencia de servidor fora do escopo dele.
+    let queryVisiveis = supabase
+      .from('servidores')
+      .select('id, nome, matricula, cargo')
+      .in('id', idsCandidatos)
+    queryVisiveis = applyAccessFilters(queryVisiveis, userProfile)
+
+    const { data: visiveis } = await queryVisiveis
+
+    const idsComEscala = new Set((escalasMes || []).map((e: any) => e.servidor_id))
+    const semEscala = (visiveis || [])
+      .filter((s: any) => !idsComEscala.has(s.id))
+      .map((s: any) => ({ id: s.id, nome: s.nome, matricula: s.matricula, cargo: s.cargo }))
+
+    if (!escalasMes || escalasMes.length === 0) {
+      return { servidores: [], semEscala, truncado }
+    }
+
+    // 4. Folhas das escalas encontradas. Aqui o `.in()` por escala_mensal_id e seguro (no
+    //    maximo LIMITE_BUSCA_SERVIDORES ids) e evita varrer a competencia inteira.
+    const idsEscalas = escalasMes.map((e: any) => e.id)
+    const { data: folhas, error: folhaError } = await supabase
+      .from('folha_ponto')
+      .select('id, status, servidor_id, escala_mensal_id, total_horas_normais, total_horas_extras_50, total_horas_extras_100, total_faltas, cargo')
+      .in('escala_mensal_id', idsEscalas)
+
+    if (folhaError) throw folhaError
+
+    // 5. Rotulos de unidade/setor: o resultado atravessa unidades, entao a linha precisa dizer
+    //    onde a pessoa esta escalada. Vem do cliente admin porque quem tem acesso so por setor
+    //    nao le `unidades` pela RLS — e sao apenas nomes de linhas ja aprovadas pelo passo 2.
+    const idsUnidades = Array.from(new Set(escalasMes.map((e: any) => e.unidade_id).filter(Boolean)))
+    const idsSetores = Array.from(new Set(escalasMes.map((e: any) => e.setor_id).filter(Boolean)))
+
+    const [resUnidades, resSetores] = await Promise.all([
+      idsUnidades.length
+        ? admin.from('unidades').select('id, nome').in('id', idsUnidades)
+        : Promise.resolve({ data: [] as any[] }),
+      idsSetores.length
+        ? admin.from('setores').select('id, dicionario_setores(nome)').in('id', idsSetores)
+        : Promise.resolve({ data: [] as any[] })
+    ])
+
+    const nomeUnidade = new Map<string, string>()
+    for (const u of (resUnidades.data || []) as any[]) nomeUnidade.set(u.id, u.nome)
+
+    // `setores` nao tem coluna `nome` — o rotulo mora em `dicionario_setores`.
+    const nomeSetor = new Map<string, string>()
+    for (const s of (resSetores.data || []) as any[]) {
+      const dict = Array.isArray(s.dicionario_setores) ? s.dicionario_setores[0] : s.dicionario_setores
+      nomeSetor.set(s.id, dict?.nome || 'SETOR SEM NOME')
+    }
+
+    const cpfPorServidor = new Map<string, string | null>()
+    for (const s of listaCandidatos as any[]) cpfPorServidor.set(s.id, s.cpf || null)
+
+    // Mesma forma de linha de getServidoresFolhaPonto — a tabela da tela e a mesma.
+    const result = escalasMes
+      .map((escala: any) => {
+        const servidor = escala.servidores as any
+        if (!servidor) return null
+
+        const folha = folhas?.find((f: any) => f.escala_mensal_id === escala.id)
+
+        return {
+          servidor_id: servidor.id,
+          nome: servidor.nome,
+          matricula: servidor.matricula,
+          cpf: cpfPorServidor.get(servidor.id) || null,
+          cargo: folha?.cargo || servidor.cargo,
+          escala_mensal_id: escala.id,
+          escala_status: escala.status,
+          folha_id: folha?.id || null,
+          folha_status: folha?.status || 'Não Gerada',
+          jornada_nome: (escala.jornadas as any)?.nome || 'Não Vinculada',
+          total_horas_normais: folha?.total_horas_normais || 0,
+          total_horas_extras_50: folha?.total_horas_extras_50 || 0,
+          total_horas_extras_100: folha?.total_horas_extras_100 || 0,
+          total_faltas: folha?.total_faltas || 0,
+          unidade_nome: nomeUnidade.get(escala.unidade_id) || null,
+          setor_nome: nomeSetor.get(escala.setor_id) || null,
+        }
+      })
+      .filter(Boolean) as any[]
+
+    result.sort((a, b) => a.nome.localeCompare(b.nome))
+
+    return { servidores: result, semEscala, truncado }
+  } catch (error: any) {
+    console.error('Erro em buscarServidoresFolhaPonto:', error)
+    return { error: error.message }
+  }
+}
+
 // Generate (or regenerate) a timesheet for a server
 // Core logic to generate or regenerate a timesheet for a server (bypasses permission checks for admin/cron use)
 export async function executeGerarFolhaPonto(

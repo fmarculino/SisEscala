@@ -2,11 +2,11 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { FileText, Loader2, Search, Building2, Layers, Calendar, ChevronRight, Play, RefreshCw, AlertCircle, Printer, Wand2 } from 'lucide-react'
+import { FileText, Loader2, Search, Building2, Layers, Calendar, ChevronRight, Play, RefreshCw, AlertCircle, Printer, Wand2, UserSearch, X } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { applyAccessFilters, isAccessUnrestricted } from '@/utils/permissions'
-import { getServidoresFolhaPonto, gerarFolhaPonto, gerarFolhasEmLote, getFolhasPontoPrintData, autoCorrigirTodasFolhasPonto } from './actions'
+import { getServidoresFolhaPonto, gerarFolhaPonto, gerarFolhasEmLote, getFolhasPontoPrintData, autoCorrigirTodasFolhasPonto, buscarServidoresFolhaPonto } from './actions'
 import { Modal } from '@/components/ui/Modal'
 import { formatSectorsHierarchy } from '@/utils/sectors'
 
@@ -63,6 +63,22 @@ export default function FolhaPontoPage() {
     return 'todos'
   })
 
+  // Busca global de servidor (nome, CPF ou matricula) — nao e o mesmo que "Filtrar Servidor",
+  // que so peneira o que ja esta na tela. Esta vai ao banco e nao exige Unidade selecionada,
+  // porque quem procura uma pessoa nem sempre sabe onde ela esta escalada. O escopo continua
+  // sendo o do perfil: quem restringe e applyAccessFilters + RLS dentro da action.
+  const [buscaGlobal, setBuscaGlobal] = useState('')
+  const [buscaResultado, setBuscaResultado] = useState<{
+    buscando: boolean
+    houveBusca: boolean
+    servidores: any[]
+    semEscala: any[]
+    truncado: boolean
+  }>({ buscando: false, houveBusca: false, servidores: [], semEscala: [], truncado: false })
+
+  const termoBusca = buscaGlobal.trim()
+  const buscaAtiva = termoBusca.length >= 3
+
   // Static Data
   const [unidades, setUnidades] = useState<any[]>([])
   const [setores, setSetores] = useState<any[]>([])
@@ -89,7 +105,41 @@ export default function FolhaPontoPage() {
   useEffect(() => {
     setSelectedFolhas(new Set())
     setCurrentPage(1)
-  }, [selectedUnidade, selectedSetor, mes, ano, searchTerm, filterEscalaStatus, filterFolhaStatus])
+  }, [selectedUnidade, selectedSetor, mes, ano, searchTerm, filterEscalaStatus, filterFolhaStatus, buscaGlobal])
+
+  // Busca global incremental (debounce de 350ms). Menos de 3 caracteres nao busca: o termo curto
+  // traz meia base e o resultado vira um `.in()` grande na action.
+  useEffect(() => {
+    if (!buscaAtiva) {
+      setBuscaResultado({ buscando: false, houveBusca: false, servidores: [], semEscala: [], truncado: false })
+      return
+    }
+
+    setBuscaResultado(prev => ({ ...prev, buscando: true }))
+
+    const timer = setTimeout(async () => {
+      const res = await buscarServidoresFolhaPonto(termoBusca, mes, ano)
+      if (res.error) {
+        setBuscaResultado({ buscando: false, houveBusca: true, servidores: [], semEscala: [], truncado: false })
+        setAlertModal({
+          isOpen: true,
+          title: 'Erro na busca',
+          message: res.error,
+          type: 'danger'
+        })
+        return
+      }
+      setBuscaResultado({
+        buscando: false,
+        houveBusca: true,
+        servidores: res.servidores || [],
+        semEscala: res.semEscala || [],
+        truncado: !!res.truncado
+      })
+    }, 350)
+
+    return () => clearTimeout(timer)
+  }, [termoBusca, buscaAtiva, mes, ano])
 
   // Helper for batch printing minutes formatting
   const formatMinutesToTimeStr = (totalMinutes: number): string => {
@@ -200,6 +250,26 @@ export default function FolhaPontoPage() {
     fetchServidores()
   }, [fetchServidores, loading])
 
+  // Recarrega o que estiver em cena: o resultado da busca global, se ela estiver ativa; a
+  // listagem por Unidade/Setor, caso contrario. Sem isto, gerar uma folha a partir do resultado
+  // da busca deixaria a linha com o status antigo na tela.
+  const atualizarListagem = useCallback(async () => {
+    if (!buscaAtiva) {
+      fetchServidores()
+      return
+    }
+    const res = await buscarServidoresFolhaPonto(termoBusca, mes, ano)
+    if (!res.error) {
+      setBuscaResultado({
+        buscando: false,
+        houveBusca: true,
+        servidores: res.servidores || [],
+        semEscala: res.semEscala || [],
+        truncado: !!res.truncado
+      })
+    }
+  }, [buscaAtiva, termoBusca, mes, ano, fetchServidores])
+
   // Reset selected sector if it does not belong to the newly selected unit
   const handleUnidadeChange = (unidadeId: string) => {
     setSelectedUnidade(unidadeId)
@@ -225,7 +295,7 @@ export default function FolhaPontoPage() {
         message: 'Folha de ponto gerada com sucesso!',
         type: 'success'
       })
-      fetchServidores()
+      atualizarListagem()
     }
   }
 
@@ -254,7 +324,7 @@ export default function FolhaPontoPage() {
         message: res.message || 'Geração finalizada.',
         type: 'success'
       })
-      fetchServidores()
+      atualizarListagem()
     }
   }
 
@@ -278,7 +348,7 @@ export default function FolhaPontoPage() {
             : `Todas as folhas de ponto da competência ${mes}/${ano} já se encontram consistentes e sem horários invertidos.`,
           type: 'success'
         })
-        fetchServidores()
+        atualizarListagem()
       }
     } catch (err: any) {
       setAlertModal({
@@ -292,8 +362,12 @@ export default function FolhaPontoPage() {
     }
   }
 
+  // Com a busca global ativa, a tabela passa a mostrar o resultado dela — mesma forma de linha,
+  // entao todo o resto (status, paginacao, acoes, impressao em lote) continua valendo.
+  const baseServidores = buscaAtiva ? buscaResultado.servidores : servidoresData
+
   // Filter servers in memory
-  const filteredServidores = servidoresData.filter(s => {
+  const filteredServidores = baseServidores.filter(s => {
     const matchesSearch = s.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
       s.matricula?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       s.cargo?.toLowerCase().includes(searchTerm.toLowerCase())
@@ -304,7 +378,9 @@ export default function FolhaPontoPage() {
     return matchesSearch && matchesEscalaStatus && matchesFolhaStatus
   })
 
-  const requiresUnidadeSelection = isUnrestricted && !selectedUnidade
+  // A exigencia de Unidade e da listagem, nao da busca: a action de busca ja limita o resultado
+  // por escopo e por termo, entao nao reintroduz a varredura sem limite que a exigencia evita.
+  const requiresUnidadeSelection = isUnrestricted && !selectedUnidade && !buscaAtiva
 
   const itemsPerPage = 10
   const totalItems = filteredServidores.length
@@ -827,14 +903,54 @@ export default function FolhaPontoPage() {
           </div>
         </div>
 
+        {/* Busca global de servidor — nome, CPF ou matricula, em qualquer unidade do escopo */}
+        <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800 flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="flex-1 relative">
+            <UserSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-500" />
+            <input
+              type="text"
+              placeholder="Buscar servidor por nome, CPF ou matrícula (em todas as unidades do seu acesso)..."
+              className="w-full pl-10 pr-10 py-2.5 bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800/60 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-blue-900/50 dark:placeholder:text-blue-300/40 text-blue-950 dark:text-blue-100 font-medium"
+              value={buscaGlobal}
+              onChange={(e) => setBuscaGlobal(e.target.value)}
+            />
+            {buscaGlobal ? (
+              <button
+                onClick={() => setBuscaGlobal('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                title="Limpar busca de servidor"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            ) : null}
+          </div>
+          {buscaResultado.buscando ? (
+            <span className="inline-flex items-center gap-2 text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/40 px-3 py-1.5 rounded-lg whitespace-nowrap">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Buscando...
+            </span>
+          ) : buscaAtiva ? (
+            <span className="text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/40 px-3 py-1.5 rounded-lg whitespace-nowrap">
+              Busca global • {meses.find(m => m.value === mes)?.label}/{ano}
+            </span>
+          ) : buscaGlobal.trim() ? (
+            <span className="text-xs font-bold text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-3 py-1.5 rounded-lg whitespace-nowrap">
+              Digite ao menos 3 caracteres
+            </span>
+          ) : null}
+        </div>
+
         {/* Global Batch Actions */}
-        {servidoresData.length > 0 && (
+        {baseServidores.length > 0 && (
           <div className="flex flex-col sm:flex-row sm:items-center justify-between border-t border-zinc-100 dark:border-zinc-800 pt-6 gap-4">
             <div className="flex items-center gap-2 text-xs font-bold text-zinc-500">
               <AlertCircle className="h-4 w-4 text-blue-500" />
-              <span>Geração em lote afeta apenas os servidores com escalas configuradas no período.</span>
+              <span>
+                {buscaAtiva
+                  ? 'Resultado da busca: as ações em lote agem sobre a Unidade/Setor filtrados, não sobre a busca — por isso ficam ocultas aqui.'
+                  : 'Geração em lote afeta apenas os servidores com escalas configuradas no período.'}
+              </span>
             </div>
-            
+
             <div className="flex flex-wrap gap-3">
               <button 
                 onClick={handleImprimirSelecionadas}
@@ -844,7 +960,9 @@ export default function FolhaPontoPage() {
                 {actionLoading === 'imprimir-lote' ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Printer className="h-4 w-4 mr-2" />}
                 Imprimir Selecionadas (${selectedFolhas.size})
               </button>
-              <button 
+              {!buscaAtiva && (
+                <>
+              <button
                 onClick={handleAutoCorrigirLote}
                 disabled={actionLoading !== null}
                 className="inline-flex items-center bg-violet-600 hover:bg-violet-700 text-white font-black text-xs uppercase tracking-wider px-5 py-3 rounded-xl transition-all shadow-md shadow-violet-500/20 active:scale-95 disabled:opacity-50"
@@ -869,10 +987,50 @@ export default function FolhaPontoPage() {
                 {actionLoading === 'lote-definitiva' ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Play className="h-4 w-4 mr-2" />}
                 Gerar Todas (Definitivas)
               </button>
+                </>
+              )}
             </div>
           </div>
         )}
       </div>
+
+      {/* Diagnostico da busca global: separa "nao existe no cadastro" de "existe, mas nao tem
+          escala nesta competencia" — sem isso a tela vazia nao diz qual dos dois aconteceu. */}
+      {buscaAtiva && buscaResultado.houveBusca && !buscaResultado.buscando && (
+        <div className="space-y-3">
+          {buscaResultado.semEscala.length > 0 && (
+            <div className="p-4 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-2xl flex items-start gap-3 text-amber-800 dark:text-amber-300 text-sm">
+              <AlertCircle className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+              <div>
+                <p className="font-bold">
+                  Localizado no cadastro, porém SEM ESCALA ATIVA em {meses.find(m => m.value === mes)?.label}/{ano} — sem escala não há folha de ponto:
+                </p>
+                <div className="mt-1.5 flex flex-wrap gap-2">
+                  {buscaResultado.semEscala.map((s: any) => (
+                    <span key={s.id} className="bg-amber-100 dark:bg-amber-900/50 px-2.5 py-0.5 rounded-md font-semibold text-xs border border-amber-300 dark:border-amber-700">
+                      {s.nome}{s.matricula ? ` (Mat: ${s.matricula})` : ''}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {buscaResultado.servidores.length === 0 && buscaResultado.semEscala.length === 0 && (
+            <div className="p-4 bg-zinc-100 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 rounded-2xl flex items-center gap-3 text-zinc-600 dark:text-zinc-400 text-sm">
+              <AlertCircle className="h-5 w-5 shrink-0 text-zinc-400" />
+              <span>Nenhum servidor no seu escopo de acesso corresponde a <strong>&quot;{termoBusca}&quot;</strong>.</span>
+            </div>
+          )}
+
+          {buscaResultado.truncado && (
+            <div className="p-4 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-2xl flex items-center gap-3 text-blue-900 dark:text-blue-200 text-sm">
+              <AlertCircle className="h-5 w-5 shrink-0 text-blue-500" />
+              <span>A busca encontrou muitos servidores e foi limitada. Refine o termo (nome completo, CPF ou matrícula) para não perder resultado.</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Main List Table */}
       <div className="bg-white dark:bg-zinc-900 rounded-[2rem] border border-zinc-200 dark:border-zinc-800 shadow-xl overflow-hidden">
@@ -881,17 +1039,24 @@ export default function FolhaPontoPage() {
             <Building2 className="mx-auto h-16 w-16 opacity-10 mb-6" />
             <p className="text-xl font-black uppercase tracking-tight">Selecione uma unidade</p>
             <p className="text-sm mt-2">Seu perfil tem acesso a múltiplas unidades. Escolha uma unidade no filtro acima para carregar as folhas de ponto.</p>
+            <p className="text-sm mt-1 text-blue-600 dark:text-blue-400 font-bold">Ou procure a pessoa direto pelo campo de busca acima (nome, CPF ou matrícula), sem escolher unidade.</p>
           </div>
-        ) : loadingServidores ? (
+        ) : (buscaAtiva ? buscaResultado.buscando : loadingServidores) ? (
           <div className="p-20 text-center">
             <Loader2 className="h-10 w-10 animate-spin mx-auto text-blue-500 opacity-50 mb-4" />
-            <p className="text-zinc-500 text-sm font-bold uppercase tracking-widest">Carregando servidores...</p>
+            <p className="text-zinc-500 text-sm font-bold uppercase tracking-widest">
+              {buscaAtiva ? 'Buscando servidores...' : 'Carregando servidores...'}
+            </p>
           </div>
         ) : filteredServidores.length === 0 ? (
           <div className="p-20 text-center text-zinc-500">
             <Search className="mx-auto h-16 w-16 opacity-10 mb-6" />
             <p className="text-xl font-black uppercase tracking-tight">Nenhum servidor encontrado</p>
-            <p className="text-sm mt-2">Nenhum servidor lotado ativo ou compatível com a busca foi retornado.</p>
+            <p className="text-sm mt-2">
+              {buscaAtiva
+                ? 'Nenhuma escala ativa nesta competência para o termo buscado, dentro do seu escopo de acesso.'
+                : 'Nenhum servidor lotado ativo ou compatível com a busca foi retornado.'}
+            </p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -922,8 +1087,8 @@ export default function FolhaPontoPage() {
                   const hasFolha = s.folha_id !== null
 
                   return (
-                    <tr 
-                      key={s.servidor_id} 
+                    <tr
+                      key={s.escala_mensal_id || s.servidor_id}
                       onClick={() => {
                         if (hasFolha) {
                           router.push(`/folha-ponto/${s.folha_id}`)
@@ -970,6 +1135,14 @@ export default function FolhaPontoPage() {
                         <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-tight mt-0.5">
                           Matrícula: {s.matricula} • {s.cargo || 'CARGO NÃO INFORMADO'}
                         </div>
+                        {/* Só no resultado da busca: ele atravessa unidades, então a linha
+                            precisa dizer onde a pessoa está escalada. */}
+                        {s.unidade_nome && (
+                          <div className="text-[10px] text-blue-600 dark:text-blue-400 font-bold uppercase tracking-tight mt-0.5 flex items-center gap-1">
+                            <Building2 className="h-3 w-3" />
+                            {s.unidade_nome}{s.setor_nome ? ` • ${s.setor_nome}` : ''}
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-4">
                         <span className="font-bold text-zinc-600 dark:text-zinc-400 text-sm">
