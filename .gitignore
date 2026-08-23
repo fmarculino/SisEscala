@@ -69,3 +69,5 @@ scratchpad/_sim/
 # armadilha 18 do CLAUDE.md). Script pode; despejo com nome/matricula, nao.
 scratchpad/backup_reconciliacao_*.json
 scratchpad/reconciliar_agosto.json
+
+scratchpad/backup_folhas_*.json

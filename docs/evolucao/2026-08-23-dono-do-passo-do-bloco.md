@@ -121,6 +121,49 @@ não replicava esse ramo e inflava a conta em 89h. Com o ramo replicado, o núme
 **Ao simular a folha por fora, replique os ramos do gerador, não só a consolidação de horários.**
 `totalHorasNormais`, hora extra e observação vivem todos dentro do `else { /* Work day! */ }`.
 
+## A regeneração foi executada (23/08/2026)
+
+Feita pela rota `POST /api/folha-ponto/regerar-competencia` (v2.10.1/2.10.2), unidade a unidade,
+com backup das 356 folhas antes de qualquer escrita.
+
+| | |
+|---|---:|
+| escalas ativas em 08/2026 | 432 |
+| folhas **regeradas** | **406** |
+| **puladas** por status (24 `Gerada` + 2 `Revisada`) | 26 |
+| falhas | **0** |
+
+**Delta de hora extra: +66h53 líquido** (subiu 70h02, caiu 3h09). Decomposto:
+
+| natureza do dia | delta | dias |
+|---|---:|---:|
+| turno **Extra** escalado | +11h17 | 14 |
+| dia com **Plantão** | +0h30 | 1 |
+| **sem Extra nem Plantão** | **+55h06** | **380** |
+
+⚠️ **As 55h06 em 380 dias são "extra de minutos": média de ~9 min por dia.** É o horário real
+chegando à folha, que estava num snapshot velho — mas revela que **não existe tolerância nenhuma
+no cálculo de sobrejornada**. Cada minuto além do fim da jornada vira hora extra. As três chaves
+de tolerância que existem servem a outra coisa: `folha_ponto_variacao_minutos` era para os
+horários fictícios (removidos na v1.22.0), `janela_presenca_minutos` decide se o terminal aceita
+a batida, e `rep_tolerancia_alocacao_minutos` é da alocação. **Decisão de RH, não de software** —
+a CLT Art. 58 §1º admite 5 min por marcação, limitados a 10 min/dia; se isso valer aqui, precisa
+ser dito e configurado.
+
+⚠️ **10 dias continuam com hora extra em dia de plantão, 13h30, e a regeneração não os alcança**
+— todos têm campo de origem `manual`, que `preservacao.ts` preserva por desenho (alguém decidiu
+aquele horário). Só o coordenador desfaz:
+
+| servidor | dia | folha | extra |
+|---|---:|---|---:|
+| ANDRESA MELO PEREIRA (54594) | 10 | `08:21 → 18:00` | 6h00 |
+| LUCAS REIS CAMPOS (58822) | 3, 4, 5, 10, 11, 19 | `00:00 → 18:00` (entrada 00:00 é lixo) | 1h00 cada |
+| ILMAR DA SILVA DE OLIVEIRA (54457) | 16 | `06:00 → 06:00` | 1h01 |
+| MAISA (32269) · ELIZABETH (1133) | 17 | — | 0h23 · 0h06 |
+
+Os outros 14 dias que ainda somam extra em dia de plantão são residuais de **1 a 23 minutos**
+(saída 1-2 min depois do fim do turno) — hora extra legítima, não dupla contagem.
+
 ## Achados registrados, sem correção nesta rodada
 
 ⚠️ **`fn_salvar_saida_bloco` FABRICA** os horários de transição a partir da escala — o comentário
