@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { formatarDataExtenso } from '@/utils/horario'
 import { CheckCircle, Loader2, CheckSquare, XCircle, AlertTriangle, MessageCircle, ShieldOff } from 'lucide-react'
 
 /**
@@ -256,7 +257,7 @@ export default function PresencaTerminalLocalPage() {
 
           <div className="bg-zinc-50 dark:bg-zinc-800/50 p-6 flex items-center justify-between border-t border-zinc-100 dark:border-zinc-800">
             <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest">
-              {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}
+              {formatarDataExtenso(new Date())}
             </p>
           </div>
         </div>

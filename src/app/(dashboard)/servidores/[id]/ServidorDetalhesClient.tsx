@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
+import { formatarData } from '@/utils/horario'
 import { EditServidorForm } from './EditServidorForm'
 import { StatusToggle } from '@/components/servidores/StatusToggle'
 import { Info, History, User, Calendar, FileText, ArrowRight, Clock, MapPin, CheckCircle, ExternalLink, Plus, Trash2 } from 'lucide-react'
@@ -424,7 +425,7 @@ export function ServidorDetalhesClient({
                             {jt.jornadas?.nome || 'Jornada Excluída'}
                           </td>
                           <td className="px-6 py-4 text-xs font-semibold">
-                            De {new Date(jt.data_inicio).toLocaleDateString('pt-BR')} até {new Date(jt.data_fim).toLocaleDateString('pt-BR')}
+                            De {formatarData(jt.data_inicio)} até {formatarData(jt.data_fim)}
                           </td>
                           <td className="px-6 py-4 text-xs">
                             {calculateDuration(jt.data_inicio, jt.data_fim)}
@@ -524,9 +525,9 @@ export function ServidorDetalhesClient({
                         <div className="text-left sm:text-right shrink-0">
                           <p className="text-xs font-bold text-zinc-800 dark:text-zinc-300">
                             {p.startDate ? (
-                              <>De {new Date(p.startDate).toLocaleDateString('pt-BR')} até {p.isCurrent ? 'o momento' : new Date(p.endDate).toLocaleDateString('pt-BR')}</>
+                              <>De {formatarData(p.startDate)} até {p.isCurrent ? 'o momento' : formatarData(p.endDate)}</>
                             ) : (
-                              <>Até {new Date(p.endDate).toLocaleDateString('pt-BR')}</>
+                              <>Até {formatarData(p.endDate)}</>
                             )}
                           </p>
                           {p.durationText && (

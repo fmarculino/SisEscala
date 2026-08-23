@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { formatarData, formatarDataHoraComSegundos } from '@/utils/horario'
 import { Modal } from '@/components/ui/Modal'
 import { 
   Sparkles, Key, Upload, Eye, EyeOff, Loader2, CheckCircle2, 
@@ -184,7 +185,7 @@ export function AssinaturaDigitalModal({
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-400 font-sans">Data da Assinatura:</span>
-                  <span className="text-zinc-700 dark:text-zinc-300">{new Date(signatureResult.certInfo?.assinadoEm).toLocaleString('pt-BR')}</span>
+                  <span className="text-zinc-700 dark:text-zinc-300">{formatarDataHoraComSegundos(signatureResult.certInfo?.assinadoEm)}</span>
                 </div>
               </div>
 
@@ -280,7 +281,7 @@ export function AssinaturaDigitalModal({
                 <div className="grid grid-cols-1 gap-1 text-zinc-700 dark:text-zinc-300">
                   <div><strong>Titular:</strong> {certInfo.cn}</div>
                   <div><strong>Emissor:</strong> {certInfo.issuer}</div>
-                  <div><strong>Válido até:</strong> {new Date(certInfo.validTo).toLocaleDateString('pt-BR')}</div>
+                  <div><strong>Válido até:</strong> {formatarData(certInfo.validTo)}</div>
                 </div>
               </div>
             )}

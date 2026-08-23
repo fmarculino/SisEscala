@@ -1,4 +1,5 @@
 import { createClient } from '@/utils/supabase/server'
+import { formatarDataCurta, obterTimezone } from '@/utils/horario'
 import {
   Users, Building2, Calendar, ArrowRight, Clock, Phone,
   CheckCircle2, CalendarDays, BarChart3,
@@ -34,8 +35,9 @@ export default async function DashboardHome() {
   const userRole = profile?.role || ''
   const isCoord = userRole === 'coordenador' || userRole === 'ass_adm'
 
-  // Obter data/hora atual no fuso horário de Brasília (America/Sao_Paulo)
-  const today = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }))
+  // Data/hora atual no fuso CONFIGURADO (configuracoes_globais.timezone), não no do processo:
+  // a VPS roda em UTC e as últimas 3 horas de todo dia já seriam "amanhã". Ver src/utils/horario.ts.
+  const today = new Date(new Date().toLocaleString('en-US', { timeZone: obterTimezone() }))
   const todayDay = today.getDate()
   const currentMonth = today.getMonth() + 1
   const currentYear = today.getFullYear()
@@ -433,7 +435,7 @@ export default async function DashboardHome() {
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-zinc-900 dark:text-white truncate">{a.servidorNome}</p>
                       <p className="text-[10px] text-zinc-500 dark:text-zinc-400">
-                        {a.tipo} • {new Date(a.inicio + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} - {new Date(a.fim + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+                        {a.tipo} • {formatarDataCurta(a.inicio)} - {formatarDataCurta(a.fim)}
                       </p>
                     </div>
                   </div>

@@ -1,4 +1,5 @@
 'use client'
+import { formatarData } from '@/utils/horario'
 
 interface RequerimentoPrintViewProps {
   solicitacao: any
@@ -162,7 +163,7 @@ export function RequerimentoPrintView({ solicitacao, servidor, logoUrl }: Requer
 
       {/* Footer */}
       <div className="mt-8 text-center text-xs text-gray-500">
-        <p>Documento gerado pelo SisEscala em {new Date().toLocaleDateString('pt-BR')}</p>
+        <p>Documento gerado pelo SisEscala em {formatarData(new Date())}</p>
       </div>
 
       {/* Print styles */}

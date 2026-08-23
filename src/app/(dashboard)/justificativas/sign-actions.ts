@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/utils/supabase/server'
+import { formatarData } from '@/utils/horario'
 import forge from 'node-forge'
 import crypto from 'crypto'
 
@@ -44,7 +45,7 @@ export async function validarCertificadoA1Action(pfxBase64: string, passphrase: 
 
     if (isExpired) {
       return { 
-        error: `O certificado digital expirou em ${new Date(validTo).toLocaleDateString('pt-BR')}.` 
+        error: `O certificado digital expirou em ${formatarData(validTo)}.` 
       }
     }
 

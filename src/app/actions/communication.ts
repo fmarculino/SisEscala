@@ -1,6 +1,7 @@
 'use server'
 
 import { createAdminClient } from '@/utils/supabase/server'
+import { formatarDataHoraComSegundos } from '@/utils/horario'
 import nodemailer from 'nodemailer'
 
 export interface WhatsAppSendParams {
@@ -503,7 +504,7 @@ export async function sendEmailAction({ to, subject, html, text, unidadeId, over
  * Ação de teste para validar a integração do WhatsApp
  */
 export async function testWhatsAppConnectionAction(phone: string, overrideConfigs?: Record<string, any>): Promise<WhatsAppResult> {
-  const message = `🤖 *Teste SisEscala - Saúde Marabá*\n\nConexão com a API de WhatsApp configurada e validada com sucesso em ${new Date().toLocaleString('pt-BR')}!`
+  const message = `🤖 *Teste SisEscala - Saúde Marabá*\n\nConexão com a API de WhatsApp configurada e validada com sucesso em ${formatarDataHoraComSegundos(new Date())}!`
   return await sendWhatsAppMessageAction({ phone, message, overrideConfigs })
 }
 
@@ -517,7 +518,7 @@ export async function testEmailConnectionAction(toEmail: string): Promise<EmailR
       <h2 style="color: #2563eb;">Conexão SMTP Confirmada com Sucesso! 🎉</h2>
       <p>Este é um e-mail de teste disparado pelo <strong>SisEscala (Gestão de Escalas)</strong> para validar as credenciais do servidor SMTP.</p>
       <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
-      <p style="font-size: 12px; color: #6b7280;">Data/Hora do Teste: ${new Date().toLocaleString('pt-BR')}</p>
+      <p style="font-size: 12px; color: #6b7280;">Data/Hora do Teste: ${formatarDataHoraComSegundos(new Date())}</p>
     </div>
   `
   return await sendEmailAction({ to: toEmail, subject, html })

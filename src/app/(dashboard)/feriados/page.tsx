@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { formatarData } from '@/utils/horario'
 import { createClient } from '@/utils/supabase/client'
 import { AcessoNegado } from '@/components/AcessoNegado'
 import { Plus, Calendar as CalendarIcon, Loader2, Check, X, Info, ShieldAlert, Clock, Layers } from 'lucide-react'
@@ -357,7 +358,7 @@ export default function FeriadosPage() {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center font-black text-zinc-900 dark:text-white uppercase tracking-tighter">
                           <CalendarIcon className="mr-2 h-4 w-4 text-blue-500" />
-                          {new Date(f.data + 'T00:00:00').toLocaleDateString('pt-BR')}
+                          {formatarData(f.data)}
                         </div>
                       </td>
                       <td className="px-6 py-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
@@ -516,7 +517,7 @@ export default function FeriadosPage() {
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center font-black text-zinc-900 dark:text-white uppercase tracking-tighter">
                             <Clock className="mr-2 h-4 w-4 text-amber-500" />
-                            {new Date(pf.data + 'T00:00:00').toLocaleDateString('pt-BR')}
+                            {formatarData(pf.data)}
                           </div>
                         </td>
                         <td className="px-6 py-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">

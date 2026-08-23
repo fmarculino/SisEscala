@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useEffect, useState } from 'react'
+import { formatarData, formatarHoraComSegundos } from '@/utils/horario'
 import { createPortal } from 'react-dom'
 import { createClient } from '@/utils/supabase/client'
 import { Printer, X, ShieldCheck, FileText, Download, Lock, Loader2 } from 'lucide-react'
@@ -277,7 +278,7 @@ export function RelatorioEventoPrintView({
             <p>Hash de Integridade: <span className="font-bold text-black">{hashSha256}</span></p>
           </div>
           <div className="text-right font-sans">
-            <p>Emissão: {new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR')}</p>
+            <p>Emissão: {formatarData(new Date())} às {formatarHoraComSegundos(new Date())}</p>
             <p>Modo de Assinatura: <span className="uppercase font-bold">{modoAssinatura}</span></p>
           </div>
         </div>

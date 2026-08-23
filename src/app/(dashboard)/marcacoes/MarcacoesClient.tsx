@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { formatarDataHoraComSegundos } from '@/utils/horario'
 import { Monitor, Fingerprint, ListChecks, Plus, Pencil, Trash2, ShieldCheck, UploadCloud, HeartPulse } from 'lucide-react'
 import { listarTerminaisLocais, listarDispositivosRep, excluirTerminalLocal, excluirDispositivoRep, listarCoberturaResumo } from './actions'
 import { TerminalLocalModal } from './TerminalLocalModal'
@@ -241,7 +242,7 @@ export function MarcacoesClient({ isAdmin, opcoes }: { isAdmin: boolean; opcoes:
                     </p>
                     <p className="text-[11px] text-zinc-400">
                       Responsável: {t.profiles?.full_name || '—'} · Último contato:{' '}
-                      {t.ultimo_contato_em ? new Date(t.ultimo_contato_em).toLocaleString('pt-BR') : 'nunca'}
+                      {t.ultimo_contato_em ? formatarDataHoraComSegundos(t.ultimo_contato_em) : 'nunca'}
                     </p>
                     <div className="mt-1">
                       <IdCopyBadge id={t.id} />
@@ -328,7 +329,7 @@ export function MarcacoesClient({ isAdmin, opcoes }: { isAdmin: boolean; opcoes:
                       {d.endereco_ip ? ` · ${d.endereco_ip}` : ''}
                     </p>
                     <p className="text-[11px] text-zinc-400">
-                      NSR: {d.ultimo_nsr} · Último contato: {d.ultimo_contato_em ? new Date(d.ultimo_contato_em).toLocaleString('pt-BR') : 'nunca'}
+                      NSR: {d.ultimo_nsr} · Último contato: {d.ultimo_contato_em ? formatarDataHoraComSegundos(d.ultimo_contato_em) : 'nunca'}
                       {d.coletor_host && ` · máquina: ${d.coletor_host}`}
                       {typeof d.deriva_segundos === 'number' && Math.abs(d.deriva_segundos) > 60 && (
                         <span className="text-amber-600 font-bold"> · deriva de relógio: {d.deriva_segundos}s</span>

@@ -1,0 +1,770 @@
+[
+ {
+  "arq": "src/app/(dashboard)/afastamentos/page.tsx",
+  "linha": 922,
+  "metodo": "toLocaleString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": "rn } const reportTitle = \"Relatório de Afastamentos\" const generationDate = new Date().toLocaleString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/afastamentos/page.tsx",
+  "linha": 947,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_CAL",
+  "opts": "'pt-BR'",
+  "ctx": "${durStr}) — ${regStr}` } const dateInicio = new Date(a.data_inicio + 'T00:00:00').toLocaleDateString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/afastamentos/page.tsx",
+  "linha": 948,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_CAL",
+  "opts": "'pt-BR'",
+  "ctx": "0').toLocaleDateString('pt-BR') const dateFim = new Date(a.data_fim + 'T00:00:00').toLocaleDateString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/afastamentos/page.tsx",
+  "linha": 1590,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_CAL",
+  "opts": "'pt-BR'",
+  "ctx": "nt-black text-blue-700 dark:text-blue-400\"> {new Date(a.data_inicio + 'T00:00:00').toLocaleDateString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/afastamentos/page.tsx",
+  "linha": 1595,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_CAL",
+  "opts": "'pt-BR'",
+  "ctx": "lack text-zinc-700 dark:text-zinc-300\"> De: {new Date(a.data_inicio + 'T00:00:00').toLocaleDateString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/afastamentos/page.tsx",
+  "linha": 1598,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_CAL",
+  "opts": "'pt-BR'",
+  "ctx": "-black text-zinc-700 dark:text-zinc-300\"> Até: {new Date(a.data_fim + 'T00:00:00').toLocaleDateString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/auditoria/AvisosPontoAuditoria.tsx",
+  "linha": 106,
+  "metodo": "toLocaleString",
+  "classe": "HORA",
+  "opts": "'pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: ",
+  "ctx": " new Date(t).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })"
+ },
+ {
+  "arq": "src/app/(dashboard)/auditoria/page.tsx",
+  "linha": 273,
+  "metodo": "toLocaleString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": " === 'negadas' ? 'Tentativas Negadas' : 'Sistema' }` const generationDate = new Date().toLocaleString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/auditoria/page.tsx",
+  "linha": 277,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_TS",
+  "opts": "'pt-BR'",
+  "ctx": "'Todos' const periodoFiltro = filtros.dataInicio ? `${new Date(filtros.dataInicio).toLocaleDateString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/auditoria/page.tsx",
+  "linha": 277,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_TS",
+  "opts": "'pt-BR'",
+  "ctx": "io).toLocaleDateString('pt-BR')} até ${filtros.dataFim ? new Date(filtros.dataFim).toLocaleDateString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/auditoria/page.tsx",
+  "linha": 288,
+  "metodo": "toLocaleString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": "etores?.nome || '-'}</td> <td class=\"py-3 px-2 text-[10px]\">${new Date(log.created_at).toLocaleString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/auditoria/page.tsx",
+  "linha": 301,
+  "metodo": "toLocaleString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": "ome || '-'}</td> <td class=\"py-3 px-2 text-[10px]\">${new Date(log.data_hora_tentativa).toLocaleString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/auditoria/page.tsx",
+  "linha": 350,
+  "metodo": "toLocaleString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": "e || '-'}</td> <td class=\"py-3 px-2 text-[10px]\">${new Date(log.data_hora_acionamento).toLocaleString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/auditoria/page.tsx",
+  "linha": 351,
+  "metodo": "toLocaleString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": " class=\"py-3 px-2 text-[10px]\">${log.data_hora_aceite ? new Date(log.data_hora_aceite).toLocaleString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/auditoria/page.tsx",
+  "linha": 352,
+  "metodo": "toLocaleString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": "lass=\"py-3 px-2 text-[10px]\">${log.data_hora_chegada ? new Date(log.data_hora_chegada).toLocaleString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/auditoria/page.tsx",
+  "linha": 1101,
+  "metodo": "toLocaleString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": "t-zinc-600 dark:text-zinc-400 whitespace-nowrap\"> {new Date(log.data_hora_acionamento).toLocaleString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/auditoria/page.tsx",
+  "linha": 1111,
+  "metodo": "toLocaleString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": "text-green-600 dark:text-green-400 whitespace-nowrap\"> {new Date(log.data_hora_aceite).toLocaleString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/auditoria/page.tsx",
+  "linha": 1124,
+  "metodo": "toLocaleString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": " text-blue-600 dark:text-blue-400 whitespace-nowrap\"> {new Date(log.data_hora_chegada).toLocaleString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/auditoria/page.tsx",
+  "linha": 1211,
+  "metodo": "toLocaleString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": "ext-zinc-600 dark:text-zinc-400 whitespace-nowrap\"> {new Date(log.data_hora_tentativa).toLocaleString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/auditoria/page.tsx",
+  "linha": 1298,
+  "metodo": "toLocaleString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": "me=\"font-mono text-[11px] text-zinc-600 dark:text-zinc-400\"> {new Date(log.created_at).toLocaleString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/auditoria/page.tsx",
+  "linha": 1386,
+  "metodo": "toLocaleString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": "-zinc-500\">Data do Log:</span> <span className=\"font-medium\">{new Date(log.created_at).toLocaleString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/auditoria/page.tsx",
+  "linha": 1446,
+  "metodo": "toLocaleString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": "n className=\"font-medium\">{log.data_hora_tentativa ? new Date(log.data_hora_tentativa).toLocaleString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/auditoria/page.tsx",
+  "linha": 1542,
+  "metodo": "toLocaleString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": "nto:</span> <span className=\"text-sm font-medium\">{new Date(log.data_hora_acionamento).toLocaleString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/auditoria/page.tsx",
+  "linha": 1563,
+  "metodo": "toLocaleString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": "=== 'Recusado' ? 'text-red-600' : 'text-green-600'}`}> {new Date(log.data_hora_aceite).toLocaleString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/auditoria/page.tsx",
+  "linha": 1578,
+  "metodo": "toLocaleString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": "> <span className=\"text-sm font-medium text-blue-600\">{new Date(log.data_hora_chegada).toLocaleString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/auditoria/page.tsx",
+  "linha": 1617,
+  "metodo": "toLocaleString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": "text-zinc-400\">Data/Hora: {log.data_hora_validacao ? new Date(log.data_hora_validacao).toLocaleString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/auditoria/TentativasNegadasDiagnostico.tsx",
+  "linha": 230,
+  "metodo": "toLocaleTimeString",
+  "classe": "HORA",
+  "opts": "'pt-BR', { hour: '2-digit', minute: '2-digit' }",
+  "ctx": "s) const hora = (t: string) => new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })"
+ },
+ {
+  "arq": "src/app/(dashboard)/auditoria/TentativasNegadasDiagnostico.tsx",
+  "linha": 240,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_TS",
+  "opts": "'pt-BR', { day: '2-digit', month: '2-digit' }",
+  "ctx": "xt-zinc-400\"> {new Date(c.dia + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })"
+ },
+ {
+  "arq": "src/app/(dashboard)/configuracoes/page.tsx",
+  "linha": 1085,
+  "metodo": "toLocaleString",
+  "classe": "MES",
+  "opts": "'pt-BR', { month: 'long' }",
+  "ctx": " 1).map(m => ( <option key={m} value={m}> {new Date(2026, m - 1, 1).toLocaleString('pt-BR', { month: 'long' })"
+ },
+ {
+  "arq": "src/app/(dashboard)/configuracoes/page.tsx",
+  "linha": 1131,
+  "metodo": "toLocaleString",
+  "classe": "MES",
+  "opts": "'pt-BR', { month: 'long', year: 'numeric' }",
+  "ctx": "se tracking-tight\"> {new Date(p.ano, p.mes - 1, 1).toLocaleString('pt-BR', { month: 'long', year: 'numeric' })"
+ },
+ {
+  "arq": "src/app/(dashboard)/configuracoes/page.tsx",
+  "linha": 1135,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_TS",
+  "opts": "'pt-BR'",
+  "ctx": "ont-bold uppercase tracking-tight mt-0.5\"> Encerrado em: {new Date(p.encerrado_em).toLocaleDateString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/configuracoes/page.tsx",
+  "linha": 1135,
+  "metodo": "toLocaleTimeString",
+  "classe": "HORA",
+  "opts": "'pt-BR', { hour: '2-digit', minute: '2-digit' }",
+  "ctx": "ing('pt-BR')} às {new Date(p.encerrado_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })"
+ },
+ {
+  "arq": "src/app/(dashboard)/escalas/nova/page.tsx",
+  "linha": 173,
+  "metodo": "toLocaleString",
+  "classe": "MES",
+  "opts": "'pt-BR', { month: 'long' }",
+  "ctx": ")].map((_, i) => ( <option key={i+1} value={i+1}>{new Date(2000, i).toLocaleString('pt-BR', { month: 'long' })"
+ },
+ {
+  "arq": "src/app/(dashboard)/escalas/page.tsx",
+  "linha": 647,
+  "metodo": "toLocaleString",
+  "classe": "MES",
+  "opts": "'pt-BR', { month: 'short' }",
+  "ctx": " : 'text-zinc-500'}`}> {new Date(parseInt(ano), parseInt(mes) - 1).toLocaleString('pt-BR', { month: 'short' })"
+ },
+ {
+  "arq": "src/app/(dashboard)/escalas/unidade/[unidadeId]/page.tsx",
+  "linha": 146,
+  "metodo": "toLocaleString",
+  "classe": "MES",
+  "opts": "'pt-BR', { month: 'long', year: 'numeric' }",
+  "ctx": "ríodo: {new Date(parseInt(ano), parseInt(mes) - 1).toLocaleString('pt-BR', { month: 'long', year: 'numeric' })"
+ },
+ {
+  "arq": "src/app/(dashboard)/escalas/unidade/[unidadeId]/ScaleGrid.tsx",
+  "linha": 1975,
+  "metodo": "toLocaleTimeString",
+  "classe": "HORA",
+  "opts": "'pt-BR', { hour: '2-digit', minute: '2-digit' }",
+  "ctx": " (isNaN(d.getTime())) return null return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })"
+ },
+ {
+  "arq": "src/app/(dashboard)/escalas/unidade/[unidadeId]/ScaleGrid.tsx",
+  "linha": 2169,
+  "metodo": "toLocaleTimeString",
+  "classe": "HORA",
+  "opts": "'pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }",
+  "ctx": "ra_tentativa) return dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })"
+ },
+ {
+  "arq": "src/app/(dashboard)/escalas/unidade/[unidadeId]/ScaleGrid.tsx",
+  "linha": 3803,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_CAL",
+  "opts": "'pt-BR'",
+  "ctx": "rneys.map(jt => `${jt.jornadas?.nome} (De ${new Date(jt.data_inicio + 'T00:00:00').toLocaleDateString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/escalas/unidade/[unidadeId]/ScaleGrid.tsx",
+  "linha": 3803,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_CAL",
+  "opts": "'pt-BR'",
+  "ctx": "T00:00:00').toLocaleDateString('pt-BR')} até ${new Date(jt.data_fim + 'T00:00:00').toLocaleDateString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/escalas/unidade/[unidadeId]/ScaleGrid.tsx",
+  "linha": 4704,
+  "metodo": "toLocaleTimeString",
+  "classe": "HORA",
+  "opts": "'pt-BR', { hour: '2-digit', minute: '2-digit' }",
+  "ctx": " log.created_at ? new Date(log.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })"
+ },
+ {
+  "arq": "src/app/(dashboard)/escalas/unidade/[unidadeId]/ScaleGrid.tsx",
+  "linha": 4705,
+  "metodo": "toLocaleTimeString",
+  "classe": "HORA",
+  "opts": "'pt-BR', { hour: '2-digit', minute: '2-digit' }",
+  "ctx": "ra_aceite ? new Date(log.data_hora_aceite).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })"
+ },
+ {
+  "arq": "src/app/(dashboard)/escalas/unidade/[unidadeId]/ScaleGrid.tsx",
+  "linha": 4706,
+  "metodo": "toLocaleTimeString",
+  "classe": "HORA",
+  "opts": "'pt-BR', { hour: '2-digit', minute: '2-digit' }",
+  "ctx": "_chegada ? new Date(log.data_hora_chegada).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })"
+ },
+ {
+  "arq": "src/app/(dashboard)/escalas/unidade/[unidadeId]/ScaleGrid.tsx",
+  "linha": 5382,
+  "metodo": "toLocaleString",
+  "classe": "MES",
+  "opts": "'pt-BR', { month: 'long' }",
+  "ctx": "1 : ano const prevMesNome = new Date(prevAnoNum, prevMesNum - 1, 1).toLocaleString('pt-BR', { month: 'long' })"
+ },
+ {
+  "arq": "src/app/(dashboard)/feriados/page.tsx",
+  "linha": 360,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_CAL",
+  "opts": "'pt-BR'",
+  "ctx": "ndarIcon className=\"mr-2 h-4 w-4 text-blue-500\" /> {new Date(f.data + 'T00:00:00').toLocaleDateString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/feriados/page.tsx",
+  "linha": 519,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_CAL",
+  "opts": "'pt-BR'",
+  "ctx": "<Clock className=\"mr-2 h-4 w-4 text-amber-500\" /> {new Date(pf.data + 'T00:00:00').toLocaleDateString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/folha-ponto/page.tsx",
+  "linha": 568,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_TS",
+  "opts": "'pt-BR'",
+  "ctx": "mt-8\"> Documento emitido digitalmente via SisEscala. Data da emissão: ${new Date().toLocaleDateString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/folha-ponto/page.tsx",
+  "linha": 568,
+  "metodo": "toLocaleTimeString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": "SisEscala. Data da emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/folha-ponto/page.tsx",
+  "linha": 680,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_TS",
+  "opts": "'pt-BR'",
+  "ctx": "c-400 mt-8\"> Verso oficial da Folha de Ponto emitida via SisEscala em ${new Date().toLocaleDateString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/folha-ponto/page.tsx",
+  "linha": 680,
+  "metodo": "toLocaleTimeString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": "to emitida via SisEscala em ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/folha-ponto/[id]/FolhaPontoEditor.tsx",
+  "linha": 1426,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_TS",
+  "opts": "'pt-BR'",
+  "ctx": "mt-12\"> Documento emitido digitalmente via SisEscala. Data da emissão: {new Date().toLocaleDateString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/folha-ponto/[id]/FolhaPontoEditor.tsx",
+  "linha": 1426,
+  "metodo": "toLocaleTimeString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": "a SisEscala. Data da emissão: {new Date().toLocaleDateString('pt-BR')} {new Date().toLocaleTimeString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/folha-ponto/[id]/FolhaPontoEditor.tsx",
+  "linha": 1604,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_TS",
+  "opts": "'pt-BR'",
+  "ctx": "nc-400 mt-8\"> Verso oficial da Folha de Ponto emitida via SisEscala em {new Date().toLocaleDateString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/folha-ponto/[id]/FolhaPontoEditor.tsx",
+  "linha": 1604,
+  "metodo": "toLocaleTimeString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": "o emitida via SisEscala em {new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/home/page.tsx",
+  "linha": 109,
+  "metodo": "toLocaleString",
+  "classe": "MES",
+  "opts": "'pt-BR', { month: 'short' }",
+  "ctx": "onths.push({ mes: d.getMonth() + 1, ano: d.getFullYear(), label: d.toLocaleString('pt-BR', { month: 'short' })"
+ },
+ {
+  "arq": "src/app/(dashboard)/home/page.tsx",
+  "linha": 261,
+  "metodo": "toLocaleString",
+  "classe": "MES",
+  "opts": "'pt-BR', { month: 'long' }",
+  "ctx": "=========================================== const monthName = today.toLocaleString('pt-BR', { month: 'long' })"
+ },
+ {
+  "arq": "src/app/(dashboard)/home/page.tsx",
+  "linha": 436,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_CAL",
+  "opts": "'pt-BR', { day: '2-digit', month: '2-digit' }",
+  "ctx": "{a.tipo} • {new Date(a.inicio + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })"
+ },
+ {
+  "arq": "src/app/(dashboard)/home/page.tsx",
+  "linha": 436,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_CAL",
+  "opts": "'pt-BR', { day: '2-digit', month: '2-digit' }",
+  "ctx": "-digit' })} - {new Date(a.fim + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })"
+ },
+ {
+  "arq": "src/app/(dashboard)/justificativas/JustificativasClient.tsx",
+  "linha": 451,
+  "metodo": "toLocaleString",
+  "classe": "MES",
+  "opts": "'pt-BR', { month: 'long' }",
+  "ctx": " 1).map(m => ( <option key={m} value={m}> {new Date(2000, m - 1, 1).toLocaleString('pt-BR', { month: 'long' })"
+ },
+ {
+  "arq": "src/app/(dashboard)/justificativas/sign-actions.ts",
+  "linha": 47,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_TS",
+  "opts": "'pt-BR'",
+  "ctx": "isExpired) { return { error: `O certificado digital expirou em ${new Date(validTo).toLocaleDateString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/marcacoes/BiometriaTab.tsx",
+  "linha": 100,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_TS",
+  "opts": "'pt-BR'",
+  "ctx": "lassName=\"text-[11px] text-zinc-400\"> Identidade enviada em {new Date(p.criado_em).toLocaleDateString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/marcacoes/CoberturaTab.tsx",
+  "linha": 204,
+  "metodo": "toLocaleString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": ") criado(s) em \"${d.dispositivo_nome}\", vigentes desde ` + `${new Date(res.vigente_de).toLocaleString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/marcacoes/CoberturaTab.tsx",
+  "linha": 344,
+  "metodo": "toLocaleString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": "c-400 mt-1\"> Cadastro do relógio lido em{' '} {d.snapshot_em ? new Date(d.snapshot_em).toLocaleString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/marcacoes/CoberturaTab.tsx",
+  "linha": 346,
+  "metodo": "toLocaleString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": "'}último contato do coletor:{' '} {d.ultimo_contato_em ? new Date(d.ultimo_contato_em).toLocaleString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/marcacoes/MarcacoesClient.tsx",
+  "linha": 244,
+  "metodo": "toLocaleString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": "me || '—'} · Último contato:{' '} {t.ultimo_contato_em ? new Date(t.ultimo_contato_em).toLocaleString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/marcacoes/MarcacoesClient.tsx",
+  "linha": 331,
+  "metodo": "toLocaleString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": " {d.ultimo_nsr} · Último contato: {d.ultimo_contato_em ? new Date(d.ultimo_contato_em).toLocaleString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/marcacoes/PendenciasTab.tsx",
+  "linha": 430,
+  "metodo": "toLocaleString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": ".matricula})</span> </p> <p className=\"text-xs text-zinc-500\">{new Date(p.ocorrido_em).toLocaleString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/relatorios/_components/ReportActions.tsx",
+  "linha": 49,
+  "metodo": "toLocaleString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": "le: title || 'Relatório SisEscala', filters: filters || {}, generationDate: new Date().toLocaleString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/servidores/pendencias/SolicitacoesTransferenciaSection.tsx",
+  "linha": 172,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_CAL",
+  "opts": "'pt-BR'",
+  "ctx": "etivação pretendida {new Date(solicitacao.dataTransferenciaSugerida + 'T00:00:00').toLocaleDateString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/servidores/ServidoresClient.tsx",
+  "linha": 156,
+  "metodo": "toLocaleString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": "turn } const reportTitle = \"Relatório de Servidores\" const generationDate = new Date().toLocaleString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/servidores/[id]/EditServidorForm.tsx",
+  "linha": 50,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_TS",
+  "opts": "'pt-BR'",
+  "ctx": "400000).toISOString().split('T')[0], minFormatada: new Date(Date.now() + 86400000).toLocaleDateString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/servidores/[id]/EditServidorForm.tsx",
+  "linha": 436,
+  "metodo": "toLocaleDateString",
+  "classe": "MES",
+  "opts": "'pt-BR', { month: 'long', year: 'numeric' }",
+  "ctx": "c.ano, esc.mes - 1, 1) const mesNome = dataMes.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })"
+ },
+ {
+  "arq": "src/app/(dashboard)/servidores/[id]/ServidorDetalhesClient.tsx",
+  "linha": 52,
+  "metodo": "toLocaleDateString",
+  "classe": "MES",
+  "opts": "'pt-BR', { month: 'long', year: 'numeric' }",
+  "ctx": "t data = new Date(ano, mes - 1, 1) return data.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })"
+ },
+ {
+  "arq": "src/app/(dashboard)/servidores/[id]/ServidorDetalhesClient.tsx",
+  "linha": 427,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_TS",
+  "opts": "'pt-BR'",
+  "ctx": "/td> <td className=\"px-6 py-4 text-xs font-semibold\"> De {new Date(jt.data_inicio).toLocaleDateString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/servidores/[id]/ServidorDetalhesClient.tsx",
+  "linha": 427,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_TS",
+  "opts": "'pt-BR'",
+  "ctx": " {new Date(jt.data_inicio).toLocaleDateString('pt-BR')} até {new Date(jt.data_fim).toLocaleDateString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/servidores/[id]/ServidorDetalhesClient.tsx",
+  "linha": 527,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_TS",
+  "opts": "'pt-BR'",
+  "ctx": "ld text-zinc-800 dark:text-zinc-300\"> {p.startDate ? ( <>De {new Date(p.startDate).toLocaleDateString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/servidores/[id]/ServidorDetalhesClient.tsx",
+  "linha": 527,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_TS",
+  "opts": "'pt-BR'",
+  "ctx": ".toLocaleDateString('pt-BR')} até {p.isCurrent ? 'o momento' : new Date(p.endDate).toLocaleDateString('pt-BR')"
+ },
+ {
+  "arq": "src/app/(dashboard)/servidores/[id]/ServidorDetalhesClient.tsx",
+  "linha": 529,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_TS",
+  "opts": "'pt-BR'",
+  "ctx": "w Date(p.endDate).toLocaleDateString('pt-BR')}</> ) : ( <>Até {new Date(p.endDate).toLocaleDateString('pt-BR')"
+ },
+ {
+  "arq": "src/app/actions/communication.ts",
+  "linha": 506,
+  "metodo": "toLocaleString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": "á*\\n\\nConexão com a API de WhatsApp configurada e validada com sucesso em ${new Date().toLocaleString('pt-BR')"
+ },
+ {
+  "arq": "src/app/actions/communication.ts",
+  "linha": 520,
+  "metodo": "toLocaleString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": "px 0;\" /> <p style=\"font-size: 12px; color: #6b7280;\">Data/Hora do Teste: ${new Date().toLocaleString('pt-BR')"
+ },
+ {
+  "arq": "src/app/consultar-escala/ConsultarEscalaClient.tsx",
+  "linha": 603,
+  "metodo": "Intl.DateTimeFormat",
+  "classe": "MES",
+  "opts": "'pt-BR', { month: 'long' }",
+  "ctx": ":text-zinc-300' }`} > <div className=\"font-bold text-lg\"> {new Intl.DateTimeFormat('pt-BR', { month: 'long' })"
+ },
+ {
+  "arq": "src/app/presenca/page.tsx",
+  "linha": 431,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_TS",
+  "opts": "'pt-BR', { weekday: 'long', day: '2-digit', month: 'long' }",
+  "ctx": " tracking-widest\"> {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })"
+ },
+ {
+  "arq": "src/app/presenca-local/page.tsx",
+  "linha": 259,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_TS",
+  "opts": "'pt-BR', { weekday: 'long', day: '2-digit', month: 'long' }",
+  "ctx": " tracking-widest\"> {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })"
+ },
+ {
+  "arq": "src/app/sobreaviso/[token]/page.tsx",
+  "linha": 548,
+  "metodo": "toLocaleTimeString",
+  "classe": "HORA",
+  "opts": "",
+  "ctx": "blue-400 text-center font-medium\"> Chegada registrada às {new Date(log.data_hora_chegada).toLocaleTimeString()"
+ },
+ {
+  "arq": "src/components/escalas/AutorizacaoExcecaoModal.tsx",
+  "linha": 73,
+  "metodo": "toLocaleString",
+  "classe": "MES",
+  "opts": "'pt-BR', { month: 'long' }",
+  "ctx": " if (!isOpen) return null const nomeMes = new Date(ano, mes - 1, 1).toLocaleString('pt-BR', { month: 'long' })"
+ },
+ {
+  "arq": "src/components/justificativas/AssinaturaDigitalModal.tsx",
+  "linha": 187,
+  "metodo": "toLocaleString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": "ame=\"text-zinc-700 dark:text-zinc-300\">{new Date(signatureResult.certInfo?.assinadoEm).toLocaleString('pt-BR')"
+ },
+ {
+  "arq": "src/components/justificativas/AssinaturaDigitalModal.tsx",
+  "linha": 283,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_TS",
+  "opts": "'pt-BR'",
+  "ctx": "rtInfo.issuer}</div> <div><strong>Válido até:</strong> {new Date(certInfo.validTo).toLocaleDateString('pt-BR')"
+ },
+ {
+  "arq": "src/components/PlanningDeadlineAlert.tsx",
+  "linha": 46,
+  "metodo": "toLocaleString",
+  "classe": "MES",
+  "opts": "'pt-BR', { month: 'long' }",
+  "ctx": "/ Capitalized current month name in Portuguese const rawMonth = now.toLocaleString('pt-BR', { month: 'long' })"
+ },
+ {
+  "arq": "src/components/reports/RelatorioEventoPrintView.tsx",
+  "linha": 115,
+  "metodo": "toLocaleString",
+  "classe": "MES",
+  "opts": "'pt-BR', { month: 'long' }",
+  "ctx": "texto_justificativa) const mesFormatado = new Date(ano, mes - 1, 1).toLocaleString('pt-BR', { month: 'long' })"
+ },
+ {
+  "arq": "src/components/reports/RelatorioEventoPrintView.tsx",
+  "linha": 280,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_TS",
+  "opts": "'pt-BR'",
+  "ctx": "}</span></p> </div> <div className=\"text-right font-sans\"> <p>Emissão: {new Date().toLocaleDateString('pt-BR')"
+ },
+ {
+  "arq": "src/components/reports/RelatorioEventoPrintView.tsx",
+  "linha": 280,
+  "metodo": "toLocaleTimeString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": "ht font-sans\"> <p>Emissão: {new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR')"
+ },
+ {
+  "arq": "src/components/reports/RelatorioPlantaoSobreavisoAnexo.tsx",
+  "linha": 80,
+  "metodo": "toLocaleString",
+  "classe": "MES",
+  "opts": "'pt-BR', { month: 'long' }",
+  "ctx": "talAcionamentos } = dados const nomeMes = new Date(ano, mes - 1, 1).toLocaleString('pt-BR', { month: 'long' })"
+ },
+ {
+  "arq": "src/components/reports/RelatorioPlantaoSobreavisoAnexo.tsx",
+  "linha": 611,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_TS",
+  "opts": "'pt-BR'",
+  "ctx": "nc-500 mt-6 print:mt-4\"> SisEscala • Documento emitido digitalmente em {new Date().toLocaleDateString('pt-BR')"
+ },
+ {
+  "arq": "src/components/reports/RelatorioPlantaoSobreavisoAnexo.tsx",
+  "linha": 611,
+  "metodo": "toLocaleTimeString",
+  "classe": "HORA",
+  "opts": "'pt-BR'",
+  "ctx": "to emitido digitalmente em {new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR')"
+ },
+ {
+  "arq": "src/components/RequerimentoPrintView.tsx",
+  "linha": 165,
+  "metodo": "toLocaleDateString",
+  "classe": "DATA_TS",
+  "opts": "'pt-BR'",
+  "ctx": "t-center text-xs text-gray-500\"> <p>Documento gerado pelo SisEscala em {new Date().toLocaleDateString('pt-BR')"
+ },
+ {
+  "arq": "src/components/ScalePrintView.tsx",
+  "linha": 214,
+  "metodo": "Intl.DateTimeFormat",
+  "classe": "MES",
+  "opts": "'pt-BR', { month: 'long' }",
+  "ctx": "ppercase font-black tracking-wider\">01 A {daysInMonth} DE {new Intl.DateTimeFormat('pt-BR', { month: 'long' })"
+ },
+ {
+  "arq": "src/components/SwapRequestPanel.tsx",
+  "linha": 149,
+  "metodo": "toLocaleDateString",
+  "classe": "HORA",
+  "opts": "'pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2",
+  "ctx": "DateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })"
+ }
+]

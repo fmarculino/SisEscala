@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { formatarDataHoraComSegundos } from '@/utils/horario'
 import {
   Loader2, RefreshCw, AlertTriangle, CheckCircle2, ChevronDown, ChevronRight,
   Link2, Fingerprint, UserX, IdCard, CloudOff, Users,
@@ -201,7 +202,7 @@ export function CoberturaTab({ isAdmin }: { isAdmin: boolean }) {
 
     setAviso(
       `${res.criados} vínculo(s) criado(s) em "${d.dispositivo_nome}", vigentes desde ` +
-      `${new Date(res.vigente_de).toLocaleString('pt-BR')}. As próximas batidas dessas pessoas já viram registro.`
+      `${formatarDataHoraComSegundos(res.vigente_de)}. As próximas batidas dessas pessoas já viram registro.`
     )
     carregarDetalhe(d.dispositivo_id)
     recarregarResumo()
@@ -341,9 +342,9 @@ export function CoberturaTab({ isAdmin }: { isAdmin: boolean }) {
                       </div>
                       <p className="text-[11px] text-zinc-400 mt-1">
                         Cadastro do relógio lido em{' '}
-                        {d.snapshot_em ? new Date(d.snapshot_em).toLocaleString('pt-BR') : 'nunca'}
+                        {d.snapshot_em ? formatarDataHoraComSegundos(d.snapshot_em) : 'nunca'}
                         {' · '}último contato do coletor:{' '}
-                        {d.ultimo_contato_em ? new Date(d.ultimo_contato_em).toLocaleString('pt-BR') : 'nunca'}
+                        {d.ultimo_contato_em ? formatarDataHoraComSegundos(d.ultimo_contato_em) : 'nunca'}
                       </p>
                       <p className="text-[11px] text-blue-600 dark:text-blue-400 mt-1">
                         {aberto ? 'Clique para recolher' : 'Clique para ver servidor por servidor'}

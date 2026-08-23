@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo, useEffect, useCallback } from 'react'
+import { formatarData, formatarHora, formatarHoraComSegundos } from '@/utils/horario'
 import { createClient } from '@/utils/supabase/client'
 import { useRouter } from 'next/navigation'
 import { 
@@ -60,9 +61,7 @@ type SelecaoBatida = { fonte: 'marcacao' | 'tentativa'; id: string; hora: string
 
 // Com segundos de propósito: é o que distingue batida real de horário sintético (armadilha 5).
 // Esconder os segundos aqui apagaria justamente a evidência que a seleção existe para preservar.
-const horaComSegundos = (d: Date) => d.toLocaleTimeString('pt-BR', {
-  hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Sao_Paulo'
-})
+const horaComSegundos = (d: Date) => formatarHoraComSegundos(d)
 
 export function ScaleGrid({
   unidadeId,
@@ -1972,7 +1971,7 @@ export function ScaleGrid({
     try {
       const d = new Date(isoString)
       if (isNaN(d.getTime())) return null
-      return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+      return formatarHora(d)
     } catch {
       return null
     }
@@ -2002,9 +2001,7 @@ export function ScaleGrid({
         tipo === 'intervalo_saida'   ? bloco.intervalo_inicio_previsto :
         tipo === 'intervalo_retorno' ? bloco.intervalo_fim_previsto : null
       if (iso) {
-        return new Date(iso).toLocaleTimeString('pt-BR', {
-          hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo'
-        })
+        return formatarHora(iso)
       }
       // Passo de intervalo nulo é resposta legítima: o bloco não tem intervalo previsto
       // (CLT Art. 71, ou unidade sem marcação). Não cair no cálculo local, que inventaria um.
@@ -2166,7 +2163,7 @@ export function ScaleGrid({
     const lastAttempt = matches[0]
     try {
       const dt = new Date(lastAttempt.data_hora_tentativa)
-      return dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      return formatarHoraComSegundos(dt)
     } catch {
       return null
     }
@@ -2381,7 +2378,7 @@ export function ScaleGrid({
       const toHHMM = (isoOrTime?: string | null) => {
         if (!isoOrTime) return null
         if (isoOrTime.includes('T')) {
-          return new Date(isoOrTime).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })
+          return formatarHora(isoOrTime)
         }
         return isoOrTime.slice(0, 5)
       }
@@ -3800,7 +3797,7 @@ export function ScaleGrid({
                               {hasTempJourney && (
                                 <span 
                                   className="inline-flex items-center" 
-                                  title={`Possui jornada temporária cadastrada:\n${serverTempJourneys.map(jt => `${jt.jornadas?.nome} (De ${new Date(jt.data_inicio + 'T00:00:00').toLocaleDateString('pt-BR')} até ${new Date(jt.data_fim + 'T00:00:00').toLocaleDateString('pt-BR')})`).join('\n')}`}
+                                  title={`Possui jornada temporária cadastrada:\n${serverTempJourneys.map(jt => `${jt.jornadas?.nome} (De ${formatarData(jt.data_inicio)} até ${formatarData(jt.data_fim)})`).join('\n')}`}
                                 >
                                   <Clock className="h-3.5 w-3.5 text-amber-500 fill-amber-500/10 cursor-help" />
                                 </span>
@@ -4701,9 +4698,9 @@ export function ScaleGrid({
 
                 return dayLogs.map((log: any, idx: number) => {
                   const link = `${window.location.origin}/sobreaviso/${log.token_magic_link}`
-                  const createdStr = log.created_at ? new Date(log.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '—'
-                  const acceptedStr = log.data_hora_aceite ? new Date(log.data_hora_aceite).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : null
-                  const arrivedStr = log.data_hora_chegada ? new Date(log.data_hora_chegada).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : null
+                  const createdStr = log.created_at ? formatarHora(log.created_at) : '—'
+                  const acceptedStr = log.data_hora_aceite ? formatarHora(log.data_hora_aceite) : null
+                  const arrivedStr = log.data_hora_chegada ? formatarHora(log.data_hora_chegada) : null
 
                   return (
                     <div key={log.id || idx} className="p-4 bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700/60 rounded-2xl space-y-3">
@@ -5679,8 +5676,8 @@ export function ScaleGrid({
           const addHora = (iso?: string | null) => {
             if (!iso) return
             const d = new Date(iso)
-            horariosJaUsados.add(d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Sao_Paulo' }))
-            horariosJaUsados.add(d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' }))
+            horariosJaUsados.add(formatarHoraComSegundos(d))
+            horariosJaUsados.add(formatarHora(d))
           }
           if (!passosDoEscopo.includes('entrada')) addHora(diaPresence.entrada_em)
           if (!passosDoEscopo.includes('intervalo_saida')) addHora(diaPresence.intervalo_saida_em)
@@ -5769,9 +5766,7 @@ export function ScaleGrid({
         const previstoHHMM = (p: PassoPresenca) => {
           const iso = previstoIso(p)
           if (!iso) return null
-          return new Date(iso).toLocaleTimeString('pt-BR', {
-            hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo'
-          })
+          return formatarHora(iso)
         }
 
         const selecoes = manualPresenceModal.selecoes || {}

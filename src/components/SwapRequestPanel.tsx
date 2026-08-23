@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { formatarDataHora } from '@/utils/horario'
 import { ArrowRightLeft, Check, X, Clock, ChevronDown, ChevronUp, Loader2 } from 'lucide-react'
 import { getSwapRequestsByUnit, approveSwapRequest, rejectSwapRequest } from '@/app/(dashboard)/escalas/unidade/[unidadeId]/swapActions'
 
@@ -146,7 +147,7 @@ export function SwapRequestPanel({ unidadeId, setorId, mes, ano, isClosed }: Swa
                       </p>
                     )}
                     <p className="text-[9px] text-zinc-400 mt-1">
-                      {new Date(sol.created_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      {formatarDataHora(sol.created_at)}
                     </p>
                   </div>
 

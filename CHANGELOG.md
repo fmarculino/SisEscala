@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.10.0] - 2026-08-23
+
+Fuso horário único em todo o sistema, vindo da configuração global. A mesma batida deixa de aparecer com horários diferentes conforme o computador de quem abre a tela.
+
+### Fixed
+- **A grade mostrava a hora em outro fuso que a folha de ponto**: a batida da AGNA CRISTINA RIBEIRO DO ROSÁRIO (mat. 205) de 10/08/2026 está gravada como `2026-08-10T11:03:40+00:00` — **08:03:40** em Marabá. A folha exibia `08:03` (formatava com fuso) e o tooltip da grade exibia `11:03` (não formatava, herdava o fuso da máquina). Três horas de diferença para o mesmo registro, no mesmo sistema.
+- **Fonte única: `src/utils/horario.ts`**. Toda exibição de data e hora passa por ela, e ela **sempre** fixa o fuso — nunca herda o do navegador nem o do processo.
+  - Medido em 23/08/2026: **96** formatações em `src/` não fixavam o fuso, contra 56 que fixavam. Das 96, **45** exibiam hora de timestamp e **22** exibiam data de timestamp — essas podiam errar o **dia inteiro** (a VPS roda em UTC, então as últimas 3 horas de todo dia já são "amanhã").
+  - **125 chamadas reescritas em 31 arquivos** por `scratchpad/gen_fuso_unico.js`, com ensaio antes de aplicar. As 18 que sobraram sem fuso são todas nome de mês (`{ month: 'long' }`), que não depende de fuso.
+  - Correção de brinde: `new Date('2026-08-01').toLocaleDateString('pt-BR')` exibia **31/07**. `formatarData` reconhece a forma `YYYY-MM-DD` como data de **calendário** e não converte nada.
+- **O fuso vem de `configuracoes_globais.timezone`, não de literal espalhado.** A chave sempre existiu e as funções PL/pgSQL sempre a respeitaram; a tela nunca a editou e o frontend nunca a leu. Os 56 literais `'America/Sao_Paulo'` passam a ler a configuração.
+
+### Added
+- **Fuso Horário do Sistema** na tela de Configurações → aba Regras: Brasília/Pará, Manaus, Cuiabá, Porto Velho, Boa Vista, Rio Branco, Fernando de Noronha e UTC.
+- **Migration `20260823110000`**: a policy "Portal access to public configs" passa a liberar a chave `timezone`. Sem isso o terminal de ponto, o login e o portal do servidor — todos anônimos — cairiam no padrão e não respeitariam a configuração. Mesmo caso e mesma correção da `20260814140000`.
+
+### Changed
+- O layout raiz lê o fuso e o publica no HTML (`window.__SISESCALA_TZ__`), em vez de o cliente buscá-lo. Sem fetch extra e sem piscar a hora errada antes de a configuração chegar. Falhou a leitura? Cai em `America/Sao_Paulo` — **nunca** no fuso da máquina.
+
+### Não foi tocado
+- `new Date(new Date().toLocaleString('en-US', { timeZone }))` — o padrão canônico do projeto para obter a hora local (armadilha 12). É **cálculo**, não exibição: o resultado alimenta `getDate()/getMonth()`, e trocá-lo quebraria a lógica de negócio. O ensaio do gerador pegou essa troca indevida antes de aplicar.
+
 ## [2.9.0] - 2026-08-23
 
 Turno Regular emendado com Plantão: o passo do bloco deixa de ser copiado para todas as linhas dele, e uma batida solitária na transição passa a servir aos dois lados. Fim da dupla contagem que creditava 16h para 10h trabalhadas.

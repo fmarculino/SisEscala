@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { formatarDataHoraComSegundos } from '@/utils/horario'
 import { Printer, FileSpreadsheet } from 'lucide-react'
 import { getReportBaseHtml, templates, ReportConfig } from '@/utils/report-templates'
 import { createClient } from '@/utils/supabase/client'
@@ -46,7 +47,7 @@ export function ReportActions({ onExport, showExport = true, reportData, reportT
     const config: ReportConfig = {
       title: title || 'Relatório SisEscala',
       filters: filters || {},
-      generationDate: new Date().toLocaleString('pt-BR'),
+      generationDate: formatarDataHoraComSegundos(new Date()),
       instituicaoCabecalhoUrl: headerLogoUrl || undefined,
       draft: isDraft,
     };

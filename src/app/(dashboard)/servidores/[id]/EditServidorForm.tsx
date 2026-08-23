@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo, useEffect, useRef } from 'react'
+import { formatarData } from '@/utils/horario'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Save, User, Layers, Eye, EyeOff, MessageCircle, Info, Briefcase, Search, Check, ChevronsUpDown, FileText, Printer, Camera, ZoomIn, Loader2, Calendar, MapPin, ExternalLink, Clock } from 'lucide-react'
@@ -47,7 +48,7 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
 
   const [minDataTransferenciaInfo, setMinDataTransferenciaInfo] = useState<{ minStr: string; minFormatada: string; diasUteis: number }>({
     minStr: new Date(Date.now() + 86400000).toISOString().split('T')[0],
-    minFormatada: new Date(Date.now() + 86400000).toLocaleDateString('pt-BR'),
+    minFormatada: formatarData(Date.now() + 86400000),
     diasUteis: 1
   })
 

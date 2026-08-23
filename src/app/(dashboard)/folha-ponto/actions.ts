@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient, createAdminClient } from '@/utils/supabase/server'
+import { definirTimezone, formatarHora } from '@/utils/horario'
 import { revalidatePath } from 'next/cache'
 import { registrarLog, calcularAlteracoes, calcularAlteracoesFolha } from '@/utils/auditoria'
 import { hasSectorAccess, UserProfile, applyAccessFilters, isAccessUnrestricted } from '@/utils/permissions'
@@ -599,6 +600,7 @@ export async function executeGerarFolhaPonto(
       .eq('chave', 'timezone')
       .maybeSingle()
     const timezone = (configTimezone?.valor as string) || 'America/Sao_Paulo'
+    definirTimezone(timezone)
     const nowLocal = new Date(new Date().toLocaleString('en-US', { timeZone: timezone }))
     const currentYear = nowLocal.getFullYear()
     const currentMonth = nowLocal.getMonth() + 1
@@ -794,10 +796,10 @@ export async function executeGerarFolhaPonto(
           registro.entrada = registroExistente.entrada
           registro.origem_entrada = registroExistente.origem_entrada || 'manual'
         } else if (hasRealEntrada && realEntradaTime) {
-          registro.entrada = realEntradaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+          registro.entrada = formatarHora(realEntradaTime)
           registro.origem_entrada = 'real'
         } else if (isManualEntrada && realEntradaTime) {
-          registro.entrada = realEntradaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+          registro.entrada = formatarHora(realEntradaTime)
           registro.origem_entrada = 'manual'
         }
 
@@ -806,10 +808,10 @@ export async function executeGerarFolhaPonto(
           registro.saida = registroExistente.saida
           registro.origem_saida = registroExistente.origem_saida || 'manual'
         } else if (hasRealSaida && realSaidaTime) {
-          registro.saida = realSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+          registro.saida = formatarHora(realSaidaTime)
           registro.origem_saida = 'real'
         } else if (isManualSaida && realSaidaTime) {
-          registro.saida = realSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+          registro.saida = formatarHora(realSaidaTime)
           registro.origem_saida = 'manual'
         }
 
@@ -826,10 +828,10 @@ export async function executeGerarFolhaPonto(
               registro.saida_intervalo = registroExistente.saida_intervalo
               registro.origem_saida_intervalo = registroExistente.origem_saida_intervalo || 'manual'
             } else if (hasRealIntervaloSaida && realIntervaloSaidaTime) {
-              registro.saida_intervalo = realIntervaloSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+              registro.saida_intervalo = formatarHora(realIntervaloSaidaTime)
               registro.origem_saida_intervalo = 'real'
             } else if (isManualIntervaloSaida && realIntervaloSaidaTime) {
-              registro.saida_intervalo = realIntervaloSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+              registro.saida_intervalo = formatarHora(realIntervaloSaidaTime)
               registro.origem_saida_intervalo = 'manual'
             } else if (podePreAssinalar && shouldGenerate(officialSaidaIntervaloMin)) {
               registro.saida_intervalo = formatMinutesToTimeStr(officialSaidaIntervaloMin)
@@ -841,10 +843,10 @@ export async function executeGerarFolhaPonto(
               registro.retorno_intervalo = registroExistente.retorno_intervalo
               registro.origem_retorno_intervalo = registroExistente.origem_retorno_intervalo || 'manual'
             } else if (hasRealIntervaloRetorno && realIntervaloRetornoTime) {
-              registro.retorno_intervalo = realIntervaloRetornoTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+              registro.retorno_intervalo = formatarHora(realIntervaloRetornoTime)
               registro.origem_retorno_intervalo = 'real'
             } else if (isManualIntervaloRetorno && realIntervaloRetornoTime) {
-              registro.retorno_intervalo = realIntervaloRetornoTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+              registro.retorno_intervalo = formatarHora(realIntervaloRetornoTime)
               registro.origem_retorno_intervalo = 'manual'
             } else if (podePreAssinalar && shouldGenerate(officialRetornoIntervaloMin)) {
               registro.retorno_intervalo = formatMinutesToTimeStr(officialRetornoIntervaloMin)
@@ -1324,6 +1326,7 @@ export async function sincronizarFolhaPonto(folhaId: string) {
       .eq('chave', 'timezone')
       .maybeSingle()
     const timezone = (configTimezone?.valor as string) || 'America/Sao_Paulo'
+    definirTimezone(timezone)
     const nowLocal = new Date(new Date().toLocaleString('en-US', { timeZone: timezone }))
     const currentYear = nowLocal.getFullYear()
     const currentMonth = nowLocal.getMonth() + 1
@@ -1521,10 +1524,10 @@ export async function sincronizarFolhaPonto(folhaId: string) {
           registro.entrada = registroExistente.entrada
           registro.origem_entrada = registroExistente.origem_entrada || 'manual'
         } else if (hasRealEntrada && realEntradaTime) {
-          registro.entrada = realEntradaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+          registro.entrada = formatarHora(realEntradaTime)
           registro.origem_entrada = 'real'
         } else if (isManualEntrada && realEntradaTime) {
-          registro.entrada = realEntradaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+          registro.entrada = formatarHora(realEntradaTime)
           registro.origem_entrada = 'manual'
         }
 
@@ -1533,10 +1536,10 @@ export async function sincronizarFolhaPonto(folhaId: string) {
           registro.saida = registroExistente.saida
           registro.origem_saida = registroExistente.origem_saida || 'manual'
         } else if (hasRealSaida && realSaidaTime) {
-          registro.saida = realSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+          registro.saida = formatarHora(realSaidaTime)
           registro.origem_saida = 'real'
         } else if (isManualSaida && realSaidaTime) {
-          registro.saida = realSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+          registro.saida = formatarHora(realSaidaTime)
           registro.origem_saida = 'manual'
         }
 
@@ -1552,10 +1555,10 @@ export async function sincronizarFolhaPonto(folhaId: string) {
               registro.saida_intervalo = registroExistente.saida_intervalo
               registro.origem_saida_intervalo = registroExistente.origem_saida_intervalo || 'manual'
             } else if (hasRealIntervaloSaida && realIntervaloSaidaTime) {
-              registro.saida_intervalo = realIntervaloSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+              registro.saida_intervalo = formatarHora(realIntervaloSaidaTime)
               registro.origem_saida_intervalo = 'real'
             } else if (isManualIntervaloSaida && realIntervaloSaidaTime) {
-              registro.saida_intervalo = realIntervaloSaidaTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+              registro.saida_intervalo = formatarHora(realIntervaloSaidaTime)
               registro.origem_saida_intervalo = 'manual'
             } else if (podePreAssinalar && shouldGenerate(officialSaidaIntervaloMin)) {
               registro.saida_intervalo = formatMinutesToTimeStr(officialSaidaIntervaloMin)
@@ -1566,10 +1569,10 @@ export async function sincronizarFolhaPonto(folhaId: string) {
               registro.retorno_intervalo = registroExistente.retorno_intervalo
               registro.origem_retorno_intervalo = registroExistente.origem_retorno_intervalo || 'manual'
             } else if (hasRealIntervaloRetorno && realIntervaloRetornoTime) {
-              registro.retorno_intervalo = realIntervaloRetornoTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+              registro.retorno_intervalo = formatarHora(realIntervaloRetornoTime)
               registro.origem_retorno_intervalo = 'real'
             } else if (isManualIntervaloRetorno && realIntervaloRetornoTime) {
-              registro.retorno_intervalo = realIntervaloRetornoTime.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false })
+              registro.retorno_intervalo = formatarHora(realIntervaloRetornoTime)
               registro.origem_retorno_intervalo = 'manual'
             } else if (podePreAssinalar && shouldGenerate(officialRetornoIntervaloMin)) {
               registro.retorno_intervalo = formatMinutesToTimeStr(officialRetornoIntervaloMin)
@@ -2466,8 +2469,8 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
           turno_nome: turnoDesc,
           horario_previsto: horarioPrevisto,
           horas_computadas: Number(turno?.horas_computadas || 12),
-          entrada_real: ed.presenca_entrada_em ? new Date(ed.presenca_entrada_em).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }) : '-',
-          saida_real: ed.presenca_saida_em ? new Date(ed.presenca_saida_em).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }) : '-',
+          entrada_real: ed.presenca_entrada_em ? formatarHora(ed.presenca_entrada_em) : '-',
+          saida_real: ed.presenca_saida_em ? formatarHora(ed.presenca_saida_em) : '-',
           confirmado: !!ed.presenca_confirmada,
           unidade: uNome,
           setor: sNome,
@@ -2495,13 +2498,13 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
           justificativa: justTexto,
           acionamentos: acionamentos.map((a: any) => {
             const horaAcionamento = a.data_hora_acionamento 
-              ? new Date(a.data_hora_acionamento).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }) 
+              ? formatarHora(a.data_hora_acionamento) 
               : '-'
             const horaChegada = a.data_hora_chegada 
-              ? new Date(a.data_hora_chegada).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }) 
+              ? formatarHora(a.data_hora_chegada) 
               : '-'
             const horaSaida = a.data_hora_validacao
-              ? new Date(a.data_hora_validacao).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' })
+              ? formatarHora(a.data_hora_validacao)
               : '-'
             
             const destUnidade = a.destino_unidade?.nome

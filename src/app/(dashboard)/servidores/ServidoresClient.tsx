@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
+import { formatarDataHoraComSegundos } from '@/utils/horario'
 import { Users, Plus, UserCircle, Building2, Search, Filter, Layers, UserX, UserCheck, FileDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ShieldAlert, Clock } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -153,7 +154,7 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
       }
 
       const reportTitle = "Relatório de Servidores"
-      const generationDate = new Date().toLocaleString('pt-BR')
+      const generationDate = formatarDataHoraComSegundos(new Date())
       
       const unidadeName = selectedUnidade 
         ? unidades.find(u => u.id === selectedUnidade)?.nome 

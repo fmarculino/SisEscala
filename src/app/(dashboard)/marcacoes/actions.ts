@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient, createAdminClient } from '@/utils/supabase/server'
+import { definirTimezone } from '@/utils/horario'
 import { revalidatePath } from 'next/cache'
 import { randomUUID, createHash } from 'crypto'
 import { formatSectorsHierarchy } from '@/utils/sectors'
@@ -616,6 +617,7 @@ export async function buscarEscalasCandidatas(
     .eq('chave', 'timezone')
     .maybeSingle()
   const timezone = (cfg?.valor as string) || 'America/Sao_Paulo'
+  definirTimezone(timezone)
 
   // O dia tem que ser o do fuso do município, não o do processo Node (a VPS roda em UTC): uma
   // batida às 22:00 de 11/08 vira 12/08 em UTC e traria as escalas do dia errado. É a mesma

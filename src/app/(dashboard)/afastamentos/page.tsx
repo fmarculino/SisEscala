@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { formatarData, formatarDataHoraComSegundos } from '@/utils/horario'
 import { createClient } from '@/utils/supabase/client'
 import { 
   Plus, Calendar as CalendarIcon, Loader2, Trash2, 
@@ -919,7 +920,7 @@ export default function AfastamentosPage() {
       }
 
       const reportTitle = "Relatório de Afastamentos"
-      const generationDate = new Date().toLocaleString('pt-BR')
+      const generationDate = formatarDataHoraComSegundos(new Date())
       
       const unidadeName = filterUnidade !== 'todas' 
         ? unidades.find(u => u.id === filterUnidade)?.nome 
@@ -944,8 +945,8 @@ export default function AfastamentosPage() {
           periodSlots = `Horas: ${hIni} às ${hFim} (${durStr}) — ${regStr}`
         }
 
-        const dateInicio = new Date(a.data_inicio + 'T00:00:00').toLocaleDateString('pt-BR')
-        const dateFim = new Date(a.data_fim + 'T00:00:00').toLocaleDateString('pt-BR')
+        const dateInicio = formatarData(a.data_inicio)
+        const dateFim = formatarData(a.data_fim)
         
         return `
           <tr class="border-b border-zinc-200">
@@ -1587,15 +1588,15 @@ export default function AfastamentosPage() {
                         <td className="px-6 py-4 whitespace-nowrap">
                           {a.periodo_tipo === 'horas' || a.hora_inicio ? (
                             <div className="text-xs font-black text-blue-700 dark:text-blue-400">
-                              {new Date(a.data_inicio + 'T00:00:00').toLocaleDateString('pt-BR')} (Horas)
+                              {formatarData(a.data_inicio)} (Horas)
                             </div>
                           ) : (
                             <>
                               <div className="text-xs font-black text-zinc-700 dark:text-zinc-300">
-                                De: {new Date(a.data_inicio + 'T00:00:00').toLocaleDateString('pt-BR')}
+                                De: {formatarData(a.data_inicio)}
                               </div>
                               <div className="text-xs font-black text-zinc-700 dark:text-zinc-300">
-                                Até: {new Date(a.data_fim + 'T00:00:00').toLocaleDateString('pt-BR')}
+                                Até: {formatarData(a.data_fim)}
                               </div>
                             </>
                           )}

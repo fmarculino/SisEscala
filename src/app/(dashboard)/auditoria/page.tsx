@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { formatarData, formatarDataHoraComSegundos } from '@/utils/horario'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/utils/supabase/client'
 import { TentativasNegadasDiagnostico } from './TentativasNegadasDiagnostico'
@@ -270,11 +271,11 @@ export default function AuditoriaPage() {
         activeTab === 'presenca' ? 'Presença Regular' : 
         activeTab === 'negadas' ? 'Tentativas Negadas' : 'Sistema'
       }`
-      const generationDate = new Date().toLocaleString('pt-BR')
+      const generationDate = formatarDataHoraComSegundos(new Date())
       
       const unidadeFiltro = filtros.unidadeId ? unidades.find(u => u.id === filtros.unidadeId)?.nome : 'Todas'
       const setorFiltro = filtros.setorId ? setores.find(s => s.id === filtros.setorId)?.nome : 'Todos'
-      const periodoFiltro = filtros.dataInicio ? `${new Date(filtros.dataInicio).toLocaleDateString('pt-BR')} até ${filtros.dataFim ? new Date(filtros.dataFim).toLocaleDateString('pt-BR') : 'Hoje'}` : 'Todo o período'
+      const periodoFiltro = filtros.dataInicio ? `${formatarData(filtros.dataInicio)} até ${filtros.dataFim ? formatarData(filtros.dataFim) : 'Hoje'}` : 'Todo o período'
       
       let tableRows = ''
       tableRows = (data as any[]).map((item) => {
@@ -285,7 +286,7 @@ export default function AuditoriaPage() {
               <td class="py-3 px-2 text-[10px] font-bold text-zinc-700">${log.acao}</td>
               <td class="py-3 px-2 text-[10px] font-medium">${log.profiles?.full_name || 'Sistema'}</td>
               <td class="py-3 px-2 text-[10px]">${log.unidades?.nome || '-'} / ${(log.setores as any)?.dicionario_setores?.nome || '-'}</td>
-              <td class="py-3 px-2 text-[10px]">${new Date(log.created_at).toLocaleString('pt-BR')}</td>
+              <td class="py-3 px-2 text-[10px]">${formatarDataHoraComSegundos(log.created_at)}</td>
               <td class="py-3 px-2 text-[10px] text-zinc-500">${JSON.stringify(log.detalhes)}</td>
             </tr>
           `;
@@ -298,7 +299,7 @@ export default function AuditoriaPage() {
                 <div class="text-[8px] text-zinc-400">Matrícula Digitada: ${log.matricula_digitada || '-'}</div>
               </td>
               <td class="py-3 px-2 text-[10px]">${log.unidade_nome || '-'} / ${log.setor_nome || '-'}</td>
-              <td class="py-3 px-2 text-[10px]">${new Date(log.data_hora_tentativa).toLocaleString('pt-BR')}</td>
+              <td class="py-3 px-2 text-[10px]">${formatarDataHoraComSegundos(log.data_hora_tentativa)}</td>
               <td class="py-3 px-2 text-[10px]">
                 <div class="font-bold">${log.escala_prevista_inicio ? `${log.escala_prevista_inicio} às ${log.escala_prevista_fim} (${log.escala_categoria})` : 'Sem Escala'}</div>
                 <div class="text-[8px] text-zinc-500">Terminal: ${log.coordenador_nome || '-'}</div>
@@ -347,9 +348,9 @@ export default function AuditoriaPage() {
                 <div class="text-[8px] text-zinc-400">Matrícula: ${log.servidores?.matricula || '-'}</div>
               </td>
               <td class="py-3 px-2 text-[10px]">${log.unidades?.nome || '-'}</td>
-              <td class="py-3 px-2 text-[10px]">${new Date(log.data_hora_acionamento).toLocaleString('pt-BR')}</td>
-              <td class="py-3 px-2 text-[10px]">${log.data_hora_aceite ? new Date(log.data_hora_aceite).toLocaleString('pt-BR') : '-'}</td>
-              <td class="py-3 px-2 text-[10px]">${log.data_hora_chegada ? new Date(log.data_hora_chegada).toLocaleString('pt-BR') : '-'}</td>
+              <td class="py-3 px-2 text-[10px]">${formatarDataHoraComSegundos(log.data_hora_acionamento)}</td>
+              <td class="py-3 px-2 text-[10px]">${log.data_hora_aceite ? formatarDataHoraComSegundos(log.data_hora_aceite) : '-'}</td>
+              <td class="py-3 px-2 text-[10px]">${log.data_hora_chegada ? formatarDataHoraComSegundos(log.data_hora_chegada) : '-'}</td>
               <td class="py-3 px-2 text-center">
                 <span class="inline-block px-2 py-0.5 rounded text-[8px] font-bold ${
                   log.status === 'Chegou' ? 'bg-blue-100 text-blue-700' :
@@ -1098,7 +1099,7 @@ export default function AuditoriaPage() {
                             Acionado
                           </p>
                           <p className="font-mono text-[11px] text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
-                            {new Date(log.data_hora_acionamento).toLocaleString('pt-BR')}
+                            {formatarDataHoraComSegundos(log.data_hora_acionamento)}
                           </p>
                         </div>
 
@@ -1108,7 +1109,7 @@ export default function AuditoriaPage() {
                           </p>
                           {log.data_hora_aceite ? (
                             <p className="font-mono text-[11px] text-green-600 dark:text-green-400 whitespace-nowrap">
-                              {new Date(log.data_hora_aceite).toLocaleString('pt-BR')}
+                              {formatarDataHoraComSegundos(log.data_hora_aceite)}
                             </p>
                           ) : (
                             <p className="text-[11px] text-zinc-400 italic">Aguardando...</p>
@@ -1121,7 +1122,7 @@ export default function AuditoriaPage() {
                           </p>
                           {log.data_hora_chegada ? (
                             <p className="font-mono text-[11px] text-blue-600 dark:text-blue-400 whitespace-nowrap">
-                              {new Date(log.data_hora_chegada).toLocaleString('pt-BR')}
+                              {formatarDataHoraComSegundos(log.data_hora_chegada)}
                             </p>
                           ) : (
                             <p className="text-[11px] text-zinc-400 italic">
@@ -1208,7 +1209,7 @@ export default function AuditoriaPage() {
                             Tentativa em
                           </p>
                           <p className="font-mono text-[11px] text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
-                            {new Date(log.data_hora_tentativa).toLocaleString('pt-BR')}
+                            {formatarDataHoraComSegundos(log.data_hora_tentativa)}
                           </p>
                         </div>
 
@@ -1295,7 +1296,7 @@ export default function AuditoriaPage() {
                             <Clock className="h-3 w-3" /> Registro
                           </p>
                           <p className="font-mono text-[11px] text-zinc-600 dark:text-zinc-400">
-                            {new Date(log.created_at).toLocaleString('pt-BR')}
+                            {formatarDataHoraComSegundos(log.created_at)}
                           </p>
                         </div>
                         <div className="p-2 text-zinc-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition-all">
@@ -1383,7 +1384,7 @@ export default function AuditoriaPage() {
                           </div>
                           <div className="flex justify-between text-sm">
                             <span className="text-zinc-500">Data do Log:</span>
-                            <span className="font-medium">{new Date(log.created_at).toLocaleString('pt-BR')}</span>
+                            <span className="font-medium">{formatarDataHoraComSegundos(log.created_at)}</span>
                           </div>
                           {log.detalhes?.ip && (
                             <div className="flex justify-between text-sm pt-2 border-t border-zinc-100 dark:border-zinc-800">
@@ -1443,7 +1444,7 @@ export default function AuditoriaPage() {
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
                             <span className="text-zinc-500">Horário da Tentativa:</span>
-                            <span className="font-medium">{log.data_hora_tentativa ? new Date(log.data_hora_tentativa).toLocaleString('pt-BR') : '-'}</span>
+                            <span className="font-medium">{log.data_hora_tentativa ? formatarDataHoraComSegundos(log.data_hora_tentativa) : '-'}</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-zinc-500">Unidade / Setor:</span>
@@ -1539,7 +1540,7 @@ export default function AuditoriaPage() {
                         <div className="space-y-4">
                           <div className="flex justify-between items-center">
                             <span className="text-sm text-zinc-600 dark:text-zinc-400">Acionamento:</span>
-                            <span className="text-sm font-medium">{new Date(log.data_hora_acionamento).toLocaleString('pt-BR')}</span>
+                            <span className="text-sm font-medium">{formatarDataHoraComSegundos(log.data_hora_acionamento)}</span>
                           </div>
                           {log.data_hora_aceite && (
                             <div className="flex justify-between items-start">
@@ -1560,7 +1561,7 @@ export default function AuditoriaPage() {
                                 )}
                               </div>
                               <span className={`text-sm font-medium ${log.status === 'Recusado' ? 'text-red-600' : 'text-green-600'}`}>
-                                {new Date(log.data_hora_aceite).toLocaleString('pt-BR')}
+                                {formatarDataHoraComSegundos(log.data_hora_aceite)}
                               </span>
                             </div>
                           )}
@@ -1575,7 +1576,7 @@ export default function AuditoriaPage() {
                                   <MapPin className="h-3 w-3 mr-0.5" /> Ver no Mapa
                                 </button>
                               </div>
-                              <span className="text-sm font-medium text-blue-600">{new Date(log.data_hora_chegada).toLocaleString('pt-BR')}</span>
+                              <span className="text-sm font-medium text-blue-600">{formatarDataHoraComSegundos(log.data_hora_chegada)}</span>
                             </div>
                           )}
                           {effectiveStatus === 'Falhou' && (
@@ -1614,7 +1615,7 @@ export default function AuditoriaPage() {
                           </div>
                           <div className="space-y-1">
                             <p className="text-sm font-medium">Aprovado por: <span className="text-zinc-300">{log.validador?.full_name || log.validado_por || 'Sistema (Admin)'}</span></p>
-                            <p className="text-[11px] text-zinc-400">Data/Hora: {log.data_hora_validacao ? new Date(log.data_hora_validacao).toLocaleString('pt-BR') : 'Agora (Processando...)'}</p>
+                            <p className="text-[11px] text-zinc-400">Data/Hora: {log.data_hora_validacao ? formatarDataHoraComSegundos(log.data_hora_validacao) : 'Agora (Processando...)'}</p>
                           </div>
                         </div>
                       )}

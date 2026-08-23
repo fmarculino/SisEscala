@@ -1,4 +1,5 @@
 import { createAdminClient } from '@/utils/supabase/server'
+import { dataISOLocal } from '@/utils/horario'
 
 /**
  * Reconcilia automaticamente as marcações de uma sincronização de AFD recente,
@@ -34,15 +35,10 @@ export async function reconciliarSincronizacaoAfd(sincronizacaoId: string) {
     const pares = new Map<string, { servidor_id: string; data: string }>()
     for (const m of marcacoes) {
       if (!m.servidor_id || !m.ocorrido_em) continue
-      // Converte para data no fuso de Brasília (UTC-3)
-      const d = new Date(m.ocorrido_em)
-      // Ajuste para data local YYYY-MM-DD
-      const localDateStr = new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'America/Sao_Paulo',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-      }).format(d)
+      // A data de domínio da batida é a do fuso CONFIGURADO, não a do processo (a VPS roda em
+      // UTC: as últimas 3 horas de todo dia já seriam "amanhã"). Ver src/utils/horario.ts.
+      const localDateStr = dataISOLocal(m.ocorrido_em) || ''
+      if (!localDateStr) continue
 
       const key = `${m.servidor_id}|${localDateStr}`
       if (!pares.has(key)) {

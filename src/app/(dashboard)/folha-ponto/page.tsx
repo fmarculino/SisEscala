@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { formatarData, formatarHoraComSegundos } from '@/utils/horario'
 import { createClient } from '@/utils/supabase/client'
 import { FileText, Loader2, Search, Building2, Layers, Calendar, ChevronRight, Play, RefreshCw, AlertCircle, Printer, Wand2, UserSearch, X } from 'lucide-react'
 import Link from 'next/link'
@@ -565,7 +566,7 @@ export default function FolhaPontoPage() {
                </div>
 
                <div class="text-right text-[6px] text-zinc-400 mt-8">
-                 Documento emitido digitalmente via SisEscala. Data da emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}.
+                 Documento emitido digitalmente via SisEscala. Data da emissão: ${formatarData(new Date())} ${formatarHoraComSegundos(new Date())}.
                </div>
             </div>
           </div>
@@ -677,7 +678,7 @@ export default function FolhaPontoPage() {
                 </div>
               </div>
               <div class="text-right text-[6px] text-zinc-400 mt-8">
-                Verso oficial da Folha de Ponto emitida via SisEscala em ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}.
+                Verso oficial da Folha de Ponto emitida via SisEscala em ${formatarData(new Date())} ${formatarHoraComSegundos(new Date())}.
               </div>
             </div>
           </div>

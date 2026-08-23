@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { formatarData } from '@/utils/horario'
 import { Loader2, Fingerprint, RefreshCw } from 'lucide-react'
 import { listarPendenciasBiometria } from './actions'
 
@@ -97,7 +98,7 @@ export function BiometriaTab() {
                         {p.servidor_nome} <span className="text-zinc-400 font-normal">({p.matricula})</span>
                       </p>
                       <p className="text-[11px] text-zinc-400">
-                        Identidade enviada em {new Date(p.criado_em).toLocaleDateString('pt-BR')}
+                        Identidade enviada em {formatarData(p.criado_em)}
                       </p>
                     </div>
                   </div>

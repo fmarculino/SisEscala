@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
+import { formatarData, formatarHoraComSegundos } from '@/utils/horario'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { 
@@ -1423,7 +1424,7 @@ export function FolhaPontoEditor({
           {/* Print Metadata */}
           {isMounted && (
             <div className="hidden print:block text-right text-[6px] text-zinc-400 mt-12">
-              Documento emitido digitalmente via SisEscala. Data da emissão: {new Date().toLocaleDateString('pt-BR')} {new Date().toLocaleTimeString('pt-BR')}.
+              Documento emitido digitalmente via SisEscala. Data da emissão: {formatarData(new Date())} {formatarHoraComSegundos(new Date())}.
             </div>
           )}
         </div>
@@ -1601,7 +1602,7 @@ export function FolhaPontoEditor({
 
             {isMounted && (
               <div className="hidden print:block text-right text-[6px] text-zinc-400 mt-8">
-                Verso oficial da Folha de Ponto emitida via SisEscala em {new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR')}.
+                Verso oficial da Folha de Ponto emitida via SisEscala em {formatarData(new Date())} às {formatarHoraComSegundos(new Date())}.
               </div>
             )}
           </div>

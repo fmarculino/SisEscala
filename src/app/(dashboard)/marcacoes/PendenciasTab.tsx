@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { formatarDataCurta, formatarDataHoraComSegundos, formatarHora } from '@/utils/horario'
 import { Modal } from '@/components/ui/Modal'
 import { Loader2, AlertTriangle, CheckCircle2, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react'
 import { listarPendencias, buscarEscalasCandidatas, aceitarMarcacaoPendente } from './actions'
@@ -29,15 +30,11 @@ const PASSOS = [
 const POR_PAGINA = 15
 
 function horaEm(iso: string, timezone: string) {
-  return new Date(iso).toLocaleTimeString('pt-BR', {
-    timeZone: timezone, hour: '2-digit', minute: '2-digit', hour12: false,
-  })
+  return formatarHora(iso)
 }
 
 function diaEm(iso: string, timezone: string) {
-  return new Date(iso).toLocaleDateString('pt-BR', {
-    timeZone: timezone, day: '2-digit', month: '2-digit',
-  })
+  return formatarDataCurta(iso)
 }
 
 /**
@@ -196,7 +193,7 @@ function TratarPendenciaModal({
       <div className="space-y-4">
         <div className="p-3 bg-zinc-50 dark:bg-zinc-800 rounded-xl text-xs text-zinc-600 dark:text-zinc-400">
           <p><b>Matrícula:</b> {pendencia.matricula}</p>
-          <p><b>Batida real:</b> {new Date(pendencia.ocorrido_em).toLocaleString('pt-BR', { timeZone: timezone })}</p>
+          <p><b>Batida real:</b> {formatarDataHoraComSegundos(pendencia.ocorrido_em)}</p>
           {pendencia.observacao && <p className="mt-1 italic">{pendencia.observacao}</p>}
         </div>
 
@@ -427,7 +424,7 @@ export function PendenciasTab({ opcoes }: { opcoes?: Opcoes }) {
                     <p className="text-sm font-bold text-zinc-900 dark:text-white">
                       {p.servidor_nome} <span className="text-zinc-400 font-normal">({p.matricula})</span>
                     </p>
-                    <p className="text-xs text-zinc-500">{new Date(p.ocorrido_em).toLocaleString('pt-BR')}</p>
+                    <p className="text-xs text-zinc-500">{formatarDataHoraComSegundos(p.ocorrido_em)}</p>
                     {p.observacao && <p className="text-[11px] text-zinc-400 italic mt-0.5">{p.observacao}</p>}
                   </div>
                 </div>

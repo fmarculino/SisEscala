@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { formatarData } from '@/utils/horario'
 import { ArrowRightLeft, Info, CheckCircle2, XCircle, Loader2, User, Calendar, MapPin } from 'lucide-react'
 import { avaliarSolicitacaoTransferencia } from '../actions'
 
@@ -169,7 +170,7 @@ function LinhaSolicitacao({
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">{solicitacao.motivo}</p>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-[11px] text-zinc-400">
             <span className="inline-flex items-center gap-1"><User className="h-3 w-3" /> {solicitacao.solicitadoPorNome}</span>
-            <span className="inline-flex items-center gap-1"><Calendar className="h-3 w-3" /> efetivação pretendida {new Date(solicitacao.dataTransferenciaSugerida + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
+            <span className="inline-flex items-center gap-1"><Calendar className="h-3 w-3" /> efetivação pretendida {formatarData(solicitacao.dataTransferenciaSugerida)}</span>
           </div>
         </div>
 

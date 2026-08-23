@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useMemo } from 'react'
+import { formatarData, formatarHoraComSegundos } from '@/utils/horario'
 import { createPortal } from 'react-dom'
 import { Printer, Clock, ShieldCheck, PhoneCall, Building2, X } from 'lucide-react'
 
@@ -608,7 +609,7 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
           </div>
 
           <div className="text-right text-[7px] print:text-[6pt] text-zinc-400 print:text-zinc-500 mt-6 print:mt-4">
-            SisEscala • Documento emitido digitalmente em {new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR')}.
+            SisEscala • Documento emitido digitalmente em {formatarData(new Date())} às {formatarHoraComSegundos(new Date())}.
           </div>
         </div>
       </div>

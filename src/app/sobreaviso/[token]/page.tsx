@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { formatarHoraComSegundos } from '@/utils/horario'
 import { createClient } from '@/utils/supabase/client'
 import { ShieldCheck, MapPin, Navigation, CheckCircle, Loader2, AlertCircle, Clock } from 'lucide-react'
 import { useParams } from 'next/navigation'
@@ -545,7 +546,7 @@ export default function ProfessionalOvercallPage() {
                   </button>
                 ) : (
                   <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl text-blue-700 dark:text-blue-400 text-center font-medium">
-                    Chegada registrada às {new Date(log.data_hora_chegada).toLocaleTimeString()}
+                    Chegada registrada às {formatarHoraComSegundos(log.data_hora_chegada)}
                   </div>
                 )}
               </div>

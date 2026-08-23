@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { formatarDataCurta, formatarHora } from '@/utils/horario'
 import { createClient } from '@/utils/supabase/client'
 import {
   AlertTriangle, CalendarX, UserX, CheckCircle2, Bug, Loader2,
@@ -227,7 +228,7 @@ export function TentativasNegadasDiagnostico({ dataInicio, dataFim, busca, onIrP
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
               {casos.map(c => {
                 const gr = gravidadeDesvio(c.desvio_minutos)
-                const hora = (t: string) => new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                const hora = (t: string) => formatarHora(t)
                 return (
                   <tr key={`${c.servidor_id}-${c.dia}-${c.classificacao}`} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
                     <td className="py-3 px-3">
@@ -237,7 +238,7 @@ export function TentativasNegadasDiagnostico({ dataInicio, dataFim, busca, onIrP
                       </p>
                     </td>
                     <td className="py-3 px-3 whitespace-nowrap text-zinc-600 dark:text-zinc-400">
-                      {new Date(c.dia + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+                      {formatarDataCurta(c.dia)}
                     </td>
                     <td className="py-3 px-3 whitespace-nowrap font-mono text-xs text-zinc-600 dark:text-zinc-400">
                       {c.previsto_inicio || '—'} › {c.previsto_fim || '—'}

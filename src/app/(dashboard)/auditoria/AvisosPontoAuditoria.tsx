@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { formatarDataHoraCurta } from '@/utils/horario'
 import { createClient } from '@/utils/supabase/client'
 import {
   ShieldCheck, Send, AlertTriangle, Loader2, Clock, Ban, MessageSquare, Info
@@ -103,7 +104,7 @@ export function AvisosPontoAuditoria() {
   const pendentes = fila.filter(f => f.status === 'pendente')
 
   const hora = (t: string | null) => t
-    ? new Date(t).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+    ? formatarDataHoraCurta(t)
     : '—'
 
   if (carregando) {

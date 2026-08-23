@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { formatarData, formatarHora } from '@/utils/horario'
 import { createClient } from '@/utils/supabase/client'
 import { 
   Save, Loader2, Settings, Clock, Shield, Bell, Database, Zap, Lock, 
@@ -723,6 +724,44 @@ export default function ConfigPage() {
         {/* ========================================================================= */}
         {activeTab === 'regras' && (
           <>
+            {/*
+              Fuso horário do sistema. Antes de 23/08/2026 esta chave existia no banco e só as
+              funções PL/pgSQL a respeitavam: a tela nunca a editou e o frontend nunca a leu —
+              cada máquina exibia a hora no seu próprio fuso. A mesma batida da AGNA (mat. 205)
+              aparecia como 08:03 na folha e 11:03 no tooltip da grade. Ver src/utils/horario.ts.
+            */}
+        <div className="bg-white dark:bg-zinc-900 rounded-[2rem] border border-zinc-200 dark:border-zinc-800 p-8 shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex flex-col md:flex-row md:items-center gap-8">
+            <div className="p-4 bg-sky-100 dark:bg-sky-900/30 rounded-2xl text-sky-600">
+              <Clock className="h-6 w-6" />
+            </div>
+            <div className="flex-1 space-y-1">
+              <h3 className="text-lg font-black text-zinc-900 dark:text-white uppercase tracking-tight">Fuso Horário do Sistema</h3>
+              <p className="text-sm text-zinc-500 leading-relaxed max-w-2xl">
+                Todo horário exibido no sistema — folha de ponto, grade de escala, relatórios e terminal —
+                usa este fuso, <strong>independente do computador ou navegador</strong> de quem abre a tela.
+                Alterar exige recarregar as páginas abertas.
+              </p>
+            </div>
+            <div className="flex items-center gap-4 bg-zinc-50 dark:bg-zinc-800 p-2 rounded-2xl border border-zinc-200 dark:border-zinc-700">
+              <select
+                className="bg-white dark:bg-zinc-900 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-black"
+                value={String(getConfig('timezone')?.valor || 'America/Sao_Paulo')}
+                onChange={(e) => updateConfig('timezone', e.target.value)}
+              >
+                <option value="America/Sao_Paulo">Brasília / Pará (UTC−3)</option>
+                <option value="America/Manaus">Manaus (UTC−4)</option>
+                <option value="America/Cuiaba">Cuiabá (UTC−4)</option>
+                <option value="America/Porto_Velho">Porto Velho (UTC−4)</option>
+                <option value="America/Boa_Vista">Boa Vista (UTC−4)</option>
+                <option value="America/Rio_Branco">Rio Branco (UTC−5)</option>
+                <option value="America/Noronha">Fernando de Noronha (UTC−2)</option>
+                <option value="UTC">UTC (sem deslocamento)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
             {/* Inativação Automática */}
         <div className="bg-white dark:bg-zinc-900 rounded-[2rem] border border-zinc-200 dark:border-zinc-800 p-8 shadow-sm hover:shadow-md transition-shadow">
           <div className="flex flex-col md:flex-row md:items-center gap-8">
@@ -1132,7 +1171,7 @@ export default function ConfigPage() {
                         </span>
                         {p.encerrado_em && (
                           <span className="block text-[10px] text-zinc-400 font-bold uppercase tracking-tight mt-0.5">
-                            Encerrado em: {new Date(p.encerrado_em).toLocaleDateString('pt-BR')} às {new Date(p.encerrado_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                            Encerrado em: {formatarData(p.encerrado_em)} às {formatarHora(p.encerrado_em)}
                           </span>
                         )}
                       </div>
