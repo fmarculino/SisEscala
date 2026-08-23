@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.12.2] - 2026-08-23
+
+### Added
+- **`docs/PENDENCIAS.md`** — índice único do que está aberto, com o cronograma. Aponta para o plano ou o diário que tem a medição; nunca é a fonte.
+- **Plano da auditoria de segurança e LGPD** ([`docs/planos/2026-08-23-auditoria-de-seguranca-e-lgpd.md`](docs/planos/2026-08-23-auditoria-de-seguranca-e-lgpd.md)), pedida pelo usuário: o sistema escala rápido, guarda dado pessoal **sensível** (saúde em afastamentos, biometria, localização de sobreaviso) e roda em órgão público.
+  - Cinco fases em ordem de **dependência**, não de gravidade: inventário → superfície de acesso → segredos → autenticação → documental/retenção.
+  - A superfície tem **quatro portas para o mesmo dado** (RLS, RPC, server action, rota de API) e o histórico desta base já provou que elas divergem — cada uma é varrida por conta própria, com o comando de medição junto.
+  - Registrado o que **não** tentar resolver na auditoria: reescrever a RLS, apagar histórico sem decisão jurídica, ou fechar o repositório por reflexo.
+
+### Verificado em produção
+- `20260823130000` confirmada: `position('fronteira_saida' in prosrc) > 0` → **true**. O terminal aceita a batida de transição.
+- `20260823120000`: `tolerancia_extra_minutos_por_marcacao = 5`, `_diaria = 10`.
+- `20260823110000`: `timezone` legível por anônimo — o terminal e o login passam a obedecer à configuração (antes a leitura devolvia vazio).
+- Portão de projeção sobre 08/2026: **0 linhas invertidas, 0 durações impossíveis** em 283 dias.
+
 ## [2.12.1] - 2026-08-23
 
 ### Fixed
