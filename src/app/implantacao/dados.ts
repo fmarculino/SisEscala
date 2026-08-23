@@ -48,7 +48,10 @@ export interface PainelImplantacao {
     setores: number
     relogios: number
     escalados: number
+    /** Registros de AFD DO PERÍODO da implantação. Nunca o total da tabela. */
     afd: number
+    /** Histórico que veio dentro dos equipamentos reaproveitados. Preservado, mas não é resultado. */
+    afdHerdado: number
     sincronizacoes: number
     sincOk: number
   }
@@ -57,6 +60,17 @@ export interface PainelImplantacao {
   ativacoes: { data: string; unidade: string }[]
   ranking: UsoUnidade[]
 }
+
+/**
+ * Marco zero da implantação. Tudo que o painel conta começa aqui.
+ *
+ * ⚠️ SEM ISTO O NÚMERO MENTE. Vários relógios foram REAPROVEITADOS de outros sistemas e chegaram
+ * com o AFD cheio — há registro de 2019. Medido em 23/08/2026: de 895.406 linhas de AFD, apenas
+ * 6.061 são do período da implantação; 889.304 são histórico alheio. Exibir o total como
+ * "registros coletados" infla o resultado em 147x e credita ao projeto trabalho que não é dele.
+ * Ver a armadilha 20 do CLAUDE.md (`dispositivos_rep.ponto_valido_desde`).
+ */
+const INICIO_IMPLANTACAO = '2026-06-01'
 
 const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 
@@ -133,7 +147,8 @@ export async function obterPainel(): Promise<PainelImplantacao> {
     if (m.servidor_id) u.servs.add(m.servidor_id)
   }
 
-  const afd = await contar(supabase, 'rep_afd_registros')
+  const afd = await contar(supabase, 'rep_afd_registros', (q: any) => q.gte('ocorrido_em', INICIO_IMPLANTACAO))
+  const afdHerdado = await contar(supabase, 'rep_afd_registros', (q: any) => q.lt('ocorrido_em', INICIO_IMPLANTACAO))
   const sincronizacoes = await contar(supabase, 'rep_sincronizacoes')
   const sincOk = await contar(supabase, 'rep_sincronizacoes', (q: any) => q.eq('status', 'concluida'))
 
@@ -203,6 +218,7 @@ export async function obterPainel(): Promise<PainelImplantacao> {
       relogios: (disp || []).filter((d: any) => d.ativo !== false).length,
       escalados: new Set(([...escalaAtual, ...escalaAnterior] as any[]).map(e => e.servidor_id)).size,
       afd,
+      afdHerdado,
       sincronizacoes,
       sincOk,
     },

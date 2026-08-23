@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.13.2] - 2026-08-23
+
+### Fixed
+- **O painel contava o histórico herdado como resultado da implantação.** Vários relógios foram reaproveitados de outros sistemas e chegaram com o AFD cheio — há registro de **2019**. Medido: de **895.406** linhas de AFD, apenas **6.061** são do período; **889.304** são histórico alheio. O KPI "Registros coletados" inflava o resultado em **147×** e creditava ao projeto trabalho que não é dele.
+- Todas as contagens passam a partir de **`INICIO_IMPLANTACAO = 2026-06-01`**, com o porquê escrito ao lado da constante. O histórico herdado aparece no rodapé, nomeado pelo que é e explicitamente fora da conta — ele existe e é preservado, mas não é resultado.
+
 ## [2.13.1] - 2026-08-23
 
 ### Added

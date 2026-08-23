@@ -121,7 +121,7 @@ export default async function PainelImplantacao() {
             { n: t.operando, l: 'Unidades operando', s: `de ${t.unidades} cadastradas`, c: 'a' },
             { n: t.relogios, l: 'Relógios ativos', s: primeiraAtivacao ? `desde ${formatarData(primeiraAtivacao)}` : '—', c: 'b' },
             { n: t.escalados, l: 'Servidores escalados', s: `de ${nf(t.servidores)} no cadastro`, c: 'c' },
-            { n: nf(t.afd), l: 'Registros coletados', s: 'do arquivo-fonte assinado', c: 'd' },
+            { n: nf(t.afd), l: 'Registros coletados', s: 'do arquivo-fonte assinado, desde jun/2026', c: 'd' },
           ].map((k, i) => (
             <div key={i} className={`kpi kpi-${k.c}`}>
               <div className="kpi-num">{k.n}</div>
@@ -179,7 +179,7 @@ export default async function PainelImplantacao() {
               <div className="marco-txt">
                 <span className="marco-data">agora</span>
                 <strong>{t.operando} unidades operando · {t.relogios} relógios</strong>
-                <p>{nf(t.afd)} registros coletados e {nf(t.sincOk)} sincronizações concluídas.</p>
+                <p>{nf(t.afd)} registros coletados no período e {nf(t.sincOk)} sincronizações concluídas.</p>
               </div>
             </div>
             {MARCOS.map(m => (
@@ -233,6 +233,7 @@ export default async function PainelImplantacao() {
         <footer className="rodape">
           <p><strong>SisEscala</strong> · Secretaria Municipal de Saúde de Marabá</p>
           <p>Dados lidos direto do sistema. Atualizado em {formatarDataHora(p.atualizadoEm)} · a página se atualiza sozinha a cada 5 minutos.</p>
+          <p className="nota">Os números contam apenas o período da implantação (a partir de junho/2026). Os {nf(t.afdHerdado)} registros históricos que vieram dentro dos equipamentos reaproveitados são preservados no sistema, mas não entram nesta contagem — não são resultado do projeto.</p>
           <p className="nota">Painel de acompanhamento gerencial. Exibe apenas números agregados — nenhuma informação individual de servidor.</p>
         </footer>
       </div>
