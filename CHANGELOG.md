@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.16.0] - 2026-08-24
+
+⚠️ **Requer aplicar duas migrations**: `20260824140000` e `20260824150000`.
+
+### Fixed
+- 🚨 **`fn_status_acionamento_sobreaviso` tratava uma falha JÁ GRAVADA como "em andamento".** A migration `20260824110000` foi escrita sob a premissa de que "Falhou" nunca era persistido — e a premissa estava errada pela metade: `mark_sobreaviso_timeout` grava `status = 'Falhou'`, chamada pela própria página do servidor quando ele abre o link mágico depois do prazo. Com o defeito, o acionamento que o **banco já declarou falho** virava `previsto` em vez de `falta` — a falha só existia enquanto pudesse ser recalculada e sumia assim que fosse registrada. Modo de falha silencioso e assimétrico para o lado errado: deixaria de acusar quem o próprio sistema tinha registrado como faltoso. Nunca ocorreu em produção (522 `Chegou` + 4 `Cancelado`, nenhuma `Falhou`).
+- A função agora separa **`falhou_chegada`** (aceitou e não compareceu) de **`falhou_aceite`** (nem respondeu ao chamado) — o coordenador precisa dessa distinção para decidir.
+
+### Changed
+- **Sobreaviso cumprido deixou de entrar na fila de justificativas.** Até aqui **todo** sobreaviso escalado entrava como pendente: **72 dos 79** de 08/2026 sem acionamento nenhum. Cobrar justificativa de quem ficou de prontidão e não foi chamado é pedir texto sobre um não-evento, e esse volume é o que faz a fila deixar de ser lida. A regra passa a ser a decisão de 23/08/2026: sem acionamento, ou acionado e atendido, o sobreaviso é válido e conta no relatório; só a **falha** vai para a fila, e vai como `falta`, para o coordenador poder reverter.
+  - Medido em 08/2026: a fila sai de **79 sobreavisos** para **0** — 61 auto-validados e 18 que ainda não aconteceram.
+  - ⚠️ Vale só para Sobreaviso. Plantão e Extra continuam exigindo a justificativa motivacional de sempre, que é outra coisa: o porquê do serviço extraordinário.
+- **A derivação de falha saiu de quatro cópias de JavaScript** para `src/utils/sobreaviso/statusAcionamento.ts`, espelho documentado da função SQL. As cópias **divergiam**: `ScaleGrid.tsx` usava `else if` entre os dois prazos, então um log `Aceito` nunca chegava a ser testado pelo prazo de aceite; `auditoria/page.tsx` usava dois `if` independentes. A contagem regressiva da página do servidor passou a derivar o prazo da mesma fonte — contador e decisão de falha usando limites diferentes mostrariam "faltam 2 minutos" para um chamado já perdido.
+
+### Removed
+- **`sobreaviso_desconsiderar_falha` foi aposentada** (`20260824150000`). Estava **ligada** em produção e contradiz por construção a regra nova. Hoje só mudava um sufixo de tooltip; mantida, viraria um interruptor global capaz de anular a falta de sobreaviso na rede inteira, sem log, sem autor e sem justificativa. A única porta para desfazer uma falta passa a ser a validação do coordenador na fila, que grava quem decidiu, quando e por quê. Custo de reversão medido: **zero** — o caminho da falha nunca rodou.
+  - A chave é **removida**, não apenas ignorada: configuração órfã que ninguém lê é pior que nenhuma — alguém a encontra depois, liga, e conclui que ligou alguma coisa.
+
 ## [2.15.0] - 2026-08-24
 
 ### Changed

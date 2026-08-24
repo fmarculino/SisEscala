@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { formatarData, formatarDataHoraComSegundos } from '@/utils/horario'
+import { statusAcionamento, rotuloLegado } from '@/utils/sobreaviso/statusAcionamento'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/utils/supabase/client'
 import { TentativasNegadasDiagnostico } from './TentativasNegadasDiagnostico'
@@ -644,7 +645,10 @@ export default function AuditoriaPage() {
 
   const [selectedLog, setSelectedLog] = useState<LogSobreaviso | LogSistema | LogTentativaNegada | null>(null)
 
-  const getStatusColor = (status: string) => {
+  // `string | null`: rotuloLegado devolve null quando o status original tambem e' nulo (log
+  // ainda sem ciclo iniciado). Antes o tipo era `string` porque a copia local nunca devolvia
+  // nulo — ela so repassava log.status.
+  const getStatusColor = (status: string | null) => {
     switch (status) {
       case 'Aceito': return 'text-green-600 bg-green-50 dark:bg-green-900/20'
       case 'Recusado': return 'text-red-600 bg-red-50 dark:bg-red-900/20'
@@ -655,35 +659,12 @@ export default function AuditoriaPage() {
     }
   }
 
+  // Era uma das QUATRO copias da derivacao de falha. A regra agora vive em
+  // src/utils/sobreaviso/statusAcionamento.ts, espelho de fn_status_acionamento_sobreaviso.
   const getDetailedStatus = (log: LogSobreaviso | any) => {
     if (!log) return { status: null, reason: null }
-    
-    let status = log.status
-    let reason = log.motivo_falha
-    
-    if (log.status === 'Aceito' && configs['sobreaviso_tempo_chegada_minutos']) {
-      const limit = parseInt(configs['sobreaviso_tempo_chegada_minutos'])
-      const safeDateStr = log.data_hora_aceite ? log.data_hora_aceite.replace(' ', 'T') : new Date().toISOString()
-      const acceptedAt = new Date(safeDateStr).getTime()
-      const now = new Date().getTime()
-      if ((acceptedAt + limit * 60000) < now && !log.data_hora_chegada) {
-        status = 'Falhou'
-        reason = 'Tempo limite de deslocamento excedido'
-      }
-    }
-
-    if (log.status === 'Aguardando' && configs['sobreaviso_tempo_aceite_minutos']) {
-      const limit = parseInt(configs['sobreaviso_tempo_aceite_minutos'])
-      const safeDateStr = log.created_at ? log.created_at.replace(' ', 'T') : new Date().toISOString()
-      const created = new Date(safeDateStr).getTime()
-      const now = new Date().getTime()
-      if ((created + limit * 60000) < now) {
-        status = 'Falhou'
-        reason = 'Tempo limite para aceite excedido'
-      }
-    }
-    
-    return { status, reason }
+    const s = statusAcionamento(log, configs)
+    return { status: rotuloLegado(s, log.status), reason: s.motivo ?? log.motivo_falha ?? null }
   }
 
   const getEffectiveStatus = (log: LogSobreaviso) => {

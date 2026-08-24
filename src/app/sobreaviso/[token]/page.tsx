@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { statusAcionamento, prazoFinalMs } from '@/utils/sobreaviso/statusAcionamento'
 import { formatarHoraComSegundos } from '@/utils/horario'
 import { createClient } from '@/utils/supabase/client'
 import { ShieldCheck, MapPin, Navigation, CheckCircle, Loader2, AlertCircle, Clock } from 'lucide-react'
@@ -57,38 +58,28 @@ export default function ProfessionalOvercallPage() {
         setConfigs(cfg)
         setConfigsLoaded(true)
 
-        // Check timeouts immediately on load
+        // Verifica o prazo assim que a pagina abre.
+        //
+        // ⚠️ ESTE E O UNICO LUGAR QUE PERSISTE A FALHA (mark_sobreaviso_timeout grava
+        // status = 'Falhou'). A DECISAO passou a vir de statusAcionamento — espelho de
+        // fn_status_acionamento_sobreaviso —; a GRAVACAO continua aqui. Antes, esta era uma das
+        // quatro copias da regra, e a unica com efeito colateral no banco: um sobreaviso so
+        // ficava marcado como falho se o proprio servidor abrisse o link magico depois do
+        // prazo. Por isso motivo_falha esta nulo nas 526 linhas de producao.
         let currentStatus = flattenedData.status
-        const now = new Date().getTime()
+        const cfgTexto: Record<string, string> = {}
+        Object.entries(cfg).forEach(([k, v]) => { cfgTexto[k] = String(v) })
 
-        if (currentStatus === 'Aguardando' && cfg['sobreaviso_tempo_aceite_minutos']) {
-          const limit = parseInt(cfg['sobreaviso_tempo_aceite_minutos'])
-          const safeDateStr = flattenedData.created_at ? flattenedData.created_at.replace(' ', 'T') : new Date().toISOString()
-          const created = new Date(safeDateStr).getTime()
-          const diffMinutes = (now - created) / 60000
-          if (diffMinutes > limit) {
-            currentStatus = 'Falhou'
-            await supabase.rpc('mark_sobreaviso_timeout', { 
-              magic_token: token,
-              p_motivo: 'Tempo limite para aceite excedido.' 
-            })
-            flattenedData.motivo_falha = 'Tempo limite para aceite excedido.'
-          }
-        } else if (currentStatus === 'Aceito' && cfg['sobreaviso_tempo_chegada_minutos']) {
-          const limit = parseInt(cfg['sobreaviso_tempo_chegada_minutos'])
-          const safeDateStr = flattenedData.data_hora_aceite ? flattenedData.data_hora_aceite.replace(' ', 'T') : new Date().toISOString()
-          const accepted = new Date(safeDateStr).getTime()
-          const diffMinutes = (now - accepted) / 60000
-          if (diffMinutes > limit) {
-            currentStatus = 'Falhou'
-            await supabase.rpc('mark_sobreaviso_timeout', { 
-              magic_token: token,
-              p_motivo: 'Tempo limite de deslocamento excedido.' 
-            })
-            flattenedData.motivo_falha = 'Tempo limite de deslocamento excedido.'
-          }
+        const s = statusAcionamento(flattenedData, cfgTexto)
+        if (s.falhou && s.estado !== 'recusado') {
+          currentStatus = 'Falhou'
+          const motivo = s.estado === 'falhou_aceite'
+            ? 'Tempo limite para aceite excedido.'
+            : 'Tempo limite de deslocamento excedido.'
+          await supabase.rpc('mark_sobreaviso_timeout', { magic_token: token, p_motivo: motivo })
+          flattenedData.motivo_falha = motivo
         }
-        
+
         flattenedData.status = currentStatus
         setLog(flattenedData)
         setStatus(currentStatus)
@@ -106,38 +97,29 @@ export default function ProfessionalOvercallPage() {
     const calculateTime = () => {
       const now = new Date().getTime()
       
-      if (status === 'Aguardando' && configs['sobreaviso_tempo_aceite_minutos']) {
-        const limit = parseInt(configs['sobreaviso_tempo_aceite_minutos'])
-        const safeDateStr = log.created_at ? log.created_at.replace(' ', 'T') : new Date().toISOString()
-        const created = new Date(safeDateStr).getTime()
-        const diff = (created + limit * 60000) - now
-        return Math.max(0, diff)
+      // O PRAZO vem da mesma fonte que decide a falha (statusAcionamento). Antes, o contador
+      // recalculava os limites por conta propria - se as duas contas divergissem, a tela
+      // mostraria "faltam 2 minutos" para um chamado que a regra ja considerava perdido.
+      const limite = prazoFinalMs({ ...log, status }, configs)
+      if (limite === null) return null
+
+      const diff = limite - now
+      if (diff > 0) return diff
+
+      // Prazo estourado. Persistir so vale para quem ACEITOU e nao chegou: quem nem aceitou
+      // continua com o comportamento antigo (a marcacao acontece no carregamento da pagina,
+      // no outro sitio), para esta mudanca nao criar uma gravacao que nao existia.
+      if (status === 'Aceito') {
+        const supabase = createClient()
+        supabase.rpc('mark_sobreaviso_timeout', {
+          magic_token: token,
+          p_motivo: 'Tempo limite de deslocamento excedido.'
+        }).then(() => {
+          setStatus('Falhou')
+          setLog((prev: any) => ({ ...prev, status: 'Falhou', motivo_falha: 'Tempo limite de deslocamento excedido.' }))
+        })
       }
-      
-      if (status === 'Aceito' && configs['sobreaviso_tempo_chegada_minutos']) {
-        const limit = parseInt(configs['sobreaviso_tempo_chegada_minutos'])
-        const safeDateStr = log.data_hora_aceite ? log.data_hora_aceite.replace(' ', 'T') : new Date().toISOString()
-        const acceptedAt = new Date(safeDateStr).getTime()
-        const diff = (acceptedAt + limit * 60000) - now
-        
-        if (diff <= 0) {
-          if (status === 'Aceito') {
-             // Trigger DB update for failure
-             const supabase = createClient()
-             supabase.rpc('mark_sobreaviso_timeout', { 
-               magic_token: token,
-               p_motivo: 'Tempo limite de deslocamento excedido.' 
-             }).then(() => {
-                setStatus('Falhou')
-                setLog((prev: any) => ({ ...prev, status: 'Falhou', motivo_falha: 'Tempo limite de deslocamento excedido.' }))
-             })
-          }
-          return 0
-        }
-        return diff
-      }
-      
-      return null
+      return 0
     }
 
     const initial = calculateTime()

@@ -19,6 +19,7 @@ import { runComplianceCheck, getViolationsForCell, type ComplianceViolation } fr
 import { generateTemplate, TEMPLATE_OPTIONS, type TemplateType, countWorkDays } from '@/utils/scaleTemplates'
 import { decomporPlantao } from '@/utils/plantaoUnidades'
 import { celulaTemPassosDeIntervalo } from '@/utils/intervaloIntrajornada'
+import { statusAcionamento } from '@/utils/sobreaviso/statusAcionamento'
 import { generateIntelligentScale } from '@/utils/intelligentScaleGenerator'
 import {
   encontrarAfastamentoBloqueante,
@@ -360,7 +361,11 @@ export function ScaleGrid({
     return obj
   }, [configsGlobais])
 
-  const desconsiderarFalha = configs['sobreaviso_desconsiderar_falha'] === 'true'
+  // `sobreaviso_desconsiderar_falha` foi APOSENTADA em 24/08/2026 (migration 20260824150000).
+  // Ela nunca fez mais do que mudar um tooltip, mas com a decisao de 23/08/2026 - falha de
+  // acionamento vira FALTA - viraria um interruptor global capaz de anular a falta de
+  // sobreaviso na rede inteira, sem log e sem justificativa. A unica porta para desfazer uma
+  // falta agora e a validacao do coordenador na fila, que grava autor, data e motivo.
   const permitirValidacaoManual = configs['sobreaviso_permitir_validacao_manual'] === 'true'
   const [triggerModal, setTriggerModal] = useState<{
     isOpen: boolean;
@@ -936,31 +941,15 @@ export function ScaleGrid({
     )
     if (logs.length === 0) return { status: null, reason: null, log: null }
 
+    // A derivacao vive em src/utils/sobreaviso/statusAcionamento.ts, espelho de
+    // fn_status_acionamento_sobreaviso. Esta era uma das QUATRO copias, e a unica que usava
+    // `else if` entre os dois prazos - um log 'Aceito' nunca chegava a ser testado pelo prazo
+    // de aceite, entao ela divergia das outras tres em silencio.
     for (const log of logs) {
-      let status = log.status
-      let reason = log.motivo_falha
-
-      if (status === 'Aceito' && configs['sobreaviso_tempo_chegada_minutos']) {
-        const limit = parseInt(configs['sobreaviso_tempo_chegada_minutos'])
-        const safeDateStr = log.data_hora_aceite ? log.data_hora_aceite.replace(' ', 'T') : new Date().toISOString()
-        const acceptedAt = new Date(safeDateStr).getTime()
-        const now = new Date().getTime()
-        if ((acceptedAt + limit * 60000) < now && !log.data_hora_chegada) {
-          status = 'Falhou'
-          reason = 'Tempo limite de deslocamento excedido'
-        }
-      } else if (status === 'Aguardando' && configs['sobreaviso_tempo_aceite_minutos']) {
-        const limit = parseInt(configs['sobreaviso_tempo_aceite_minutos'])
-        const safeDateStr = log.created_at ? log.created_at.replace(' ', 'T') : new Date().toISOString()
-        const created = new Date(safeDateStr).getTime()
-        const now = new Date().getTime()
-        if ((created + limit * 60000) < now) {
-          status = 'Falhou'
-          reason = 'Tempo limite para aceite excedido'
-        }
+      const s = statusAcionamento(log, configs)
+      if (s.falhou && s.estado !== 'recusado') {
+        return { status: 'Falhou', reason: s.motivo || 'Tempo expirado', log }
       }
-
-      if (status === 'Falhou') return { status: 'Falhou', reason: reason || 'Tempo expirado', log }
     }
 
     const pending = logs.find(l => l.status === 'Aceito' || l.status === 'Aguardando')
@@ -1036,7 +1025,7 @@ export function ScaleGrid({
     })
     
     return totals
-  }, [daysArray, escalaMensal, gridData, turnos, getStatusForDay, desconsiderarFalha])
+  }, [daysArray, escalaMensal, gridData, turnos, getStatusForDay])
 
   const getShiftTotalStyleAndTooltip = useCallback((count: number, shift: 'M' | 'T' | 'N', day: number) => {
     if (!currentSector) return { className: '', title: '' }
@@ -3992,8 +3981,6 @@ export function ScaleGrid({
                         if (currentOvercallStatus === 'Aceito' || currentOvercallStatus === 'Aguardando' || effectiveStatus === 'Aceito' || effectiveStatus === 'Aguardando') {
                           isTriggerAllowed = false
                         }
-                        const isDisregarded = isFailed && desconsiderarFalha
-
                         const activeEvent = getActiveEventForDay(em.servidor_id, day)
                         const dayTempJourney = serverTempJourneys.find(jt => dateStr >= jt.data_inicio && dateStr <= jt.data_fim)
                         const blockingEvent = getAfastamentoBloqueante(em.servidor_id, day, cat, currentSlots)
@@ -4017,7 +4004,7 @@ export function ScaleGrid({
                                   : isBusyElsewhere
                                     ? `ℹ️ Servidor já escalado em: ${externalBusyDetails}`
                                     : isFailed 
-                                      ? `FALHOU: ${logForDay?.motivo_falha || virtualReason || 'Tempo expirado'}${isDisregarded ? ' (Desconsiderado da carga horária)' : ''}` 
+                                      ? `FALHOU: ${logForDay?.motivo_falha || virtualReason || 'Tempo expirado'} — registrado como FALTA no relatório, salvo se o coordenador validar em Justificativas` 
                                       : isHoliday
                                         ? `🎉 Feriado: ${feriado?.descricao}`
                                         : activeEvent

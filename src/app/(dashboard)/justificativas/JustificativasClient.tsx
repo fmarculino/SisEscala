@@ -779,6 +779,16 @@ export function JustificativasClient({
                             >
                               <AlertCircle className="h-3 w-3" /> Em avaliação
                             </span>
+                          ) : ev.justificativa_status === 'auto_validado' ? (
+                            // Sobreaviso cumprido — sem acionamento, ou acionado e atendido.
+                            // Não pede nada de ninguém: cobrar justificativa de quem ficou de
+                            // prontidão e não foi chamado é pedir texto sobre um não-evento.
+                            <span
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-bold text-[10px] border border-emerald-200"
+                              title="Prontidão cumprida — validado automaticamente, sem ação necessária"
+                            >
+                              <CheckCircle2 className="h-3 w-3" /> Cumprido
+                            </span>
                           ) : isJustificado ? (
                             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-100 dark:bg-green-950/40 text-green-700 dark:text-green-300 font-bold text-[10px] border border-green-200">
                               <CheckCircle2 className="h-3 w-3" /> Justificado

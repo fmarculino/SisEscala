@@ -238,14 +238,34 @@ export async function getEventosPendentes(params: {
       const key = `${em?.servidor_id}-${ed.dia}-${em?.mes}-${em?.ano}-${catLower}`
       const just = justMap.get(key)
 
-      const status = just ? just.status : 'pendente'
+      const desfechoDaLinha = desfechoPorLinha.get(ed.id)
+
+      // SOBREAVISO CUMPRIDO NÃO É PENDÊNCIA (24/08/2026).
+      //
+      // Até aqui, TODO sobreaviso escalado entrava na fila como pendente — 72 dos 79 de
+      // 08/2026 sem acionamento nenhum. Cobrar justificativa de quem ficou de prontidão e não
+      // foi chamado é pedir texto sobre um não-evento, e o volume disso é o que faz a fila
+      // deixar de ser lida.
+      //
+      // A regra (decisão do usuário em 23/08/2026): sem acionamento, ou acionado e atendido,
+      // o sobreaviso é válido e conta no relatório — nada a fazer. Só a FALHA vai para a fila,
+      // e vai como `falta`, para o coordenador poder reverter.
+      //
+      // ⚠️ Vale só para Sobreaviso. Plantão e Extra continuam exigindo a justificativa
+      // motivacional de sempre, que é outra coisa: o porquê do serviço extraordinário.
+      const resolvidoSozinho =
+        catLower.includes('sobreaviso') && desfechoDaLinha?.estado === 'validado'
+
+      const status = resolvidoSozinho
+        ? 'auto_validado'
+        : just ? just.status : 'pendente'
 
       const dictSetor = (em?.setores as any)?.dicionario_setores
       const setorNome = Array.isArray(dictSetor)
         ? dictSetor[0]?.nome
         : dictSetor?.nome
 
-      const desf = desfechoPorLinha.get(ed.id)
+      const desf = desfechoDaLinha
 
       return {
         escala_diaria_id: ed.id,
@@ -283,7 +303,12 @@ export async function getEventosPendentes(params: {
 
     // Aggregated KPI counts
     const total = allCombinedItems.length
-    const justificados = allCombinedItems.filter(i => i.justificativa_status === 'aprovada').length
+    // `auto_validado` conta como resolvido: e sobreaviso cumprido, nao ha nada a fazer com ele.
+    // Sem isto o "Progresso (%)" nunca chegaria a 100% num setor de sobreaviso, e a barra
+    // passaria a medir burocracia em vez de pendencia.
+    const justificados = allCombinedItems.filter(
+      i => i.justificativa_status === 'aprovada' || i.justificativa_status === 'auto_validado'
+    ).length
     const pendentes = allCombinedItems.filter(i => i.justificativa_status === 'pendente').length
     const sugestoes = allCombinedItems.filter(i => i.justificativa_status === 'sugestao_pendente').length
     const emAvaliacao = allCombinedItems.filter(i => i.estado === 'em_avaliacao').length
@@ -294,7 +319,9 @@ export async function getEventosPendentes(params: {
     if (params.status === 'pendentes') {
       finalItems = allCombinedItems.filter(i => i.justificativa_status === 'pendente')
     } else if (params.status === 'preenchidas') {
-      finalItems = allCombinedItems.filter(i => i.justificativa_status === 'aprovada')
+      finalItems = allCombinedItems.filter(
+        i => i.justificativa_status === 'aprovada' || i.justificativa_status === 'auto_validado'
+      )
     } else if (params.status === 'sugestoes') {
       finalItems = allCombinedItems.filter(i => i.justificativa_status === 'sugestao_pendente')
     } else if (params.status === 'em_avaliacao') {
