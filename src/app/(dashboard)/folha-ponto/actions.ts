@@ -2622,6 +2622,12 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
           unidade: uNome,
           setor: sNome,
           justificativa: justTexto,
+          // Mesmo desfecho do plantao: sobreaviso sem acionamento (ou acionado e atendido) e
+          // `validado` e conta; falha de acionamento e `falta` e nao conta; dia futuro e
+          // `previsto`. Sem isto, o resumo do anexo somaria prontidao de dia que nem chegou.
+          estado: desfechoPorLinha.get(ed.id)?.estado || null,
+          estado_motivo: desfechoPorLinha.get(ed.id)?.motivo || null,
+          resultado_origem: just?.resultado_origem || null,
           acionamentos: acionamentos.map((a: any) => {
             const horaAcionamento = a.data_hora_acionamento 
               ? formatarHora(a.data_hora_acionamento) 
@@ -2682,7 +2688,15 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
     const totalPlantoesEmAvaliacao = plantoes.filter(p => p.estado === 'em_avaliacao').length
     const desfechoIndisponivel = plantoes.length > 0 && plantoes.every(p => !p.estado)
 
-    const totalHorasSobreaviso = sobreavisos.reduce((acc, s) => acc + (s.horas_prontidao || 0), 0)
+    // Prontidao cumprida usa o mesmo criterio do plantao. `totalHorasSobreavisoEscalado` fica
+    // ao lado para a conta continuar conferivel.
+    const sobreavisoCumprido = (s: any) => !s.estado || s.estado === 'validado'
+    const totalHorasSobreaviso = sobreavisos
+      .filter(sobreavisoCumprido)
+      .reduce((acc, s) => acc + (s.horas_prontidao || 0), 0)
+    const totalHorasSobreavisoEscalado = sobreavisos.reduce((acc, s) => acc + (s.horas_prontidao || 0), 0)
+    const totalSobreavisosCumpridos = sobreavisos.filter(sobreavisoCumprido).length
+    const totalSobreavisosFaltas = sobreavisos.filter(s => s.estado === 'falta').length
     const totalAcionamentos = sobreavisos.reduce((acc, s) => acc + (s.acionamentos?.length || 0), 0)
 
     return {
@@ -2699,6 +2713,9 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
       totalPlantoesEmAvaliacao,
       desfechoIndisponivel,
       totalHorasSobreaviso,
+      totalHorasSobreavisoEscalado,
+      totalSobreavisosCumpridos,
+      totalSobreavisosFaltas,
       totalAcionamentos
     }
   } catch (error: any) {

@@ -34,6 +34,8 @@ interface SobreavisoItem {
   horas_prontidao: number
   unidade: string
   setor: string
+  estado?: string | null
+  estado_motivo?: string | null
   acionamentos: Array<{
     hora_acionamento: string
     hora_chegada: string
@@ -67,6 +69,9 @@ interface Props {
     totalPlantoesEmAvaliacao?: number
     desfechoIndisponivel?: boolean
     totalHorasSobreaviso: number
+    totalHorasSobreavisoEscalado?: number
+    totalSobreavisosCumpridos?: number
+    totalSobreavisosFaltas?: number
     totalAcionamentos: number
   }
   onClose?: () => void
@@ -112,9 +117,24 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
   const setorNome = servidor?.setores?.dicionario_setores?.nome || 'SETOR GERAL'
 
   // Resumo agrupado por tipo individual de plantão
+  // ⚠️ O RESUMO CONTA SÓ O QUE FOI CUMPRIDO (24/08/2026).
+  //
+  // Até aqui ele agrupava TODAS as linhas escaladas, e o resultado contradizia o número grande
+  // do próprio documento: a ANDRESA aparecia com "48h cumpridas" no topo e, logo abaixo,
+  // "5 escalas • 60h" + "10 escalas • 60h" = 120h no detalhamento. Num anexo comprobatório, dois
+  // totais diferentes para a mesma coisa é pior do que um total errado — quem confere não sabe
+  // qual acreditar.
+  //
+  // `ehCumprido` é o MESMO critério das linhas da seção 1 e do rodapé de subtotais. Estado
+  // ausente (a RPC não respondeu) conta como cumprido, para o documento cair no comportamento
+  // antigo em vez de zerar — e o aviso de indisponibilidade diz que foi isso que aconteceu.
+  const ehCumprido = (p: PlantaoItem) =>
+    !p.estado || p.estado === 'registrado' || p.estado === 'validado'
+  const plantoesCumpridos = plantoes.filter(ehCumprido)
+
   const resumoTiposPlantao = useMemo(() => {
     const map = new Map<string, { nome: string; horario: string; qtd: number; horas: number }>()
-    plantoes.forEach(p => {
+    plantoes.filter(p => !p.estado || p.estado === 'registrado' || p.estado === 'validado').forEach(p => {
       const key = `${p.turno_nome || 'Plantão'}__${p.horario_previsto || ''}`
       const curr = map.get(key) || { 
         nome: p.turno_nome || 'Plantão', 
@@ -130,9 +150,11 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
   }, [plantoes])
 
   // Resumo agrupado por tipo individual de sobreaviso
+  const sobreavisosCumpridos = sobreavisos.filter(s => !s.estado || s.estado === 'validado')
+
   const resumoTiposSobreaviso = useMemo(() => {
     const map = new Map<string, { nome: string; horario: string; qtd: number; horas: number }>()
-    sobreavisos.forEach(s => {
+    sobreavisos.filter(s => !s.estado || s.estado === 'validado').forEach(s => {
       const key = `${s.turno_nome || 'Sobreaviso'}__${s.horario_previsto || ''}`
       const curr = map.get(key) || { 
         nome: s.turno_nome || 'Sobreaviso', 
@@ -513,7 +535,9 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
               2. Escala de Sobreavisos e Acionamentos Presenciais ({sobreavisos.length} escala(s))
             </h3>
             <span className="text-[10px] font-bold text-zinc-500 print:text-black uppercase">
-              Prontidão: {totalHorasSobreaviso}h • Acionamentos: {totalAcionamentos}
+              Prontidão cumprida: {totalHorasSobreaviso}h
+              {(dados.totalHorasSobreavisoEscalado ?? totalHorasSobreaviso) !== totalHorasSobreaviso &&
+                <> de {dados.totalHorasSobreavisoEscalado}h</>} • Acionamentos: {totalAcionamentos}
             </span>
           </div>
 
@@ -599,9 +623,14 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
         <div className="anexo-summary-box p-4 md:p-5 rounded-2xl bg-zinc-100/70 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 mb-8 print:border-zinc-300 print:p-3 print:mb-6">
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 md:gap-4 divide-y sm:divide-y-0 sm:divide-x divide-zinc-200 dark:divide-zinc-700 print:grid-cols-5 print:divide-y-0 print:divide-x print:divide-zinc-300">
             <div className="text-center pt-2 sm:pt-0">
-              <div className="text-[9px] print:text-[7.5pt] font-bold text-zinc-500 print:text-zinc-700 uppercase tracking-wider">Total de Plantões</div>
-              <div className="text-xl md:text-2xl print:text-lg font-black text-zinc-900 dark:text-white print:text-black mt-0.5">{plantoes.length}</div>
-              <div className="text-[9px] print:text-[7pt] font-medium text-zinc-400 print:text-zinc-600 uppercase">escala(s)</div>
+              <div className="text-[9px] print:text-[7.5pt] font-bold text-zinc-500 print:text-zinc-700 uppercase tracking-wider">Plantões Cumpridos</div>
+              {/* Contava TODAS as escalas ao lado de um total de horas que já era só o cumprido.
+                  A contagem tem que fechar com as horas — e o "de N escaladas" mantém a
+                  conferência possível sem afirmar que as N foram prestadas. */}
+              <div className="text-xl md:text-2xl print:text-lg font-black text-zinc-900 dark:text-white print:text-black mt-0.5">{plantoesCumpridos.length}</div>
+              <div className="text-[9px] print:text-[7pt] font-medium text-zinc-400 print:text-zinc-600 uppercase">
+                {plantoes.length !== plantoesCumpridos.length ? <>de {plantoes.length} escalada(s)</> : <>escala(s)</>}
+              </div>
             </div>
             <div className="text-center pt-2 sm:pt-0 sm:pl-3 print:pl-2">
               <div className="text-[9px] print:text-[7.5pt] font-bold text-zinc-500 print:text-zinc-700 uppercase tracking-wider">Horas de Plantão</div>
@@ -613,9 +642,11 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
               </div>
             </div>
             <div className="text-center pt-2 sm:pt-0 sm:pl-3 print:pl-2">
-              <div className="text-[9px] print:text-[7.5pt] font-bold text-zinc-500 print:text-zinc-700 uppercase tracking-wider">Total de Sobreavisos</div>
-              <div className="text-xl md:text-2xl print:text-lg font-black text-zinc-900 dark:text-white print:text-black mt-0.5">{sobreavisos.length}</div>
-              <div className="text-[9px] print:text-[7pt] font-medium text-zinc-400 print:text-zinc-600 uppercase">escala(s)</div>
+              <div className="text-[9px] print:text-[7.5pt] font-bold text-zinc-500 print:text-zinc-700 uppercase tracking-wider">Sobreavisos Cumpridos</div>
+              <div className="text-xl md:text-2xl print:text-lg font-black text-zinc-900 dark:text-white print:text-black mt-0.5">{sobreavisosCumpridos.length}</div>
+              <div className="text-[9px] print:text-[7pt] font-medium text-zinc-400 print:text-zinc-600 uppercase">
+                {sobreavisos.length !== sobreavisosCumpridos.length ? <>de {sobreavisos.length} escalada(s)</> : <>escala(s)</>}
+              </div>
             </div>
             <div className="text-center pt-2 sm:pt-0 sm:pl-3 print:pl-2">
               <div className="text-[9px] print:text-[7.5pt] font-bold text-zinc-500 print:text-zinc-700 uppercase tracking-wider">Horas de Sobreaviso</div>
@@ -636,7 +667,7 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
               <div>
                 <div className="text-[9px] print:text-[7pt] font-black uppercase text-zinc-500 print:text-zinc-700 tracking-wider mb-1.5 flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-blue-500 print:bg-black inline-block"></span>
-                  Detalhamento dos Plantões ({plantoes.length} escala{plantoes.length !== 1 ? 's' : ''} • {cumpridas}h cumpridas)
+                  Detalhamento dos Plantões ({plantoesCumpridos.length} escala{plantoesCumpridos.length !== 1 ? 's' : ''} cumprida{plantoesCumpridos.length !== 1 ? 's' : ''} • {cumpridas}h)
                 </div>
                 {resumoTiposPlantao.length > 0 ? (
                   <div className="flex flex-wrap gap-1.5">
@@ -659,7 +690,7 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
               <div>
                 <div className="text-[9px] print:text-[7pt] font-black uppercase text-zinc-500 print:text-zinc-700 tracking-wider mb-1.5 flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 print:bg-black inline-block"></span>
-                  Detalhamento dos Sobreavisos ({sobreavisos.length} escala{sobreavisos.length !== 1 ? 's' : ''} • {totalHorasSobreaviso}h)
+                  Detalhamento dos Sobreavisos ({sobreavisosCumpridos.length} escala{sobreavisosCumpridos.length !== 1 ? 's' : ''} cumprida{sobreavisosCumpridos.length !== 1 ? 's' : ''} • {totalHorasSobreaviso}h)
                 </div>
                 {resumoTiposSobreaviso.length > 0 ? (
                   <div className="flex flex-wrap gap-1.5">

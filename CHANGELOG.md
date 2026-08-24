@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.17.2] - 2026-08-24
+
+### Fixed
+- **O bloco de resumo do anexo contradizia o próprio documento.** A v2.15.0 corrigiu a tabela e o número grande de horas, mas deixou a CONTAGEM e o detalhamento por tipo somando tudo que foi escalado. Na folha da ANDRESA isso aparecia como "48h cumpridas" no topo e, três centímetros abaixo, "15 escalas" com "MANHÃ+TARDE: 5 escalas • 60h" e "TARDE: 10 escalas • 60h" — **120h**. Num anexo comprobatório, dois totais diferentes para a mesma coisa é pior do que um total errado: quem confere não sabe qual acreditar.
+  - `Total de Plantões` virou **`Plantões Cumpridos`**, com "de N escalada(s)" ao lado para a conferência continuar possível sem afirmar que as N foram prestadas. Mesmo tratamento para `Total de Sobreavisos`.
+  - O **detalhamento por tipo de turno** agrupa só o cumprido, pelo mesmo `ehCumprido` das linhas da seção 1 e do rodapé de subtotais.
+  - **Sobreaviso não tinha desfecho no anexo**: a action nem anexava o estado. Agora anexa, e a prontidão passa a somar só o que foi cumprido — sem isso o resumo contaria prontidão de dia que ainda não chegou.
+- Medido na ANDRESA (mat. 54594), 08/2026: o resumo sai de **15 escalas / 120h** para **8 cumpridos de 15 escaladas / 48h**, e o detalhamento de duas linhas somando 120h passa a uma linha de 48h — fechando com o número grande.
+
 ## [2.17.1] - 2026-08-24
 
 ### Added
