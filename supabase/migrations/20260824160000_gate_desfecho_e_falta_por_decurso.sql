@@ -29,7 +29,7 @@
 --
 -- ⚠️ O PRAZO QUE IMPORTA
 --   O auto-fechamento so alcanca escala/folha expirada: fim do mes + `dias_inativacao_automatica`
---   (5 dias). Para 08/2026 isso e 05/09/2026. A fila tem ate la para ser tratada - depois disso,
+--   (3 dias em producao, conferido em 24/08/2026). Para 08/2026 isso e 03/09/2026. A fila tem ate la para ser tratada - depois disso,
 --   com a chave ligada, o que sobrar vira falta por decurso.
 
 BEGIN;
