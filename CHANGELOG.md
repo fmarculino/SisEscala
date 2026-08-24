@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.17.1] - 2026-08-24
+
+### Added
+- **A trava de desfecho ganhou controle na tela**, em Configurações → **Justificativas & Validação**. A v2.17.0 criou a chave `desfecho_obrigatorio_fechar` mas ela só existia no banco: ligar exigiria um `UPDATE` manual em `configuracoes_globais`. Interruptor operacional que só se liga por SQL não é um interruptor — é uma pendência disfarçada, e quem precisa dele (o RH, o coordenador) não roda SQL.
+  - O bloco fica ao lado de "Trava de Fechamento de Escala", e as duas são **chaves separadas de propósito**: justificativa é o *porquê* do serviço extraordinário, desfecho é *se foi cumprido*. Um evento pode ter texto escrito e continuar sem decisão.
+  - Enquanto está desligada, a tela avisa para **zerar a fila "Em avaliação" antes de ligar** — ligar antes trava o fechamento do mês para todo mundo.
+  - Quando ligada, avisa que o fechamento automático passa a converter pendência em **falta**, e que só o RH reverte.
+
 ## [2.17.0] - 2026-08-24
 
 ⚠️ **Requer aplicar `20260824160000`.** A chave que ela cria **nasce desligada** — nada muda no fechamento até você ligá-la.

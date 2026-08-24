@@ -1320,6 +1320,45 @@ export default function ConfigPage() {
                   Se habilitado, impede o coordenador de fechar a escala mensal se houver Horas Extras, Plantões ou Sobreavisos sem justificativa.
                 </p>
               </div>
+
+              {/*
+                4. Trava de DESFECHO — chave separada da de cima, de propósito.
+                "Justificativa" é o porquê do serviço extraordinário; "desfecho" é se ele foi
+                cumprido. Um evento pode ter texto escrito e continuar sem decisão. Reaproveitar
+                a chave de cima (que já está ligada) ligaria este gate junto, travando o
+                fechamento da competência no dia do deploy.
+              */}
+              <div className="space-y-3 bg-zinc-50 dark:bg-zinc-800/50 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-700">
+                <label className="text-xs font-black text-zinc-700 dark:text-zinc-300 uppercase tracking-wider block">
+                  Trava de Desfecho de Plantão e Sobreaviso
+                </label>
+                <select
+                  value={String(getConfig('desfecho_obrigatorio_fechar')?.valor ?? 'false').replace(/"/g, '')}
+                  onChange={(e) => updateConfig('desfecho_obrigatorio_fechar', e.target.value)}
+                  className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl p-3 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="false">Desligada (fecha normalmente, mesmo com plantão em avaliação)</option>
+                  <option value="true">Obrigatória (bloqueia o fechamento e converte pendência em falta)</option>
+                </select>
+                <p className="text-[11px] text-zinc-400 leading-normal">
+                  Exige que todo plantão/sobreaviso tenha desfecho — validado ou falta — antes de
+                  fechar escala e folha. Um plantão sem registro completo de ponto e sem decisão do
+                  coordenador fica <strong>&quot;Em avaliação&quot;</strong>: aparece no anexo, mas não soma na
+                  carga horária. Resolva em OPERAÇÃO &gt; Justificativas, filtro &quot;Em avaliação&quot;.
+                </p>
+                {String(getConfig('desfecho_obrigatorio_fechar')?.valor ?? 'false').replace(/"/g, '') === 'true' ? (
+                  <div className="text-[11px] leading-normal p-3 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 text-red-700 dark:text-red-300 font-bold">
+                    ⚠️ Ligada. O fechamento automático passa a converter em <strong>FALTA</strong> todo plantão
+                    que chegar ao prazo sem decisão. Só o RH (Geral ou da Unidade) reverte, e a
+                    reversão fica registrada no histórico.
+                  </div>
+                ) : (
+                  <div className="text-[11px] leading-normal p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 text-amber-700 dark:text-amber-300 font-bold">
+                    Ligue só depois de zerar a fila &quot;Em avaliação&quot; da competência corrente. Ligar antes
+                    trava o fechamento do mês para todo mundo — e o que sobrar vira falta automática.
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
