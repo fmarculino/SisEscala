@@ -19,7 +19,7 @@ import { AssinaturaDigitalModal } from '@/components/justificativas/AssinaturaDi
 import { RelatorioEventoPrintView } from '@/components/reports/RelatorioEventoPrintView'
 import { formatSectorsHierarchy } from '@/utils/sectors'
 import { formatarHora } from '@/utils/horario'
-import type { Desfecho } from '@/utils/gestaoJustificativas'
+import { PAPEIS_REVERTEM_DESFECHO, type Desfecho } from '@/utils/gestaoJustificativas'
 
 interface JustificativasClientProps {
   unidades: any[]
@@ -1104,6 +1104,7 @@ export function JustificativasClient({
           onClose={() => setSingleModalEvento(null)}
           evento={singleModalEvento}
           templates={templates}
+          podeReverter={PAPEIS_REVERTEM_DESFECHO.includes(userProfile?.role)}
           onSave={handleSaveSingle}
         />
       )}

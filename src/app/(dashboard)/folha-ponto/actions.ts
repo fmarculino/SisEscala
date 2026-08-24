@@ -1972,6 +1972,40 @@ export async function salvarFolhaPonto(folhaId: string, registros: any[], status
       return { error: 'Acesso negado para gerenciar esta folha.' }
     }
 
+    // GATE DE DESFECHO — fase 5 do plano de 23/08/2026.
+    //
+    // Fechar a folha é o que congela a competência para pagamento. Se um plantão continua "em
+    // avaliação" nesse momento, o anexo sai com horas que ninguém confirmou nem negou — e
+    // depois de fechada, corrigir exige reabrir.
+    //
+    // ⚠️ Vale apenas para o FECHAMENTO (`Revisada`). Salvar rascunho, sincronizar e reabrir
+    // continuam livres: o gate existe para impedir o congelamento, não para atrapalhar o
+    // trabalho que leva até ele.
+    //
+    // Controlado por `desfecho_obrigatorio_fechar`, que nasce false (20260824160000).
+    if (status === 'Revisada' && folha.status !== 'Revisada') {
+      const { data: cfgDesfecho } = await supabase
+        .from('configuracoes_globais')
+        .select('valor')
+        .eq('chave', 'desfecho_obrigatorio_fechar')
+        .maybeSingle()
+
+      if (String(cfgDesfecho?.valor).replace(/"/g, '') === 'true') {
+        const { data: hojeLocal } = await supabase.rpc('fn_data_local')
+        const { data: desfechos } = await supabase.rpc('fn_desfecho_eventos_escalas', {
+          p_escala_mensal_ids: [folha.escala_mensal_id],
+          p_hoje: String(hojeLocal)
+        })
+        const pendentes = (desfechos || []).filter((d: any) => d.estado === 'em_avaliacao')
+        if (pendentes.length > 0) {
+          const dias = pendentes.map((d: any) => d.dia).sort((a: number, b: number) => a - b).join(', ')
+          return {
+            error: `Não é possível fechar: ${pendentes.length} plantão(ões)/sobreaviso(s) sem registro completo de ponto e sem decisão do coordenador — dia(s) ${dias}. Resolva em OPERAÇÃO > Justificativas (filtro "Em avaliação").`
+          }
+        }
+      }
+    }
+
     // Se a folha estiver Revisada, apenas super_admin e admin podem reabri-la (passando status !== 'Revisada')
     if (folha.status === 'Revisada') {
       if (status !== 'Gerada' && status !== 'Rascunho') {

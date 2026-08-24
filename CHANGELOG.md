@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.17.0] - 2026-08-24
+
+⚠️ **Requer aplicar `20260824160000`.** A chave que ela cria **nasce desligada** — nada muda no fechamento até você ligá-la.
+
+### Added
+- **Gate de desfecho e falta por decurso de prazo** (fase 5 do plano `docs/planos/2026-08-23-desfecho-de-plantao-e-sobreaviso.md`), sob a chave `desfecho_obrigatorio_fechar`.
+  - **Fechar Escala** e **Fechar Folha** passam a recusar competência com plantão/sobreaviso `em_avaliacao`. A mensagem lista **quem e quais dias** — "existem 210 pendências" manda o coordenador procurar sozinho; dizer os dias é a diferença entre um bloqueio e uma instrução.
+  - **O auto-fechamento converte em `falta` o que ninguém decidiu**, com `resultado_origem = 'decurso_de_prazo'`, e registra em `logs_sistema` uma linha por servidor com os dias convertidos. A conversão é mais grave que o fechamento e não pode ser mais silenciosa que ele.
+  - ⚠️ **`autoClose.ts` é a OUTRA porta**: escreve `status = 'Revisada'` direto na tabela, sem passar por `salvarFolhaPonto`. Fechar só a porta manual deixaria o cron congelando competência com pendência, em silêncio — o modo de falha mais caro, porque ninguém olha.
+  - **O RH reverte pela fila**: o modal abre a decisão também num evento que já tem desfecho, para quem é `rh`, `rh_unidade` ou `super_admin`, avisando que a alteração fica no histórico com o nome de quem fez. Coordenador e ass_adm decidem, não revisam a própria decisão.
+  - Chave **separada** de `justificativa_obrigatoria_fechar_escala`, e isso não é preciosismo: aquela já está **ligada** em produção, e reaproveitá-la ligaria este gate junto.
+
+### Measured
+- **Se a chave fosse ligada hoje, 210 eventos travariam o fechamento de 08/2026** — 133 na LACEM, 48 na SMS, 11 na USF Pedro Cavalcante e os demais espalhados. Por isso ela nasce `false`.
+- A maior parte **não é conduta**: é batida de transição recusada pelo terminal (armadilha 6 — `fn_confirmar_presenca` não tem os slots de fronteira) e plantão emendado ao Regular. Converter isso em falta automática seria acusar servidor por defeito conhecido do sistema.
+- **Prazo real**: o auto-fechamento alcança 08/2026 em **05/09/2026** (fim do mês + `dias_inativacao_automatica`). Com a chave desligada, nada é convertido nessa data.
+
 ## [2.16.0] - 2026-08-24
 
 ⚠️ **Requer aplicar duas migrations**: `20260824140000` e `20260824150000`.

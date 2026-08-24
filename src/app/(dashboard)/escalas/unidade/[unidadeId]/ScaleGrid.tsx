@@ -3360,6 +3360,49 @@ export function ScaleGrid({
       }
     }
 
+    // Validação: Desfecho de plantão/sobreaviso (fase 5 do plano de 23/08/2026).
+    //
+    // ⚠️ CHAVE SEPARADA de `justificativa_obrigatoria_fechar_escala`, e não é preciosismo: a
+    // outra já está LIGADA em produção, e reaproveitá-la ligaria este gate junto — com 132
+    // plantões em avaliação em 08/2026, isso travaria o fechamento do mês no dia do deploy.
+    // `desfecho_obrigatorio_fechar` nasce false (20260824160000) e só é ligada quando a fila
+    // estiver tratada.
+    //
+    // "Justificativa" e "desfecho" são coisas diferentes: a primeira é o porquê do serviço
+    // extraordinário; o segundo é se ele foi cumprido. Um evento pode ter texto escrito e
+    // continuar sem decisão — em 08/2026 são 6 casos.
+    if (configs['desfecho_obrigatorio_fechar'] === 'true') {
+      const { data: desfechos } = await supabase.rpc('fn_desfecho_eventos_escalas', {
+        p_escala_mensal_ids: escalaMensal.map(em => em.id),
+        p_hoje: `${ano}-${String(mes).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`
+      })
+
+      const pendentesDesfecho = (desfechos || []).filter((d: any) => d.estado === 'em_avaliacao')
+      if (pendentesDesfecho.length > 0) {
+        const porServidor = new Map<string, number[]>()
+        pendentesDesfecho.forEach((d: any) => {
+          const em = escalaMensal.find(x => x.id === d.escala_mensal_id)
+          const nome = em?.servidores?.nome || 'Servidor'
+          if (!porServidor.has(nome)) porServidor.set(nome, [])
+          porServidor.get(nome)!.push(d.dia)
+        })
+        // A mensagem lista QUEM e QUAIS DIAS. "Existem 132 pendências" manda o coordenador
+        // procurar sozinho; dizer os dias é a diferença entre um bloqueio e uma instrução.
+        const linhas = Array.from(porServidor.entries())
+          .slice(0, 6)
+          .map(([nome, dias]) => `• ${nome}: dia(s) ${dias.sort((a, b) => a - b).join(', ')}`)
+        const resto = porServidor.size > 6 ? `\n...e mais ${porServidor.size - 6} servidor(es).` : ''
+
+        setAlertModal({
+          isOpen: true,
+          title: '⚠️ Plantões sem desfecho',
+          message: `Não é possível fechar a escala. Existem ${pendentesDesfecho.length} plantão(ões)/sobreaviso(s) sem registro completo de ponto e sem decisão do coordenador:\n\n${linhas.join('\n')}${resto}\n\nEm OPERAÇÃO > Justificativas, filtre por "Em avaliação" e valide ou registre a falta de cada um.`,
+          type: 'warning'
+        })
+        return
+      }
+    }
+
     setConfirmModal({
       isOpen: true,
       title: 'Fechar Escala',

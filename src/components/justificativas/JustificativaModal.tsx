@@ -29,6 +29,12 @@ interface JustificativaModalProps {
     presenca_saida_em?: string | null
   } | null
   templates: any[]
+  /**
+   * Se o usuário pode desfazer um desfecho JÁ gravado (RH Geral, RH da Unidade, Administrador
+   * Geral). Coordenador e ass_adm decidem, não revisam a própria decisão — decisão do usuário
+   * em 23/08/2026. A regra real é da action e do banco; isto é só o que a tela oferece.
+   */
+  podeReverter?: boolean
   onSave: (texto: string, templateId?: string, resultado?: Desfecho) => Promise<void>
 }
 
@@ -37,6 +43,7 @@ export function JustificativaModal({
   onClose,
   evento,
   templates,
+  podeReverter = false,
   onSave
 }: JustificativaModalProps) {
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
@@ -68,7 +75,12 @@ export function JustificativaModal({
   // (`registrado`) ou que ainda não aconteceu (`previsto`) segue como a justificativa
   // motivacional de sempre. Estado desconhecido (a RPC não respondeu) NÃO oferece a escolha —
   // oferecer sem saber o estado é pedir uma decisão sobre um fato que a tela não conhece.
-  const pedeDecisao = evento.estado === 'em_avaliacao'
+  //
+  // O RH também abre a decisão num evento que JÁ tem desfecho — é por aqui que se reverte uma
+  // falta, inclusive a que o auto-fechamento criou por decurso de prazo. Para quem não pode
+  // reverter, o modal continua sendo só a justificativa: a decisão já foi tomada.
+  const ehReversao = !!evento.resultado && podeReverter
+  const pedeDecisao = evento.estado === 'em_avaliacao' || ehReversao
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -144,6 +156,14 @@ export function JustificativaModal({
               {ehSobreaviso ? 'Este sobreaviso foi cumprido?' : 'Este plantão foi cumprido?'}{' '}
               <span className="text-red-500">*</span>
             </label>
+            {ehReversao && (
+              <p className="text-[11px] text-blue-700 dark:text-blue-400 font-bold flex items-start gap-1.5">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" />
+                Este evento já está registrado como
+                <strong>{evento.resultado === 'falta' ? ' FALTA' : ' VALIDADO'}</strong>.
+                Alterar agora é uma reversão e fica registrada no histórico com seu nome.
+              </p>
+            )}
             {evento.estado_motivo && (
               <p className="text-[11px] text-amber-700 dark:text-amber-400 font-bold flex items-start gap-1.5">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" />
