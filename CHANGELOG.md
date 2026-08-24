@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.18.1] - 2026-08-24
+
+### Fixed
+- **Um dia com dois afastamentos só mostrava o primeiro.** `servidores_eventos` nunca proibiu mais de um evento no mesmo (servidor, dia) — e não deve proibir: uma declaração de comparecimento pela manhã e outra à tarde são dois fatos, com horários e documentos próprios. Mas a leitura era `afastamentos?.find(...)`, que devolve **o primeiro**, e isso estava repetido nas **quatro cópias** da geração de folha (duas em `folha-ponto/actions.ts`, duas em `consultar-escala/actions.ts`) **mais** a grade de escala.
+  - O lançamento nunca se perdeu: as duas linhas sempre estiveram no banco e a tela de Afastamentos sempre mostrou as duas. O que se perdia era a **leitura** — e o modo de falha é silencioso dos dois lados: quem lança vê dois, quem lê a folha vê um, e ninguém recebe erro.
+  - O anexo de ocorrências do verso ("Observação / Justificativa") não tinha defeito próprio: ele deriva de `folha_ponto.registros` e herdava o texto truncado da geração.
+  - Fonte única nova: **`src/utils/folha/afastamentosDia.ts`**, que também recolheu `getAfastamentoNome` / `getAfastamentoObservacao` / `isShiftOverlappingAfastamento` — estavam **duplicados** entre os dois arquivos de action. As quatro cópias foram alteradas por script com contagem de ocorrências, que aborta na divergência.
+  - Na grade, o marcador, a sobreposição colorida e os tooltips passam a listar **todos** os eventos do dia; a célula bloqueada, que não tem largura para dois rótulos, mostra `VIS+1`.
+- Medido em produção (08/2026): **1 par (servidor, dia)** em toda a base — KETHURY CHAVES (T2600016), 14/08 — com a folha ainda em **Rascunho**. Nenhuma competência Fechada afetada. Ela sai de `AFASTAMENTO PARCIAL: DECLARAÇÃO DE COMPARECIMENTO (M) | FOLGA` para `... (M) + ... (T) | FOLGA` **ao clicar em Sincronizar**: `folha_ponto.registros` é snapshot, não view.
+
+### Changed
+- ⚠️ **Só a exibição virou plural; o bloqueio continua binário.** `encontrarAfastamentoBloqueante` sobrevive como envelope de `encontrarAfastamentosBloqueantes(...)[0]` e continua servindo os quatro sítios da grade que só precisam saber *se* bloqueia (digitação na célula, aviso da linha, Aplicar Template, Gerador Inteligente).
+- ⚠️ **A ordem do texto passou a ser determinística.** As quatro consultas a `servidores_eventos` não têm `ORDER BY` — sem desempate próprio, regerar a mesma folha duas vezes podia trocar a ordem do texto num documento que o servidor assina. Integral primeiro, depois pela hora de início, desempate final pela descrição.
+- ⚠️ **Descrições iguais não são fundidas**: dois eventos do mesmo tipo saem como `... (M) + ... (T)`, e não `... (M, T)`. Em documento comprobatório, um rótulo para dois lançamentos esconde que houve dois.
+
+### Known
+- ℹ️ **Nenhum horário, hora normal ou falta se move** — o conserto é de leitura, e nenhuma migration foi necessária.
+- ℹ️ No caso medido, o dia 14 aparece como **FOLGA** porque as duas Declarações de Comparecimento foram lançadas **por período** (`M` e `T`), e período bloqueia: juntas cobriram o turno `MT` e `fn_clean_conflicting_shifts` limpou a linha. É o comportamento projetado e **continua igual** depois desta correção — para o servidor seguir escalado no resto do dia, o lançamento é **por horas**, como no dia 10 da mesma folha. `tipos_eventos` não tem coluna que force o modo, então a escolha é do operador a cada lançamento.
+
 ## [2.18.0] - 2026-08-24
 
 ### Added

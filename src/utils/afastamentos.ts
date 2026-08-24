@@ -69,11 +69,37 @@ export function categoriaBloqueadaPorAfastamento(
 }
 
 /**
- * Devolve o afastamento que impede lançar este turno neste dia, ou null.
+ * TODOS os afastamentos que impedem lançar este turno neste dia.
+ *
+ * ⚠️ Um dia pode ter mais de um evento — uma declaração de comparecimento pela manhã e
+ *    outra à tarde, por exemplo. Para BLOQUEAR basta um; para EXIBIR é preciso a lista,
+ *    senão a tela nomeia só o primeiro e o coordenador conclui que o segundo se perdeu.
  *
  * @param turnoSlots slots do turno que se pretende lançar. Célula vazia entra como `[]`,
  *                   e nesse caso só um afastamento integral bloqueia.
  */
+export function encontrarAfastamentosBloqueantes(params: {
+  eventos: AfastamentoEvento[]
+  servidorId: string
+  dataISO: string
+  categoria: CategoriaEscala | string
+  turnoSlots?: string[] | null
+  permitirPlantaoExtra: boolean
+}): AfastamentoEvento[] {
+  const { eventos, servidorId, dataISO, categoria, turnoSlots, permitirPlantaoExtra } = params
+
+  if (!categoriaBloqueadaPorAfastamento(categoria, permitirPlantaoExtra)) return []
+
+  return eventos.filter(ev =>
+    ev.servidor_id === servidorId &&
+    dataISO >= ev.data_inicio &&
+    dataISO <= ev.data_fim &&
+    afastamentoBloqueiaEscala(ev) &&
+    afastamentoConflitaComSlots(ev, turnoSlots)
+  )
+}
+
+/** O primeiro dos bloqueantes. Bloqueio e binario; para EXIBIR use a versao no plural. */
 export function encontrarAfastamentoBloqueante(params: {
   eventos: AfastamentoEvento[]
   servidorId: string
@@ -82,17 +108,7 @@ export function encontrarAfastamentoBloqueante(params: {
   turnoSlots?: string[] | null
   permitirPlantaoExtra: boolean
 }): AfastamentoEvento | null {
-  const { eventos, servidorId, dataISO, categoria, turnoSlots, permitirPlantaoExtra } = params
-
-  if (!categoriaBloqueadaPorAfastamento(categoria, permitirPlantaoExtra)) return null
-
-  return eventos.find(ev =>
-    ev.servidor_id === servidorId &&
-    dataISO >= ev.data_inicio &&
-    dataISO <= ev.data_fim &&
-    afastamentoBloqueiaEscala(ev) &&
-    afastamentoConflitaComSlots(ev, turnoSlots)
-  ) || null
+  return encontrarAfastamentosBloqueantes(params)[0] || null
 }
 
 /**
@@ -109,4 +125,19 @@ export function dataISODoDia(ano: number, mes: number, dia: number): string {
  */
 export function siglaAfastamento(evento: AfastamentoEvento): string {
   return (evento.tipos_eventos?.nome || 'AFA').substring(0, 3).toUpperCase()
+}
+
+/**
+ * Rótulo do evento para tooltip: nome, período (horas ou slots) e a observação digitada.
+ */
+export function rotuloAfastamento(evento: AfastamentoEvento): string {
+  const nome = evento.tipos_eventos?.nome || 'Afastamento'
+  let periodo = ''
+  if (evento.hora_inicio) {
+    periodo = ` [${evento.hora_inicio.substring(0, 5)} às ${(evento.hora_fim || '').substring(0, 5) || '--:--'}]`
+  } else if (evento.slots && evento.slots.length > 0) {
+    periodo = ` [Período: ${evento.slots.join(', ')}]`
+  }
+  const obs = evento.observacao ? ` - ${evento.observacao}` : ''
+  return `${nome}${periodo}${obs}`
 }

@@ -15,6 +15,7 @@ import { normalizarRegistrosFolha } from '@/utils/folha/normalizarHorarios'
 import { sequenciarDia, PASSOS_FOLHA } from '@/utils/folha/sequenciaDia'
 import { preservarCampo } from '@/utils/folha/preservacao'
 import { montarCargaPorJornada, horasNormaisDoDia } from '@/utils/folha/cargaDiaria'
+import { afastamentosDoDia, descreverAfastamentos, isShiftOverlappingAfastamento } from '@/utils/folha/afastamentosDia'
 
 // Helper: Get user profile with unit/sector permissions
 async function getUserProfile(supabase: any): Promise<UserProfile> {
@@ -93,43 +94,6 @@ function getTurnoCodigo(dicionarioTurnos: any): string | null {
     return dicionarioTurnos[0]?.codigo || null
   }
   return dicionarioTurnos.codigo || null
-}
-
-// Helper: Safely extract name from event types (which could be an array or object in typings)
-function getAfastamentoNome(tiposEventos: any): string | null {
-  if (!tiposEventos) return null
-  if (Array.isArray(tiposEventos)) {
-    return tiposEventos[0]?.nome || null
-  }
-  return tiposEventos.nome || null
-}
-
-function getAfastamentoObservacao(af: any): string {
-  const baseName = getAfastamentoNome(af.tipos_eventos) || af.observacao || 'Afastado'
-  if (af.periodo_tipo === 'horas' || af.hora_inicio) {
-    const hIni = af.hora_inicio?.substring(0, 5) || '--:--'
-    const hFim = af.hora_fim?.substring(0, 5) || '--:--'
-    const durMin = af.minutos_afastamento || 0
-    const durStr = durMin > 0 ? ` (${Math.floor(durMin / 60)}h${String(durMin % 60).padStart(2, '0')}m)` : ''
-    const regStr = af.regime_abono === 'a_compensar' ? ' [A Compensar]' : ''
-    return `${baseName}: ${hIni} às ${hFim}${durStr}${regStr}`
-  }
-  if (af.slots && af.slots.length > 0) {
-    return `${baseName} (${af.slots.join(', ')})`
-  }
-  return baseName
-}
-
-function isShiftOverlappingAfastamento(afastamento: any, shift: any): boolean {
-  if (!afastamento) return false
-  if (afastamento.periodo_tipo === 'horas' || afastamento.hora_inicio) {
-    // Afastamento por horas não anula o turno inteiro
-    return false
-  }
-  if (!afastamento.slots || afastamento.slots.length === 0) return true
-  if (!shift || !shift.dicionario_turnos) return false
-  const shiftSlots = (shift.dicionario_turnos as any).slots || []
-  return shiftSlots.some((s: string) => afastamento.slots.includes(s))
 }
 
 function getExtraHoursFromShift(extraShift: any): number {
@@ -650,12 +614,12 @@ export async function executeGerarFolhaPonto(
       const horasNormaisDiarias = activeJornada === globalJornadaDetails ? globalHorasNormaisDiarias : (activeJornada?.horas_totais ?? 8)
 
       // Check afastamento
-      const rawAfastamento = afastamentos?.find((af: any) => dateStr >= af.data_inicio && dateStr <= af.data_fim)
+      const afastamentosDia = afastamentosDoDia(afastamentos, dateStr)
       const shift = escalaDiaria?.find((ed: any) => ed.dia === day && ed.categoria === 'Regular')
       const extraShift = escalaDiaria?.find((ed: any) => ed.dia === day && ed.categoria === 'Extra')
       const extraHoursScheduled = getExtraHoursFromShift(extraShift)
       const extraMinutesScheduled = Math.round(extraHoursScheduled * 60)
-      const afastamento = isShiftOverlappingAfastamento(rawAfastamento, shift) ? rawAfastamento : null
+      const afastamentosAnulantes = afastamentosDia.filter(af => isShiftOverlappingAfastamento(af, shift))
 
       // Check holiday
       const feriadoInfo = feriados?.find((f: any) => f.data === dateStr)
@@ -704,7 +668,7 @@ export async function executeGerarFolhaPonto(
         origem_saida: null,
         feriado: !!feriadoInfo,
         ponto_facultativo: !!pfInfo,
-        afastamento: afastamento ? getAfastamentoObservacao(afastamento) : null,
+        afastamento: afastamentosAnulantes.length > 0 ? descreverAfastamentos(afastamentosAnulantes) : null,
         jornada_nome: activeJornada?.nome || null,
         jornada_temporaria: !!tempJourney,
       }
@@ -713,8 +677,8 @@ export async function executeGerarFolhaPonto(
         registro.observacao = registro.afastamento.toUpperCase()
       } else if (registro.feriado) {
         registro.observacao = `FERIADO: ${feriadoInfo?.descricao}`.toUpperCase()
-        if (rawAfastamento) {
-          registro.observacao = `AFASTAMENTO PARCIAL: ${getAfastamentoObservacao(rawAfastamento)} | ${registro.observacao}`.toUpperCase()
+        if (afastamentosDia.length > 0) {
+          registro.observacao = `AFASTAMENTO PARCIAL: ${descreverAfastamentos(afastamentosDia)} | ${registro.observacao}`.toUpperCase()
         }
       } else if (registro.ponto_facultativo && pfInfo && !pfInfo.inicio_liberacao_em && !pfInfo.fim_liberacao_em) {
         // Full day Ponto Facultativo
@@ -722,8 +686,8 @@ export async function executeGerarFolhaPonto(
         if (shift) {
           totalHorasNormais += horasNormaisDiarias
         }
-        if (rawAfastamento) {
-          registro.observacao = `AFASTAMENTO PARCIAL: ${getAfastamentoObservacao(rawAfastamento)} | ${registro.observacao}`.toUpperCase()
+        if (afastamentosDia.length > 0) {
+          registro.observacao = `AFASTAMENTO PARCIAL: ${descreverAfastamentos(afastamentosDia)} | ${registro.observacao}`.toUpperCase()
         }
       } else if (!shift) {
         // Rest day (folga)
@@ -734,8 +698,8 @@ export async function executeGerarFolhaPonto(
         } else {
           registro.observacao = 'FOLGA'
         }
-        if (rawAfastamento) {
-          registro.observacao = `AFASTAMENTO PARCIAL: ${getAfastamentoObservacao(rawAfastamento)} | ${registro.observacao}`.toUpperCase()
+        if (afastamentosDia.length > 0) {
+          registro.observacao = `AFASTAMENTO PARCIAL: ${descreverAfastamentos(afastamentosDia)} | ${registro.observacao}`.toUpperCase()
         }
       } else {
         // Work day!
@@ -747,8 +711,8 @@ export async function executeGerarFolhaPonto(
             registro.observacao = `PONTO FACULTATIVO ATÉ AS ${pfInfo.fim_liberacao_em.substring(0, 5)}: ${pfInfo.descricao}`.toUpperCase()
           }
         }
-        if (rawAfastamento) {
-          registro.observacao = `AFASTAMENTO PARCIAL: ${getAfastamentoObservacao(rawAfastamento)}${registro.observacao ? ' | ' + registro.observacao : ''}`.toUpperCase()
+        if (afastamentosDia.length > 0) {
+          registro.observacao = `AFASTAMENTO PARCIAL: ${descreverAfastamentos(afastamentosDia)}${registro.observacao ? ' | ' + registro.observacao : ''}`.toUpperCase()
         }
 
         // Consolida os turnos do dia (Regular, Extra, Plantão) e resolve, para cada passo,
@@ -1403,8 +1367,8 @@ export async function sincronizarFolhaPonto(folhaId: string) {
       const scaleChangedForDay = (hadShift !== hasShift) || (hadShift && registroExistente.turno_codigo !== getTurnoCodigo(currentShift?.dicionario_turnos))
 
       // Check afastamento and holidays
-      const rawAfastamento = afastamentos?.find(af => dateStr >= af.data_inicio && dateStr <= af.data_fim)
-      const afastamento = isShiftOverlappingAfastamento(rawAfastamento, currentShift) ? rawAfastamento : null
+      const afastamentosDia = afastamentosDoDia(afastamentos, dateStr)
+      const afastamentosAnulantes = afastamentosDia.filter(af => isShiftOverlappingAfastamento(af, currentShift))
       const feriadoInfo = feriados?.find(f => f.data === dateStr)
 
       // Core logic: If day changed, or if it had no manual edits, we regenerate it.
@@ -1451,7 +1415,7 @@ export async function sincronizarFolhaPonto(folhaId: string) {
         origem_saida: null,
         feriado: !!feriadoInfo,
         ponto_facultativo: !!pfInfo,
-        afastamento: afastamento ? getAfastamentoObservacao(afastamento) : null,
+        afastamento: afastamentosAnulantes.length > 0 ? descreverAfastamentos(afastamentosAnulantes) : null,
         jornada_nome: activeJornada?.nome || null,
         jornada_temporaria: !!tempJourney,
       }
@@ -1460,8 +1424,8 @@ export async function sincronizarFolhaPonto(folhaId: string) {
         registro.observacao = registro.afastamento.toUpperCase()
       } else if (registro.feriado) {
         registro.observacao = `FERIADO: ${feriadoInfo?.descricao}`.toUpperCase()
-        if (rawAfastamento) {
-          registro.observacao = `AFASTAMENTO PARCIAL: ${getAfastamentoObservacao(rawAfastamento)} | ${registro.observacao}`.toUpperCase()
+        if (afastamentosDia.length > 0) {
+          registro.observacao = `AFASTAMENTO PARCIAL: ${descreverAfastamentos(afastamentosDia)} | ${registro.observacao}`.toUpperCase()
         }
       } else if (registro.ponto_facultativo && pfInfo && !pfInfo.inicio_liberacao_em && !pfInfo.fim_liberacao_em) {
         // Full day Ponto Facultativo
@@ -1469,8 +1433,8 @@ export async function sincronizarFolhaPonto(folhaId: string) {
         if (currentShift) {
           totalHorasNormais += horasNormaisDiarias
         }
-        if (rawAfastamento) {
-          registro.observacao = `AFASTAMENTO PARCIAL: ${getAfastamentoObservacao(rawAfastamento)} | ${registro.observacao}`.toUpperCase()
+        if (afastamentosDia.length > 0) {
+          registro.observacao = `AFASTAMENTO PARCIAL: ${descreverAfastamentos(afastamentosDia)} | ${registro.observacao}`.toUpperCase()
         }
       } else if (!currentShift) {
         if (dateObj.getDay() === 0) {
@@ -1480,8 +1444,8 @@ export async function sincronizarFolhaPonto(folhaId: string) {
         } else {
           registro.observacao = 'FOLGA'
         }
-        if (rawAfastamento) {
-          registro.observacao = `AFASTAMENTO PARCIAL: ${getAfastamentoObservacao(rawAfastamento)} | ${registro.observacao}`.toUpperCase()
+        if (afastamentosDia.length > 0) {
+          registro.observacao = `AFASTAMENTO PARCIAL: ${descreverAfastamentos(afastamentosDia)} | ${registro.observacao}`.toUpperCase()
         }
       } else {
         totalHorasNormais += horasNormaisDiarias
@@ -1492,8 +1456,8 @@ export async function sincronizarFolhaPonto(folhaId: string) {
             registro.observacao = `PONTO FACULTATIVO ATÉ AS ${pfInfo.fim_liberacao_em.substring(0, 5)}: ${pfInfo.descricao}`.toUpperCase()
           }
         }
-        if (rawAfastamento) {
-          registro.observacao = `AFASTAMENTO PARCIAL: ${getAfastamentoObservacao(rawAfastamento)}${registro.observacao ? ' | ' + registro.observacao : ''}`.toUpperCase()
+        if (afastamentosDia.length > 0) {
+          registro.observacao = `AFASTAMENTO PARCIAL: ${descreverAfastamentos(afastamentosDia)}${registro.observacao ? ' | ' + registro.observacao : ''}`.toUpperCase()
         }
 
         // Consolida os turnos do dia (Regular, Extra, Plantão) e resolve, para cada passo,

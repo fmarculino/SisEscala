@@ -22,9 +22,10 @@ import { celulaTemPassosDeIntervalo } from '@/utils/intervaloIntrajornada'
 import { statusAcionamento } from '@/utils/sobreaviso/statusAcionamento'
 import { generateIntelligentScale } from '@/utils/intelligentScaleGenerator'
 import {
-  encontrarAfastamentoBloqueante,
+  encontrarAfastamentosBloqueantes,
   dataISODoDia,
   siglaAfastamento,
+  rotuloAfastamento,
   type AfastamentoEvento
 } from '@/utils/afastamentos'
 import { SwapRequestPanel } from '@/components/SwapRequestPanel'
@@ -260,11 +261,16 @@ export function ScaleGrid({
     fetchUnidadeConfig()
   }, [escalaMensalInicial, fetchServidoresEventos, fetchJornadasTemporarias, fetchLogsTentativas, fetchExcecoesEscala, supabase, unidadeId])
 
-  const getActiveEventForDay = useCallback((servidorId: string, day: number) => {
+  /**
+   * TODOS os eventos do servidor naquele dia. Um dia pode ter mais de um afastamento —
+   * declaracao de comparecimento pela manha e outra a tarde, por exemplo — e ate
+   * 24/08/2026 a grade usava `.find()`, nomeando so o primeiro.
+   */
+  const getEventosDoDia = useCallback((servidorId: string, day: number) => {
     const dateStr = `${ano}-${mes.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`
-    return servidoresEventos.find(se => 
-      se.servidor_id === servidorId && 
-      dateStr >= se.data_inicio && 
+    return servidoresEventos.filter(se =>
+      se.servidor_id === servidorId &&
+      dateStr >= se.data_inicio &&
       dateStr <= se.data_fim
     )
   }, [servidoresEventos, mes, ano])
@@ -274,18 +280,18 @@ export function ScaleGrid({
   )
 
   /**
-   * Afastamento que impede lancar este turno neste dia, ou null. Mesma regra do trigger
+   * TODOS os afastamentos que impedem lancar este turno neste dia. Mesma regra do trigger
    * fn_prevent_shift_during_event: por horas nao bloqueia, por slot bloqueia so o periodo,
    * Regular e Sobreaviso nunca sao liberados pela configuracao de governanca.
    * Celula vazia entra com turnoSlots = [] — so afastamento integral a bloqueia.
    */
-  const getAfastamentoBloqueante = useCallback((
+  const getAfastamentosBloqueantes = useCallback((
     servidorId: string,
     day: number,
     categoria: RowCategory | string,
     turnoSlots?: string[] | null
-  ): AfastamentoEvento | null => {
-    return encontrarAfastamentoBloqueante({
+  ): AfastamentoEvento[] => {
+    return encontrarAfastamentosBloqueantes({
       eventos: servidoresEventos as AfastamentoEvento[],
       servidorId,
       dataISO: dataISODoDia(ano, mes, day),
@@ -294,6 +300,16 @@ export function ScaleGrid({
       permitirPlantaoExtra: permitirPlantaoExtraEventos
     })
   }, [servidoresEventos, mes, ano, permitirPlantaoExtraEventos])
+
+  /** O primeiro bloqueante. Basta para RECUSAR; para EXIBIR use a lista. */
+  const getAfastamentoBloqueante = useCallback((
+    servidorId: string,
+    day: number,
+    categoria: RowCategory | string,
+    turnoSlots?: string[] | null
+  ): AfastamentoEvento | null =>
+    getAfastamentosBloqueantes(servidorId, day, categoria, turnoSlots)[0] || null,
+  [getAfastamentosBloqueantes])
 
   useEffect(() => {
     const saved = localStorage.getItem('scale-totals-collapsed')
@@ -4024,11 +4040,17 @@ export function ScaleGrid({
                         if (currentOvercallStatus === 'Aceito' || currentOvercallStatus === 'Aguardando' || effectiveStatus === 'Aceito' || effectiveStatus === 'Aguardando') {
                           isTriggerAllowed = false
                         }
-                        const activeEvent = getActiveEventForDay(em.servidor_id, day)
+                        const eventosDoDia = getEventosDoDia(em.servidor_id, day)
+                        const activeEvent = eventosDoDia[0] || null
                         const dayTempJourney = serverTempJourneys.find(jt => dateStr >= jt.data_inicio && dateStr <= jt.data_fim)
-                        const blockingEvent = getAfastamentoBloqueante(em.servidor_id, day, cat, currentSlots)
+                        const blockingEvents = getAfastamentosBloqueantes(em.servidor_id, day, cat, currentSlots)
+                        const blockingEvent = blockingEvents[0] || null
                         const isCellBlockedByEvent = !!blockingEvent
-                        const eventAbbr = blockingEvent ? siglaAfastamento(blockingEvent) : ''
+                        // Sigla do primeiro mais o quanto sobrou: o `+1` denuncia o segundo
+                        // lancamento, que a celula nao tem largura para escrever.
+                        const eventAbbr = blockingEvent
+                          ? `${siglaAfastamento(blockingEvent)}${blockingEvents.length > 1 ? `+${blockingEvents.length - 1}` : ''}`
+                          : ''
 
                         return (
                           <td 
@@ -4041,7 +4063,7 @@ export function ScaleGrid({
                             title={
                               `${dayTempJourney ? `🕒 Jornada Temporária Ativa: ${dayTempJourney.jornadas?.nome}\n` : ''}${
                               isCellBlockedByEvent 
-                                ? `⚠️ BLOQUEADO: Servidor em afastamento (${blockingEvent!.tipos_eventos?.nome})${blockingEvent!.slots && blockingEvent!.slots.length > 0 ? ` [Período: ${blockingEvent!.slots.join(', ')}]` : ''}${blockingEvent!.observacao ? ` - ${blockingEvent!.observacao}` : ''}`
+                                ? `⚠️ BLOQUEADO: Servidor em afastamento — ${blockingEvents.map(rotuloAfastamento).join(' | ')}`
                                 : hasExternalConflict 
                                   ? `⚠️ CONFLITO REAL: ${realConflictDetails}` 
                                   : isBusyElsewhere
@@ -4051,7 +4073,7 @@ export function ScaleGrid({
                                       : isHoliday
                                         ? `🎉 Feriado: ${feriado?.descricao}`
                                         : activeEvent
-                                          ? `ℹ️ Servidor em afastamento (${activeEvent.tipos_eventos?.nome})${(activeEvent.periodo_tipo === 'horas' || activeEvent.hora_inicio) ? ' por horas - não bloqueia a escala do dia' : ' - alocação permitida nesta linha'}`
+                                          ? `ℹ️ Servidor em afastamento — ${eventosDoDia.map(ev => `${rotuloAfastamento(ev)}${(ev.periodo_tipo === 'horas' || ev.hora_inicio) ? ' (por horas, não bloqueia a escala do dia)' : ' (alocação permitida nesta linha)'}`).join(' | ')}`
                                           : ''
                               }`
                             }
@@ -4104,7 +4126,7 @@ export function ScaleGrid({
                                   <div
                                     className="absolute top-0.5 left-0.5 w-1.5 h-1.5 rounded-full"
                                     style={{ backgroundColor: activeEvent.tipos_eventos?.cor || '#EF4444' }}
-                                    title={`Afastamento: ${activeEvent.tipos_eventos?.nome}`}
+                                    title={`Afastamento: ${eventosDoDia.map(rotuloAfastamento).join(' | ')}`}
                                   />
                                 )}
                                 {/* Turno de duração livre: mostra a hora definida, ou avisa que

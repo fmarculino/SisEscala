@@ -1856,6 +1856,49 @@ do próprio dia da instalação. As funções que já resolvem o fuso inline **n
 **Ao instalar um relógio novo**, confira o corte com a consulta 3 da conferência de
 `20260822210000` (quanto histórico alheio o equipamento trouxe e quanto dele ficou com dono).
 
+### 21. Um dia pode ter MAIS DE UM afastamento, e todo mundo lia só o primeiro (24/08/2026)
+
+⚠️ **`servidores_eventos` nunca proibiu dois eventos no mesmo (servidor, dia) — e não deve.** Uma
+declaração de comparecimento pela manhã e outra à tarde são dois fatos, com horários e documentos
+próprios. Mas a leitura era `afastamentos?.find(...)`, que devolve **o primeiro**, e isso estava
+repetido nas quatro cópias da geração de folha **mais** a grade de escala.
+
+Caso real medido (KETHURY CHAVES, 14/08/2026, USF ENFERMEIRA ZEZINHA): duas Declarações de
+Comparecimento, uma `M` e outra `T`. A tela de Afastamentos mostrava as duas; a folha imprimia
+`AFASTAMENTO PARCIAL: DECLARAÇÃO DE COMPARECIMENTO (M) | FOLGA`, e o anexo de ocorrências do verso
+repetia o mesmo texto — **ele deriva de `folha_ponto.registros`, não consulta `servidores_eventos`**.
+O lançamento nunca se perdeu; a leitura é que perdia. Silencioso dos dois lados.
+
+✅ **Extensão medida em produção em 24/08/2026: 1 par (servidor, dia) em toda a base** —
+expandindo as 164 linhas de `servidores_eventos` dia a dia, o caso relatado é o único, e a única
+folha atingida estava em **Rascunho**. Nenhuma competência Fechada. Reconfira antes de decidir com
+base neste número.
+
+Fonte única desde então: **`src/utils/folha/afastamentosDia.ts`** — `afastamentosDoDia()` e
+`descreverAfastamentos()`. Ela também recolheu `getAfastamentoNome`/`getAfastamentoObservacao`/
+`isShiftOverlappingAfastamento`, que estavam **duplicados** entre `folha-ponto/actions.ts` e
+`consultar-escala/actions.ts`. Diário em
+[`docs/evolucao/2026-08-24-dois-afastamentos-no-mesmo-dia.md`](docs/evolucao/2026-08-24-dois-afastamentos-no-mesmo-dia.md).
+
+⚠️ **A ordem precisa ser determinística, e não é a ordem de chegada.** As quatro consultas a
+`servidores_eventos` não têm `ORDER BY` — sem desempate próprio, regerar a mesma folha duas vezes
+podia trocar a ordem do texto num documento que o servidor assina. Integral primeiro, depois pela
+hora de início, e o desempate final é pela própria descrição.
+
+⚠️ **Só a EXIBIÇÃO virou plural; bloqueio continua binário.** `encontrarAfastamentoBloqueante`
+sobrevive como envelope de `encontrarAfastamentosBloqueantes(...)[0]` e continua servindo os quatro
+sítios da grade que só precisam saber *se* bloqueia (digitação na célula, aviso da linha, Aplicar
+Template, Gerador Inteligente — armadilha 14). A célula, que não tem largura para dois rótulos,
+mostra `VIS+1`; o tooltip lista todos.
+
+⚠️ **Não funda descrições iguais.** Dois eventos do mesmo tipo saem como `... (M) + ... (T)`, e não
+como `... (M, T)`: em documento comprobatório, um rótulo para dois lançamentos esconde que houve
+dois.
+
+⚠️ **Nada disso alcança folha já gerada.** `folha_ponto.registros` é snapshot (ver "A folha é um
+snapshot"); a competência antiga só muda ao clicar em **Sincronizar**. Não houve migration — o
+conserto é de leitura, e nenhum horário, hora normal ou falta se move.
+
 ## Papéis de RH: Geral vs da Unidade (12/08/2026)
 
 `role = 'rh'` ("RH Geral") enxerga tudo; `role = 'rh_unidade'` ("RH da Unidade") é escopado por
