@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.18.0] - 2026-08-24
+
+### Added
+- **O aviso de prazo do coordenador passou a cobrar as justificativas pendentes.** Ele falava só de planejamento ("depois do dia 25 só admin edita") e omitia a consequência que dói: plantão sem registro completo de ponto e sem decisão não entra na carga horária do anexo, e depois do fechamento **só o RH reverte**. Coordenador que deixa para a última hora e esquece transfere o trabalho para o RH.
+  - Bloco vermelho com a **contagem de pendências do escopo dele** (a RLS de `escala_mensal` já restringe — o número é o dele, não o da rede), o prazo real do fechamento, quantos dias faltam, e um botão **"Resolver agora"** para `/justificativas`.
+  - O texto muda conforme a trava: com `desfecho_obrigatorio_fechar` **ligada**, avisa que o não justificado vira **FALTA do servidor**; desligada, diz a verdade de hoje — não entra na carga e a correção passa a depender do RH. Prometer falta com a trava desligada seria mentir para assustar.
+  - ⚠️ **São dois prazos diferentes no mesmo aviso**, e é essa a correção principal: o do planejamento (dia 25) e o do fechamento automático (fim do mês + `dias_inativacao_automatica`). Havendo pendência, o aviso **continua aparecendo depois do dia 25**, até o dia do fechamento — antes ele sumia justamente quando ainda dava tempo e ninguém mais lembrava o coordenador.
+  - ⚠️ **A competência em risco nem sempre é a corrente**: nos primeiros dias do mês quem ainda pode ser congelado é o mês anterior. Avisar sobre o mês corrente no dia 02 apontaria para o prazo errado na véspera do que importa.
+  - Os dois prazos são lidos de `configuracoes_globais` em tempo de execução (Configurações → Regras) — nada fixo no código.
+
+### Fixed
+- Correção de um número que eu havia informado errado: `dias_inativacao_automatica` em produção é **3**, não 5. O fechamento automático alcança 08/2026 em **03/09/2026**, não 05/09. O comentário da migration `20260824160000` foi corrigido junto.
+
+### Known
+- ℹ️ A tela rotula `dias_inativacao_automatica` como **"Dias úteis"**, mas `autoClose.ts` conta **dias corridos** (`setDate(getDate() + dias)`). O aviso novo usa a mesma conta do código, para apontar a data que de fato vai acontecer. A divergência entre rótulo e comportamento fica registrada — corrigi-la muda quando as competências fecham, e isso é decisão à parte.
+
 ## [2.17.2] - 2026-08-24
 
 ### Fixed
