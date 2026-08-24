@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.14.1] - 2026-08-24
+
+### Added
+- **A fila de justificativas passou a mostrar o ponto e a pedir a decisão** (fase 1 do plano `docs/planos/2026-08-23-desfecho-de-plantao-e-sobreaviso.md`).
+  - **Coluna "Ponto"** na fila: `12:00 → 18:00` (verde, completo), `—:— → 18:00` (âmbar, falta um extremo) ou `sem registro` (vermelho). Até aqui a fila mostrava `Servidor · Dia · Categoria · Turno · Status` e **não dizia se houve batida** — quem abria "Justificar" teria que ir à grade em outra aba para saber. A decisão que a tela agora pede é exatamente sobre esse fato.
+  - **O modal pede a decisão como primeiro campo**, e só onde há o que decidir: evento `em_avaliacao`. Evento que o ponto já provou segue como a justificativa motivacional de sempre. Estado desconhecido (RPC indisponível) **não** oferece a escolha — pedir decisão sobre um fato que a tela não conhece é pior do que não pedir.
+  - O modal mostra o ponto do dia e diz **se a célula ainda pode ser apagada na grade**: sem batida, "lançado por engano" se resolve apagando; com batida, o Direito Adquirido já bloqueia e a decisão é ali. Evita a viagem até a grade para levar um erro sem explicação.
+  - **KPI "Em Avaliação"** e filtros `Em avaliação` / `Registrados como falta`. "Pendente" conta quem não tem **texto**; "em avaliação" conta quem não tem **decisão** — são eixos diferentes, e em 08/2026 há **6 eventos** com justificativa já escrita que continuam sem desfecho. Sem o filtro novo eles só apareceriam em "Já Justificados", que é onde ninguém procura o que falta decidir.
+  - O selo de **Falta** distingue, no `title`, a decisão do coordenador da conversão por decurso de prazo.
+
+### Changed
+- **O lote só valida — nunca marca falta**, e a tela diz isso. Marcar falta é registro sobre a conduta de uma pessoa: sai de decisão individual, com texto próprio, olhando o ponto daquele dia. Um botão que fizesse isso em 20 eventos seria a forma mais fácil de produzir acusação em massa sem ninguém ler nenhuma. O lote também só grava desfecho onde há decisão a tomar — evento já provado pelo relógio continua com `resultado` nulo, porque quem provou foi o ponto, não o coordenador.
+- `salvarJustificativa` lê o desfecho **atual no banco** antes de gravar: reverter é diferente de decidir, e sem essa leitura um coordenador desfaria a falta que o RH manteve só mandando `resultado` no POST.
+- "Hoje" vem de `fn_data_local()`, não de `new Date()` do processo — o container roda em UTC e erraria por 3 horas num módulo que decide se um dia já passou (armadilha 12).
+
+### Measured
+- **ANDRESA MELO PEREIRA (mat. 54594), 08/2026** — o caso que originou o pedido, agora repartido: **120h** no anexo viram **48h cumpridas**, **60h em avaliação** e 12h de dia futuro. Os dias 01 e 08 (Plantão MT, zero batida) e os dias 11 e 13 (sem registro de entrada) são os que passam a não somar.
+
 ## [2.14.0] - 2026-08-24
 
 ### Security

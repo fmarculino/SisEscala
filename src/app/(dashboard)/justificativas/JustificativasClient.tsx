@@ -18,6 +18,8 @@ import { ValidarSugestaoModal } from '@/components/justificativas/ValidarSugesta
 import { AssinaturaDigitalModal } from '@/components/justificativas/AssinaturaDigitalModal'
 import { RelatorioEventoPrintView } from '@/components/reports/RelatorioEventoPrintView'
 import { formatSectorsHierarchy } from '@/utils/sectors'
+import { formatarHora } from '@/utils/horario'
+import type { Desfecho } from '@/utils/gestaoJustificativas'
 
 interface JustificativasClientProps {
   unidades: any[]
@@ -114,8 +116,10 @@ export function JustificativasClient({
     justificados: number
     pendentes: number
     sugestoes: number
+    em_avaliacao?: number
+    faltas?: number
     items: any[]
-  }>({ total: 0, justificados: 0, pendentes: 0, sugestoes: 0, items: [] })
+  }>({ total: 0, justificados: 0, pendentes: 0, sugestoes: 0, em_avaliacao: 0, faltas: 0, items: [] })
 
   const [templates, setTemplates] = useState<any[]>([])
   const [selectedEventoIds, setSelectedEventoIds] = useState<Set<string>>(new Set())
@@ -177,6 +181,8 @@ export function JustificativasClient({
         justificados: res.data.justificados || 0,
         pendentes: res.data.pendentes || 0,
         sugestoes: res.data.sugestoes || 0,
+        em_avaliacao: res.data.em_avaliacao || 0,
+        faltas: res.data.faltas || 0,
         items: res.data.items || []
       })
     } else if (res.error) {
@@ -221,7 +227,7 @@ export function JustificativasClient({
   const selectedEventosList = eventosData.items.filter(e => selectedEventoIds.has(e.escala_diaria_id))
 
   // Handle Save Single Justification
-  const handleSaveSingle = async (texto: string, templateId?: string) => {
+  const handleSaveSingle = async (texto: string, templateId?: string, resultado?: Desfecho) => {
     if (!singleModalEvento) return
     const res = await salvarJustificativa({
       escalaDiariaId: singleModalEvento.escala_diaria_id,
@@ -232,7 +238,8 @@ export function JustificativasClient({
       ano: singleModalEvento.ano,
       categoria: singleModalEvento.categoria,
       texto,
-      justificativaPadraoId: templateId
+      justificativaPadraoId: templateId,
+      resultado
     })
     if (res.error) throw new Error(res.error)
     await fetchEventos()
@@ -493,6 +500,16 @@ export function JustificativasClient({
             >
               <option value="todos">Todos os Status</option>
               <option value="pendentes">Pendentes de Justificativa</option>
+              {/*
+                "Pendente de justificativa" e "em avaliação" NÃO são a mesma coisa, e é por isso
+                que este filtro existe: um evento pode já ter texto escrito (status `aprovada`) e
+                mesmo assim continuar sem desfecho — em 08/2026 são 6 casos, justificativas
+                antigas escritas como motivação, em dias sem registro completo de ponto. Sem esta
+                opção eles só apareceriam em "Já Justificados", que é justamente onde ninguém
+                procura o que ainda falta decidir.
+              */}
+              <option value="em_avaliacao">Em avaliação (aguardando decisão)</option>
+              <option value="falta">Registrados como falta</option>
               <option value="preenchidas">Já Justificados</option>
               <option value="sugestoes">Sugestões de Servidores</option>
             </select>
@@ -501,7 +518,7 @@ export function JustificativasClient({
       </div>
 
       {/* CARDS DE MÉTRICAS RÁPIDAS */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-6">
         <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-6 rounded-3xl shadow-sm space-y-2">
           <div className="flex items-center justify-between text-zinc-500">
             <span className="text-xs font-black uppercase tracking-wider">Total de Eventos</span>
@@ -518,6 +535,25 @@ export function JustificativasClient({
           </div>
           <p className="text-3xl font-black text-amber-600 dark:text-amber-400 tracking-tight">{eventosData.pendentes}</p>
           <p className="text-[11px] text-zinc-400">Aguardando justificativa do coordenador</p>
+        </div>
+
+        {/*
+          EM AVALIAÇÃO NÃO É "PENDENTE".
+          "Pendentes" conta quem não tem TEXTO; este card conta quem não tem DECISÃO sobre o
+          cumprimento — e são conjuntos diferentes. Em 08/2026 há 6 eventos com justificativa já
+          escrita (portanto fora de "Pendentes") que continuam sem desfecho porque o ponto não
+          provou o plantão. Estas são as horas que o anexo vai deixar de somar.
+        */}
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-6 rounded-3xl shadow-sm space-y-2">
+          <div className="flex items-center justify-between text-orange-600">
+            <span className="text-xs font-black uppercase tracking-wider">Em Avaliação</span>
+            <AlertCircle className="h-5 w-5" />
+          </div>
+          <p className="text-3xl font-black text-orange-600 dark:text-orange-400 tracking-tight">{eventosData.em_avaliacao ?? 0}</p>
+          <p className="text-[11px] text-zinc-400">
+            Sem registro completo de ponto e sem decisão
+            {(eventosData.faltas ?? 0) > 0 && <> · <strong className="text-red-500">{eventosData.faltas} falta(s)</strong></>}
+          </p>
         </div>
 
         <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-6 rounded-3xl shadow-sm space-y-2">
@@ -656,6 +692,7 @@ export function JustificativasClient({
                     <th className="p-4">Dia</th>
                     <th className="p-4">Categoria</th>
                     <th className="p-4">Turno</th>
+                    <th className="p-4">Ponto</th>
                     <th className="p-4">Status</th>
                     <th className="p-4">Justificativa</th>
                     <th className="p-4 text-right">Ação</th>
@@ -695,8 +732,54 @@ export function JustificativasClient({
                         <td className="p-4 font-mono font-bold text-zinc-600 dark:text-zinc-400">
                           {ev.turno_codigo || '—'}
                         </td>
+                        {/*
+                          O PONTO DAQUELE DIA, ANTES DA DECISÃO.
+                          Até 24/08/2026 a fila mostrava servidor/dia/categoria/turno/status e
+                          nada dizia se houve batida — o coordenador teria que abrir a grade em
+                          outra aba para saber. A decisão que esta tela pede agora (validar ou
+                          registrar falta) é sobre exatamente esse fato.
+                        */}
+                        <td className="p-4 font-mono text-[11px] whitespace-nowrap">
+                          {ev.categoria === 'Sobreaviso' ? (
+                            <span className="text-zinc-400">—</span>
+                          ) : ev.presenca_entrada_em || ev.presenca_saida_em ? (
+                            <span className={ev.presenca_entrada_em && ev.presenca_saida_em
+                              ? 'font-bold text-emerald-600 dark:text-emerald-400'
+                              : 'font-bold text-amber-600 dark:text-amber-400'}>
+                              {ev.presenca_entrada_em ? formatarHora(ev.presenca_entrada_em) : '—:—'}
+                              {' → '}
+                              {ev.presenca_saida_em ? formatarHora(ev.presenca_saida_em) : '—:—'}
+                            </span>
+                          ) : (
+                            <span className="font-bold text-red-500">sem registro</span>
+                          )}
+                        </td>
                         <td className="p-4">
-                          {isJustificado ? (
+                          {/*
+                            O DESFECHO VEM ANTES DO STATUS DE JUSTIFICATIVA.
+                            "Justificado" diz que alguém escreveu um texto; `falta` e
+                            `em avaliação` dizem o que vai acontecer com aquelas horas no anexo.
+                            É a segunda informação que decide se o coordenador precisa agir, e
+                            ela não pode ficar escondida atrás de um selo verde.
+                            O estado vem de fn_desfecho_evento_dia — a tela não reclassifica nada.
+                          */}
+                          {ev.resultado === 'falta' ? (
+                            <span
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-300 font-bold text-[10px] border border-red-200"
+                              title={ev.resultado_origem === 'decurso_de_prazo'
+                                ? 'Convertida em falta no fechamento, por ninguém ter decidido dentro do prazo'
+                                : 'Falta registrada pelo coordenador'}
+                            >
+                              <XCircle className="h-3 w-3" /> Falta
+                            </span>
+                          ) : ev.estado === 'em_avaliacao' ? (
+                            <span
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-orange-100 dark:bg-orange-950/40 text-orange-700 dark:text-orange-300 font-bold text-[10px] border border-orange-200"
+                              title={ev.estado_motivo || 'Sem registro completo de ponto e sem decisão do coordenador'}
+                            >
+                              <AlertCircle className="h-3 w-3" /> Em avaliação
+                            </span>
+                          ) : isJustificado ? (
                             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-100 dark:bg-green-950/40 text-green-700 dark:text-green-300 font-bold text-[10px] border border-green-200">
                               <CheckCircle2 className="h-3 w-3" /> Justificado
                             </span>

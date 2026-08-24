@@ -75,6 +75,16 @@ export function JustificativaBulkModal({
                 <p className="text-xs text-zinc-500 font-medium">
                   {totalServidoresUnicos} servidor(es) diferente(s)
                 </p>
+                {/*
+                  O LOTE SÓ VALIDA — nunca marca falta, e a tela precisa dizer isso.
+                  Marcar falta é registro sobre a conduta de uma pessoa: sai de uma decisão
+                  individual, com texto próprio, olhando o ponto daquele dia. Um botão que
+                  fizesse isso em 20 eventos de uma vez seria a forma mais fácil de produzir
+                  acusação em massa sem ninguém ler nenhuma.
+                */}
+                <p className="text-[11px] text-emerald-700 dark:text-emerald-400 font-bold mt-0.5">
+                  Em lote só é possível VALIDAR. Para registrar falta, abra o evento.
+                </p>
               </div>
             </div>
             <button

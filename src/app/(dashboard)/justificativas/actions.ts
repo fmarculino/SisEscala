@@ -5,8 +5,10 @@ import { revalidatePath } from 'next/cache'
 import { UserProfile, applyAccessFilters } from '@/utils/permissions'
 import {
   AtorJustificativa,
+  Desfecho,
   podeAbrirJustificativas,
   podeGerirJustificativa,
+  validarGravacaoDesfecho,
 } from '@/utils/gestaoJustificativas'
 
 async function getUserProfile(supabase: any) {
@@ -57,6 +59,21 @@ function exigirAcessoAoModulo(profile: any): { error: string } | null {
     return { error: 'Sem permissão para acessar o módulo de justificativas.' }
   }
   return null
+}
+
+/**
+ * "Hoje" segundo o BANCO, não segundo o processo Node.
+ *
+ * `fn_data_local()` (`20260822210000`) resolve a data no fuso de `configuracoes_globais`. O
+ * container do Coolify sobe em UTC, então `new Date().getDate()` no servidor erra por 3 horas —
+ * nas últimas 3 horas de todo dia ele já é amanhã (armadilha 12 do CLAUDE.md). Num módulo que
+ * decide se um dia "já passou" para virar falta, esse erro é caro: adiantaria o julgamento de
+ * um plantão que ainda está correndo.
+ */
+async function dataLocalISO(supabase: any): Promise<string> {
+  const { data, error } = await supabase.rpc('fn_data_local')
+  if (error || !data) throw new Error(error?.message || 'Data local indisponível')
+  return String(data)
 }
 
 export async function getEventosPendentes(params: {
@@ -135,10 +152,17 @@ export async function getEventosPendentes(params: {
     const emMap = new Map(escalasMensais.map(em => [em.id, em]))
 
     // 2. Fetch daily scale entries for these monthly scale IDs
+    //
+    // Os horários de presença entram aqui desde 24/08/2026: a fila mostrava
+    // `Servidor · Dia · Categoria · Turno · Status` e NÃO dizia se houve batida. Quem abria
+    // "Justificar" no dia 08 da ANDRESA não tinha como saber, ali, que não existia registro
+    // nenhum — e agora essa é a decisão que a tela pede. Decidir no escuro seria pior do que
+    // não decidir.
     const { data: diarias, error: errDiarias } = await supabase
       .from('escala_diaria')
       .select(`
         id, dia, categoria, escala_mensal_id, dicionario_turnos_id,
+        presenca_entrada_em, presenca_saida_em,
         dicionario_turnos(codigo)
       `)
       .in('escala_mensal_id', escalaMensalIds)
@@ -147,6 +171,32 @@ export async function getEventosPendentes(params: {
     if (errDiarias) {
       console.error('Erro ao buscar escala diaria:', errDiarias)
       return { error: errDiarias.message }
+    }
+
+    // 2-B. O estado de cada evento vem de fn_desfecho_evento_dia — FONTE ÚNICA (20260824120000).
+    // A tela não reclassifica nada: se ela derivasse por conta própria, o que o coordenador vê
+    // ao decidir deixaria de ser o que o anexo vai imprimir. Mesma disciplina de
+    // fn_projecao_marcacoes_dia entre reconciliar e conferir.
+    //
+    // `p_hoje` é resolvido no fuso configurado, nunca por getDate() do processo — o container
+    // roda em UTC e nas últimas 3 horas de todo dia ele já é amanhã (armadilha 12).
+    const desfechoPorLinha = new Map<string, { estado: string; motivo: string | null }>()
+    try {
+      const hojeLocal = await dataLocalISO(supabase)
+      for (let i = 0; i < escalaMensalIds.length; i += 100) {
+        const { data: desfechos } = await supabase.rpc('fn_desfecho_eventos_escalas', {
+          p_escala_mensal_ids: escalaMensalIds.slice(i, i + 100),
+          p_hoje: hojeLocal,
+        })
+        ;(desfechos || []).forEach((d: any) => {
+          desfechoPorLinha.set(d.escala_diaria_id, { estado: d.estado, motivo: d.motivo })
+        })
+      }
+    } catch (err) {
+      // A fila continua útil sem o estado (era assim até 24/08/2026); o que ela não pode é
+      // deixar de carregar. O modal trata `estado` ausente como "não sei" e não oferece a
+      // decisão — nunca oferece a decisão errada.
+      console.warn('Desfecho dos eventos indisponível; a fila segue sem ele:', err)
     }
 
     // Filter categories: Extra, Plantão, Sobreaviso (case and accent insensitive)
@@ -195,6 +245,8 @@ export async function getEventosPendentes(params: {
         ? dictSetor[0]?.nome
         : dictSetor?.nome
 
+      const desf = desfechoPorLinha.get(ed.id)
+
       return {
         escala_diaria_id: ed.id,
         escala_mensal_id: ed.escala_mensal_id,
@@ -216,7 +268,16 @@ export async function getEventosPendentes(params: {
         justificativa_origem: just?.origem || null,
         justificativa_status: status,
         registrado_por_nome: just?.registrado_por_nome || null,
-        justificativa_created_at: just?.created_at || null
+        justificativa_created_at: just?.created_at || null,
+
+        // O desfecho e o ponto — o que a tela precisa para pedir uma decisão informada.
+        // `resultado` é o que ESTÁ gravado; `estado` é o que a fonte única diz que o evento é.
+        resultado: just?.resultado ?? null,
+        resultado_origem: just?.resultado_origem ?? null,
+        estado: desf?.estado ?? null,
+        estado_motivo: desf?.motivo ?? null,
+        presenca_entrada_em: ed.presenca_entrada_em || null,
+        presenca_saida_em: ed.presenca_saida_em || null
       }
     })
 
@@ -225,6 +286,8 @@ export async function getEventosPendentes(params: {
     const justificados = allCombinedItems.filter(i => i.justificativa_status === 'aprovada').length
     const pendentes = allCombinedItems.filter(i => i.justificativa_status === 'pendente').length
     const sugestoes = allCombinedItems.filter(i => i.justificativa_status === 'sugestao_pendente').length
+    const emAvaliacao = allCombinedItems.filter(i => i.estado === 'em_avaliacao').length
+    const faltas = allCombinedItems.filter(i => i.resultado === 'falta').length
 
     // Filter by tab status if selected
     let finalItems = allCombinedItems
@@ -234,6 +297,14 @@ export async function getEventosPendentes(params: {
       finalItems = allCombinedItems.filter(i => i.justificativa_status === 'aprovada')
     } else if (params.status === 'sugestoes') {
       finalItems = allCombinedItems.filter(i => i.justificativa_status === 'sugestao_pendente')
+    } else if (params.status === 'em_avaliacao') {
+      // Corta por DESFECHO, não por status de justificativa. São eixos diferentes: um evento
+      // pode ter texto escrito (`aprovada`) e continuar sem decisão sobre o cumprimento — em
+      // 08/2026 são 6 casos, todos justificativas antigas escritas como motivação em dias sem
+      // registro completo de ponto. Filtrar por `pendente` nunca os encontraria.
+      finalItems = allCombinedItems.filter(i => i.estado === 'em_avaliacao')
+    } else if (params.status === 'falta') {
+      finalItems = allCombinedItems.filter(i => i.resultado === 'falta')
     }
 
     // Sort by day ASC, then server name
@@ -251,6 +322,8 @@ export async function getEventosPendentes(params: {
         justificados,
         pendentes,
         sugestoes,
+        em_avaliacao: emAvaliacao,
+        faltas,
         page,
         per_page: perPage,
         items: paginatedItems
@@ -272,6 +345,11 @@ export async function salvarJustificativa(dados: {
   categoria: string
   texto: string
   justificativaPadraoId?: string
+  /**
+   * O desfecho do evento. `undefined` = a justificativa motivacional de sempre, sem veredito
+   * sobre cumprimento — é o que o modal manda para evento que o ponto já provou.
+   */
+  resultado?: Desfecho
 }) {
   try {
     const supabaseUser = await createClient()
@@ -300,6 +378,27 @@ export async function salvarJustificativa(dados: {
       return { error: 'Sem permissão para justificar eventos desta unidade.' }
     }
 
+    // Reverter é diferente de decidir, e quem decide isso é o que JÁ ESTÁ no banco — nunca o
+    // que o cliente afirma. Sem esta leitura, um coordenador desfaria a falta que o RH manteve
+    // só mandando `resultado: 'validado'` no POST.
+    const { data: atual } = await supabase
+      .from('justificativas_eventos')
+      .select('resultado')
+      .eq('servidor_id', dados.servidorId)
+      .eq('dia', dados.dia).eq('mes', dados.mes).eq('ano', dados.ano)
+      .eq('categoria', dados.categoria)
+      .maybeSingle()
+
+    const desfechoNovo: Desfecho = dados.resultado ?? null
+    const validacao = validarGravacaoDesfecho({
+      ator: atorDe(profile),
+      evento: { unidade_id: mensal?.unidade_id, setor_id: mensal?.setor_id },
+      desfechoAtual: (atual?.resultado as Desfecho) ?? null,
+      desfechoNovo,
+      texto: dados.texto,
+    })
+    if (!validacao.ok) return { error: validacao.erro }
+
     const payload = {
       escala_diaria_id: dados.escalaDiariaId,
       servidor_id: dados.servidorId,
@@ -319,7 +418,16 @@ export async function salvarJustificativa(dados: {
       validado_por_id: profile.id,
       validado_por_nome: userName,
       data_validacao: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
+
+      // O desfecho. `null` não é "limpar por acidente": o modal só manda `resultado` para
+      // evento em avaliação, e para os demais o campo continua nulo — que é o estado correto
+      // de um plantão cujo cumprimento quem provou foi o relógio, não uma pessoa.
+      resultado: desfechoNovo,
+      resultado_origem: desfechoNovo ? 'coordenador' : null,
+      resultado_definido_por_id: desfechoNovo ? profile.id : null,
+      resultado_definido_por_nome: desfechoNovo ? userName : null,
+      resultado_definido_em: desfechoNovo ? new Date().toISOString() : null,
     }
 
     const { data, error } = await supabase
@@ -401,8 +509,39 @@ export async function salvarJustificativasBulk(eventos: Array<{
       return { error: 'A seleção inclui evento fora do seu escopo. Nenhuma justificativa foi gravada.' }
     }
 
+    // O LOTE SÓ VALIDA — nunca marca falta.
+    //
+    // Marcar falta é registro sobre a conduta de uma pessoa; sai de uma decisão individual, com
+    // texto próprio, olhando o ponto daquele dia. Um botão que faz isso em 20 eventos de uma vez
+    // seria a forma mais fácil de produzir acusação em massa sem ninguém ler nenhuma.
+    //
+    // E só grava desfecho onde há decisão a tomar: evento que o ponto já provou (`registrado`)
+    // continua com `resultado` nulo, porque quem provou foi o relógio, não o coordenador.
+    // Estado desconhecido (RPC indisponível) também não recebe desfecho — na dúvida, não decide.
+    const desfechoDoEvento = new Map<string, string>()
+    try {
+      const hojeLocal = await dataLocalISO(supabase)
+      for (let i = 0; i < mensalIds.length; i += 100) {
+        const { data: desfechos } = await supabase.rpc('fn_desfecho_eventos_escalas', {
+          p_escala_mensal_ids: mensalIds.slice(i, i + 100),
+          p_hoje: hojeLocal,
+        })
+        ;(desfechos || []).forEach((d: any) => desfechoDoEvento.set(d.escala_diaria_id, d.estado))
+      }
+    } catch (err) {
+      console.warn('Desfecho indisponível no lote; nenhum evento será validado explicitamente:', err)
+    }
+
+    const textoCurto = eventos.find(e => !e.texto || e.texto.trim().length < 10)
+    if (textoCurto) {
+      return { error: 'A justificativa deve conter pelo menos 10 caracteres.' }
+    }
+
+    let validadosNoLote = 0
     const payloads = eventos.map(e => {
       const m = mensalMap.get(e.escala_mensal_id)
+      const valida = desfechoDoEvento.get(e.escala_diaria_id) === 'em_avaliacao'
+      if (valida) validadosNoLote++
       return {
         escala_diaria_id: e.escala_diaria_id,
         servidor_id: e.servidor_id,
@@ -422,7 +561,12 @@ export async function salvarJustificativasBulk(eventos: Array<{
         validado_por_id: profile.id,
         validado_por_nome: userName,
         data_validacao: nowIso,
-        updated_at: nowIso
+        updated_at: nowIso,
+        resultado: valida ? 'validado' : null,
+        resultado_origem: valida ? 'coordenador' : null,
+        resultado_definido_por_id: valida ? profile.id : null,
+        resultado_definido_por_nome: valida ? userName : null,
+        resultado_definido_em: valida ? nowIso : null,
       }
     })
 
@@ -442,6 +586,7 @@ export async function salvarJustificativasBulk(eventos: Array<{
         acao: 'JUSTIFICATIVAS_BULK_REGISTRADAS',
         detalhes: {
           total: eventos.length,
+          plantoes_validados: validadosNoLote,
           registrado_por: userName
         }
       })
@@ -450,7 +595,7 @@ export async function salvarJustificativasBulk(eventos: Array<{
     }
 
     revalidatePath('/justificativas')
-    return { success: true, data }
+    return { success: true, data, validados: validadosNoLote }
   } catch (err: any) {
     return { error: err.message }
   }

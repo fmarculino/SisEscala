@@ -1,8 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Modal } from '@/components/ui/Modal'
-import { FileText, Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
+import { formatarHora } from '@/utils/horario'
+import { Loader2, CheckCircle2, AlertCircle, AlertTriangle, Clock } from 'lucide-react'
+import type { Desfecho } from '@/utils/gestaoJustificativas'
 
 interface JustificativaModalProps {
   isOpen: boolean
@@ -19,9 +21,15 @@ interface JustificativaModalProps {
     categoria: string
     turno_codigo?: string
     texto_justificativa?: string
+    /** Estado vindo de fn_desfecho_evento_dia. `null` = a RPC não respondeu — ver abaixo. */
+    estado?: string | null
+    estado_motivo?: string | null
+    resultado?: Desfecho
+    presenca_entrada_em?: string | null
+    presenca_saida_em?: string | null
   } | null
   templates: any[]
-  onSave: (texto: string, templateId?: string) => Promise<void>
+  onSave: (texto: string, templateId?: string, resultado?: Desfecho) => Promise<void>
 }
 
 export function JustificativaModal({
@@ -33,18 +41,34 @@ export function JustificativaModal({
 }: JustificativaModalProps) {
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
   const [texto, setTexto] = useState(evento?.texto_justificativa || '')
+  const [desfecho, setDesfecho] = useState<Desfecho>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Reset states when event changes or modal opens
+  // O modal é reaproveitado entre eventos: sem isto, a decisão tomada no evento anterior
+  // apareceria pré-selecionada no seguinte. Marcar falta na pessoa errada por estado residual
+  // de componente é exatamente o tipo de erro que não se descobre olhando a tela.
+  useEffect(() => {
+    setTexto(evento?.texto_justificativa || '')
+    setDesfecho(evento?.resultado ?? null)
+    setSelectedTemplateId('')
+    setError(null)
+  }, [evento?.escala_diaria_id, evento?.texto_justificativa, evento?.resultado])
+
   const handleTemplateSelect = (tId: string) => {
     setSelectedTemplateId(tId)
     if (!tId) return
     const tmpl = templates.find(t => t.id === tId)
-    if (tmpl) {
-      setTexto(tmpl.texto)
-    }
+    if (tmpl) setTexto(tmpl.texto)
   }
+
+  if (!evento) return null
+
+  // A decisão só é pedida onde existe decisão a tomar. Evento que o ponto já provou
+  // (`registrado`) ou que ainda não aconteceu (`previsto`) segue como a justificativa
+  // motivacional de sempre. Estado desconhecido (a RPC não respondeu) NÃO oferece a escolha —
+  // oferecer sem saber o estado é pedir uma decisão sobre um fato que a tela não conhece.
+  const pedeDecisao = evento.estado === 'em_avaliacao'
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -52,10 +76,14 @@ export function JustificativaModal({
       setError('A justificativa deve conter pelo menos 10 caracteres para ser válida.')
       return
     }
+    if (pedeDecisao && desfecho === null) {
+      setError('Escolha se o plantão foi cumprido ou se deve ser registrado como falta.')
+      return
+    }
     setError(null)
     setSaving(true)
     try {
-      await onSave(texto.trim(), selectedTemplateId || undefined)
+      await onSave(texto.trim(), selectedTemplateId || undefined, pedeDecisao ? desfecho : undefined)
       onClose()
     } catch (err: any) {
       setError(err.message || 'Erro ao salvar justificativa.')
@@ -64,17 +92,17 @@ export function JustificativaModal({
     }
   }
 
-  if (!evento) return null
-
-  const filteredTemplates = templates.filter(t => 
-    !t.categoria || t.categoria === evento.categoria
-  )
+  const filteredTemplates = templates.filter(t => !t.categoria || t.categoria === evento.categoria)
 
   const categoriaColors: Record<string, string> = {
     'Extra': 'bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-300',
     'Plantão': 'bg-indigo-100 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-300',
     'Sobreaviso': 'bg-cyan-100 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300 border-cyan-300',
   }
+
+  const ehSobreaviso = evento.categoria === 'Sobreaviso'
+  const entrada = evento.presenca_entrada_em ? formatarHora(evento.presenca_entrada_em) : null
+  const saida = evento.presenca_saida_em ? formatarHora(evento.presenca_saida_em) : null
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Registrar Justificativa do Evento">
@@ -92,7 +120,90 @@ export function JustificativaModal({
             <div><strong className="text-zinc-700 dark:text-zinc-300">Dia:</strong> {String(evento.dia).padStart(2, '0')}/{String(evento.mes).padStart(2, '0')}/{evento.ano}</div>
             <div><strong className="text-zinc-700 dark:text-zinc-300">Turno:</strong> {evento.turno_codigo || '—'}</div>
           </div>
+
+          {/* O ponto daquele dia, na frente de quem vai decidir. */}
+          {!ehSobreaviso && (
+            <div className="flex items-center gap-2 pt-2 border-t border-zinc-200 dark:border-zinc-700 text-xs">
+              <Clock className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
+              <strong className="text-zinc-700 dark:text-zinc-300">Ponto registrado:</strong>
+              {entrada || saida ? (
+                <span className="font-mono font-bold text-blue-600 dark:text-blue-400">
+                  {entrada || '— sem entrada'} {'→'} {saida || '— sem saída'}
+                </span>
+              ) : (
+                <span className="font-bold text-red-600 dark:text-red-400">Nenhum registro</span>
+              )}
+            </div>
+          )}
         </div>
+
+        {/* A DECISÃO — primeiro campo, obrigatória, só onde há o que decidir */}
+        {pedeDecisao && (
+          <div className="space-y-2">
+            <label className="text-xs font-black uppercase tracking-wider text-zinc-500 block">
+              {ehSobreaviso ? 'Este sobreaviso foi cumprido?' : 'Este plantão foi cumprido?'}{' '}
+              <span className="text-red-500">*</span>
+            </label>
+            {evento.estado_motivo && (
+              <p className="text-[11px] text-amber-700 dark:text-amber-400 font-bold flex items-start gap-1.5">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" />
+                {evento.estado_motivo}
+              </p>
+            )}
+
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => setDesfecho('validado')}
+                className={`text-left p-3 rounded-xl border-2 transition-all ${
+                  desfecho === 'validado'
+                    ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30'
+                    : 'border-zinc-200 dark:border-zinc-700 hover:border-emerald-300'
+                }`}
+              >
+                <div className="font-black text-xs uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+                  Sim — validar
+                </div>
+                <div className="text-[11px] text-zinc-500 mt-1 leading-snug">
+                  Conta como cumprido no anexo. A justificativa registra a motivação do serviço.
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setDesfecho('falta')}
+                className={`text-left p-3 rounded-xl border-2 transition-all ${
+                  desfecho === 'falta'
+                    ? 'border-red-500 bg-red-50 dark:bg-red-950/30'
+                    : 'border-zinc-200 dark:border-zinc-700 hover:border-red-300'
+                }`}
+              >
+                <div className="font-black text-xs uppercase tracking-wider text-red-700 dark:text-red-400">
+                  Não — registrar falta
+                </div>
+                <div className="text-[11px] text-zinc-500 mt-1 leading-snug">
+                  Não conta no anexo e aparece no somatório de faltas. Descreva o que aconteceu.
+                </div>
+              </button>
+            </div>
+
+            {/* Excluir da escala é o caminho de "escalei errado" — mas só existe enquanto não
+                houver batida nenhuma (Direito Adquirido). Dizer isso aqui evita a viagem até a
+                grade para levar um erro sem explicação. */}
+            {!entrada && !saida && !ehSobreaviso && (
+              <p className="text-[11px] text-zinc-400 leading-snug">
+                Se o plantão foi lançado por engano, o caminho é <strong>apagar a célula na grade
+                da escala</strong> — ainda é possível, porque não há nenhuma batida neste dia.
+              </p>
+            )}
+            {(entrada || saida) && (
+              <p className="text-[11px] text-zinc-400 leading-snug">
+                Este dia já tem batida, então a célula <strong>não pode mais ser apagada</strong> na
+                grade (Direito Adquirido). A decisão é aqui.
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Template Padrão Selector */}
         {filteredTemplates.length > 0 && (
@@ -107,9 +218,7 @@ export function JustificativaModal({
             >
               <option value="">-- SELECIONE UM MODELO PRONTO (OPCIONAL) --</option>
               {filteredTemplates.map(tmpl => (
-                <option key={tmpl.id} value={tmpl.id}>
-                  {tmpl.titulo}
-                </option>
+                <option key={tmpl.id} value={tmpl.id}>{tmpl.titulo}</option>
               ))}
             </select>
           </div>
@@ -118,13 +227,16 @@ export function JustificativaModal({
         {/* Textarea da Justificativa */}
         <div className="space-y-2">
           <label className="text-xs font-black uppercase tracking-wider text-zinc-500 block">
-            Descrição da Justificativa <span className="text-red-500">*</span>
+            {desfecho === 'falta' ? 'Descrição da falta' : 'Descrição da Justificativa'}{' '}
+            <span className="text-red-500">*</span>
           </label>
           <textarea
             rows={5}
             value={texto}
             onChange={(e) => setTexto(e.target.value)}
-            placeholder="Descreva a motivação ou necessidade do serviço extraordinário/plantão/sobreaviso..."
+            placeholder={desfecho === 'falta'
+              ? 'Descreva o que aconteceu: ausência sem aviso, sem troca e sem justificativa apresentada...'
+              : 'Descreva a motivação ou necessidade do serviço extraordinário/plantão/sobreaviso...'}
             className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl p-4 text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-medium leading-relaxed"
           />
           <p className="text-[11px] text-zinc-400">
@@ -151,10 +263,16 @@ export function JustificativaModal({
           <button
             type="submit"
             disabled={saving}
-            className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-lg shadow-indigo-600/20 flex items-center gap-2 transition-all"
+            className={`px-6 py-2.5 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-lg flex items-center gap-2 transition-all ${
+              desfecho === 'falta'
+                ? 'bg-red-600 hover:bg-red-700 shadow-red-600/20'
+                : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/20'
+            }`}
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-            {saving ? 'Gravando...' : 'Salvar Justificativa'}
+            {saving
+              ? 'Gravando...'
+              : desfecho === 'falta' ? 'Registrar Falta' : 'Salvar Justificativa'}
           </button>
         </div>
       </form>
