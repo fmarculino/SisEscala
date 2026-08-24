@@ -2,6 +2,7 @@
 
 import { createClient } from '@/utils/supabase/server'
 import { formatarData } from '@/utils/horario'
+import { podeAbrirJustificativas } from '@/utils/gestaoJustificativas'
 import forge from 'node-forge'
 import crypto from 'crypto'
 
@@ -21,8 +22,46 @@ async function getUserProfile(supabase: any) {
   }
 }
 
-export async function validarCertificadoA1Action(pfxBase64: string, passphrase: string) {
+/**
+ * As duas actions deste arquivo também não conferiam papel (24/08/2026) — e esta aqui nem
+ * autenticava: aceitava um .pfx e uma senha de qualquer origem. Não vazava dado do banco, mas
+ * era um endpoint de upload aberto no bundle. Mesma régua de gestaoJustificativas.ts.
+ */
+async function exigirPapel(supabase: any) {
+  const profile = await getUserProfile(supabase)
+  if (!podeAbrirJustificativas(profile?.role)) {
+    return { profile: null, negado: { error: 'Sem permissão para assinar relatórios de justificativa.' } }
+  }
+  return { profile, negado: null }
+}
+
+/**
+ * Retorno explícito de propósito. Os consumidores (`assinarRelatorioPDFAction` e
+ * `AssinaturaDigitalModal`) testam `res.error || !res.certInfo` na mesma expressão; com o tipo
+ * inferido a partir dos `return`, o guard de papel acrescentado em 24/08/2026 estreitou a união
+ * a ponto de nenhuma das duas propriedades existir nos dois ramos. Fixar as duas como opcionais
+ * mantém exatamente o contrato que os chamadores já usavam.
+ */
+interface ResultadoCertificadoA1 {
+  error?: string
+  success?: boolean
+  certInfo?: {
+    cn: string | any[]
+    issuer: string | any[]
+    validFrom: string
+    validTo: string
+  }
+}
+
+export async function validarCertificadoA1Action(
+  pfxBase64: string,
+  passphrase: string
+): Promise<ResultadoCertificadoA1> {
   try {
+    const supabase = await createClient()
+    const { negado } = await exigirPapel(supabase)
+    if (negado) return negado
+
     const pfxBuffer = Buffer.from(pfxBase64, 'base64')
     const pfxAsn1 = forge.asn1.fromDer(pfxBuffer.toString('binary'))
     const pfx = forge.pkcs12.pkcs12FromAsn1(pfxAsn1, passphrase)
@@ -83,7 +122,8 @@ export async function assinarRelatorioPDFAction(params: {
 }) {
   try {
     const supabase = await createClient()
-    const profile = await getUserProfile(supabase)
+    const { profile, negado } = await exigirPapel(supabase)
+    if (negado) return negado
 
     // 1. Validar e assinar em memória com node-forge
     const valRes = await validarCertificadoA1Action(params.pfxBase64, params.passphrase)

@@ -2,6 +2,7 @@ import { createClient } from '@/utils/supabase/server'
 import { JustificativasClient } from './JustificativasClient'
 import { AcessoNegado } from '@/components/AcessoNegado'
 import { applyAccessFilters } from '@/utils/permissions'
+import { podeAbrirJustificativas } from '@/utils/gestaoJustificativas'
 
 export default async function JustificativasPage() {
   const supabase = await createClient()
@@ -17,6 +18,13 @@ export default async function JustificativasPage() {
     .select('*, profile_unidades(unidade_id), setores_no_escopo')
     .eq('id', user.id)
     .single()
+
+  // O menu já não mostra Justificativas para servidor/comum (sidebar.tsx, grupo OPERAÇÃO), mas
+  // a rota era alcançável direto pela URL — e as server actions não conferiam papel nenhum até
+  // 24/08/2026. A tela nunca foi a defesa; este guard é só a camada visível dela.
+  if (!podeAbrirJustificativas(profile?.role)) {
+    return <AcessoNegado />
+  }
 
   const userProfile = profile ? {
     ...profile,

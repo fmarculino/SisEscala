@@ -3,6 +3,11 @@
 import { createClient, createAdminClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { UserProfile, applyAccessFilters } from '@/utils/permissions'
+import {
+  AtorJustificativa,
+  podeAbrirJustificativas,
+  podeGerirJustificativa,
+} from '@/utils/gestaoJustificativas'
 
 async function getUserProfile(supabase: any) {
   const { data: { user } } = await supabase.auth.getUser()
@@ -24,6 +29,36 @@ async function getUserProfile(supabase: any) {
   }
 }
 
+/**
+ * AUTORIZAÇÃO DESTE ARQUIVO — 24/08/2026.
+ *
+ * 🚨 Até aqui NENHUMA das sete actions conferia papel (`grep -c role` devolvia 0), e todas usam
+ * `createAdminClient()` (service_role), que passa por cima da RLS — que por sua vez era
+ * `FOR ALL USING (auth.uid() IS NOT NULL)` desde `20260805000000`. A tela era a única coisa
+ * entre um usuário qualquer e a tabela. Armadilha 12 do CLAUDE.md, a mesma de /usuarios.
+ *
+ * A régua vive em `src/utils/gestaoJustificativas.ts` e é espelhada em SQL por
+ * `fn_pode_gerir_justificativa` / `fn_pode_reverter_desfecho` (`20260824130000`), que fecham o
+ * acesso direto por JWT. Aqui é o lado que vale para o caminho service_role.
+ */
+function atorDe(profile: any): AtorJustificativa {
+  return {
+    role: profile.role,
+    acesso_todas_unidades: profile.acesso_todas_unidades,
+    acesso_todos_setores: profile.acesso_todos_setores,
+    permitted_unidades: profile.permitted_unidades || [],
+    permitted_setores: profile.permitted_setores || [],
+  }
+}
+
+/** Papel que sequer abre o módulo. Erro explícito, não lista vazia — vazio esconde o motivo. */
+function exigirAcessoAoModulo(profile: any): { error: string } | null {
+  if (!podeAbrirJustificativas(profile?.role)) {
+    return { error: 'Sem permissão para acessar o módulo de justificativas.' }
+  }
+  return null
+}
+
 export async function getEventosPendentes(params: {
   unidadeId: string
   setorId?: string
@@ -38,6 +73,9 @@ export async function getEventosPendentes(params: {
   try {
     const supabaseUser = await createClient()
     const userProfile = await getUserProfile(supabaseUser)
+
+    const negado = exigirAcessoAoModulo(userProfile)
+    if (negado) return negado
 
     const supabase = await createAdminClient()
 
@@ -240,6 +278,9 @@ export async function salvarJustificativa(dados: {
     const profile = await getUserProfile(supabaseUser)
     const supabase = await createAdminClient()
 
+    const negado = exigirAcessoAoModulo(profile)
+    if (negado) return negado
+
     const userName = profile.full_name || profile.userEmail || profile.id
 
     // Fetch unit and sector from monthly scale
@@ -248,6 +289,16 @@ export async function salvarJustificativa(dados: {
       .select('unidade_id, setor_id')
       .eq('id', dados.escalaMensalId)
       .single()
+
+    // O escopo é conferido contra a escala REAL buscada do banco, nunca contra o que o cliente
+    // mandou: a action é um POST cujo id sai no bundle, e `escalaMensalId` é escolha de quem
+    // chama. Sem isto, o papel certo em outra unidade ainda passaria.
+    if (!podeGerirJustificativa(atorDe(profile), {
+      unidade_id: mensal?.unidade_id,
+      setor_id: mensal?.setor_id,
+    })) {
+      return { error: 'Sem permissão para justificar eventos desta unidade.' }
+    }
 
     const payload = {
       escala_diaria_id: dados.escalaDiariaId,
@@ -323,6 +374,9 @@ export async function salvarJustificativasBulk(eventos: Array<{
     const profile = await getUserProfile(supabaseUser)
     const supabase = await createAdminClient()
 
+    const negado = exigirAcessoAoModulo(profile)
+    if (negado) return negado
+
     const userName = profile.full_name || profile.userEmail || profile.id
     const nowIso = new Date().toISOString()
 
@@ -334,6 +388,18 @@ export async function salvarJustificativasBulk(eventos: Array<{
       .in('id', mensalIds)
 
     const mensalMap = new Map((mensais || []).map(m => [m.id, m]))
+
+    // Um único evento fora do escopo recusa o lote inteiro, em vez de gravar os "válidos" e
+    // pular o resto em silêncio: quem clicou selecionou aquele conjunto, e um lote parcialmente
+    // aplicado é pior de auditar do que um lote recusado.
+    const ator = atorDe(profile)
+    const foraDoEscopo = eventos.find(e => {
+      const m = mensalMap.get(e.escala_mensal_id)
+      return !podeGerirJustificativa(ator, { unidade_id: m?.unidade_id, setor_id: m?.setor_id })
+    })
+    if (foraDoEscopo) {
+      return { error: 'A seleção inclui evento fora do seu escopo. Nenhuma justificativa foi gravada.' }
+    }
 
     const payloads = eventos.map(e => {
       const m = mensalMap.get(e.escala_mensal_id)
@@ -401,6 +467,26 @@ export async function validarSugestao(params: {
     const profile = await getUserProfile(supabaseUser)
     const supabase = await createAdminClient()
 
+    const negado = exigirAcessoAoModulo(profile)
+    if (negado) return negado
+
+    // A sugestão vem do Portal do servidor e carrega o próprio escopo. Ler a linha ANTES de
+    // decidir é o que impede aprovar/rejeitar sugestão de outra unidade só com o UUID dela.
+    const { data: alvo } = await supabase
+      .from('justificativas_eventos')
+      .select('unidade_id, setor_id')
+      .eq('id', params.justificativaId)
+      .maybeSingle()
+
+    if (!alvo) return { error: 'Justificativa não encontrada.' }
+
+    if (!podeGerirJustificativa(atorDe(profile), {
+      unidade_id: alvo.unidade_id,
+      setor_id: alvo.setor_id,
+    })) {
+      return { error: 'Sem permissão para validar sugestões desta unidade.' }
+    }
+
     const userName = profile.full_name || profile.userEmail || profile.id
     const nowIso = new Date().toISOString()
 
@@ -440,7 +526,10 @@ export async function validarSugestao(params: {
 export async function getTemplatesPadrao(unidadeId?: string, setorId?: string) {
   try {
     const supabase = await createClient()
-    await getUserProfile(supabase)
+    const profile = await getUserProfile(supabase)
+
+    const negado = exigirAcessoAoModulo(profile)
+    if (negado) return negado
 
     let query = supabase
       .from('justificativas_padrao')
@@ -547,6 +636,22 @@ export async function salvarTemplatePadrao(dados: {
     const supabase = await createClient()
     const profile = await getUserProfile(supabase)
 
+    const negado = exigirAcessoAoModulo(profile)
+    if (negado) return negado
+
+    // Template global (unidade_id NULL) é catálogo da secretaria — 9 dos 12 em produção, e são
+    // os que aparecem para todo coordenador. Editá-los é decisão de quem responde pela rede.
+    if (!dados.unidadeId) {
+      if (profile.role !== 'super_admin' && profile.role !== 'rh') {
+        return { error: 'Apenas o RH Geral edita modelos globais de justificativa.' }
+      }
+    } else if (!podeGerirJustificativa(atorDe(profile), {
+      unidade_id: dados.unidadeId,
+      setor_id: dados.setorId,
+    })) {
+      return { error: 'Sem permissão para editar modelos desta unidade.' }
+    }
+
     const payload = {
       unidade_id: dados.unidadeId || null,
       setor_id: dados.setorId || null,
@@ -584,7 +689,32 @@ export async function salvarTemplatePadrao(dados: {
 export async function toggleTemplatePadrao(id: string, ativo: boolean) {
   try {
     const supabase = await createClient()
-    await getUserProfile(supabase)
+    const profile = await getUserProfile(supabase)
+
+    const negado = exigirAcessoAoModulo(profile)
+    if (negado) return negado
+
+    // Esta action usa createClient() (sessão do usuário), então a policy de
+    // justificativas_padrao (20260824130000) já recusaria o global para quem não é RH. O
+    // `if` aqui existe para a mensagem: erro de RLS chega ao coordenador como texto de banco.
+    const { data: alvo } = await supabase
+      .from('justificativas_padrao')
+      .select('unidade_id, setor_id')
+      .eq('id', id)
+      .maybeSingle()
+
+    if (!alvo) return { error: 'Modelo não encontrado.' }
+
+    if (!alvo.unidade_id) {
+      if (profile.role !== 'super_admin' && profile.role !== 'rh') {
+        return { error: 'Apenas o RH Geral ativa ou desativa modelos globais.' }
+      }
+    } else if (!podeGerirJustificativa(atorDe(profile), {
+      unidade_id: alvo.unidade_id,
+      setor_id: alvo.setor_id,
+    })) {
+      return { error: 'Sem permissão para alterar modelos desta unidade.' }
+    }
 
     const { error } = await supabase
       .from('justificativas_padrao')

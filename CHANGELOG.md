@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.14.0] - 2026-08-24
+
+### Security
+- 🚨 **As três tabelas do módulo de justificativas estavam abertas para qualquer conta autenticada.** Desde `20260805000000` a policy era `FOR ALL USING (auth.uid() IS NOT NULL)` — qualquer usuário logado, de qualquer unidade, lia, escrevia, sobrescrevia e apagava qualquer justificativa da rede. E `justificativas/actions.ts` não compensava: `grep -c role` naquele arquivo devolvia **0**. Todas as sete server actions usam `createAdminClient()` (service_role), que passa por cima da RLS — **a tela era a única coisa** entre um usuário qualquer e a tabela. É a armadilha 12 do CLAUDE.md outra vez, a mesma de `/usuarios` em 22/08/2026.
+- Régua única em **`src/utils/gestaoJustificativas.ts`**, espelhada em SQL por `fn_pode_gerir_justificativa` / `fn_pode_reverter_desfecho`. As duas camadas precisam concordar: a SQL fecha o acesso direto por JWT, o TS fecha o caminho service_role.
+  - **Gerir** (ler, justificar, validar, marcar falta): `super_admin`, `rh`, `rh_unidade`, `admin`, `coordenador`, `ass_adm` — dentro do escopo. É exatamente quem já enxerga `/justificativas` no menu; **ninguém foi estreitado**.
+  - **Reverter** desfecho já gravado: só `super_admin`, `rh`, `rh_unidade`.
+  - **Excluir** a linha: só `super_admin` e `rh` — apagar some com a trilha inteira.
+- O escopo é conferido contra a escala **buscada do banco**, nunca contra o que o cliente mandou: server action é um POST cujo id sai no bundle.
+- No lote, um único evento fora do escopo **recusa o lote inteiro** — lote parcialmente aplicado é pior de auditar do que lote recusado.
+- `validarCertificadoA1Action` (assinatura digital) **nem autenticava**: aceitava um `.pfx` e uma senha de qualquer origem. Não vazava dado do banco, mas era endpoint de upload aberto no bundle.
+- `justificativas_assinaturas` perdeu as policies de UPDATE e DELETE. É registro de integridade (hash sha256 do relatório assinado): alterar o hash destrói o que ele prova.
+
+### Added
+- **Desfecho de plantão e sobreaviso** — base de banco da política de faltas (fases 0 e 0b do plano `docs/planos/2026-08-23-desfecho-de-plantao-e-sobreaviso.md`). Nada muda ainda nas telas.
+  - `justificativas_eventos.resultado` (`validado` / `falta`), com origem (`coordenador` / `decurso_de_prazo`), autor e data. **Backfill deliberadamente `NULL`**: as 51 justificativas existentes foram escritas como *motivação*, não como atestado de cumprimento — um `DEFAULT 'validado'` afirmaria, em nome do coordenador, que plantões sem registro completo foram cumpridos.
+  - `justificativas_eventos_desfecho_historico`, append-only, escrita **só por trigger** — assim o auto-fechamento, a fila e qualquer UPDATE direto caem todos no mesmo registro. Marcar e desmarcar falta são decisões sobre conduta de servidor público; nenhuma pode ser um UPDATE anônimo.
+  - **`fn_desfecho_evento_dia`** — fonte única dos cinco estados: `previsto`, `registrado`, `validado`, `falta`, `em_avaliacao`. Desfecho explícito vence o ponto; dia futuro nunca é julgado. **Não replicar no frontend.**
+  - **`fn_status_acionamento_sobreaviso`** — "Falhou" nunca foi um estado do sistema: era uma conta feita na renderização, **copiada em 4 sítios de JS**, com `logs_sobreaviso.motivo_falha` nulo nas 526 linhas de produção. Agora é regra de banco.
+  - **`fn_acionamento_sobreaviso_real`** — o filtro que separa acionamento de verdade do artefato que `fn_confirmar_presenca` grava na mesma tabela (8 reais em 526).
+
+### Measured
+- **Competência 08/2026, dias 1–22: o anexo soma 2.107h de plantão, e 65% delas (1.377h) não têm registro completo.** Dos 217 plantões, 86 têm entrada *e* saída, 70 têm só um dos dois e 61 não têm nenhum.
+- Classificados pela função nova: **registrado 85 (718h)**, **em avaliação 132 (1.389h)**, falta 0. Os 85 são 67 por batida real e 18 por validação manual com texto digitado.
+- **Caso concreto:** ANDRESA MELO PEREIRA (mat. 54594), dias 01 e 08 — Plantão MT de 12h, zero batida. A folha grava `SÁBADO` e `total_faltas = 0`; o anexo conta as 24h dentro das 120h. Os dois documentos da mesma pessoa se contradizem.
+- **Junho e julho quase não mudam** (27 e 1 evento em avaliação) porque são os meses da validação em massa antiga, que gravava horário em tudo — armadilha 5. Agosto é o primeiro mês com REP e terminal de verdade, e por isso o primeiro em que o buraco aparece.
+- **Um caminho valida presença sem ninguém digitar nada:** ao marcar dias passados e salvar, `handleSave` fabrica os horários a partir do previsto e grava uma frase enlatada. A frase aparece em **1.847 linhas** de 08/2026 (1.836 delas `Regular`, 7 `Plantão`). Por isso plantão só conta como registrado com batida real **ou** justificativa **digitada** — hoje isso é 1 evento, mas sem a exceção o primeiro uso de "validar dias passados" sobre uma linha de plantão dissolveria a regra inteira em um clique.
+- **Portão:** `node scratchpad/sim_desfecho_evento.js` replica a função em JS sobre produção; depois de aplicadas, as migrations reproduziram os mesmos números nas três competências.
+
 ## [2.13.3] - 2026-08-23
 
 ### Fixed
