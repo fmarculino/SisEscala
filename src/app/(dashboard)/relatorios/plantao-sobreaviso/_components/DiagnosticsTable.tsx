@@ -12,6 +12,9 @@ interface ServerDiagnostic {
   unidade: string
   setor: string
   plantaoHours: number
+  plantaoHorasEmAvaliacao?: number
+  plantaoHorasFaltas?: number
+  plantaoFaltas?: number
   sobreavisoScheduledHours: number
   sobreavisoActivatedHours: number
   activationRate: number
@@ -54,7 +57,8 @@ export function DiagnosticsTable({ data }: TableProps) {
 
     const headers = [
       'Servidor', 'Matrícula', 'Cargo', 'Vínculo', 'Unidade', 'Setor', 
-      'Horas Plantão', 'Sobreaviso Escalado (h)', 'Sobreaviso Acionado (h)', 
+      'Horas Plantão Cumpridas', 'Horas Plantão Em Avaliação', 'Faltas de Plantão', 'Horas de Faltas',
+      'Sobreaviso Escalado (h)', 'Sobreaviso Acionado (h)', 
       'Taxa de Acionamento (%)', 'Horas Efetivas Totais', 'Alertas de Fadiga'
     ]
 
@@ -66,6 +70,9 @@ export function DiagnosticsTable({ data }: TableProps) {
       `"${item.unidade}"`,
       `"${item.setor}"`,
       item.plantaoHours,
+      item.plantaoHorasEmAvaliacao ?? 0,
+      item.plantaoFaltas ?? 0,
+      item.plantaoHorasFaltas ?? 0,
       item.sobreavisoScheduledHours,
       item.sobreavisoActivatedHours,
       `${item.activationRate.toFixed(1)}%`,
@@ -108,7 +115,12 @@ export function DiagnosticsTable({ data }: TableProps) {
             <tr className="bg-zinc-50 dark:bg-zinc-800/50 border-b border-zinc-200 dark:border-zinc-800">
               <th className="px-6 py-4 font-black uppercase tracking-widest text-zinc-500">Servidor</th>
               <th className="px-6 py-4 font-black uppercase tracking-widest text-zinc-500">Unidade/Setor</th>
-              <th className="px-6 py-4 font-black uppercase tracking-widest text-zinc-500 text-center">Plantões (h)</th>
+              {/* "Plantões (h)" passa a significar horas CUMPRIDAS. Em avaliação e faltas
+                  ganham colunas próprias em vez de sumir dentro do mesmo número — era assim
+                  que 65% das horas de 08/2026 entravam sem registro completo. */}
+              <th className="px-6 py-4 font-black uppercase tracking-widest text-zinc-500 text-center">Plantões cumpridos (h)</th>
+              <th className="px-6 py-4 font-black uppercase tracking-widest text-zinc-500 text-center">Em avaliação (h)</th>
+              <th className="px-6 py-4 font-black uppercase tracking-widest text-zinc-500 text-center">Faltas</th>
               <th className="px-6 py-4 font-black uppercase tracking-widest text-zinc-500 text-center">Sobreaviso (Escalado/Acionado)</th>
               <th className="px-6 py-4 font-black uppercase tracking-widest text-zinc-500 text-center">Taxa Acionamento</th>
               <th className="px-6 py-4 font-black uppercase tracking-widest text-zinc-500 text-center">Horas Efetivas</th>
@@ -130,6 +142,18 @@ export function DiagnosticsTable({ data }: TableProps) {
                     <div className="text-[10px] text-zinc-500">{item.setor}</div>
                   </td>
                   <td className="px-6 py-4 text-center font-bold text-zinc-700 dark:text-zinc-300">{item.plantaoHours}h</td>
+                  <td className={`px-6 py-4 text-center font-bold ${
+                    (item.plantaoHorasEmAvaliacao ?? 0) > 0 ? 'text-orange-600 dark:text-orange-400' : 'text-zinc-400'
+                  }`}>{item.plantaoHorasEmAvaliacao ?? 0}h</td>
+                  <td className="px-6 py-4 text-center">
+                    {(item.plantaoFaltas ?? 0) > 0 ? (
+                      <span className="inline-block px-2 py-0.5 rounded-full font-black text-[10px] bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-400">
+                        {item.plantaoFaltas} ({item.plantaoHorasFaltas ?? 0}h)
+                      </span>
+                    ) : (
+                      <span className="text-zinc-400 font-bold">—</span>
+                    )}
+                  </td>
                   <td className="px-6 py-4 text-center text-zinc-700 dark:text-zinc-300">
                     <span className="font-bold">{item.sobreavisoScheduledHours}h</span>
                     <span className="text-zinc-400 text-[10px] mx-1">/</span>

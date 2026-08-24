@@ -412,7 +412,7 @@ precisa gravar quem trocou e por quê, no mesmo espírito de `escala_diaria_turn
 | 0 | migrations 1–3 + simulador sobre 06/07/08 | contagens batem com §4 |
 | **0b** | **RLS por escopo e autorização por papel em `justificativas_eventos` (§5.1)** | **conta fora do escopo recusada pela action E pela policy** |
 | 1 | coluna "Ponto" na fila + decisão no modal + backfill `NULL` | os 6 eventos indecisos de agosto aparecem como "em avaliação" |
-| 2 | anexo: coluna Situação, três subtotais, correção do artefato de acionamento | a ANDRESA sai de 120h para 96h, com 24h em avaliação |
+| 2 | anexo: coluna Situação, três subtotais, correção do artefato de acionamento | ✅ **feito em 24/08/2026.** A ANDRESA sai de 120h para **48h cumpridas**, 60h em avaliação e 12h de dia futuro — a conta fecha em 120h. ⚠️ O critério de saída escrito aqui antes ("96h, com 24h em avaliação") **estava errado**: foi estimado só pelos dias 01 e 08 do print, antes de medir o mês dela inteiro. Os dias 11 e 13 têm saída às 18:00 e nenhuma entrada, e os dias 15 e 22 não têm registro nenhum |
 | 3 | sobreaviso: `fn_status_acionamento_sobreaviso`, auto-validação, falha vira falta, aposentadoria de `sobreaviso_desconsiderar_falha`, os 4 sítios de JS passam a consumi-la | 72 dos 79 sobreavisos de agosto saem da fila; os 8 acionamentos reais seguem válidos (todos `Chegou`) |
 | 4 | relatório de plantão com as três colunas | 06 e 07 mudam 27 e 1 eventos, e nada mais |
 | 5 | gate de fechamento (escala, folha) + falta por decurso no cron + tela de reversão do RH | **só depois da fila de agosto tratada** |

@@ -2435,10 +2435,39 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
       diarias = dData || []
     }
 
+    // 4-B. O DESFECHO DE CADA EVENTO — fn_desfecho_evento_dia (20260824120000).
+    //
+    // Ate 24/08/2026 este anexo somava `horas_computadas` de TODA linha de plantao, tivesse ou
+    // nao registro de ponto, e a observacao dizia apenas "Em validacao" — texto, sem
+    // consequencia. Medido em 08/2026: de 2.107h impressas, 1.377h (65%) nao tinham registro
+    // completo. O anexo e comprobatorio: e o que o servidor assina e o que o RH usa para pagar
+    // a unidade de plantao.
+    //
+    // A classificacao NAO e refeita aqui. Se a tela derivasse por conta propria, o que o
+    // coordenador decidiu na fila deixaria de ser o que este documento imprime.
+    const desfechoPorLinha = new Map<string, { estado: string; motivo: string | null }>()
+    if (escalaMensalIds.length > 0) {
+      try {
+        const { data: hojeLocal } = await supabase.rpc('fn_data_local')
+        const { data: desfechos } = await supabase.rpc('fn_desfecho_eventos_escalas', {
+          p_escala_mensal_ids: escalaMensalIds,
+          p_hoje: String(hojeLocal)
+        })
+        ;(desfechos || []).forEach((d: any) => {
+          desfechoPorLinha.set(d.escala_diaria_id, { estado: d.estado, motivo: d.motivo })
+        })
+      } catch (err) {
+        // Sem o desfecho o anexo volta a ser o de antes (soma tudo) em vez de nao abrir. Um
+        // documento que nao imprime na hora da conferencia e pior do que um que imprime demais
+        // — e o rotulo diz qual dos dois o leitor tem na mao.
+        console.warn('Desfecho dos eventos indisponivel; o anexo sai sem a reparticao:', err)
+      }
+    }
+
     // 5. Fetch justificativas_eventos for this server in that month/year
     const { data: justificativas } = await supabase
       .from('justificativas_eventos')
-      .select('escala_diaria_id, dia, categoria, texto_justificativa, status, origem, motivo_recusa')
+      .select('escala_diaria_id, dia, categoria, texto_justificativa, status, origem, motivo_recusa, resultado, resultado_origem')
       .eq('servidor_id', servidorId)
       .eq('mes', mes)
       .eq('ano', ano)
@@ -2455,7 +2484,7 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
       const { data: lsData, error: lsErr } = await supabase
         .from('logs_sobreaviso')
         .select(`
-          id, escala_mensal_id, dia, status, motivo_acionamento, acionado_por,
+          id, escala_mensal_id, dia, status, motivo_acionamento, acionado_por, categoria,
           data_hora_acionamento, data_hora_chegada, data_hora_validacao,
           destino_referencia,
           destino_unidade:unidades!destino_unidade_id(nome),
@@ -2469,7 +2498,7 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
         console.warn('Busca de logs_sobreaviso com joins falhou, tentando consulta simples:', lsErr.message)
         const { data: fallbackData } = await supabase
           .from('logs_sobreaviso')
-          .select('id, escala_mensal_id, dia, status, motivo_acionamento, acionado_por, data_hora_acionamento, data_hora_chegada, data_hora_validacao, destino_referencia')
+          .select('id, escala_mensal_id, dia, status, motivo_acionamento, acionado_por, categoria, data_hora_acionamento, data_hora_chegada, data_hora_validacao, destino_referencia')
           .in('escala_mensal_id', escalaMensalIds)
           .order('dia', { ascending: true })
         logsSobreaviso = fallbackData || []
@@ -2514,13 +2543,37 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
           unidade: uNome,
           setor: sNome,
           ajuste_manual: ed.presenca_entrada_manual || ed.presenca_saida_manual,
-          observacao: justTexto || (ed.presenca_entrada_origem ? `Origem: ${ed.presenca_entrada_origem}` : '')
+          observacao: justTexto || (ed.presenca_entrada_origem ? `Origem: ${ed.presenca_entrada_origem}` : ''),
+          estado: desfechoPorLinha.get(ed.id)?.estado || null,
+          estado_motivo: desfechoPorLinha.get(ed.id)?.motivo || null,
+          resultado_origem: just?.resultado_origem || null
         })
       } else if (cat.includes('sobreaviso')) {
         const dateObj = new Date(ano, mes - 1, ed.dia)
-        // Filtra acionamentos pelo dia e pela escala mensal do servidor
-        const acionamentos = logsSobreaviso.filter((l: any) => 
-          Number(l.dia) === Number(ed.dia) && l.escala_mensal_id === ed.escala_mensal_id
+        // Filtra acionamentos pelo dia e pela escala mensal do servidor.
+        //
+        // ⚠️ E PRECISO FILTRAR ARTEFATO E CATEGORIA (corrigido em 24/08/2026).
+        // logs_sobreaviso NAO e uma tabela de acionamentos: fn_confirmar_presenca e
+        // fn_confirmar_presenca_manual tambem escrevem ali ao validar presenca, e os artefatos
+        // entram com status 'Chegou' e a categoria do turno validado. Sem estes dois filtros,
+        // um artefato de PLANTAO aparecia neste documento assinado como "acionamento presencial
+        // de sobreaviso" — 1 caso medido em 08/2026, e cresce com o uso.
+        //
+        // O relatorio de /relatorios/plantao-sobreaviso ja fazia isso (`ehAcionamentoReal`);
+        // este anexo, nao. Agora os dois usam o mesmo criterio, e a fonte dele e SQL
+        // (fn_acionamento_sobreaviso_real, 20260824110000) — este predicado e o espelho.
+        const ehAcionamentoReal = (l: any) => {
+          if (l.acionado_por) return true
+          const m: string = l.motivo_acionamento || ''
+          return !(/^O próprio usuário confirmou/i.test(m)
+                || /^Validação Manual/i.test(m)
+                || /^REVERSÃO/i.test(m))
+        }
+        const acionamentos = logsSobreaviso.filter((l: any) =>
+          Number(l.dia) === Number(ed.dia)
+          && l.escala_mensal_id === ed.escala_mensal_id
+          && (l.categoria === 'Sobreaviso' || l.categoria === null || l.categoria === undefined)
+          && ehAcionamentoReal(l)
         )
         const turnoDesc = turno?.descricao || turno?.codigo || 'Sobreaviso'
         const horarioPrevisto = turno?.codigo ? `${turno.codigo} (${turno.horas_computadas || 12}h)` : `${turno?.horas_computadas || 12}h`
@@ -2569,7 +2622,32 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
     plantoes.sort((a, b) => a.dia - b.dia)
     sobreavisos.sort((a, b) => a.dia - b.dia)
 
-    const totalHorasPlantao = plantoes.reduce((acc, p) => acc + (p.horas_computadas || 0), 0)
+    // A CARGA DO ANEXO PASSA A SER O QUE FOI CUMPRIDO, NAO O QUE FOI ESCALADO.
+    //
+    // `registrado` = o ponto provou (entrada E saida). `validado` = o coordenador decidiu, com
+    // justificativa e autor. Os dois somam. `em_avaliacao` aparece na tabela — a linha NUNCA
+    // some, senao o servidor perde a chance de contestar antes do fechamento — mas nao soma.
+    // `falta` vai para o subtotal proprio.
+    //
+    // `totalHorasPlantao` continua existindo com o mesmo nome e o mesmo significado de antes
+    // (tudo que foi escalado) porque a conferencia do documento depende de fechar a conta:
+    // cumpridas + em avaliacao + faltas + previstas = total.
+    const somaPor = (filtro: (p: any) => boolean) =>
+      plantoes.filter(filtro).reduce((acc, p) => acc + (p.horas_computadas || 0), 0)
+
+    // Estado ausente = a RPC nao respondeu. Cai no comportamento antigo (conta como cumprido)
+    // de proposito: um anexo que subitamente zera a carga por indisponibilidade de RPC seria
+    // pior do que um que soma demais, e o rotulo do rodape denuncia qual dos dois esta na mao.
+    const ehCumprido = (p: any) => !p.estado || p.estado === 'registrado' || p.estado === 'validado'
+
+    const totalHorasPlantao = somaPor(() => true)
+    const totalHorasPlantaoCumpridas = somaPor(ehCumprido)
+    const totalHorasPlantaoEmAvaliacao = somaPor(p => p.estado === 'em_avaliacao')
+    const totalHorasPlantaoFaltas = somaPor(p => p.estado === 'falta')
+    const totalPlantoesFaltas = plantoes.filter(p => p.estado === 'falta').length
+    const totalPlantoesEmAvaliacao = plantoes.filter(p => p.estado === 'em_avaliacao').length
+    const desfechoIndisponivel = plantoes.length > 0 && plantoes.every(p => !p.estado)
+
     const totalHorasSobreaviso = sobreavisos.reduce((acc, s) => acc + (s.horas_prontidao || 0), 0)
     const totalAcionamentos = sobreavisos.reduce((acc, s) => acc + (s.acionamentos?.length || 0), 0)
 
@@ -2580,6 +2658,12 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
       plantoes,
       sobreavisos,
       totalHorasPlantao,
+      totalHorasPlantaoCumpridas,
+      totalHorasPlantaoEmAvaliacao,
+      totalHorasPlantaoFaltas,
+      totalPlantoesFaltas,
+      totalPlantoesEmAvaliacao,
+      desfechoIndisponivel,
       totalHorasSobreaviso,
       totalAcionamentos
     }

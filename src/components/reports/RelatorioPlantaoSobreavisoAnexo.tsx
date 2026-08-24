@@ -19,6 +19,10 @@ interface PlantaoItem {
   setor: string
   ajuste_manual?: boolean
   observacao?: string
+  /** Estado vindo de fn_desfecho_evento_dia. `null` = a RPC nao respondeu. */
+  estado?: string | null
+  estado_motivo?: string | null
+  resultado_origem?: string | null
 }
 
 interface SobreavisoItem {
@@ -56,6 +60,12 @@ interface Props {
     plantoes: PlantaoItem[]
     sobreavisos: SobreavisoItem[]
     totalHorasPlantao: number
+    totalHorasPlantaoCumpridas?: number
+    totalHorasPlantaoEmAvaliacao?: number
+    totalHorasPlantaoFaltas?: number
+    totalPlantoesFaltas?: number
+    totalPlantoesEmAvaliacao?: number
+    desfechoIndisponivel?: boolean
     totalHorasSobreaviso: number
     totalAcionamentos: number
   }
@@ -77,6 +87,25 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
   }, [onClose])
 
   const { servidor, mes, ano, plantoes, sobreavisos, totalHorasPlantao, totalHorasSobreaviso, totalAcionamentos } = dados
+
+  // O anexo e comprobatorio: e o que o servidor assina e o que o RH usa para pagar a unidade de
+  // plantao. Ate 24/08/2026 ele somava TODA linha escalada, com ou sem ponto — 65% das horas
+  // impressas em 08/2026 nao tinham registro completo. A reparticao vem pronta da action; aqui
+  // so se exibe. Os `??` cobrem o anexo aberto antes do deploy da action nova.
+  const cumpridas = dados.totalHorasPlantaoCumpridas ?? totalHorasPlantao
+  const emAvaliacaoHoras = dados.totalHorasPlantaoEmAvaliacao ?? 0
+  const faltasHoras = dados.totalHorasPlantaoFaltas ?? 0
+  const qtdFaltas = dados.totalPlantoesFaltas ?? 0
+  const qtdEmAvaliacao = dados.totalPlantoesEmAvaliacao ?? 0
+
+  const rotuloSituacao = (p: PlantaoItem) => {
+    if (p.estado === 'falta') return { texto: 'FALTA', cor: 'text-red-700 dark:text-red-400' }
+    if (p.estado === 'em_avaliacao') return { texto: 'EM AVALIAÇÃO', cor: 'text-orange-700 dark:text-orange-400' }
+    if (p.estado === 'validado') return { texto: 'VALIDADO', cor: 'text-emerald-700 dark:text-emerald-400' }
+    if (p.estado === 'previsto') return { texto: 'PREVISTO', cor: 'text-zinc-500' }
+    if (p.estado === 'registrado') return { texto: 'REGISTRADO', cor: 'text-emerald-700 dark:text-emerald-400' }
+    return { texto: '—', cor: 'text-zinc-400' }
+  }
 
   const nomeMes = new Date(ano, mes - 1, 1).toLocaleString('pt-BR', { month: 'long' }).toUpperCase()
   const unidadeNome = servidor?.unidades?.nome || 'SECRETARIA MUNICIPAL DE SAÚDE'
@@ -363,7 +392,10 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
               <Clock className="h-4 w-4 text-blue-600 dark:text-blue-400 print:hidden" />
               1. Escala de Plantões Executados ({plantoes.length} plantão(ões))
             </h3>
-            <span className="text-[10px] font-bold text-zinc-500 print:text-black uppercase">Carga Horária Total: {totalHorasPlantao}h</span>
+            <span className="text-[10px] font-bold text-zinc-500 print:text-black uppercase">
+              Carga horária cumprida: <strong className="text-zinc-900 dark:text-white print:text-black">{cumpridas}h</strong>
+              {totalHorasPlantao !== cumpridas && <> de {totalHorasPlantao}h escaladas</>}
+            </span>
           </div>
 
           {plantoes.length > 0 ? (
@@ -378,27 +410,50 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
                     <th className="py-2 px-3 text-center">Entrada Real</th>
                     <th className="py-2 px-3 text-center">Saída Real</th>
                     <th className="py-2 px-3 text-center w-12">Horas</th>
+                    <th className="py-2 px-3 text-center w-24">Situação</th>
                     <th className="py-2 px-3">Setor</th>
                     <th className="py-2 px-3">Observações / Justificativas</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-                  {plantoes.map((p, idx) => (
-                    <tr key={idx} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/40 print:hover:bg-transparent">
+                  {plantoes.map((p, idx) => {
+                    const sit = rotuloSituacao(p)
+                    const naoSoma = p.estado === 'falta' || p.estado === 'em_avaliacao' || p.estado === 'previsto'
+                    return (
+                    <tr key={idx} className={`hover:bg-zinc-50 dark:hover:bg-zinc-800/40 print:hover:bg-transparent ${
+                      p.estado === 'falta' ? 'bg-red-50/70 dark:bg-red-950/20 print:bg-transparent' : ''
+                    }`}>
                       <td className="py-2 px-3 text-center font-bold">{String(p.dia).padStart(2, '0')}</td>
                       <td className="py-2 px-3 text-center text-zinc-500 print:text-black uppercase font-semibold">{p.dia_semana}</td>
                       <td className="py-2 px-3 font-bold text-zinc-900 dark:text-white print:text-black uppercase">{p.turno_nome}</td>
                       <td className="py-2 px-3 text-center font-mono text-zinc-600 dark:text-zinc-400 print:text-black">{p.horario_previsto}</td>
                       <td className="py-2 px-3 text-center font-mono font-bold text-blue-600 dark:text-blue-400 print:text-black">{p.entrada_real}</td>
                       <td className="py-2 px-3 text-center font-mono font-bold text-blue-600 dark:text-blue-400 print:text-black">{p.saida_real}</td>
-                      <td className="py-2 px-3 text-center font-bold text-zinc-900 dark:text-white print:text-black">{p.horas_computadas}h</td>
+                      {/* Hora que nao conta sai riscada: o leitor tem que ver a diferenca entre
+                          o que foi escalado e o que entra na carga sem precisar somar a mao. */}
+                      <td className={`py-2 px-3 text-center font-bold print:text-black ${
+                        naoSoma ? 'text-zinc-400 line-through' : 'text-zinc-900 dark:text-white'
+                      }`}>{p.horas_computadas}h</td>
+                      <td className={`py-2 px-3 text-center font-black text-[9px] print:text-[7.5pt] uppercase tracking-wider print:text-black ${sit.cor}`}>
+                        {sit.texto}
+                      </td>
                       <td className="py-2 px-3 text-zinc-600 dark:text-zinc-400 print:text-black uppercase print-full-text truncate max-w-[150px]">{p.setor}</td>
                       <td className="py-2 px-3 text-zinc-500 print:text-black italic leading-tight">
+                        {p.estado === 'falta' && (
+                          <span className="not-italic font-bold text-red-700 dark:text-red-400 print:text-black">
+                            {p.resultado_origem === 'decurso_de_prazo'
+                              ? 'Falta por decurso de prazo — sem registro e sem justificativa até o fechamento. '
+                              : 'Plantão não cumprido. '}
+                          </span>
+                        )}
                         {p.ajuste_manual ? 'Ajuste Manual Validado • ' : ''}
-                        {p.observacao || (p.confirmado ? 'Presença confirmada no ponto' : 'Em validação')}
+                        {p.observacao
+                          || (p.estado === 'em_avaliacao'
+                                ? (p.estado_motivo || 'Em avaliação')
+                                : p.confirmado ? 'Presença confirmada no ponto' : 'Em validação')}
                       </td>
                     </tr>
-                  ))}
+                  )})}
                 </tbody>
               </table>
             </div>
@@ -406,6 +461,47 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
             <div className="p-4 rounded-xl border border-dashed border-zinc-200 dark:border-zinc-800 text-center text-xs text-zinc-400 print:text-zinc-600">
               Nenhum plantão regular ou extra cadastrado para este servidor nesta competência.
             </div>
+          )}
+
+          {/*
+            OS TRES SUBTOTAIS.
+            A conta tem que FECHAR contra o total escalado — cumpridas + em avaliacao + faltas
+            (+ dias ainda por acontecer) = escaladas. Sem isso o leitor nao consegue conferir o
+            documento, e um anexo que nao se confere nao serve como comprovante.
+          */}
+          {plantoes.length > 0 && (
+            <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2 print:grid-cols-3 print:gap-1">
+              <div className="rounded-xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/60 dark:bg-emerald-950/20 print:bg-transparent p-2.5 print:p-1.5">
+                <div className="text-[9px] print:text-[7pt] font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-400 print:text-black">Cumpridos</div>
+                <div className="text-base print:text-[9pt] font-black text-emerald-700 dark:text-emerald-400 print:text-black">{cumpridas}h</div>
+                <div className="text-[9px] print:text-[6.5pt] text-zinc-500 print:text-black leading-tight">Registrados no ponto ou validados pelo coordenador</div>
+              </div>
+              <div className="rounded-xl border border-orange-200 dark:border-orange-900/50 bg-orange-50/60 dark:bg-orange-950/20 print:bg-transparent p-2.5 print:p-1.5">
+                <div className="text-[9px] print:text-[7pt] font-black uppercase tracking-wider text-orange-700 dark:text-orange-400 print:text-black">Em avaliação</div>
+                <div className="text-base print:text-[9pt] font-black text-orange-700 dark:text-orange-400 print:text-black">{emAvaliacaoHoras}h</div>
+                <div className="text-[9px] print:text-[6.5pt] text-zinc-500 print:text-black leading-tight">
+                  {qtdEmAvaliacao} plantão(ões) sem registro completo — não entram na carga
+                </div>
+              </div>
+              <div className="rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50/60 dark:bg-red-950/20 print:bg-transparent p-2.5 print:p-1.5">
+                <div className="text-[9px] print:text-[7pt] font-black uppercase tracking-wider text-red-700 dark:text-red-400 print:text-black">Faltas</div>
+                <div className="text-base print:text-[9pt] font-black text-red-700 dark:text-red-400 print:text-black">{qtdFaltas}</div>
+                <div className="text-[9px] print:text-[6.5pt] text-zinc-500 print:text-black leading-tight">
+                  {faltasHoras}h de plantão escalado e não cumprido
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/*
+            Sem o desfecho, o documento volta a ser o de antes (soma tudo). Isso precisa estar
+            ESCRITO nele: quem assina tem que saber qual dos dois anexos tem na mao.
+          */}
+          {dados.desfechoIndisponivel && (
+            <p className="mt-2 text-[10px] print:text-[7pt] font-bold text-amber-700 dark:text-amber-400 print:text-black">
+              ⚠️ A conferência de cumprimento não pôde ser calculada nesta emissão. A carga acima
+              corresponde ao total ESCALADO, sem separar o que foi efetivamente registrado.
+            </p>
           )}
         </div>
 
@@ -509,8 +605,12 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
             </div>
             <div className="text-center pt-2 sm:pt-0 sm:pl-3 print:pl-2">
               <div className="text-[9px] print:text-[7.5pt] font-bold text-zinc-500 print:text-zinc-700 uppercase tracking-wider">Horas de Plantão</div>
-              <div className="text-xl md:text-2xl print:text-lg font-black text-blue-600 dark:text-blue-400 print:text-black mt-0.5">{totalHorasPlantao}h</div>
-              <div className="text-[9px] print:text-[7pt] font-medium text-zinc-400 print:text-zinc-600 uppercase">computadas</div>
+              <div className="text-xl md:text-2xl print:text-lg font-black text-blue-600 dark:text-blue-400 print:text-black mt-0.5">{cumpridas}h</div>
+              {/* "computadas" virou "cumpridas": o numero grande do resumo e o mesmo criterio da
+                  secao 1, senao o resumo e a tabela do mesmo documento se contradizem. */}
+              <div className="text-[9px] print:text-[7pt] font-medium text-zinc-400 print:text-zinc-600 uppercase">
+                cumpridas{totalHorasPlantao !== cumpridas && <> de {totalHorasPlantao}h</>}
+              </div>
             </div>
             <div className="text-center pt-2 sm:pt-0 sm:pl-3 print:pl-2">
               <div className="text-[9px] print:text-[7.5pt] font-bold text-zinc-500 print:text-zinc-700 uppercase tracking-wider">Total de Sobreavisos</div>
@@ -536,7 +636,7 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
               <div>
                 <div className="text-[9px] print:text-[7pt] font-black uppercase text-zinc-500 print:text-zinc-700 tracking-wider mb-1.5 flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-blue-500 print:bg-black inline-block"></span>
-                  Detalhamento dos Plantões ({plantoes.length} escala{plantoes.length !== 1 ? 's' : ''} • {totalHorasPlantao}h)
+                  Detalhamento dos Plantões ({plantoes.length} escala{plantoes.length !== 1 ? 's' : ''} • {cumpridas}h cumpridas)
                 </div>
                 {resumoTiposPlantao.length > 0 ? (
                   <div className="flex flex-wrap gap-1.5">

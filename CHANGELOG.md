@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.15.0] - 2026-08-24
+
+### Changed
+- **O anexo de plantões passou a somar o que foi CUMPRIDO, não o que foi escalado** (fases 2 e 4 do plano `docs/planos/2026-08-23-desfecho-de-plantao-e-sobreaviso.md`). O anexo é comprobatório — é o que o servidor assina e o que o RH usa para pagar a unidade de plantão — e até aqui somava `horas_computadas` de toda linha, com ou sem registro de ponto. Em 08/2026 isso eram **1.377h de 2.107h (65%)** sem registro completo, saindo impressas sob o rótulo "Carga Horária Total".
+  - Coluna **Situação** em cada linha: `REGISTRADO` · `VALIDADO` · `EM AVALIAÇÃO` · `FALTA` · `PREVISTO`. Hora que não conta sai **riscada**, para o leitor ver a diferença sem somar a mão.
+  - Rodapé com **três subtotais** — cumpridos, em avaliação e faltas. A conta fecha contra o total escalado: um anexo que não se confere não serve como comprovante.
+  - **A linha em avaliação nunca some.** Ela aparece e não soma. Escondê-la tiraria do servidor a chance de contestar antes do fechamento — é o mesmo princípio de `substituida_por_precedencia`.
+  - O número grande do resumo e o "Detalhamento dos Plantões" passaram ao mesmo critério: o resumo e a tabela do mesmo documento não podem se contradizer.
+- **`/relatorios/plantao-sobreaviso`**: "Plantões (h)" passa a ser horas cumpridas, com colunas novas de **Em avaliação (h)** e **Faltas**, também no CSV. O gráfico de evolução e a distribuição por cargo seguem o mesmo critério — o gráfico não pode contar uma coisa e a tabela outra. O KPI que dizia "Executado no período" agora é verdade.
+  - ⚠️ Isso muda relatórios de competências **já fechadas**: 06/2026 muda 27 eventos e 07/2026 muda 1. As duas estão em `competencias_encerradas` e o relatório é derivado — não há dado a migrar. O critério foi aplicado de forma uniforme de propósito: um critério que vale só a partir de uma data cria dois significados para a mesma coluna.
+
+### Fixed
+- **O anexo listava artefato de presença como "acionamento presencial de sobreaviso"** — num documento assinado. `logs_sobreaviso` não é uma tabela de acionamentos: `fn_confirmar_presenca` e `fn_confirmar_presenca_manual` também escrevem ali ao validar presença, e os artefatos entram com status `Chegou`. O relatório já filtrava (`ehAcionamentoReal`); o anexo, não. **510 das 526 linhas** de produção são de outra categoria e estavam elegíveis a aparecer ali.
+  - ⚠️ O filtro por categoria seria um **no-op silencioso**: `categoria` não estava no `select` de `logs_sobreaviso`, então toda linha chegava com o campo `undefined` e passaria. Corrigido nos dois selects (o principal e o de fallback).
+
+### Measured
+- **ANDRESA MELO PEREIRA (mat. 54594), 08/2026** — o caso do print original: `Carga Horária Total: 120h` vira **48h cumpridas · 60h em avaliação · 0 faltas · 12h de dia futuro**, e a conta fecha em 120h.
+
 ## [2.14.1] - 2026-08-24
 
 ### Added

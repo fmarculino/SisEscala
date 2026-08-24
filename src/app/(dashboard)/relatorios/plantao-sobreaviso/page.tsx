@@ -96,6 +96,7 @@ export default async function PlantaoSobreavisoPage({ searchParams }: Props) {
       unidades(nome),
       setores(dicionario_setores(nome)),
       escala_diaria(
+        id,
         dia,
         categoria,
         presenca_entrada_em,
@@ -130,8 +131,43 @@ export default async function PlantaoSobreavisoPage({ searchParams }: Props) {
     return matchPeriod && matchCargo
   }) || []
 
-  // 3. Fetch on-call acionamentos logs
+  // 2-B. O DESFECHO DE CADA PLANTAO — fn_desfecho_evento_dia (20260824120000).
+  //
+  // Ate 24/08/2026 este relatorio somava `horas_computadas` de TODA linha de plantao, sem olhar
+  // presenca nenhuma (`plantaoHours += horas`). Medido em 08/2026: 65% das horas nao tinham
+  // registro completo. Agora "horas de plantao" passa a significar horas CUMPRIDAS, e o que
+  // esta pendente ou faltou aparece separado — mesma fonte que o anexo usa, para os dois
+  // documentos nao discordarem na mesma competencia.
+  //
+  // ⚠️ Isto muda relatorios de competencias ja fechadas: 06/2026 muda 27 eventos e 07/2026
+  // muda 1. As duas estao em competencias_encerradas, e o relatorio e derivado — nao ha dado a
+  // migrar. Foi decidido aplicar o criterio de forma uniforme: um criterio que vale so a partir
+  // de uma data cria dois significados para a mesma coluna.
   const scaleIds = filteredScales.map((e: any) => e.id)
+
+  const desfechoPorLinha = new Map<string, string>()
+  if (scaleIds.length > 0) {
+    try {
+      const { data: hojeLocal } = await supabase.rpc('fn_data_local')
+      for (let i = 0; i < scaleIds.length; i += 100) {
+        const { data: desfechos } = await supabase.rpc('fn_desfecho_eventos_escalas', {
+          p_escala_mensal_ids: scaleIds.slice(i, i + 100),
+          p_hoje: String(hojeLocal)
+        })
+        ;(desfechos || []).forEach((d: any) => desfechoPorLinha.set(d.escala_diaria_id, d.estado))
+      }
+    } catch (err) {
+      console.warn('Desfecho indisponivel; o relatorio sai com o criterio antigo (tudo somado):', err)
+    }
+  }
+
+  /** Estado ausente conta como cumprido — cai no comportamento antigo em vez de zerar tudo. */
+  const plantaoCumprido = (edId: string) => {
+    const e = desfechoPorLinha.get(edId)
+    return !e || e === 'registrado' || e === 'validado'
+  }
+
+  // 3. Fetch on-call acionamentos logs
   
   // ATENÇÃO: até 08/08/2026 este select pedia `data_hora_chamado`, coluna que NUNCA existiu em
   // logs_sobreaviso (o nome real é data_hora_acionamento). O PostgREST respondia 400 e o código
@@ -198,6 +234,9 @@ export default async function PlantaoSobreavisoPage({ searchParams }: Props) {
         unidade: item.unidades?.nome || '---',
         setor: item.setores?.dicionario_setores?.nome || 'SETOR SEM NOME',
         plantaoHours: 0,
+        plantaoHorasEmAvaliacao: 0,
+        plantaoHorasFaltas: 0,
+        plantaoFaltas: 0,
         sobreavisoScheduledHours: 0,
         sobreavisoActivatedHours: 0,
         fatigueAlertsCount: 0,
@@ -235,7 +274,19 @@ export default async function PlantaoSobreavisoPage({ searchParams }: Props) {
       const cat = ed.categoria
 
       if (cat === 'Plantão') {
-        currentServer.plantaoHours += horas
+        // `plantaoHours` passa a ser CUMPRIDO, nao escalado. O nome fica: e o numero que os
+        // relatorios de RH e o consolidado sempre chamaram de "horas de plantao", e trocar o
+        // significado sem trocar o nome ja seria confuso demais em dois lugares ao mesmo tempo.
+        const estado = desfechoPorLinha.get(ed.id)
+        if (estado === 'falta') {
+          currentServer.plantaoFaltas += 1
+          currentServer.plantaoHorasFaltas += horas
+        } else if (estado === 'em_avaliacao') {
+          currentServer.plantaoHorasEmAvaliacao += horas
+        } else if (plantaoCumprido(ed.id)) {
+          currentServer.plantaoHours += horas
+        }
+        // `previsto` (dia que ainda nao aconteceu) nao entra em nenhum dos tres.
       } else if (cat === 'Sobreaviso') {
         if (horas === 0) {
           horas = (t.codigo === 'MTN') ? 24 : (t.codigo === 'MT' || t.codigo === 'N' ? 12 : 0)
@@ -311,7 +362,9 @@ export default async function PlantaoSobreavisoPage({ searchParams }: Props) {
       const cat = ed.categoria
 
       if (cat === 'Plantão') {
-        currentTrend.plantaoHours += horas
+        // Mesmo criterio do bloco acima — o grafico de evolucao nao pode contar uma coisa e a
+        // tabela outra no mesmo relatorio.
+        if (plantaoCumprido(ed.id)) currentTrend.plantaoHours += horas
       } else if (cat === 'Sobreaviso') {
         if (horas === 0) {
           horas = (t.codigo === 'MTN') ? 24 : (t.codigo === 'MT' || t.codigo === 'N' ? 12 : 0)
@@ -349,7 +402,7 @@ export default async function PlantaoSobreavisoPage({ searchParams }: Props) {
       const cat = ed.categoria
 
       if (cat === 'Plantão') {
-        cargoMap[sCargo].plantaoHours += horas
+        if (plantaoCumprido(ed.id)) cargoMap[sCargo].plantaoHours += horas
       } else if (cat === 'Sobreaviso') {
         if (horas === 0) {
           horas = (t.codigo === 'MTN') ? 24 : (t.codigo === 'MT' || t.codigo === 'N' ? 12 : 0)
@@ -363,6 +416,8 @@ export default async function PlantaoSobreavisoPage({ searchParams }: Props) {
 
   // 7. Global KPIs
   const totalPlantaoHours = serverDiagnostics.reduce((acc, curr) => acc + curr.plantaoHours, 0)
+  const totalPlantaoEmAvaliacao = serverDiagnostics.reduce((acc, curr) => acc + (curr.plantaoHorasEmAvaliacao || 0), 0)
+  const totalPlantaoFaltas = serverDiagnostics.reduce((acc, curr) => acc + (curr.plantaoFaltas || 0), 0)
   const totalSobreavisoScheduled = serverDiagnostics.reduce((acc, curr) => acc + curr.sobreavisoScheduledHours, 0)
   const totalSobreavisoActivated = serverDiagnostics.reduce((acc, curr) => acc + curr.sobreavisoActivatedHours, 0)
   const totalFatigueAlerts = serverDiagnostics.reduce((acc, curr) => acc + curr.fatigueAlertsCount, 0)
@@ -437,7 +492,13 @@ export default async function PlantaoSobreavisoPage({ searchParams }: Props) {
           <div>
             <div className="text-[9px] font-black uppercase text-zinc-400">Total de Horas Plantão</div>
             <div className="text-xl font-black text-zinc-900 dark:text-white">{totalPlantaoHours}h</div>
-            <div className="text-[9.5px] text-zinc-500 mt-0.5">Executado no período</div>
+            {/* "Executado no período" agora e verdade: ate 24/08/2026 este numero somava o que
+                foi ESCALADO e chamava de executado. */}
+            <div className="text-[9.5px] text-zinc-500 mt-0.5">
+              Cumpridas
+              {totalPlantaoEmAvaliacao > 0 && <> · <span className="text-orange-600 dark:text-orange-400 font-bold">{totalPlantaoEmAvaliacao}h em avaliação</span></>}
+              {totalPlantaoFaltas > 0 && <> · <span className="text-red-600 dark:text-red-400 font-bold">{totalPlantaoFaltas} falta(s)</span></>}
+            </div>
           </div>
         </div>
 
