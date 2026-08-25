@@ -1899,6 +1899,61 @@ dois.
 snapshot"); a competência antiga só muda ao clicar em **Sincronizar**. Não houve migration — o
 conserto é de leitura, e nenhum horário, hora normal ou falta se move.
 
+### 22. Relatar o que foi CALCULADO em vez do que MUDOU (25/08/2026)
+
+⚠️ **O Gerador Inteligente anunciava "111 turnos preenchidos" com ZERO células alteradas.** O
+contador media a saída do motor; os dois `return` do merge (dia com ponto batido, dia de
+afastamento) descartavam célula sem contabilizar nada. Caso real: TI da SMS, 08/2026 — 81 das
+111 caíram por já ter ponto, e as 30 restantes já estavam lançadas com o mesmo turno. O usuário
+procurou a escala e não achou. Diário em
+[`docs/evolucao/2026-08-25-gerador-inteligente-quatro-linhas.md`](docs/evolucao/2026-08-25-gerador-inteligente-quatro-linhas.md).
+
+**A regra vale além do gerador: nunca relate o que foi calculado; relate o que mudou, e por que
+o resto não.** Toda tela que filtra depois de calcular tem esse buraco.
+
+⚠️ **E o contador não pode viver dentro do updater do `setState`.** O React chama o updater na
+fase de render, não na linha em que ele está escrito — a variável ainda vale zero quando a
+mensagem a lê, e em modo estrito o updater roda duas vezes e dobra a conta. Faça a mesclagem
+síncrona e mande só o resultado pronto.
+
+⚠️ **Mais histórico deu MENOS acerto, e isso é contraintuitivo o bastante para estar aqui.**
+Backtest de ponta a ponta (prever 08/2026, 96 setores, contando os 11 com competência anterior):
+
+| histórico | Regular | Plantão | Extra |
+|---|---|---|---|
+| **1 mês** | **76,1% / 94,1%** | **50,6% / 75,8%** | **39,8% / 66,2%** |
+| 3 meses | 68,7% / 93,4% | 45,0% / 73,6% | 36,7% / 69,1% |
+
+O denominador da confiança cresce com cada mês somado, então quem foi consistente no mês passado
+e diferente dois meses atrás cai **abaixo do limiar** e some da sugestão. Somar competências com
+peso **igual** é pior ainda (84,6% → 81,4% de precisão) — o quadro muda, e o mês antigo vota
+contra o recente. Daí os pesos 5/2/1 de `fn_estatistica_escala_setor` e o padrão de **1 mês**.
+Só existem 3 competências na base; **refaça o backtest antes de mexer nesses números.**
+
+⚠️ **Precisão vale mais que cobertura num sistema de ponto**, e é o que define os limiares por
+categoria (`LIMIAR_CONFIANCA`: Regular 0,50 · Plantão 0,75 · Extra e Sobreaviso 1,00). Célula que
+falta o coordenador preenche — é o trabalho normal dele. Célula sugerida a mais em Plantão ou
+Extra é hora paga que ninguém decidiu, e ele precisa *caçar* para apagar. Sem limiar, o Extra
+media 57,5% de precisão: **43% da hora extra que ele agendaria nunca aconteceu.** Por isso Extra
+e Sobreaviso entram **desmarcados** na tela.
+
+⚠️ **A estatística mora no banco (`fn_estatistica_escala_setor`, `20260825100000`) e não pode
+voltar para o cliente.** Não é só desempenho: o maior setor tem 692 linhas de `escala_diaria` num
+mês, três meses dão 2.076, e o PostgREST corta em 1000 **em silêncio** (armadilha 8) — a
+estatística sairia errada sem erro nenhum na tela.
+
+⚠️ **Mês extra gerado é gravado; o mês da grade não.** A competência aberta continua rascunho
+local até "Salvar Previsão"; as seguintes não têm grade para segurá-las e vão ao banco como
+**Rascunho**. Quatro travas em `persistirMesesGerados` que não podem sair: competência encerrada
+é pulada, `escala_mensal` fora de Rascunho é pulada, **célula existente nunca é sobrescrita** (é
+o que torna seguro rodar duas vezes) e dia de afastamento é removido antes — sem isso o trigger
+`fn_prevent_shift_during_event` derruba o lote inteiro (armadilha 14).
+
+⚠️ **Cada mês extra é previsto a partir do último mês REAL, nunca do mês anterior gerado.**
+Encadear previsão sobre previsão multiplica o erro (~85% → 72% → 61% em três meses) e congela um
+engano dentro dos meses seguintes. A exceção é o ciclo de passo fixo, que é determinístico e
+precisa mesmo atravessar a virada.
+
 ## Papéis de RH: Geral vs da Unidade (12/08/2026)
 
 `role = 'rh'` ("RH Geral") enxerga tudo; `role = 'rh_unidade'` ("RH da Unidade") é escopado por

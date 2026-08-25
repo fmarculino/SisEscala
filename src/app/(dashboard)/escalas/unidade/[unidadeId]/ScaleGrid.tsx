@@ -20,7 +20,15 @@ import { generateTemplate, TEMPLATE_OPTIONS, type TemplateType, countWorkDays } 
 import { decomporPlantao } from '@/utils/plantaoUnidades'
 import { celulaTemPassosDeIntervalo } from '@/utils/intervaloIntrajornada'
 import { statusAcionamento } from '@/utils/sobreaviso/statusAcionamento'
-import { generateIntelligentScale } from '@/utils/intelligentScaleGenerator'
+import {
+  gerarEscalaInteligente,
+  CATEGORIAS_GERAVEIS,
+  LIMIAR_CONFIANCA,
+  MESES_HISTORICO_PADRAO,
+  MESES_HISTORICO_MAX,
+  montarResumoGerador,
+  type MesGerado
+} from '@/utils/intelligentScaleGenerator'
 import {
   encontrarAfastamentosBloqueantes,
   dataISODoDia,
@@ -525,6 +533,12 @@ export function ScaleGrid({
     respectContinuity: boolean
     respectEvents: boolean
     respectPreferences: boolean
+    /** Quais linhas da grade gerar. Extra e Sobreaviso entram desligadas — ver LIMIAR_CONFIANCA. */
+    categorias: RowCategory[]
+    /** Meses de histórico ponderados por recência (1..3). */
+    mesesHistorico: number
+    /** 1 = só a competência aberta. 2+ grava as seguintes como Rascunho. */
+    quantidadeMeses: number
   } | null>(null)
 
   // WhatsApp Sending State para Sobreaviso
@@ -2771,6 +2785,117 @@ export function ScaleGrid({
     }
   }
 
+  /**
+   * Grava as competências EXTRAS do Gerador Inteligente (a 2ª em diante) como Rascunho.
+   *
+   * A competência aberta na tela continua sendo rascunho LOCAL — nada dela vai ao banco sem
+   * "Salvar Previsão". As seguintes não têm grade aberta para segurá-las, então ou são gravadas
+   * ou não existem. Quatro travas, e nenhuma delas é opcional:
+   *
+   *  1. Competência encerrada (`competencias_encerradas`) é pulada e dita no resumo.
+   *  2. Escala mensal que não esteja em Rascunho é pulada — escala Fechada de mês futuro é
+   *     decisão de alguém, não do gerador.
+   *  3. Célula que JÁ EXISTE nunca é sobrescrita, só as que faltam são inseridas. É o que torna
+   *     seguro rodar o gerador duas vezes, e o que impede o palpite de apagar trabalho manual.
+   *  4. O motor já removeu dia de afastamento; sem isso o trigger fn_prevent_shift_during_event
+   *     derrubaria o lote inteiro (armadilha 14).
+   */
+  const persistirMesesGerados = useCallback(async (
+    mesesExtras: MesGerado[],
+    jornadasHerdadas: Record<string, string>
+  ): Promise<{ rotulo: string; celulas: number }[]> => {
+    const resumo: { rotulo: string; celulas: number }[] = []
+
+    // Lido aqui do prop, e não da const `closedPeriods`: ela é declarada mais abaixo no corpo
+    // do componente, e citá-la na lista de dependências deste useCallback estouraria a zona
+    // morta temporal (TDZ) já no primeiro render.
+    const encerradasRaw = configsGlobais?.find(c => c.chave === 'competencias_encerradas')?.valor
+    const encerradas: any[] = Array.isArray(encerradasRaw) ? encerradasRaw : []
+
+    for (const alvo of mesesExtras) {
+      const rotulo = `${String(alvo.mes).padStart(2, '0')}/${alvo.ano}`
+
+      if (encerradas.some((p: any) => p.mes === alvo.mes && p.ano === alvo.ano)) {
+        resumo.push({ rotulo: `${rotulo} (encerrada, ignorada)`, celulas: 0 })
+        continue
+      }
+
+      const { data: existentes, error: errSel } = await supabase
+        .from('escala_mensal')
+        .select('id, servidor_id, status')
+        .eq('unidade_id', unidadeId)
+        .eq('setor_id', setorId)
+        .eq('mes', alvo.mes)
+        .eq('ano', alvo.ano)
+      if (errSel) throw new Error(`Competência ${rotulo}: ${errSel.message}`)
+
+      const porServidor = new Map<string, any>((existentes || []).map((e: any) => [e.servidor_id, e]))
+
+      const faltantes = escalaMensal.filter(em => em.servidor_id && !porServidor.has(em.servidor_id))
+      if (faltantes.length > 0) {
+        const { data: criadas, error: errIns } = await supabase
+          .from('escala_mensal')
+          .insert(faltantes.map(em => ({
+            servidor_id: em.servidor_id,
+            unidade_id: unidadeId,
+            setor_id: setorId,
+            mes: alvo.mes,
+            ano: alvo.ano,
+            status: 'Rascunho',
+            jornada_id: em.jornada_id || jornadasHerdadas[em.servidor_id] || null
+          })))
+          .select('id, servidor_id, status')
+        if (errIns) throw new Error(`Competência ${rotulo}: ${errIns.message}`)
+        criadas?.forEach((c: any) => porServidor.set(c.servidor_id, c))
+      }
+
+      const emEditaveis = [...porServidor.values()].filter((e: any) => e.status !== 'Fechada')
+      if (emEditaveis.length === 0) {
+        resumo.push({ rotulo, celulas: 0 })
+        continue
+      }
+
+      const { data: jaGravadas, error: errEd } = await supabase
+        .from('escala_diaria')
+        .select('escala_mensal_id, categoria, dia')
+        .in('escala_mensal_id', emEditaveis.map((e: any) => e.id))
+      if (errEd) throw new Error(`Competência ${rotulo}: ${errEd.message}`)
+
+      const ocupadas = new Set(
+        (jaGravadas || []).map((d: any) => `${d.escala_mensal_id}|${d.categoria}|${d.dia}`)
+      )
+
+      const inserts: any[] = []
+      for (const [servidorId, categorias] of Object.entries(alvo.grid)) {
+        const emAlvo = porServidor.get(servidorId)
+        if (!emAlvo || emAlvo.status === 'Fechada') continue
+        for (const [categoria, dias] of Object.entries(categorias)) {
+          for (const [diaStr, turnoId] of Object.entries(dias as Record<string, string>)) {
+            const dia = parseInt(diaStr)
+            if (ocupadas.has(`${emAlvo.id}|${categoria}|${dia}`)) continue
+            inserts.push({
+              escala_mensal_id: emAlvo.id,
+              dia,
+              categoria,
+              dicionario_turnos_id: turnoId
+            })
+          }
+        }
+      }
+
+      // Em lotes: o upsert em bloco único de um mês inteiro de um setor grande já passou de
+      // 2 mil linhas, e o erro de uma derruba todas.
+      for (let i = 0; i < inserts.length; i += 500) {
+        const { error } = await supabase.from('escala_diaria').insert(inserts.slice(i, i + 500))
+        if (error) throw new Error(`Competência ${rotulo}: ${error.message}`)
+      }
+
+      resumo.push({ rotulo, celulas: inserts.length })
+    }
+
+    return resumo
+  }, [supabase, unidadeId, setorId, escalaMensal, configsGlobais])
+
   const handleSave = async () => {
     if (isCompetenciaEncerrada) return
 
@@ -3628,7 +3753,14 @@ export function ScaleGrid({
                   isOpen: true,
                   respectContinuity: true,
                   respectEvents: true,
-                  respectPreferences: true
+                  respectPreferences: true,
+                  // Regular e Plantão vêm marcados; Extra e Sobreaviso não. O backtest de
+                  // 25/08/2026 mediu 57,5% de precisão no Extra — 43% da hora extra que ele
+                  // sugeriria nunca aconteceu — e 33,3% no Sobreaviso. Sugerir sobrejornada
+                  // por padrão é o tipo de erro que ninguém revisa.
+                  categorias: ['Regular', 'Plantão'],
+                  mesesHistorico: MESES_HISTORICO_PADRAO,
+                  quantidadeMeses: 1
                 })
               }}
               disabled={loading || isClosed}
@@ -5274,11 +5406,14 @@ export function ScaleGrid({
         </div>
       )}
 
-      {/* Modal de Gerador Inteligente de Escala */}
+      {/* Modal de Gerador Inteligente de Escala.
+          O motor vive em src/utils/intelligentScaleGenerator.ts — inclusive os limiares de
+          confiança por categoria, que saíram de backtest contra a produção. Não replicar
+          regra aqui: esta tela escolhe as opções e mostra o resultado. */}
       {intelligentModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-2xl border border-zinc-200 dark:border-zinc-800 w-full max-w-md overflow-hidden animate-in fade-in duration-200">
-            <div className="p-6 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between bg-zinc-50 dark:bg-zinc-900/50">
+          <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-2xl border border-zinc-200 dark:border-zinc-800 w-full max-w-lg overflow-hidden animate-in fade-in duration-200 max-h-[90vh] flex flex-col">
+            <div className="p-6 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between bg-zinc-50 dark:bg-zinc-900/50 shrink-0">
               <h2 className="text-xl font-bold flex items-center gap-2 text-zinc-900 dark:text-white">
                 <Sparkles className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
                 Gerador Inteligente
@@ -5288,13 +5423,130 @@ export function ScaleGrid({
               </button>
             </div>
 
-            <div className="p-6 space-y-4">
+            <div className="p-6 space-y-5 overflow-y-auto">
               <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                O gerador analisará as escalas do mês anterior e os eventos/afastamentos agendados para sugerir a distribuição de turnos de forma inteligente.
+                O gerador estuda o que foi lançado nas competências anteriores deste setor e sugere,
+                por servidor e por dia da semana, o turno mais provável.
               </p>
 
-              <div className="space-y-4 pt-2">
-                <label className="flex items-start gap-3 cursor-pointer">
+              {/* ---- Linhas da grade ---- */}
+              <div>
+                <span className="text-xs font-bold uppercase tracking-wide text-zinc-500 dark:text-zinc-400 block mb-2">
+                  Linhas a gerar
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  {CATEGORIAS_GERAVEIS.map(cat => {
+                    const marcada = intelligentModal.categorias.includes(cat)
+                    const limiar = LIMIAR_CONFIANCA[cat]
+                    return (
+                      <label
+                        key={cat}
+                        className={`flex items-start gap-2 rounded-lg border p-2.5 cursor-pointer transition-colors ${
+                          marcada
+                            ? 'border-indigo-300 bg-indigo-50/60 dark:border-indigo-800 dark:bg-indigo-950/20'
+                            : 'border-zinc-200 dark:border-zinc-800'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={marcada}
+                          onChange={(e) => setIntelligentModal(prev => prev ? {
+                            ...prev,
+                            categorias: e.target.checked
+                              ? [...prev.categorias, cat]
+                              : prev.categorias.filter(c => c !== cat)
+                          } : null)}
+                          className="mt-0.5 h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <div className="min-w-0">
+                          <span className="text-sm font-semibold text-zinc-950 dark:text-zinc-50 block">
+                            {cat === 'Regular' ? 'Regular' : cat === 'Extra' ? 'Hora Extra' : cat === 'Plantão' ? 'Plantão' : 'Sobreaviso'}
+                          </span>
+                          <span className="text-[10px] text-zinc-500 block leading-tight">
+                            só sugere com {Math.round(limiar * 100)}% de repetição
+                          </span>
+                        </div>
+                      </label>
+                    )
+                  })}
+                </div>
+                {(intelligentModal.categorias.includes('Extra') || intelligentModal.categorias.includes('Sobreaviso')) && (
+                  <p className="mt-2 text-[11px] leading-snug text-amber-700 dark:text-amber-500 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-lg p-2">
+                    Medido em agosto/2026: no histórico real, o acerto do gerador em Hora Extra foi de
+                    57% e em Sobreaviso de 33%. Por isso essas duas linhas só são preenchidas quando o
+                    padrão se repetiu em <strong>todas</strong> as ocorrências daquele dia da semana —
+                    e ainda assim confira antes de salvar.
+                  </p>
+                )}
+              </div>
+
+              {/* ---- Histórico ---- */}
+              <div>
+                <label htmlFor="ger-meses-hist" className="text-xs font-bold uppercase tracking-wide text-zinc-500 dark:text-zinc-400 block mb-1.5">
+                  Competências analisadas
+                </label>
+                <select
+                  id="ger-meses-hist"
+                  value={intelligentModal.mesesHistorico}
+                  onChange={(e) => setIntelligentModal(prev => prev ? { ...prev, mesesHistorico: parseInt(e.target.value) } : null)}
+                  className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm"
+                >
+                  {Array.from({ length: MESES_HISTORICO_MAX }, (_, i) => i + 1).map(n => (
+                    <option key={n} value={n}>
+                      {n === 1 ? 'Apenas o mês anterior (recomendado)' : `Os ${n} meses anteriores`}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1.5 text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">
+                  Parece que olhar mais meses acertaria mais, mas foi medido e é o contrário: com 3
+                  competências o acerto no Regular caiu de 76% para 69%. Quem foi constante no mês
+                  passado e diferente dois meses atrás deixa de alcançar o limiar e some da sugestão.
+                  Use 2 ou 3 só em setor de rotina muito estável.
+                </p>
+              </div>
+
+              {/* ---- Quantos meses gerar ---- */}
+              <div>
+                <label htmlFor="ger-meses-alvo" className="text-xs font-bold uppercase tracking-wide text-zinc-500 dark:text-zinc-400 block mb-1.5">
+                  Competências a gerar
+                </label>
+                <select
+                  id="ger-meses-alvo"
+                  value={intelligentModal.quantidadeMeses}
+                  onChange={(e) => setIntelligentModal(prev => prev ? { ...prev, quantidadeMeses: parseInt(e.target.value) } : null)}
+                  className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm"
+                >
+                  {[1, 2, 3, 4, 5, 6].map(n => {
+                    const nomes = Array.from({ length: n }, (_, i) => {
+                      let m = mes + i, a = ano
+                      while (m > 12) { m -= 12; a += 1 }
+                      return `${new Date(a, m - 1, 1).toLocaleString('pt-BR', { month: 'short' })}/${String(a).slice(2)}`
+                    })
+                    return <option key={n} value={n}>{n === 1 ? 'Somente esta competência' : `${n} competências — ${nomes.join(', ')}`}</option>
+                  })}
+                </select>
+                {intelligentModal.quantidadeMeses > 1 && (
+                  <p className="mt-1.5 text-[11px] leading-snug text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-900/40 rounded-lg p-2">
+                    A competência aberta continua sendo rascunho desta tela — nada vai ao banco sem você
+                    clicar em <strong>Salvar Previsão</strong>. As competências seguintes são
+                    <strong> criadas no banco com status Rascunho</strong>, porque não existe grade aberta
+                    para segurá-las. Rascunho não entra em folha e não fecha competência; revise cada uma
+                    antes de fechar.
+                  </p>
+                )}
+                {intelligentModal.quantidadeMeses > 1 && intelligentModal.quantidadeMeses > 3 && (
+                  <p className="mt-1.5 text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">
+                    Todas as competências são previstas a partir do mesmo histórico real — nenhuma é
+                    prevista a partir do palpite da anterior. Ainda assim, quanto mais longe, menos o
+                    passado descreve o futuro: afastamentos e férias desses meses provavelmente nem
+                    foram cadastrados ainda.
+                  </p>
+                )}
+              </div>
+
+              {/* ---- Opções ---- */}
+              <div className="space-y-3 pt-1 border-t border-zinc-100 dark:border-zinc-800">
+                <label className="flex items-start gap-3 cursor-pointer pt-3">
                   <input
                     type="checkbox"
                     checked={intelligentModal.respectContinuity}
@@ -5303,7 +5555,7 @@ export function ScaleGrid({
                   />
                   <div>
                     <span className="text-sm font-semibold text-zinc-950 dark:text-zinc-50 block">Respeitar Continuidade Histórica</span>
-                    <span className="text-xs text-zinc-500 block">Detecta ciclos 12x36 do mês anterior e inicia no dia correto.</span>
+                    <span className="text-xs text-zinc-500 block">Detecta ciclos de passo fixo (12x36 e parentes) e continua a sequência na virada do mês.</span>
                   </div>
                 </label>
 
@@ -5316,7 +5568,7 @@ export function ScaleGrid({
                   />
                   <div>
                     <span className="text-sm font-semibold text-zinc-950 dark:text-zinc-50 block">Evitar Dias de Afastamento</span>
-                    <span className="text-xs text-zinc-500 block">Zera o turno nos dias com férias ou licenças cadastradas.</span>
+                    <span className="text-xs text-zinc-500 block">Governa o padrão de folgas. Dia de férias ou licença nunca recebe turno, marcada ou não — é regra do banco.</span>
                   </div>
                 </label>
 
@@ -5329,13 +5581,13 @@ export function ScaleGrid({
                   />
                   <div>
                     <span className="text-sm font-semibold text-zinc-950 dark:text-zinc-50 block">Respeitar Preferências de Turno</span>
-                    <span className="text-xs text-zinc-500 block">Prioriza o turno preferido ou o mais frequente do servidor.</span>
+                    <span className="text-xs text-zinc-500 block">Aceita um padrão menos consistente quando o turno é o preferido do servidor. Nunca inventa dia sem histórico.</span>
                   </div>
                 </label>
               </div>
             </div>
 
-            <div className="p-6 bg-zinc-50 dark:bg-zinc-900/50 border-t border-zinc-100 dark:border-zinc-800 flex justify-end gap-3">
+            <div className="p-6 bg-zinc-50 dark:bg-zinc-900/50 border-t border-zinc-100 dark:border-zinc-800 flex justify-end gap-3 shrink-0">
               <button
                 onClick={() => setIntelligentModal(null)}
                 className="px-4 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
@@ -5345,122 +5597,168 @@ export function ScaleGrid({
               <button
                 onClick={async () => {
                   if (!intelligentModal) return
+                  if (intelligentModal.categorias.length === 0) {
+                    setAlertModal({ isOpen: true, title: 'Nenhuma Linha Marcada', message: 'Escolha pelo menos uma linha da grade para o gerador preencher.', type: 'warning' })
+                    return
+                  }
+                  const opcoes = {
+                    respectContinuity: intelligentModal.respectContinuity,
+                    respectEvents: intelligentModal.respectEvents,
+                    respectPreferences: intelligentModal.respectPreferences,
+                    categorias: intelligentModal.categorias,
+                    mesesHistorico: intelligentModal.mesesHistorico
+                  }
+                  const quantidadeMeses = intelligentModal.quantidadeMeses
                   setLoading(true)
                   try {
-                    const { grid: generatedGrid, jornadas: prevJornadas } = await generateIntelligentScale(supabase, {
+                    const resultado = await gerarEscalaInteligente(supabase, {
                       unidadeId,
                       setorId,
                       mes,
                       ano,
                       escalaMensal,
                       turnos,
-                      options: {
-                        respectContinuity: intelligentModal.respectContinuity,
-                        respectEvents: intelligentModal.respectEvents,
-                        respectPreferences: intelligentModal.respectPreferences
-                      }
+                      options: opcoes,
+                      quantidadeMeses
                     })
 
-                    setGridData(prev => {
-                      const updated = { ...prev }
-                      Object.entries(generatedGrid).forEach(([servidorId, categories]) => {
-                        if (!updated[servidorId]) {
-                          updated[servidorId] = {
-                            Regular: {},
-                            Extra: {},
-                            Plantão: {},
-                            Sobreaviso: {}
-                          }
+                    const mesDaGrade = resultado.meses.find(m => m.naGrade)
+                    const mesesExtras = resultado.meses.filter(m => !m.naGrade)
+
+                    // ---- 1. competência aberta: rascunho local, como sempre foi ----
+                    //
+                    // ⚠️ O contador precisa medir o que ENTROU na grade, não o que o motor
+                    // produziu. Até 25/08/2026 ele contava a saída do motor e os dois `return`
+                    // abaixo descartavam célula sem contabilizar nada — a tela dizia "111 turnos
+                    // preenchidos" com ZERO células alteradas (caso real: TI da SMS, 08/2026,
+                    // onde 81 caíram por já ter ponto batido e as 30 restantes já estavam
+                    // lançadas com o mesmo turno). "Executou e não achei a escala" era isso.
+                    let aplicadas = 0
+                    let jaIguais = 0
+                    let puladasPorPonto = 0
+                    let puladasPorAfastamento = 0
+
+                    // ⚠️ A mesclagem é feita AQUI, de forma síncrona, e só o resultado pronto vai
+                    // para o setGridData. Não mover isto para dentro de um `setGridData(prev => …)`:
+                    // o React chama o updater na fase de render, não na linha em que ele é
+                    // escrito, então os contadores abaixo ainda valeriam zero quando o resumo e o
+                    // logAction os lessem — e a tela voltaria a relatar um número que não é o que
+                    // aconteceu, que é exatamente o defeito que esta mudança conserta. Em modo
+                    // estrito o updater ainda roda duas vezes, o que dobraria as contagens.
+                    if (mesDaGrade) {
+                      const atualizado = { ...gridData }
+
+                      Object.entries(mesDaGrade.grid).forEach(([servidorId, categorias]) => {
+                        const anterior = atualizado[servidorId] || { Regular: {}, Extra: {}, 'Plantão': {}, Sobreaviso: {} }
+                        const novo: Record<RowCategory, Record<number, string>> = {
+                          Regular: { ...anterior['Regular'] },
+                          Extra: { ...anterior['Extra'] },
+                          'Plantão': { ...anterior['Plantão'] },
+                          Sobreaviso: { ...anterior['Sobreaviso'] }
                         }
-                        Object.entries(categories).forEach(([category, days]) => {
-                          const cat = category as RowCategory
+
+                        Object.entries(categorias).forEach(([categoria, days]) => {
+                          const cat = categoria as RowCategory
                           Object.entries(days).forEach(([dayStr, turnoId]) => {
                             const day = parseInt(dayStr)
-                            
-                            // Se o dia tem presença confirmada, NÃO sobrescreve
+
+                            // Dia com presença confirmada não é sobrescrito: a batida real já
+                            // aconteceu contra o turno que está lá.
                             const em = escalaMensal.find(x => x.servidor_id === servidorId)
                             if (em && hasPresenceForDay(servidorId, em.id, cat, day)) {
+                              puladasPorPonto++
                               return
                             }
 
-                            // Dia de afastamento não recebe lançamento nenhum, ainda que a
-                            // opção "Evitar Dias de Afastamento" esteja desmarcada: aquela
-                            // opção governa o padrão de folgas, não a regra do banco.
+                            // Rede de segurança do afastamento. O motor já limpou, mas a grade
+                            // conhece `permitir_plantao_extra_durante_eventos`, que ele não vê.
                             const turnoGerado = turnos.find(t => t.id === turnoId)
                             if (getAfastamentoBloqueante(servidorId, day, cat, turnoGerado?.slots || [])) {
+                              puladasPorAfastamento++
                               return
                             }
 
-                            updated[servidorId][cat][day] = turnoId
+                            if (novo[cat][day] === turnoId) {
+                              jaIguais++
+                              return
+                            }
+
+                            novo[cat][day] = turnoId
+                            aplicadas++
                           })
                         })
-                      })
-                      return updated
-                    })
 
-                    // Atualizar a jornada de trabalho (seletor de Tipo) para os servidores herdando do mês anterior
-                    setEscalaMensal(prev => prev.map(em => {
-                      if (!em.jornada_id && prevJornadas[em.servidor_id]) {
-                        return {
-                          ...em,
-                          jornada_id: prevJornadas[em.servidor_id]
-                        }
+                        atualizado[servidorId] = novo
+                      })
+
+                      setGridData(atualizado)
+                    }
+
+                    // Jornada herdada da competência anterior, para quem ainda não tem.
+                    setEscalaMensal(prev => prev.map(em =>
+                      !em.jornada_id && resultado.jornadas[em.servidor_id]
+                        ? { ...em, jornada_id: resultado.jornadas[em.servidor_id] }
+                        : em
+                    ))
+
+                    // ---- 2. competências seguintes: gravadas como Rascunho ----
+                    let extrasGravadas: { rotulo: string; celulas: number }[] = []
+                    let extrasErro = ''
+                    if (mesesExtras.length > 0) {
+                      try {
+                        extrasGravadas = await persistirMesesGerados(mesesExtras, resultado.jornadas)
+                      } catch (e: any) {
+                        extrasErro = e?.message || 'erro desconhecido'
                       }
-                      return em
-                    }))
-
-                    let cellsFilled = 0
-                    Object.values(generatedGrid).forEach(categories => {
-                      Object.values(categories).forEach(days => {
-                        cellsFilled += Object.keys(days).length
-                      })
-                    })
+                    }
 
                     logAction('GERAR_ESCALA_INTELIGENTE', {
                       setor_id: setorId,
-                      opcoes: {
-                        respectContinuity: intelligentModal.respectContinuity,
-                        respectEvents: intelligentModal.respectEvents,
-                        respectPreferences: intelligentModal.respectPreferences
-                      },
-                      celulas_preenchidas: cellsFilled
+                      opcoes,
+                      quantidade_meses: quantidadeMeses,
+                      // Os dois números que faltavam: o que o motor propôs e o que de fato mudou.
+                      celulas_sugeridas: mesDaGrade?.total || 0,
+                      celulas_aplicadas: aplicadas,
+                      ja_iguais: jaIguais,
+                      puladas_por_ponto: puladasPorPonto,
+                      puladas_por_afastamento: puladasPorAfastamento,
+                      meses_extras: extrasGravadas,
+                      meses_de_origem: resultado.mesesDeOrigemEncontrados
                     })
 
-                    const prevMesNum = mes === 1 ? 12 : mes - 1
-                    const prevAnoNum = mes === 1 ? ano - 1 : ano
-                    const prevMesNome = new Date(prevAnoNum, prevMesNum - 1, 1).toLocaleString('pt-BR', { month: 'long' })
-                    const prevMesCapitalizado = prevMesNome.charAt(0).toUpperCase() + prevMesNome.slice(1)
-
                     setIntelligentModal(null)
-
-                    if (cellsFilled === 0) {
-                      setAlertModal({
-                        isOpen: true,
-                        title: 'Nenhum Histórico Encontrado',
-                        message: `Não foi possível preencher a escala automaticamente porque não foi encontrado nenhum histórico de escala salva para os servidores deste setor no mês anterior (${prevMesCapitalizado} de ${prevAnoNum}). Para novos setores, você deve aplicar os templates regulares manualmente nesta primeira competência.`,
-                        type: 'warning'
-                      })
-                    } else {
-                      setAlertModal({
-                        isOpen: true,
-                        title: 'Gerador Inteligente',
-                        message: `Sugestão de escala gerada com sucesso! ${cellsFilled} turnos e jornadas correspondentes foram preenchidos localmente como rascunho (Draft). Lembre-se de salvar a escala.`,
-                        type: 'success'
-                      })
-                    }
-                  } catch (err) {
+                    setAlertModal({
+                      isOpen: true,
+                      title: 'Gerador Inteligente',
+                      message: montarResumoGerador({
+                        mesDaGrade,
+                        aplicadas,
+                        jaIguais,
+                        puladasPorPonto,
+                        puladasPorAfastamento,
+                        extrasGravadas,
+                        extrasErro,
+                        servidoresSemHistorico: resultado.servidoresSemHistorico,
+                        mesesDeOrigem: resultado.mesesDeOrigemEncontrados,
+                        mesRef: mes,
+                        anoRef: ano
+                      }),
+                      type: aplicadas > 0 || extrasGravadas.length > 0 ? 'success' : 'warning'
+                    })
+                  } catch (err: any) {
                     console.error('Erro no gerador inteligente:', err)
                     setAlertModal({
                       isOpen: true,
                       title: 'Erro na Geração',
-                      message: 'Ocorreu um erro ao calcular a escala. Verifique a conexão e tente novamente.',
+                      message: `Não foi possível calcular a escala.\n\n${err?.message || 'Verifique a conexão e tente novamente.'}`,
                       type: 'danger'
                     })
                   } finally {
                     setLoading(false)
                   }
                 }}
-                className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-lg transition-all shadow-lg shadow-indigo-500/20 min-w-[140px] flex items-center justify-center gap-1.5"
+                disabled={loading}
+                className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-lg transition-all shadow-lg shadow-indigo-500/20 min-w-[140px] flex items-center justify-center gap-1.5 disabled:opacity-60"
               >
                 {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
                 Sugerir Escala
