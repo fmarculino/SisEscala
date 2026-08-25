@@ -91,18 +91,28 @@ export default async function UsuariosPage() {
 
   const mapaSetorUnidade = new Map<string, string>(setores.map(s => [s.id, s.unidade_id]))
 
-  // 6. Fetch active servers to link (with cargo and lotacao info)
-  let servidoresQuery = supabase
-    .from('servidores')
-    .select(`
-      id, nome, email, matricula, cpf, cargo, vinculo, unidade_id, setor_id,
-      unidades(nome),
-      setores(dicionario_setores(nome))
-    `)
-    .eq('status', 'Ativo')
-    .order('nome')
-  if (escopadoPorUnidade) servidoresQuery = servidoresQuery.in('unidade_id', unidadesDoGestor)
-  const { data: servidoresRaw } = await servidoresQuery
+  // 6. Fetch active servers to link (with cargo and lotacao info) in chunks
+  const servidoresRaw: any[] = []
+  for (let from = 0; ; from += 1000) {
+    let servidoresQuery = supabase
+      .from('servidores')
+      .select(`
+        id, nome, email, matricula, cpf, cargo, vinculo, unidade_id, setor_id,
+        unidades(nome),
+        setores(dicionario_setores(nome))
+      `)
+      .eq('status', 'Ativo')
+      .order('nome')
+      .range(from, from + 999)
+    if (escopadoPorUnidade) servidoresQuery = servidoresQuery.in('unidade_id', unidadesDoGestor)
+    const { data, error } = await servidoresQuery
+    if (error) {
+      console.error('Erro ao carregar servidores para usuários:', error)
+      break
+    }
+    servidoresRaw.push(...(data || []))
+    if (!data || data.length < 1000) break
+  }
 
   const servidores = servidoresRaw?.map((s: any) => ({
     id: s.id,

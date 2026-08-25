@@ -75,14 +75,19 @@ export default async function PlantaoSobreavisoPage({ searchParams }: Props) {
     }
   }) || []
 
-  // Fetch servidores and distinct cargos
-  const { data: fetchServidores } = await supabase
-    .from('servidores')
-    .select('id, nome, matricula, cargo, unidade_id, setor_id')
-    .eq('status', 'Ativo')
-    .order('nome')
-
-  const servidores = fetchServidores || []
+  // Fetch servidores and distinct cargos in chunks
+  const servidores: any[] = []
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase
+      .from('servidores')
+      .select('id, nome, matricula, cargo, unidade_id, setor_id')
+      .eq('status', 'Ativo')
+      .order('nome')
+      .range(from, from + 999)
+    if (error) break
+    servidores.push(...(data || []))
+    if (!data || data.length < 1000) break
+  }
   const cargos = Array.from(new Set(servidores.map(s => s.cargo).filter(Boolean) as string[])).sort()
 
   // 2. Fetch scales data for selected year(s)

@@ -68,11 +68,21 @@ export default async function FrequenciaPage({ searchParams }: Props) {
     }
   }) || []
   
-  // Fetch Servidores for selection
-  let servQuery = supabase.from('servidores').select('id, nome, matricula, cargo').order('nome')
-  if (unidadeId) servQuery = servQuery.eq('unidade_id', unidadeId)
-  if (setorId) servQuery = servQuery.eq('setor_id', setorId)
-  const { data: servidores } = await applyAccessFilters(servQuery, userProfile, { bypassSuperAdmin: true })
+  // Fetch Servidores for selection in chunks
+  const servidores: any[] = []
+  for (let from = 0; ; from += 1000) {
+    let servQuery = supabase
+      .from('servidores')
+      .select('id, nome, matricula, cargo')
+      .order('nome')
+      .range(from, from + 999)
+    if (unidadeId) servQuery = servQuery.eq('unidade_id', unidadeId)
+    if (setorId) servQuery = servQuery.eq('setor_id', setorId)
+    const { data, error } = await applyAccessFilters(servQuery, userProfile, { bypassSuperAdmin: true })
+    if (error) break
+    servidores.push(...(data || []))
+    if (!data || data.length < 1000) break
+  }
 
   // If a server is selected, fetch their data
   let scaleData: any = null

@@ -22,14 +22,24 @@ export default async function ServidoresPage() {
     permitted_setores: profile.setores_no_escopo || []
   } : null
   
-  // Fetch servers with unit and sector info - Filtered
-  let serversQuery = supabase
-    .from('servidores')
-    .select('*, unidades(nome), setores(dicionario_setores(nome))')
-    .order('nome')
-  
-  serversQuery = applyAccessFilters(serversQuery, userProfile)
-  const { data: serversRaw } = await serversQuery
+  // Fetch servers with unit and sector info in chunks of 1000 (Supabase PostgREST default limit)
+  const serversRaw: any[] = []
+  for (let from = 0; ; from += 1000) {
+    let serversQuery = supabase
+      .from('servidores')
+      .select('*, unidades(nome), setores(dicionario_setores(nome))')
+      .order('nome')
+      .range(from, from + 999)
+
+    serversQuery = applyAccessFilters(serversQuery, userProfile)
+    const { data, error } = await serversQuery
+    if (error) {
+      console.error('Erro ao carregar servidores:', error)
+      break
+    }
+    serversRaw.push(...(data || []))
+    if (!data || data.length < 1000) break
+  }
   
   const servidores = serversRaw?.map(s => {
     // Handle potential array return for sector and its dictionary name
