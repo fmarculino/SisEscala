@@ -110,7 +110,17 @@ O ícone da bandeja é **um só para a máquina**, então ele agrega — e o agr
 o caso que passou a ser comum: três equipamentos respondendo e um mudo. `ciclo/todos.go` já
 acumulava os erros por relógio, mas isso nunca chegava à tela.
 
-Cada linha do menu agora diz `🟢 … — online` ou `🔴 … — SEM RESPOSTA`.
+Cada linha do menu agora tem bolinha verde/vermelha e diz `— online` ou `— SEM RESPOSTA`.
+
+⚠️ **A primeira tentativa usou emoji no título e saiu cinza em campo** (v0.11.0). Essas linhas são
+`Disable()` — não há o que clicar nelas —, e o Windows esmaece o item desabilitado **inteiro**,
+emoji junto: `🟢` e `🔴` ficavam indistinguíveis. Corrigido na v0.11.1 com `MenuItem.SetIcon`, que
+o Windows desenha como `hbmpItem`, separado do texto, mantendo a cor. São os mesmos `.ico` 16×16
+já embutidos para a bandeja — 16×16 é justamente o tamanho de ícone de menu, então não houve
+asset novo.
+
+A cor **nunca vai sozinha**: o veredito está no próprio título, para quem não distingue verde de
+vermelho ou usa tema de alto contraste.
 
 ⚠️ Para isso o heartbeat precisou **separar duas conexões que fundia num erro só**: máquina →
 relógio e máquina → SisEscala. `HeartbeatComEstado` devolve `RelogioOK` à parte, e as linhas são
@@ -144,5 +154,5 @@ tela filtrada não protege a action, que é um POST chamável direto.
 
 ## Versão
 
-v0.11.0 — `ciclo.Versao`, `dist/VERSION` e os dois `.exe` recompilados (tray com
+v0.11.1 — `ciclo.Versao`, `dist/VERSION` e os dois `.exe` recompilados (tray com
 `-H=windowsgui`, subsystem conferido: 2 no tray, 3 na CLI).

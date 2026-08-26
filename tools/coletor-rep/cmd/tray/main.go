@@ -372,11 +372,15 @@ func (e *estadoApp) snapshot() (ultimoSucesso time.Time, falhas int) {
 // rotuloMenuRelogio e' a linha (nao clicavel) que identifica um relogio no menu. O nome vem do
 // config.yaml preenchido pelo SisEscala no "Baixar aplicativo"; sem nome, o IP identifica.
 //
-// `estado` nulo = ainda nao houve ciclo nenhum, e a linha sai sem indicador: dizer "offline" para
+// `estado` nulo = ainda nao houve ciclo nenhum, e a linha sai sem veredito: dizer "offline" para
 // um relogio que so' nao foi consultado ainda seria pior que nao dizer nada. Depois do primeiro
 // ciclo cada linha responde sozinha "este esta comunicando?" - com varios equipamentos por
 // maquina o icone da bandeja e um so' e portanto AGREGA, escondendo justamente o caso que passou
 // a ser comum: tres respondendo e um mudo.
+//
+// ⚠️ O estado vai no TEXTO, e a cor vem de pintarMenuRelogio (SetIcon), nunca de um emoji no
+// titulo. Emoji colorido nao funciona aqui: estas linhas sao Disable() (nao ha o que clicar), e o
+// Windows esmaece o item desabilitado INTEIRO - o "🟢" saia cinza, indistinguivel do "🔴".
 func rotuloMenuRelogio(d *config.DispositivoRepConfig, estado *ciclo.ResultadoHeartbeat) string {
 	endereco := d.Endereco
 	if d.Porta != 0 && d.Porta != 80 && d.Porta != 443 {
@@ -392,9 +396,30 @@ func rotuloMenuRelogio(d *config.DispositivoRepConfig, estado *ciclo.ResultadoHe
 		return base
 	}
 	if estado.RelogioOK {
-		return "🟢 " + base + " — online"
+		return base + " — online"
 	}
-	return "🔴 " + base + " — SEM RESPOSTA"
+	return base + " — SEM RESPOSTA"
+}
+
+// pintarMenuRelogio poe o texto E a bolinha na linha de um equipamento.
+//
+// O icone de item de menu e' desenhado pelo Windows como hbmpItem, separado do texto, e por isso
+// mantem a cor mesmo com o item desabilitado - e' o que faz o indicador ser visivel de relance,
+// que era o ponto de ter um indicador. Sao os MESMOS .ico 16x16 da bandeja, que ja e' o tamanho
+// certo para menu: nenhum asset novo.
+//
+// A cor nunca vai sozinha: quem nao distingue verde de vermelho (ou usa tema de alto contraste)
+// le "— online" / "— SEM RESPOSTA" no proprio titulo.
+func pintarMenuRelogio(item *systray.MenuItem, d *config.DispositivoRepConfig, estado *ciclo.ResultadoHeartbeat) {
+	item.SetTitle(rotuloMenuRelogio(d, estado))
+	switch {
+	case estado == nil:
+		item.SetIcon(iconGray)
+	case estado.RelogioOK:
+		item.SetIcon(iconGreen)
+	default:
+		item.SetIcon(iconRed)
+	}
 }
 
 func aoIniciar(cfg *config.Config, dirInstalado string) {
@@ -421,6 +446,7 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 		}
 		itemRelogio := systray.AddMenuItem(rotuloMenuRelogio(d, nil), "Relógio de ponto (REP) coletado por esta máquina")
 		itemRelogio.Disable()
+		pintarMenuRelogio(itemRelogio, d, nil)
 		itensRelogio[d.ID] = itemRelogio
 	}
 
@@ -618,7 +644,7 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 				if !temItem || !temEstado {
 					continue
 				}
-				item.SetTitle(rotuloMenuRelogio(d, &estado))
+				pintarMenuRelogio(item, d, &estado)
 			}
 
 			// Cadastro de identidade e leitura do cadastro do relogio entram no ciclo desde a
