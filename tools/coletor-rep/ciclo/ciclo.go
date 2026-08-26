@@ -20,7 +20,7 @@ import (
 	"github.com/sms-maraba/sisescala-coletor-rep/sisescala"
 )
 
-const Versao = "0.8.0"
+const Versao = "0.9.0"
 
 // LimiteCadastrosPorCiclo e' o teto do ciclo AUTOMATICO. O clique manual no menu passa 0 (sem
 // teto, envia todos).
@@ -89,15 +89,14 @@ func cursorDeColeta(cfg *config.Config, sc *sisescala.Client, dispositivoID stri
 }
 
 // Sync reenvia primeiro o que ficou na fila offline, depois busca o AFD novo do relógio.
-func Sync(cfg *config.Config) error {
-	if cfg.DispositivoRep == nil {
-		return fmt.Errorf("secao dispositivo_rep ausente no config.yaml — nada para sincronizar")
+func Sync(cfg *config.Config, d *config.DispositivoRepConfig) error {
+	if d == nil {
+		return fmt.Errorf("nenhum relogio informado para sincronizar")
 	}
-	d := cfg.DispositivoRep
 	sc := sisescala.NovoClient(cfg.SisEscala.URL, d.ID, d.Token)
 
 	// Reenvio de fila é sempre seguro: fn_ingerir_afd é idempotente por (dispositivo_id, lote_id).
-	pendentes, err := fila.Pendentes(cfg.Fila.Diretorio)
+	pendentes, err := fila.Pendentes(cfg.Fila.Diretorio, d.ID)
 	if err != nil {
 		log.Printf("aviso: falha ao ler fila offline: %v", err)
 	}
@@ -124,7 +123,7 @@ func Sync(cfg *config.Config) error {
 		falhasSeguidas = 0
 		log.Printf("lote %s da fila reenviado: novas=%d duplicadas=%d marcacoes=%d orfas=%d",
 			lote.LoteID, resultado.Novas, resultado.Duplicadas, resultado.Marcacoes, resultado.Orfas)
-		if err := fila.Remover(cfg.Fila.Diretorio, lote.LoteID); err != nil {
+		if err := fila.Remover(cfg.Fila.Diretorio, d.ID, lote.LoteID); err != nil {
 			log.Printf("aviso: nao foi possivel remover lote %s da fila apos ACK: %v", lote.LoteID, err)
 		}
 	}
@@ -180,7 +179,7 @@ func Sync(cfg *config.Config) error {
 		resultado, err := sc.EnviarLote(loteID, trecho, arquivoSHA256, Versao, Hostname())
 		if err != nil {
 			log.Printf("falha ao enviar lote %s, gravando na fila offline: %v", loteID, err)
-			erroFila := fila.Gravar(cfg.Fila.Diretorio, fila.Lote{
+			erroFila := fila.Gravar(cfg.Fila.Diretorio, d.ID, fila.Lote{
 				LoteID: loteID, Linhas: trecho, ArquivoSHA256: arquivoSHA256,
 				ColetorVersao: Versao, ColetorHost: Hostname(),
 			})
@@ -198,11 +197,10 @@ func Sync(cfg *config.Config) error {
 // Heartbeat reporta versão e deriva de relógio. Devolve erro só quando a chamada ao SisEscala
 // falha — não saber a hora do relógio (get_system_information sem campo reconhecido) não é
 // erro, só segue sem deriva.
-func Heartbeat(cfg *config.Config) error {
-	if cfg.DispositivoRep == nil {
-		return fmt.Errorf("secao dispositivo_rep ausente no config.yaml")
+func Heartbeat(cfg *config.Config, d *config.DispositivoRepConfig) error {
+	if d == nil {
+		return fmt.Errorf("nenhum relogio informado para o heartbeat")
 	}
-	d := cfg.DispositivoRep
 	sc := sisescala.NovoClient(cfg.SisEscala.URL, d.ID, d.Token)
 
 	rc := rep.NovoClient(d.Endereco, d.Porta, d.UsaHTTPS, d.UsuarioRep, d.SenhaRep, d.CertFingerprint)
@@ -235,12 +233,11 @@ type ResultadoCadastros struct {
 }
 
 // SincronizarCadastros envia a fila de identidade ao relógio. `limite` = 0 significa sem teto.
-func SincronizarCadastros(cfg *config.Config, limite int) (ResultadoCadastros, error) {
+func SincronizarCadastros(cfg *config.Config, d *config.DispositivoRepConfig, limite int) (ResultadoCadastros, error) {
 	var resultado ResultadoCadastros
-	if cfg.DispositivoRep == nil {
-		return resultado, fmt.Errorf("secao dispositivo_rep ausente no config.yaml — nada para sincronizar")
+	if d == nil {
+		return resultado, fmt.Errorf("nenhum relogio informado para sincronizar cadastros")
 	}
-	d := cfg.DispositivoRep
 	sc := sisescala.NovoClient(cfg.SisEscala.URL, d.ID, d.Token)
 	rc := rep.NovoClient(d.Endereco, d.Porta, d.UsaHTTPS, d.UsuarioRep, d.SenhaRep, d.CertFingerprint)
 
@@ -355,12 +352,11 @@ type ResultadoHigiene struct {
 	UsuariosLidos int
 }
 
-func HigienizarListagem(cfg *config.Config) (ResultadoHigiene, error) {
+func HigienizarListagem(cfg *config.Config, d *config.DispositivoRepConfig) (ResultadoHigiene, error) {
 	var resultado ResultadoHigiene
-	if cfg.DispositivoRep == nil {
-		return resultado, fmt.Errorf("secao dispositivo_rep ausente no config.yaml — nada para higienizar")
+	if d == nil {
+		return resultado, fmt.Errorf("nenhum relogio informado para higienizar")
 	}
-	d := cfg.DispositivoRep
 	sc := sisescala.NovoClient(cfg.SisEscala.URL, d.ID, d.Token)
 	rc := rep.NovoClient(d.Endereco, d.Porta, d.UsaHTTPS, d.UsuarioRep, d.SenhaRep, d.CertFingerprint)
 
@@ -400,12 +396,11 @@ type ResultadoRemocao struct {
 // usuário sumiu de verdade. O device já respondeu "ok" para chamada que não removeu nada, e
 // marcar a fila como aplicada nesse caso deixaria o SisEscala achando que o relógio está limpo
 // quando não está.
-func HigienizarRemocoes(cfg *config.Config, limite int) (ResultadoRemocao, error) {
+func HigienizarRemocoes(cfg *config.Config, d *config.DispositivoRepConfig, limite int) (ResultadoRemocao, error) {
 	var resultado ResultadoRemocao
-	if cfg.DispositivoRep == nil {
-		return resultado, fmt.Errorf("secao dispositivo_rep ausente no config.yaml — nada para remover")
+	if d == nil {
+		return resultado, fmt.Errorf("nenhum relogio informado para remover")
 	}
-	d := cfg.DispositivoRep
 	sc := sisescala.NovoClient(cfg.SisEscala.URL, d.ID, d.Token)
 	rc := rep.NovoClient(d.Endereco, d.Porta, d.UsaHTTPS, d.UsuarioRep, d.SenhaRep, d.CertFingerprint)
 

@@ -36,6 +36,49 @@ Dois binários, pacotes internos (`rep/`, `sisescala/`, `fila/`, `terminal/`, `c
    agora" (Fase 7 — só quando `dispositivo_rep` está configurado, ver aviso abaixo), "Abrir tela
    de presença", "Ver logs", "Sair".
 
+### Unidade com mais de um relógio (v0.9.0, 25/08/2026)
+
+Há unidades com **4 equipamentos**, e pode haver mais. Um mesmo computador atende todos: no
+modal de um relógio dessa unidade aparece **"Baixar pacote da unidade (N relógios)"**, que gera
+um token novo para cada equipamento e monta um `config.yaml` com a chave plural
+`dispositivos_rep`. Um `.exe`, um autostart, uma atualização.
+
+```yaml
+dispositivos_rep:
+  - nome: "REP-iDClass-HMI-01"
+    id: "..."
+    token: "..."
+    endereco: "10.110.5.5"
+  - nome: "REP-iDClass-HMI-02"
+    id: "..."
+    token: "..."
+    endereco: "10.110.5.6"
+```
+
+O que não muda: **cada relógio tem id e token próprios**. Não existe "token da unidade" — é o
+token que diz ao SisEscala de qual equipamento veio cada linha do AFD, e cada um mantém seu
+cursor de NSR, sua fila e seu `ponto_valido_desde`.
+
+Três regras que valem a pena saber antes de diagnosticar algo aqui:
+
+- **Relógio fora do ar não impede os outros.** O ciclo acumula os erros e segue — uma unidade
+  não pode parar de registrar ponto em três equipamentos porque o quarto está desligado.
+- **A fila offline é separada por dispositivo** (`%PROGRAMDATA%\SisEscala\fila\<dispositivo_id>\`).
+  Isso não é organização: com a fila plana da v0.8.0, o lote coletado de um relógio seria
+  reenviado com o token de outro, e o AFD de um equipamento entraria como sendo do outro sem
+  erro nenhum. Portão: `go test ./fila/`.
+- **`id` repetido faz o coletor recusar o `config.yaml` inteiro**, em vez de rodar meio certo.
+
+Baixar o pacote da unidade **invalida o token anterior** desses relógios: uma instalação antiga
+que estivesse coletando um deles para de sincronizar (HTTP 401) até receber o pacote novo. É o
+efeito esperado de consolidar num coletor só, e a tela avisa antes do clique.
+
+Na CLI, os comandos de rotina (`sync`, `heartbeat`, `cadastros`, `higiene`, `higiene-remover`)
+rodam em **todos** os relógios; os que falam com um equipamento só (`afd-raw`, `afd-exportar`,
+`cadastros-exportar`, `cadastros-testar`, `remocao-testar`) **recusam** até você escolher com
+`--dispositivo <nome|ip|id>`. Escrever um usuário de teste em quatro equipamentos de produção
+por um comando que a pessoa achava que era um só não pode acontecer por descuido.
+
 ### "Sincronizar cadastros agora" — push de identidade para o relógio (Fase 7)
 
 Envia matrícula/nome/CPF (nunca biometria — isso sempre exige alguém presencial no equipamento)
@@ -160,9 +203,15 @@ go build -ldflags="-H=windowsgui" -o dist/coletor-rep-tray.exe ./cmd/tray  # bin
 ## Fila offline
 
 Falha de rede ao enviar um lote de AFD grava o lote em
-`%PROGRAMDATA%\SisEscala\fila\<lote_id>.jsonl` (append-only). O próximo `sync` reenvia tudo
+`%PROGRAMDATA%\SisEscala\fila\<dispositivo_id>\<lote_id>.jsonl`. O próximo `sync` reenvia tudo
 que estiver lá antes de buscar AFD novo — reenviar é sempre seguro, porque `fn_ingerir_afd` é
 idempotente por `(dispositivo_id, lote_id)`.
+
+⚠️ **A subpasta por dispositivo (v0.9.0) é correção, não arrumação.** Cada lote só pode ser
+reenviado com o token do equipamento de onde veio; a fila plana anterior misturaria os relógios
+de uma máquina que atende vários. Lote deixado na raiz por uma versão antiga é adotado
+automaticamente pelo dono **quando há um único relógio configurado** — com dois, o arquivo não
+diz de quem é, e chutar autoria de marcação já coletada seria pior que o problema.
 
 ## Fora do escopo desta versão
 

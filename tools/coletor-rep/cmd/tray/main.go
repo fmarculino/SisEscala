@@ -356,6 +356,19 @@ func (e *estadoApp) snapshot() (ultimoSucesso time.Time, falhas int) {
 	return e.ultimoSucesso, e.falhasSeguidas
 }
 
+// rotuloMenuRelogio e' a linha (nao clicavel) que identifica um relogio no menu. O nome vem do
+// config.yaml preenchido pelo SisEscala no "Baixar aplicativo"; sem nome, o IP identifica.
+func rotuloMenuRelogio(d *config.DispositivoRepConfig) string {
+	endereco := d.Endereco
+	if d.Porta != 0 && d.Porta != 80 && d.Porta != 443 {
+		endereco += fmt.Sprintf(":%d", d.Porta)
+	}
+	if d.Nome != "" {
+		return "Relógio: " + d.Nome + " (" + endereco + ")"
+	}
+	return "Relógio IP: " + endereco
+}
+
 func aoIniciar(cfg *config.Config, dirInstalado string) {
 	systray.SetIcon(iconGray)
 	systray.SetTooltip("SisEscala - iniciando...")
@@ -363,15 +376,18 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 	itemStatus := systray.AddMenuItem("Status: iniciando...", "")
 	itemStatus.Disable()
 
-	if cfg.DispositivoRep != nil && cfg.DispositivoRep.Endereco != "" {
-		relogioTexto := "Relógio IP: " + cfg.DispositivoRep.Endereco
-		if cfg.DispositivoRep.Porta != 0 && cfg.DispositivoRep.Porta != 80 && cfg.DispositivoRep.Porta != 443 {
-			relogioTexto += fmt.Sprintf(":%d", cfg.DispositivoRep.Porta)
-		}
-		itemRelogio := systray.AddMenuItem(relogioTexto, "Endereço IP do relógio de ponto (REP)")
-		itemRelogio.Disable()
-	} else if cfg.DispositivoRep == nil {
+	// Uma linha por relogio: uma unidade pode ter varios equipamentos atendidos por esta mesma
+	// maquina (medido: 4), e "Relógio IP: x" no singular deixava de responder "quais?".
+	dispositivos := cfg.Dispositivos()
+	if len(dispositivos) == 0 {
 		itemRelogio := systray.AddMenuItem("Relógio IP: não configurado", "Esta máquina não coleta de um relógio de ponto físico")
+		itemRelogio.Disable()
+	}
+	for _, d := range dispositivos {
+		if d.Endereco == "" {
+			continue
+		}
+		itemRelogio := systray.AddMenuItem(rotuloMenuRelogio(d), "Relógio de ponto (REP) coletado por esta máquina")
 		itemRelogio.Disable()
 	}
 
@@ -385,18 +401,18 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 	// nao foram validadas contra hardware real (ver aviso em rep/client.go) - um clique errado
 	// e recuperavel, um loop automatico escrevendo errado no rele de producao nao seria.
 	itemSincronizarCadastros := systray.AddMenuItem("Sincronizar cadastros agora", "Envia identidade (matricula/nome/CPF) pendente para o rele")
-	if cfg.DispositivoRep == nil {
+	if len(dispositivos) == 0 {
 		itemSincronizarCadastros.Disable()
 	}
 	// So' leitura no rele (load_users.fcgi, ja confirmado contra hardware real) - seguro no menu.
 	// A remocao (destrutiva, rep.RemoverUsuario nunca confirmada contra hardware real) fica so'
 	// na CLI (`coletor-rep higiene-remover`), nao na bandeja - ver aviso em ciclo.HigienizarRemocoes.
 	itemHigienizarCadastros := systray.AddMenuItem("Atualizar lista de cadastros do relogio", "Le todos os usuarios do rele e envia ao SisEscala, para a tela de higiene em Marcacoes")
-	if cfg.DispositivoRep == nil {
+	if len(dispositivos) == 0 {
 		itemHigienizarCadastros.Disable()
 	}
 	itemHigienizarRemocoes := systray.AddMenuItem("Executar remocoes de higiene agora", "Aplica no relogio as remocoes marcadas na tela de Higiene do SisEscala")
-	if cfg.DispositivoRep == nil {
+	if len(dispositivos) == 0 {
 		itemHigienizarRemocoes.Disable()
 	}
 	itemVerLogs := systray.AddMenuItem("Ver logs", "Abre a pasta de logs e configuracao")
@@ -542,12 +558,12 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 	executarCiclo := func() {
 		itemStatus.SetTitle("Status: sincronizando...")
 		ok := true
-		if cfg.DispositivoRep != nil {
-			if err := ciclo.Sync(cfg); err != nil {
+		if len(dispositivos) > 0 {
+			if err := ciclo.SyncTodos(cfg); err != nil {
 				log.Printf("erro no sync: %v", err)
 				ok = false
 			}
-			if err := ciclo.Heartbeat(cfg); err != nil {
+			if err := ciclo.HeartbeatTodos(cfg); err != nil {
 				log.Printf("erro no heartbeat: %v", err)
 				ok = false
 			}
@@ -569,7 +585,7 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 			//
 			// Falha aqui NAO derruba o status para vermelho: sincronizar AFD (o ponto) e' a
 			// funcao essencial; cadastro pendente e' assunto da tela de Cobertura da Escala.
-			if resultado, err := ciclo.SincronizarCadastros(cfg, ciclo.LimiteCadastrosPorCiclo); err != nil {
+			if resultado, err := ciclo.SincronizarCadastrosTodos(cfg, ciclo.LimiteCadastrosPorCiclo); err != nil {
 				log.Printf("aviso: cadastros nao sincronizados neste ciclo: %v", err)
 			} else if resultado.Enviados > 0 || resultado.Falhas > 0 {
 				log.Printf("cadastros no ciclo: enviados=%d falhas=%d (pendentes na fila: %d)",
@@ -577,7 +593,7 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 			}
 
 			// Executa remoções de higiene pendentes enfileiradas pelo SisEscala
-			if resRemocao, err := ciclo.HigienizarRemocoes(cfg, ciclo.LimiteRemocoesPorCiclo); err != nil {
+			if resRemocao, err := ciclo.HigienizarRemocoesTodos(cfg, ciclo.LimiteRemocoesPorCiclo); err != nil {
 				log.Printf("aviso: remocoes de higiene nao executadas neste ciclo: %v", err)
 			} else if resRemocao.Removidos > 0 || resRemocao.Falhas > 0 {
 				log.Printf("higiene no ciclo: removidos=%d falhas=%d (pendentes na fila: %d)",
@@ -622,7 +638,7 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 				itemSincronizarCadastros.SetTitle("Enviando cadastros...")
 				itemSincronizarCadastros.Disable()
 				_ = beeep.Notify("SisEscala - Coletor", "Enviando cadastros pendentes para o rele...", nil)
-				resultado, err := ciclo.SincronizarCadastros(cfg, 0)
+				resultado, err := ciclo.SincronizarCadastrosTodos(cfg, 0)
 				if err != nil {
 					log.Printf("erro ao sincronizar cadastros: %v", err)
 					_ = beeep.Notify("SisEscala - Coletor", "Falha ao sincronizar cadastros com o rele. Ver log.", nil)
@@ -638,7 +654,7 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 				itemHigienizarCadastros.SetTitle("Lendo cadastros do relogio...")
 				itemHigienizarCadastros.Disable()
 				_ = beeep.Notify("SisEscala - Coletor", "Lendo cadastros do rele...", nil)
-				resultado, err := ciclo.HigienizarListagem(cfg)
+				resultado, err := ciclo.HigienizarListagemTodos(cfg)
 				if err != nil {
 					log.Printf("erro ao listar cadastros do rele: %v", err)
 					_ = beeep.Notify("SisEscala - Coletor", "Falha ao ler cadastros do rele. Ver log.", nil)
@@ -652,7 +668,7 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 				itemHigienizarRemocoes.SetTitle("Aplicando remocoes...")
 				itemHigienizarRemocoes.Disable()
 				_ = beeep.Notify("SisEscala - Coletor", "Aplicando remocoes de higiene no rele...", nil)
-				resultado, err := ciclo.HigienizarRemocoes(cfg, 0)
+				resultado, err := ciclo.HigienizarRemocoesTodos(cfg, 0)
 				if err != nil {
 					log.Printf("erro ao aplicar remocoes de higiene: %v", err)
 					_ = beeep.Notify("SisEscala - Coletor", "Falha ao aplicar remocoes no rele. Ver log.", nil)

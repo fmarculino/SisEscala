@@ -37,27 +37,31 @@ func main() {
 	comando := os.Args[1]
 	switch comando {
 	case "sync":
-		if err := ciclo.Sync(cfg); err != nil {
+		if err := comTodos(cfg, ciclo.Sync, ciclo.SyncTodos); err != nil {
 			fmt.Fprintf(os.Stderr, "Falha na sincronizacao: %v\n", err)
 			os.Exit(1)
 		}
 	case "heartbeat":
-		if err := ciclo.Heartbeat(cfg); err != nil {
+		if err := comTodos(cfg, ciclo.Heartbeat, ciclo.HeartbeatTodos); err != nil {
 			fmt.Fprintf(os.Stderr, "Falha no heartbeat: %v\n", err)
 			os.Exit(1)
 		}
 	case "diagnostico":
 		rodarDiagnostico(cfg)
 	case "afd-raw":
-		rodarAfdRaw(cfg)
+		rodarAfdRaw(cfg, escolherDispositivo(cfg))
 	case "afd-exportar":
 		if len(os.Args) < 3 {
 			fmt.Fprintln(os.Stderr, "Uso: coletor-rep afd-exportar <caminho-do-arquivo-de-saida.sisrep>")
 			os.Exit(1)
 		}
-		rodarAfdExportar(cfg, caminhoCfg, os.Args[2])
+		rodarAfdExportar(cfg, escolherDispositivo(cfg), caminhoCfg, os.Args[2])
 	case "cadastros":
-		resultado, err := ciclo.SincronizarCadastros(cfg, 0)
+		resultado, err := comTodosResultado(cfg,
+			func(d *config.DispositivoRepConfig) (ciclo.ResultadoCadastros, error) {
+				return ciclo.SincronizarCadastros(cfg, d, 0)
+			},
+			func() (ciclo.ResultadoCadastros, error) { return ciclo.SincronizarCadastrosTodos(cfg, 0) })
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Falha ao sincronizar cadastros: %v\n", err)
 			os.Exit(1)
@@ -68,20 +72,29 @@ func main() {
 			fmt.Fprintln(os.Stderr, "Uso: coletor-rep cadastros-exportar <caminho-do-arquivo-de-saida>")
 			os.Exit(1)
 		}
-		rodarCadastrosExportar(cfg, os.Args[2])
+		rodarCadastrosExportar(cfg, escolherDispositivo(cfg), os.Args[2])
 	case "cadastros-testar":
-		rodarCadastrosTestar(cfg)
+		rodarCadastrosTestar(cfg, escolherDispositivo(cfg))
 	case "remocao-testar":
-		rodarRemocaoTestar(cfg)
+		rodarRemocaoTestar(cfg, escolherDispositivo(cfg))
 	case "higiene":
-		resultado, err := ciclo.HigienizarListagem(cfg)
+		resultado, err := comTodosResultado(cfg,
+			func(d *config.DispositivoRepConfig) (ciclo.ResultadoHigiene, error) {
+				return ciclo.HigienizarListagem(cfg, d)
+			},
+			func() (ciclo.ResultadoHigiene, error) { return ciclo.HigienizarListagemTodos(cfg) })
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Falha ao listar cadastros do rele: %v\n", err)
 			os.Exit(1)
 		}
 		fmt.Printf("usuarios_lidos=%d\n", resultado.UsuariosLidos)
 	case "higiene-remover":
-		if _, err := ciclo.HigienizarRemocoes(cfg, 0); err != nil {
+		_, err := comTodosResultado(cfg,
+			func(d *config.DispositivoRepConfig) (ciclo.ResultadoRemocao, error) {
+				return ciclo.HigienizarRemocoes(cfg, d, 0)
+			},
+			func() (ciclo.ResultadoRemocao, error) { return ciclo.HigienizarRemocoesTodos(cfg, 0) })
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "Falha ao aplicar remocoes no rele: %v\n", err)
 			os.Exit(1)
 		}
@@ -127,7 +140,65 @@ Uso:
   coletor-rep terminal abrir      abre a tela de presenca local no navegador (uma vez)
 
 Flags:
-  --config <caminho>   caminho do config.yaml (default: config.yaml ao lado do executavel)`)
+  --config <caminho>       caminho do config.yaml (default: config.yaml ao lado do executavel)
+  --dispositivo <ref>      qual relogio usar, por nome, ip ou id (maquinas com mais de um).
+                           Sem a flag, os comandos de rotina (sync/heartbeat/cadastros/higiene/
+                           higiene-remover) rodam em TODOS; os que falam com um equipamento so'
+                           (afd-raw, afd-exportar, cadastros-exportar, cadastros-testar,
+                           remocao-testar) recusam ate' voce escolher.`)
+}
+
+// referenciaDispositivo le a flag --dispositivo <ref> (ou --dispositivo=<ref>). Fica fora do
+// switch de comandos porque vale para todos, e os comandos ja usam os argumentos posicionais.
+func referenciaDispositivo() string {
+	for i, arg := range os.Args {
+		if arg == "--dispositivo" && i+1 < len(os.Args) {
+			return os.Args[i+1]
+		}
+		if strings.HasPrefix(arg, "--dispositivo=") {
+			return strings.TrimPrefix(arg, "--dispositivo=")
+		}
+	}
+	return ""
+}
+
+// escolherDispositivo resolve O relogio dos comandos de equipamento unico. Com varios
+// configurados e nenhuma escolha, config.Dispositivo devolve erro listando os disponiveis - e
+// aqui isso encerra o comando, de proposito: adivinhar qual dos quatro seria escrever num
+// equipamento de producao por conta propria.
+func escolherDispositivo(cfg *config.Config) *config.DispositivoRepConfig {
+	d, err := cfg.Dispositivo(referenciaDispositivo())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(1)
+	}
+	return d
+}
+
+// comTodos roda um comando de rotina: no relogio escolhido, se houve --dispositivo; em todos,
+// se nao houve.
+func comTodos(cfg *config.Config, um func(*config.Config, *config.DispositivoRepConfig) error, todos func(*config.Config) error) error {
+	if ref := referenciaDispositivo(); ref != "" {
+		d, err := cfg.Dispositivo(ref)
+		if err != nil {
+			return err
+		}
+		return um(cfg, d)
+	}
+	return todos(cfg)
+}
+
+// comTodosResultado e' comTodos para os comandos que devolvem contadores somaveis.
+func comTodosResultado[T any](cfg *config.Config, um func(*config.DispositivoRepConfig) (T, error), todos func() (T, error)) (T, error) {
+	if ref := referenciaDispositivo(); ref != "" {
+		d, err := cfg.Dispositivo(ref)
+		if err != nil {
+			var zero T
+			return zero, err
+		}
+		return um(d)
+	}
+	return todos()
 }
 
 func caminhoConfig() string {
@@ -157,11 +228,12 @@ func rodarDiagnostico(cfg *config.Config) {
 	fmt.Printf("coletor-rep versao %s\n", ciclo.Versao)
 	fmt.Printf("SisEscala: %s\n", cfg.SisEscala.URL)
 
-	if cfg.DispositivoRep == nil {
+	dispositivos := cfg.Dispositivos()
+	if len(dispositivos) == 0 {
 		fmt.Println("dispositivo_rep: nao configurado nesta maquina")
-	} else {
-		d := cfg.DispositivoRep
-		fmt.Printf("dispositivo_rep: %s (%s:%d)\n", d.ID, d.Endereco, d.Porta)
+	}
+	for _, d := range dispositivos {
+		fmt.Printf("relogio %s: %s (%s:%d)\n", d.Rotulo(), d.ID, d.Endereco, d.Porta)
 
 		rc := rep.NovoClient(d.Endereco, d.Porta, d.UsaHTTPS, d.UsuarioRep, d.SenhaRep, d.CertFingerprint)
 		if err := rc.Login(); err != nil {
@@ -189,12 +261,7 @@ func rodarDiagnostico(cfg *config.Config) {
 // Existe para diagnosticar o formato real de get_afd.fcgi sem risco de gravar nada em
 // producao. %q escapa bytes nao imprimiveis, entao chaves/aspas/newlines ficam visiveis em
 // vez de baguncar o terminal.
-func rodarAfdRaw(cfg *config.Config) {
-	if cfg.DispositivoRep == nil {
-		fmt.Fprintln(os.Stderr, "Secao dispositivo_rep ausente no config.yaml.")
-		os.Exit(1)
-	}
-	d := cfg.DispositivoRep
+func rodarAfdRaw(cfg *config.Config, d *config.DispositivoRepConfig) {
 	// Pede sempre do NSR 1, ou seja o arquivo inteiro: precisa do teto folgado de get_afd.fcgi,
 	// senao este comando falha por timeout exatamente no relogio de alto volume onde ele e' mais
 	// necessario.
@@ -282,12 +349,7 @@ func gravarEstadoPendrive(caminho string, e estadoPendrive) error {
 // Importar por Pendrive. Preserva os bytes CRUS do AFD (latin1, sem decodificar) - mesmo motivo
 // de linha_bruta ser o artefato legal em rep_afd_registros: quem decodifica e' a rota de import,
 // no mesmo ponto em que este coletor decodificaria se estivesse online.
-func rodarAfdExportar(cfg *config.Config, caminhoCfg, caminhoSaida string) {
-	if cfg.DispositivoRep == nil {
-		fmt.Fprintln(os.Stderr, "Secao dispositivo_rep ausente no config.yaml.")
-		os.Exit(1)
-	}
-	d := cfg.DispositivoRep
+func rodarAfdExportar(cfg *config.Config, d *config.DispositivoRepConfig, caminhoCfg, caminhoSaida string) {
 	// A PRIMEIRA exportacao de um relogio ja usado traz o arquivo inteiro (estado local zerado),
 	// entao vale o mesmo teto folgado de get_afd.fcgi usado pelo sync.
 	rc := rep.NovoClient(d.Endereco, d.Porta, d.UsaHTTPS, d.UsuarioRep, d.SenhaRep, d.CertFingerprint).
@@ -379,12 +441,7 @@ func rodarAfdExportar(cfg *config.Config, caminhoCfg, caminhoSaida string) {
 // registra" (CLAUDE.md, "Cobertura de ponto"). rep_cadastros_fila continua "pendente" ate la; rodar
 // este comando de novo antes disso so reexporta a mesma lista, o que e' seguro (reaplicar no rele
 // nao gerou erro no teste real).
-func rodarCadastrosExportar(cfg *config.Config, caminhoSaida string) {
-	if cfg.DispositivoRep == nil {
-		fmt.Fprintln(os.Stderr, "Secao dispositivo_rep ausente no config.yaml.")
-		os.Exit(1)
-	}
-	d := cfg.DispositivoRep
+func rodarCadastrosExportar(cfg *config.Config, d *config.DispositivoRepConfig, caminhoSaida string) {
 	sc := sisescala.NovoClient(cfg.SisEscala.URL, d.ID, d.Token)
 
 	pendentes, err := sc.ListarCadastrosPendentes()
@@ -449,12 +506,7 @@ func rodarCadastrosExportar(cfg *config.Config, caminhoSaida string) {
 // real - rodar isto uma vez, contra o rele de teste, e o que decide se e seguro habilitar
 // `cadastros`/o botao da bandeja em producao. Se o formato de campo estiver errado, o erro
 // impresso abaixo traz a resposta crua do equipamento (ver %v em rep/client.go).
-func rodarCadastrosTestar(cfg *config.Config) {
-	if cfg.DispositivoRep == nil {
-		fmt.Fprintln(os.Stderr, "Secao dispositivo_rep ausente no config.yaml.")
-		os.Exit(1)
-	}
-	d := cfg.DispositivoRep
+func rodarCadastrosTestar(cfg *config.Config, d *config.DispositivoRepConfig) {
 	rc := rep.NovoClient(d.Endereco, d.Porta, d.UsaHTTPS, d.UsuarioRep, d.SenhaRep, d.CertFingerprint)
 
 	fmt.Println("ATENCAO: isto vai GRAVAR um usuario de teste no rele de verdade.")
@@ -508,12 +560,7 @@ const identificadorTeste = "011144477735"
 // Roda contra um cadastro descartavel de proposito. rep.RemoverUsuario confere por relistagem se
 // o alvo certo (e so' ele) sumiu, entao o custo de um formato errado e' um usuario de teste que
 // continua no rele, nunca cadastro de servidor real.
-func rodarRemocaoTestar(cfg *config.Config) {
-	if cfg.DispositivoRep == nil {
-		fmt.Fprintln(os.Stderr, "Secao dispositivo_rep ausente no config.yaml.")
-		os.Exit(1)
-	}
-	d := cfg.DispositivoRep
+func rodarRemocaoTestar(cfg *config.Config, d *config.DispositivoRepConfig) {
 	rc := rep.NovoClient(d.Endereco, d.Porta, d.UsaHTTPS, d.UsuarioRep, d.SenhaRep, d.CertFingerprint)
 
 	fmt.Println("ATENCAO: isto GRAVA e depois APAGA um usuario de teste no rele de verdade.")

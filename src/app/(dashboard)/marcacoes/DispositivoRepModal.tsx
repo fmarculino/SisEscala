@@ -3,9 +3,9 @@
 import { useMemo, useState } from 'react'
 import { Modal } from '@/components/ui/Modal'
 import { Loader2, KeyRound, Download, Users } from 'lucide-react'
-import { criarDispositivoRep, atualizarDispositivoRep, gerarTokenDispositivoRep, enfileirarCadastrosRep } from './actions'
+import { criarDispositivoRep, atualizarDispositivoRep, gerarTokenDispositivoRep, enfileirarCadastrosRep, gerarTokensUnidadeRep } from './actions'
 import { TokenRevealBox } from './TokenRevealBox'
-import { baixarAplicativoColetorRep } from './baixarAplicativo'
+import { baixarAplicativoColetorRep, baixarAplicativoUnidadeRep } from './baixarAplicativo'
 
 interface Opcoes {
   unidades: { id: string; nome: string }[]
@@ -76,10 +76,18 @@ export function DispositivoRepModal({
   const [token, setToken] = useState<string | null>(null)
   const [dispositivoId, setDispositivoId] = useState<string | null>(dispositivo?.id || null)
   const [baixando, setBaixando] = useState(false)
+  const [baixandoUnidade, setBaixandoUnidade] = useState(false)
   const [sincronizandoCadastros, setSincronizandoCadastros] = useState(false)
   const [resultadoCadastros, setResultadoCadastros] = useState<{ enfileirados: number; sem_cpf: number; ja_vinculados: number; ja_no_relogio: number } | null>(null)
 
   const setoresDaUnidade = opcoes.setores.filter((s) => s.unidade_id === unidadeId)
+
+  // Relógios ATIVOS desta unidade, o próprio incluído (outrosDispositivos é a lista completa).
+  // Só existe para oferecer o pacote de instalação da unidade inteira quando há mais de um —
+  // quem tem um relógio só continua vendo exatamente a tela de antes.
+  const relogiosAtivosDaUnidade = (outrosDispositivos || []).filter(
+    (d: any) => d.unidade_id === unidadeId && d.ativo
+  )
 
   // Sobreposicao com outros relogios da MESMA unidade - so aviso, nunca bloqueio (CLAUDE.md:
   // um setor coberto por dois relogios pode ser intencional, ex. duas entradas fisicas).
@@ -162,6 +170,32 @@ export function DispositivoRepModal({
       return
     }
     setResultadoCadastros(resultado as any)
+  }
+
+  /**
+   * Pacote de instalação de uma máquina que atende TODOS os relógios da unidade.
+   *
+   * Gera token novo para cada equipamento (fn_gerar_token_dispositivo_rep sempre substitui o
+   * anterior) e empacota os N num config.yaml só. Quem já estivesse coletando um desses relógios
+   * com o token antigo para de sincronizar até instalar este pacote — é o efeito esperado de
+   * consolidar num coletor só, e o aviso ao lado do botão diz isso antes do clique.
+   */
+  async function handleBaixarPacoteUnidade() {
+    if (!unidadeId) return
+    setBaixandoUnidade(true)
+    setErro(null)
+    try {
+      const resultado = await gerarTokensUnidadeRep(unidadeId)
+      if ('error' in resultado && resultado.error) {
+        setErro(resultado.error)
+        return
+      }
+      await baixarAplicativoUnidadeRep((resultado as any).dispositivos.map((d: any) => ({ id: d.id, token: d.token })))
+    } catch (e: any) {
+      setErro(e.message || 'Falha ao baixar o pacote da unidade.')
+    } finally {
+      setBaixandoUnidade(false)
+    }
   }
 
   async function handleBaixarAplicativo() {
@@ -434,6 +468,32 @@ export function DispositivoRepModal({
                 {gerandoToken ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
                 Gerar token
               </button>
+            )}
+
+            {relogiosAtivosDaUnidade.length > 1 && (
+              <div className="mt-2 pt-3 border-t border-dashed border-zinc-200 dark:border-zinc-800 space-y-2">
+                <p className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
+                  Esta unidade tem {relogiosAtivosDaUnidade.length} relógios
+                </p>
+                <p className="text-[11px] text-zinc-500">
+                  Se um mesmo computador enxerga todos eles na rede, baixe o pacote da unidade: um
+                  aplicativo só, que sincroniza os {relogiosAtivosDaUnidade.length} no mesmo ciclo.
+                  Relógio fora do ar não impede os outros de sincronizar.
+                </p>
+                <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                  ⚠️ Gera um token novo para cada um desses relógios. Qualquer instalação antiga que
+                  esteja coletando um deles para de sincronizar até receber este pacote.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleBaixarPacoteUnidade}
+                  disabled={baixandoUnidade}
+                  className="w-full border border-emerald-600 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60"
+                >
+                  {baixandoUnidade ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                  Baixar pacote da unidade ({relogiosAtivosDaUnidade.length} relógios)
+                </button>
+              </div>
             )}
           </div>
         )}

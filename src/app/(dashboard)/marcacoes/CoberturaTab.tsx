@@ -324,6 +324,16 @@ export function CoberturaTab({ isAdmin }: { isAdmin: boolean }) {
                             <AlertTriangle className="h-3 w-3" /> {d.nao_conseguem_bater} de {d.escalados}
                           </span>
                         )}
+                        {/* Unidade com mais de um relógio: separa quem não registra ponto em lugar
+                            nenhum (urgente) de quem usa outra entrada da unidade (opcional). */}
+                        {d.cobertos_em_outro > 0 && (
+                          <span
+                            title="Estas pessoas não conseguem bater NESTE relógio, mas já batem em outro relógio ativo da mesma unidade."
+                            className="text-[10px] font-bold text-zinc-600 bg-zinc-100 dark:bg-zinc-800 dark:text-zinc-300 px-2 py-0.5 rounded-full"
+                          >
+                            {d.cobertos_em_outro} batem em outro relógio
+                          </span>
+                        )}
                       </p>
                       <p className="text-xs text-zinc-500">
                         {d.unidade_nome}{d.setores_nomes ? ` — ${d.setores_nomes}` : ''}
@@ -430,6 +440,12 @@ export function CoberturaTab({ isAdmin }: { isAdmin: boolean }) {
                                         <span className="text-red-600 font-bold"> · {s.batidas_perdidas} batida(s) perdida(s) em 30 dias</span>
                                       )}
                                     </p>
+                                    {s.situacao !== 'ok' && s.coberto_em && (
+                                      <p className="text-[11px] text-emerald-700 dark:text-emerald-400">
+                                        Já bate ponto em {s.coberto_em} — cadastrar aqui só é
+                                        necessário se esta pessoa também usa esta entrada.
+                                      </p>
+                                    )}
                                     {s.situacao === 'fora_do_relogio' && (
                                       <p className="text-[11px] text-zinc-500">
                                         {s.fila_status === 'pendente' ? (

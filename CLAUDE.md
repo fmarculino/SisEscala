@@ -168,6 +168,55 @@ Duas lacunas conhecidas, registradas no plano:
 | `cmd/cli` | diagnóstico manual: `sync`, `heartbeat`, `diagnostico`, `afd-raw` (busca e imprime o AFD cru, não grava nada), `afd-exportar` (grava `.sisrep` para pendrive, ver abaixo), `terminal abrir`. Não roda continuamente. |
 | `cmd/tray` | o que roda o dia a dia numa unidade: ícone de bandeja (verde/vermelho conforme o ciclo), autostart via `HKCU\...\Run` (sem precisar de administrador — `kardianos/service`, que a CLI usava antes, foi **removido**, não adaptado: serviço do Windows roda na Sessão 0, isolada da área de trabalho desde o Vista, e por isso **nunca** pode mostrar ícone de bandeja nem abrir navegador na sessão do usuário), auto-instalação no primeiro uso (copia a si mesmo para `%LOCALAPPDATA%\SisEscala\coletor-rep\` e relança de lá). |
 
+#### Uma unidade pode ter VÁRIOS relógios, e o coletor era um-por-máquina por construção (25/08/2026)
+
+Há unidades com **4 equipamentos**. O **cadastro** sempre aceitou isso (`dispositivos_rep.unidade_id`
+é FK simples, sem unique; `dispositivos_rep_setores` divide por setor desde `20260813130000`), e a
+atribuição da batida também (identidade por CPF/PIS, armadilha 13). **O coletor é que travava**:
+config singular, mutex nomeado único, pasta de instalação fixa e — o pior — **fila offline plana**.
+
+⚠️ **A fila plana era erro silencioso, não desorganização.** O client HTTP é montado por dispositivo
+(o token vai no HMAC); a fila não era. Duas instâncias dividindo `%PROGRAMDATA%\SisEscala\fila`
+fariam o lote de um relógio ser reenviado com o **token do outro** — o AFD de um equipamento
+entrando em `dispositivos_rep` como sendo do outro, NSR misturado, **sem erro em lugar nenhum**.
+Desde a v0.9.0 a fila é `fila\<dispositivo_id>\`. Portão: `go test ./fila/`.
+
+Desde a **v0.9.0** o `config.yaml` aceita a chave plural `dispositivos_rep:` (lista); a singular
+`dispositivo_rep:` **continua valendo** — todo config instalado em campo usa ela, e
+`Config.Dispositivos()` junta as duas. Diário em
+[`docs/evolucao/2026-08-25-varios-relogios-por-unidade.md`](docs/evolucao/2026-08-25-varios-relogios-por-unidade.md).
+
+| regra | por quê |
+|---|---|
+| cada relógio tem **id e token próprios** — não existe "token da unidade" | é o token que diz de qual equipamento veio cada linha do AFD |
+| `id` repetido faz o coletor **recusar o config.yaml inteiro** | rodar meio certo aqui vira batida atribuída ao equipamento errado meses depois |
+| relógio fora do ar **não interrompe os outros** (`ciclo/todos.go` acumula erros) | a unidade não pode parar de registrar ponto em três porque o quarto está desligado |
+| lote legado solto na raiz da fila só é adotado com **um único** relógio configurado | com dois, o arquivo não diz de quem é — chutar autoria de marcação já coletada é pior |
+| CLI: rotina roda em todos; comando de **um** equipamento exige `--dispositivo` | escrever usuário de teste em 4 equipamentos de produção por descuido não pode acontecer |
+
+Instalação: **"Baixar pacote da unidade (N relógios)"** no modal do dispositivo gera token novo
+para cada um e monta o `.zip` com os N. ⚠️ Isso **invalida o token anterior** deles — instalação
+antiga para de sincronizar (401) até receber o pacote. A rota recusa o pacote se **um** relógio da
+lista não for encontrado: um config com três dos quatro roda sem erro e o quarto some da coleta.
+
+⚠️ **A Cobertura da Escala é por dispositivo, e isso está certo** (para bater num relógio é preciso
+estar cadastrado *naquele*, com biometria) — mas na unidade com relógio geral + setoriais a mesma
+pessoa vira uma linha por relógio. `20260825110000` acrescenta `coberto_em`
+(`fn_cobertura_ponto_dispositivo`) e `cobertos_em_outro` (`fn_cobertura_ponto_resumo`) para separar
+"não bate em lugar nenhum" de "usa outra entrada da unidade". **`cobertos_em_outro` nunca é
+descontado de `nao_conseguem_bater`**, e só conta quem tem **biometria** no outro relógio — cadastro
+sem digital não registra ponto.
+
+✅ **Biometria PODE ser copiada entre relógios.** `load_users.fcgi` já é chamado com
+`templates: true` e devolve os templates (o coletor só olhava `len(templates) > 0`), e o CSV de
+"Enviar/Receber usuários" tem a coluna `digitais` em base64, com "Receber usuários" confirmado
+**aditivo** em hardware real. O procedimento por pendrive está em
+[`docs/planos/2026-08-25-copia-de-biometria-entre-relogios.md`](docs/planos/2026-08-25-copia-de-biometria-entre-relogios.md);
+a automação pela API **não foi feita** — escrever template pela API nunca foi testado, e o sintoma
+de errar é "a digital dele parou de funcionar", descoberto pelo servidor na frente do relógio.
+⚠️ Copiar de um relógio cadastrado por **CPF** para um por **PIS** duplica o cadastro de quem já
+estava lá (armadilha 10): rode a Higiene no destino depois.
+
 **Distribuição normal não é compilar na mão** — `/marcacoes` (Terminais Locais / Dispositivos
 REP) tem botão "Baixar aplicativo" que gera o token e devolve um `.zip` já configurado
 (`POST /api/coletor-rep/download`, empacota `tools/coletor-rep/dist/coletor-rep-tray.exe`
@@ -423,6 +472,14 @@ tinha tela nenhuma até aqui (só existia via `fn_vinculos_sugeridos_afd` + SQL 
 presente no equipamento, sempre vai exigir alguém ir até o relógio pelo menos uma vez por
 servidor (confirmado no plano original, Fase 7). O que ficou automatizado é só a
 **identidade** (matrícula/nome/CPF) chegar pronta no relógio antes disso.
+
+⚠️ **"Pelo menos uma vez por servidor" — não uma vez por relógio (25/08/2026).** A frase acima
+vale para *criar* biometria; **copiar** a que já existe de um relógio para outro é possível e o
+formato está confirmado (`digitais` em base64 no CSV de "Enviar/Receber usuários"; templates
+devolvidos por `load_users.fcgi`). Numa unidade com 4 equipamentos isso é a diferença entre uma
+digital por pessoa e quatro — ver
+[`docs/planos/2026-08-25-copia-de-biometria-entre-relogios.md`](docs/planos/2026-08-25-copia-de-biometria-entre-relogios.md).
+Escrever template **pela API** continua não testado.
 
 | peça | onde |
 |---|---|

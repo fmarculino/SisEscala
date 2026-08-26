@@ -36,7 +36,16 @@ export async function POST(request: Request) {
   const tipo: string = body?.tipo
   const id: string = body?.id
   const token: string = body?.token
-  if ((tipo !== 'terminal' && tipo !== 'dispositivo') || !id || !token) {
+  // tipo 'unidade' empacota VÁRIOS relógios num config.yaml só — o computador da unidade que
+  // atende os 4 equipamentos. A lista de {id, token} vem do cliente porque os tokens acabaram de
+  // ser gerados pela action (gerarTokensUnidadeRep), mesmo fluxo do caso de um relógio: esta rota
+  // nunca gera token, senão cada clique em "Baixar" invalidaria em silêncio a instalação de campo.
+  const dispositivosPedidos: { id: string; token: string }[] = Array.isArray(body?.dispositivos) ? body.dispositivos : []
+  if (tipo === 'unidade') {
+    if (dispositivosPedidos.length === 0 || dispositivosPedidos.some((d) => !d?.id || !d?.token)) {
+      return NextResponse.json({ error: 'Lista de dispositivos (id e token) é obrigatória.' }, { status: 400 })
+    }
+  } else if ((tipo !== 'terminal' && tipo !== 'dispositivo') || !id || !token) {
     return NextResponse.json({ error: 'tipo, id e token são obrigatórios.' }, { status: 400 })
   }
 
@@ -54,6 +63,29 @@ export async function POST(request: Request) {
   let configYaml: string
   if (tipo === 'terminal') {
     configYaml = montarConfigTerminal(origem, id, token)
+  } else if (tipo === 'unidade') {
+    const { data: encontrados, error: erroLista } = await supabase
+      .from('dispositivos_rep')
+      .select('id, nome, endereco_ip, usuario_rep, senha_rep, porta, usa_https')
+      .in('id', dispositivosPedidos.map((d) => d.id))
+    if (erroLista) {
+      return NextResponse.json({ error: erroLista.message }, { status: 500 })
+    }
+    const porId = new Map((encontrados || []).map((d: any) => [d.id, d]))
+    // Faltando UM relógio, o pacote inteiro é recusado. Um config.yaml com três dos quatro
+    // equipamentos instala e roda sem erro nenhum — e o quarto simplesmente não é coletado, que
+    // é o modo de falha silencioso que este módulo inteiro existe para não ter.
+    const faltando = dispositivosPedidos.filter((d) => !porId.has(d.id))
+    if (faltando.length > 0) {
+      return NextResponse.json(
+        { error: `Dispositivo REP não encontrado: ${faltando.map((d) => d.id).join(', ')}` },
+        { status: 404 }
+      )
+    }
+    configYaml = montarConfigUnidade(
+      origem,
+      dispositivosPedidos.map((pedido) => ({ ...porId.get(pedido.id), token: pedido.token }))
+    )
   } else {
     // Le endereco/usuario/senha/porta direto do banco (nao do corpo da requisicao) - sao os
     // mesmos campos que o admin acabou de preencher em "Editar dispositivo REP", e assim o zip
@@ -124,6 +156,54 @@ function montarConfigTerminal(origem: string, id: string, token: string): string
 terminal_local:
   id: "${id}"
   token: "${token}"
+`
+}
+
+/**
+ * config.yaml de um computador que atende VÁRIOS relógios da mesma unidade (há unidades com 4).
+ *
+ * Usa a chave plural `dispositivos_rep`, lida pelo coletor a partir da v0.9.0. Cada relógio
+ * mantém id e token próprios — é o token que identifica de qual equipamento veio cada linha do
+ * AFD, e o coletor recusa o arquivo se dois ids se repetirem.
+ */
+function montarConfigUnidade(
+  origem: string,
+  dispositivos: {
+    id: string
+    nome: string | null
+    token: string
+    endereco_ip: string | null
+    usuario_rep: string | null
+    senha_rep: string | null
+    porta: number | null
+    usa_https: boolean | null
+  }[]
+): string {
+  const blocos = dispositivos
+    .map(
+      (d) => `  - nome: "${(d.nome || '').replace(/"/g, "'")}"
+    id: "${d.id}"
+    token: "${d.token}"
+    endereco: "${d.endereco_ip || 'PREENCHA_O_IP_DO_RELOGIO'}"
+    porta: ${d.porta ?? 443}
+    usa_https: ${d.usa_https ?? true}
+    usuario_rep: "${d.usuario_rep || 'admin'}"
+    senha_rep: "${d.senha_rep || 'PREENCHA_A_SENHA_DE_ADMIN_DO_RELOGIO'}"
+    cert_fingerprint: ""`
+    )
+    .join('\n')
+
+  return `sisescala:
+  url: ${origem}
+
+# ${dispositivos.length} relogios coletados por esta maquina. Cada um tem id e token proprios;
+# o coletor sincroniza todos no mesmo ciclo e mantem fila e cursor de NSR separados por
+# equipamento. Relogio fora do ar nao impede os outros de sincronizar.
+dispositivos_rep:
+${blocos}
+  # Descomente e aumente SO se o coletor-rep.log acusar "context deadline exceeded ... while
+  # reading body" na primeira coleta (relogio com historico grande demora para montar o AFD).
+  # A chave e por relogio: timeout_afd_segundos: 900
 `
 }
 

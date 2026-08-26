@@ -316,6 +316,51 @@ export async function gerarTokenDispositivoRep(id: string) {
   return { token: data as string }
 }
 
+/**
+ * Gera token novo para TODOS os relógios ativos de uma unidade, para o pacote de instalação de
+ * um computador que atende a unidade inteira (há unidades com 4 equipamentos).
+ *
+ * ⚠️ Isto INVALIDA o token anterior de cada um desses relógios — é o que
+ * `fn_gerar_token_dispositivo_rep` faz, e vale para quem já estivesse coletando um deles: aquela
+ * instalação para de sincronizar (HTTP 401) até receber este pacote. É deliberado, e a tela
+ * avisa: o caso de uso é justamente consolidar num coletor só o que estava espalhado.
+ *
+ * Cada relógio continua com id e token PRÓPRIOS — não existe "token da unidade". É o token que
+ * diz ao SisEscala de qual equipamento veio cada linha do AFD.
+ */
+export async function gerarTokensUnidadeRep(unidadeId: string) {
+  await exigirAdmin()
+  const supabase = await createClient()
+
+  const admin = await createAdminClient()
+  const { data: dispositivos, error: erroLista } = await admin
+    .from('dispositivos_rep')
+    .select('id, nome, endereco_ip')
+    .eq('unidade_id', unidadeId)
+    .eq('ativo', true)
+    .order('nome')
+
+  if (erroLista) return { error: erroLista.message }
+  if (!dispositivos || dispositivos.length === 0) {
+    return { error: 'Nenhum relógio ativo nesta unidade.' }
+  }
+
+  const comToken: { id: string; nome: string; endereco_ip: string | null; token: string }[] = []
+  for (const d of dispositivos) {
+    const { data, error } = await supabase.rpc('fn_gerar_token_dispositivo_rep', { p_dispositivo_id: d.id })
+    if (error) {
+      // Parar no primeiro erro, e nao seguir gerando: um pacote com metade dos relogios teria
+      // token novo (os gerados) e token velho (os que faltaram) no mesmo config.yaml, e a
+      // instalacao ficaria coletando parte da unidade sem ninguem perceber qual parte.
+      return { error: `Falha ao gerar token de ${d.nome}: ${error.message}` }
+    }
+    comToken.push({ id: d.id, nome: d.nome, endereco_ip: d.endereco_ip, token: data as string })
+  }
+
+  revalidatePath('/marcacoes')
+  return { dispositivos: comToken }
+}
+
 // ============================================================================
 // Push de cadastro (identidade) para o rele - Fase 7, parte de identidade
 // ============================================================================
@@ -399,6 +444,10 @@ export interface CoberturaResumo {
   sem_snapshot: number
   nao_conseguem_bater: number
   batidas_perdidas: number
+  // Quantos dos `nao_conseguem_bater` já batem em OUTRO relógio ativo da mesma unidade. Não é
+  // descontado de `nao_conseguem_bater`: naquele equipamento a pessoa continua sem conseguir
+  // bater — o número novo fica ao lado, nunca no lugar. Ver 20260825110000.
+  cobertos_em_outro: number
 }
 
 export type SituacaoCobertura = 'sem_cpf' | 'sem_snapshot' | 'fora_do_relogio' | 'sem_biometria' | 'sem_vinculo' | 'ok'
@@ -418,6 +467,10 @@ export interface CoberturaServidor {
   fila_status: 'pendente' | 'enviado' | 'falhou' | null
   fila_erro: string | null
   lotacao_compativel: boolean
+  // Outros relógios da MESMA unidade onde esta pessoa consegue bater ponto hoje (cadastrada lá,
+  // com biometria). null = não bate em mais nenhum — a distinção entre "não registra ponto em
+  // lugar nenhum" e "usa outra entrada da unidade".
+  coberto_em: string | null
 }
 
 // Estas duas DEVOLVEM o erro em vez de lançar. Server Action que lança tem a mensagem apagada em
