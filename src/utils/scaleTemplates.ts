@@ -6,7 +6,7 @@
  * para ser injetado no gridData local.
  */
 
-export type TemplateType = '12x36' | '5x2' | '6x1'
+export type TemplateType = '12x36' | '12x48' | '5x2' | '6x1'
 
 export interface TemplateConfig {
   type: TemplateType
@@ -29,6 +29,11 @@ export const TEMPLATE_OPTIONS: TemplateOption[] = [
     type: '12x36',
     label: 'Escala 12×36',
     description: 'Trabalha 12h e descansa 36h. Comum em saúde e segurança. Resulta em dias alternados.'
+  },
+  {
+    type: '12x48',
+    label: 'Escala 12×48',
+    description: 'Trabalha 12h e descansa 48h. Resulta em 1 dia de trabalho para 2 de folga.'
   },
   {
     type: '5x2',
@@ -62,6 +67,8 @@ export function generateTemplate(
   switch (config.type) {
     case '12x36':
       return generate12x36(config, daysInMonth, protectedDays)
+    case '12x48':
+      return generate12x48(config, daysInMonth, protectedDays)
     case '5x2':
       return generate5x2(config, daysInMonth, mes, ano, protectedDays)
     case '6x1':
@@ -88,6 +95,44 @@ function generate12x36(
       result[day] = config.turnoId
     }
     isWorkDay = !isWorkDay
+  }
+
+  return result
+}
+
+/**
+ * Escala 12×48: trabalha 1 dia, folga 2. Ciclo de 3 dias.
+ *
+ * A CLT não nomeia a 12×48 (diferente da 12×36, que tem o Art. 59-A) — ela é adotada por
+ * acordo/convenção coletiva, sobretudo em segurança e em corporações militares. O que a lei
+ * exige e esta escala cumpre com sobra são as 11h de interjornada do Art. 66.
+ *
+ * ⚠️ A grade é por DIA, e é isso que define o ciclo aqui. Ao pé da letra, 12h de trabalho +
+ * 48h de descanso fecham um ciclo de 60h, que não é múltiplo de 24 — a jornada iria migrando
+ * de diurna para noturna a cada volta. Com horário fixo no dia (que é como o turno é cadastrado
+ * em dicionario_turnos), o intervalo entre o fim de um plantão e o início do próximo passa a ser
+ * de 60h: MAIS descanso que os 48h nominais, nunca menos. Não "corrija" para 2 dias de
+ * trabalho — a 12×48 é 1 para 2.
+ */
+function generate12x48(
+  config: TemplateConfig,
+  daysInMonth: number,
+  protectedDays: Set<number>
+): Record<number, string> {
+  const result: Record<number, string> = {}
+  const cycleLength = 3 // 1 trabalho + 2 folga
+
+  // Mesma convenção do 12×36: "começa folgando" desloca o ciclo em UM dia, não em dois —
+  // o primeiro dia folga e o trabalho cai no dia seguinte.
+  const posDeTrabalho = config.startWorking ? 0 : 1
+
+  for (let day = config.startDay; day <= daysInMonth; day++) {
+    let offset = day - config.startDay
+    while (offset < 0) offset += cycleLength
+
+    if (offset % cycleLength === posDeTrabalho && !protectedDays.has(day)) {
+      result[day] = config.turnoId
+    }
   }
 
   return result

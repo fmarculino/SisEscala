@@ -186,6 +186,7 @@ export function montarResumoGerador(dados: {
   jaIguais: number
   puladasPorPonto: number
   puladasPorAfastamento: number
+  puladasPorConflito: number
   extrasGravadas: { rotulo: string; celulas: number }[]
   extrasErro: string
   servidoresSemHistorico: number
@@ -222,6 +223,7 @@ export function montarResumoGerador(dados: {
   if (dados.jaIguais > 0) motivos.push(`${dados.jaIguais} já ${dados.jaIguais === 1 ? 'estava lançado' : 'estavam lançados'} exatamente com o mesmo turno`)
   if (dados.puladasPorPonto > 0) motivos.push(`${dados.puladasPorPonto} ${dados.puladasPorPonto === 1 ? 'caiu' : 'caíram'} em dia que já tem ponto registrado (não são sobrescritos)`)
   if (dados.puladasPorAfastamento > 0) motivos.push(`${dados.puladasPorAfastamento} ${dados.puladasPorAfastamento === 1 ? 'caiu' : 'caíram'} em dia de afastamento`)
+  if (dados.puladasPorConflito > 0) motivos.push(`${dados.puladasPorConflito} ${dados.puladasPorConflito === 1 ? 'caiu' : 'caíram'} em dia com o servidor já escalado em outro setor no mesmo horário`)
   if (motivos.length > 0) linhas.push(`\nO gerador propôs mais do que aplicou: ${motivos.join('; ')}.`)
 
   if (mesDaGrade) {

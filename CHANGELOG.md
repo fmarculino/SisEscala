@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.20.0] - 2026-08-26
+
+### Added
+- **Template de escala 12×48.** Trabalha 12h e descansa 48h — na prática **1 dia de trabalho para 2 de folga**, ciclo de 3 dias. Diferente da 12×36 (que tem o Art. 59-A da CLT desde a Reforma de 2017), a 12×48 **não é nomeada pela CLT**: é adotada por acordo ou convenção coletiva, sobretudo em segurança e corporações militares. O que a lei exige e a escala cumpre com sobra é a interjornada de 11h do Art. 66.
+  - ⚠️ Ao pé da letra, 12h + 48h fecham um ciclo de **60h**, que não é múltiplo de 24 — a jornada iria migrando de diurna para noturna a cada volta. Como a grade é por dia e o turno tem horário fixo em `dicionario_turnos`, o intervalo real entre plantões vira **60h**: mais descanso que os 48h nominais, nunca menos. Registrado em comentário no código para ninguém "corrigir" para 2 dias de trabalho.
+  - Alterado só `src/utils/scaleTemplates.ts` — o `<select>` da tela lê `TEMPLATE_OPTIONS` sozinho.
+- **Atualização automática do coletor REP (v0.12.0).** Medido em 26/08: **11 dos 15 relógios** estavam desatualizados (9 em v0.8.0, 1 em v0.7.0, 1 em v0.10.0) e **todos com contato recente** — o gargalo nunca foi rede, era o clique manual que ninguém dava. Agrava: v0.9.0 foi quem trocou a fila plana pela fila por dispositivo, e em v0.8.0 duas instâncias na mesma máquina podem reenviar o lote de um relógio com o **token do outro**.
+  - ⚠️ **O interruptor fica no servidor, não no cliente.** `GET /api/coletor-rep/tray-version` passou a devolver `auto_update` e `atraso_max_minutos`, lidos de `configuracoes_globais`. Parar um release ruim é trocar uma linha — sem deploy e sem tocar em nenhuma máquina. Chave ausente = ligado; **falha ao ler = desligado**.
+  - **Atraso aleatório** (padrão até 240 min) antes de aplicar, para o parque não trocar de binário todo no mesmo minuto.
+  - **Rollback:** se o processo novo não assumir o mutex em 3s (sintoma típico de Smart App Control bloqueando `.exe` recém-escrito), o **executável anterior é restaurado**. Sem isso, o autostart do próximo boot lançaria o binário bloqueado e a unidade sairia do ar em silêncio — um caso isolado quando atualizar era um clique, o parque inteiro com auto-update.
+  - Aplica no **fim do ciclo, na mesma goroutine** — nunca com um lote em voo. O sha256 continua conferido antes de instalar, e a checagem continua 1x/dia.
+
+### Fixed
+- 🚨 **O mesmo servidor podia ser escalado em dois setores no mesmo horário, e a mesma batida contava em duas folhas.** `fn_check_shift_conflicts` existe e detecta o caso, mas tinha **um único chamador em todo o repositório** — `handleCellChange`, ou seja, só a digitação célula a célula. **Aplicar Template**, **Gerador Inteligente** e **Salvar Previsão** nunca a consultaram, e **não existia trigger nenhum no banco**.
+  - Medido na base inteira (5 competências, 21.031 linhas de `escala_diaria`): **24 pares** (servidor, dia) sobrepostos, em 2 servidoras, todos em 08/2026 e todos em Rascunho. **CLEONEIDE MENEZ FRANK** (61399) com 19 dias e **duas folhas de 210h + 190h**; **FAGNER SOARES CARDOSO** (15234) com 5 dias.
+  - No FAGNER a causa raiz foi uma **transferência de setor**: PATRIMÔNIO até o dia 7, TRANSPORTE a partir do dia 10. O template aplicado na grade do TRANSPORTE varreu o mês desde o dia 3 e alcançou dias que ainda eram do PATRIMÔNIO.
+  - ⚠️ **A grade já sabia.** `fn_get_monthly_occupancy` carrega a ocupação externa no `mount` e o dado era usado **só para pintar a célula e montar tooltip** — nunca para recusar.
+  - Trava nova: `trg_escala_diaria_sem_sobreposicao_setor` (`20260826220000`) + fonte única no frontend em **`src/utils/conflitoEscala.ts`**, ligada nos três caminhos de escrita mais a barreira do `handleSave`, que **relê a ocupação do banco** (aba desatualizada é o caso que a checagem local não cobre).
+
+### Changed
+- ⚠️ **O critério é slot sobreposto, nunca "mesmo dia".** Dobra em outro setor continua permitida e é caso real: medidos **9 pares cross-setor adjacentes** (ERIKA SOUZA LIMA, 09/2026, `Regular MT` em ENFERMEIROS + `Plantão N` em CLASSIFICAÇÃO DE RISCO). Proibir por dia quebraria o que o dicionário de turnos existe para suportar.
+- ⚠️ **O guard de `UPDATE` do trigger não é otimização, é corretude.** `handleSave` faz upsert da linha inteira (presença incluída) a cada "Salvar Previsão", e mais de 20 migrations têm funções que dão `UPDATE` em `escala_diaria` só para gravar presença. Sem o `IS DISTINCT FROM` sobre a identidade do turno, **toda batida do terminal atravessaria a checagem** e qualquer linha em conflito passaria a derrubar o registro de ponto.
+- O Aplicar Template e o Gerador Inteligente passam a **relatar** quantos dias não foram preenchidos por sobreposição, e quais — relatar o que mudou, não o que foi calculado (armadilha 22).
+
+### Known
+- ⚠️ **Falta clicar em "Sincronizar" nas 4 folhas** de 08/2026 dos dois casos limpos. `folha_ponto.registros` é snapshot jsonb, não view.
+- ⚠️ **Os dias 6 e 7 do FAGNER passam a ter saída às 17:38 e 16:00** (batidas reais de terminal), contra uma jornada que acaba às 14:00 — vira hora extra e **precisa da revisão do coordenador**. Foi o efeito previsto ao decidir que batida real não seria desconsiderada junto com os horários sintéticos.
+- ℹ️ A limpeza precisou de um passo que só apareceu na conferência: ao limpar as células na grade em 26/08 às 21:49, o app registrou `desconsiderar` automático **inclusive sobre as batidas reais de terminal**. Foram **6 batidas restauradas** via `marcacoes_tratamentos` com `tipo = 'restaurar'`. Só batida real voltou — o horário sintético declarado pelo coordenador ficou desconsiderado de propósito.
+- ℹ️ **Os 9 pares adjacentes preservados são exatamente onde o outro defeito conhecido vai bater** em 09/2026: a fusão de bloco grava o mesmo par nas duas linhas, agora atravessando setor. É o plano `2026-08-23-turno-regular-emendado-com-plantao.md`. Hoje não há dano (competência futura, sem ponto).
+
 ## [2.18.1] - 2026-08-24
 
 ### Fixed

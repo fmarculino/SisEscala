@@ -321,12 +321,32 @@ $off = [BitConverter]::ToInt32($b, 0x3C) + 4 + 20
 [BitConverter]::ToUInt16($b, $off + 68)   # 2 = GUI (certo) | 3 = console (esqueceu a flag)
 ```
 
-**Update do app de bandeja é "avisa e espera clique", nunca automático** — decisão explícita do
-usuário, mesma cautela já registrada para o Smart App Control bloquear o `.exe` sem aviso.
-`cmd/tray/main.go` checa `ciclo.VersaoDisponivel` no máximo 1x/dia (não a cada ciclo de 5 min),
-habilita um item de menu "Atualização disponível" e só troca o `.exe` (`ciclo.AplicarAtualizacao`
-— confere sha256 do download antes de instalar, recusa se não bater) quando alguém clica.
-Reaproveita o mesmo padrão de renomear-e-relançar de `autoInstalarERelancar`, não duplica lógica.
+⚠️ **Update do app de bandeja ERA "avisa e espera clique". Desde a v0.12.0 (26/08/2026) é
+automático — com o interruptor no SERVIDOR.** A regra antiga era decisão explícita do usuário,
+tomada quando o parque tinha 1–2 relógios e havia alguém por perto. **A premissa caiu**: medido em
+26/08/2026 com 15 relógios, **11 estavam desatualizados** (9 em v0.8.0, 1 em v0.7.0, 1 em v0.10.0)
+e **todos com contato recente** (0,1h–7,1h) — o gargalo nunca foi rede nem máquina desligada, era
+o clique que ninguém dava. Agrava: **v0.9.0** foi quem trocou a fila plana pela fila por
+dispositivo, então os 9 em v0.8.0 rodavam com o bug silencioso de lote reenviado com o token do
+outro relógio. Diário em
+[`docs/evolucao/2026-08-26-auto-atualizacao-do-coletor.md`](docs/evolucao/2026-08-26-auto-atualizacao-do-coletor.md).
+
+🚨 **Não troque "espera clique" por "aplica sempre".** Um release ruim alcançaria o parque inteiro
+em até 24h, nas máquinas que são justamente as que ninguém alcança fisicamente. Defasagem é chato;
+parque derrubado é uma viagem a cada unidade. Três defesas, e nenhuma pode sair:
+
+| defesa | onde | por quê |
+|---|---|---|
+| **política no servidor** | `coletor_auto_update` e `coletor_auto_update_atraso_max_minutos` em `configuracoes_globais`, devolvidas por `GET /api/coletor-rep/tray-version` (`20260826230000`) | é o **único** kill switch que funciona num parque remoto: trocar a chave para a propagação no próximo ciclo, sem deploy e sem tocar em máquina. Chave ausente = ligado; **falha ao ler = desligado** |
+| **atraso sorteado** (até 240 min, no cliente) | `cmd/tray/main.go` | com 15 relógios, uma falha aparece nas primeiras antes de alcançar as demais |
+| **rollback** | `aplicarAtualizacao` | se o processo novo não assumir o mutex em 3s (Smart App Control bloqueando `.exe` recém-escrito), o executável **anterior é restaurado**. Sem isso o autostart do próximo boot lança o binário bloqueado e a unidade sai do ar **em silêncio** |
+
+Continua valendo: sha256 conferido antes de instalar, checagem no máximo **1x/dia**, e a aplicação
+roda **no fim de `executarCiclo`, na mesma goroutine** — nunca com um lote em voo. Campo
+`auto_update` ausente na resposta (servidor anterior à v0.12.0) desserializa como `false` em Go, e
+o coletor volta a só avisar. ⚠️ **Reverter uma versão já aplicada exige publicar um `dist/`
+anterior com `VERSION` maior** — `compararVersoes` só aceita subir. É por isso que o atraso
+sorteado importa.
 
 **Import/export de AFD por pendrive (Fase 6, 12/08/2026)** — para unidades onde o relógio não
 tem rede até o servidor (ex.: LACEN). `coletor-rep-cli afd-exportar <arquivo>.sisrep` roda numa
@@ -2147,6 +2167,57 @@ o que torna seguro rodar duas vezes) e dia de afastamento é removido antes — 
 Encadear previsão sobre previsão multiplica o erro (~85% → 72% → 61% em três meses) e congela um
 engano dentro dos meses seguintes. A exceção é o ciclo de passo fixo, que é determinístico e
 precisa mesmo atravessar a virada.
+
+### 23. O mesmo servidor em DOIS setores no mesmo horário, e a batida contando duas vezes (26/08/2026)
+
+⚠️ **`fn_check_shift_conflicts` existe desde sempre, detecta o caso certo e tinha UM ÚNICO
+chamador em todo o repositório:** `handleCellChange` — ou seja, só a digitação célula a célula.
+**Aplicar Template**, **Gerador Inteligente** e **Salvar Previsão** nunca a consultaram, e **não
+existia trigger nenhum no banco**. É a armadilha 14 um eixo adiante: lá o furo do template era
+afastamento (fechado); aqui era sobreposição, e sem rede de segurança no banco.
+
+Medido na base inteira (5 competências, 21.031 linhas de `escala_diaria`): **24 pares**
+(servidor, dia) com a mesma pessoa em dois setores com slots sobrepostos, **a mesma marcação
+projetada nas duas linhas** e **duas folhas contando o mesmo tempo** — CLEONEIDE (61399): 19 dias,
+210h + 190h em 08/2026. Diário em
+[`docs/evolucao/2026-08-26-sobreposicao-de-escala-entre-setores.md`](docs/evolucao/2026-08-26-sobreposicao-de-escala-entre-setores.md).
+
+⚠️ **A grade JÁ SABIA.** `fn_get_monthly_occupancy` carrega a ocupação externa do mês inteiro no
+`mount`, e `externalOccupancy` era usado **só para pintar a célula e montar tooltip**. O dado que
+bloquearia já estava em memória — servia para avisar, nunca para recusar.
+
+Defesas desde `20260826220000`, fonte única no frontend em **`src/utils/conflitoEscala.ts`**:
+
+| camada | o que faz |
+|---|---|
+| `trg_escala_diaria_sem_sobreposicao_setor` | recusa no banco. É a única que sobrevive a chamada direta da RPC e a caminho de escrita novo |
+| `conflitoEscala.ts` nos 3 caminhos de escrita | célula, Aplicar Template, Gerador Inteligente |
+| barreira do `handleSave` | **relê a ocupação do banco** — aba desatualizada é o caso que a checagem local não cobre |
+
+⚠️ **O critério é slot SOBREPOSTO, nunca "mesmo dia".** Dobra em outro setor é legítima e medida:
+9 pares adjacentes (ERIKA, 09/2026, `Regular MT` + `Plantão N` em setores diferentes). Proibir
+por dia quebraria o que o dicionário de turnos existe para suportar (armadilha 15).
+
+⚠️ **O guard de `UPDATE` do trigger não é otimização, é corretude.** `handleSave` faz upsert da
+linha INTEIRA (presença incluída) a cada "Salvar Previsão", e 20+ migrations têm funções que dão
+`UPDATE` em `escala_diaria` só para gravar presença. Sem o `IS DISTINCT FROM` sobre
+`escala_mensal_id/dia/categoria/dicionario_turnos_id`, **toda batida do terminal atravessaria a
+checagem** e qualquer linha em conflito passaria a **derrubar o registro de ponto**.
+
+⚠️ **Limpar tem que vir ANTES de ligar a trava** — com as linhas sobrepostas no lugar, os setores
+envolvidos não conseguem salvar nada na competência.
+
+⚠️ **Apagar a linha de `escala_diaria` não basta.** O "validar dias passados" do template grava
+presença na grade, e o trigger de `20260808070000` converte isso em `marcacoes_ponto` sintéticas
+`ajuste_coordenador` — **uma série por setor** (128 da CLEONEIDE, 27 do FAGNER em 08/2026, contra
+5 e 7 batidas reais). `marcacoes_ponto` é INSERT-only: a porta é `marcacoes_tratamentos` com
+`desconsiderar`.
+
+⚠️ **Limpar a célula na grade desconsidera TAMBÉM a batida real.** A reversão automática
+("Presenca revertida em escala_diaria") registra `desconsiderar` sobre o horário sintético **e**
+sobre a batida de terminal. Se o dia ficar com o setor certo depois, a batida real precisa voltar
+por `restaurar` — o último tratamento por `created_at` é o efetivo. **Só batida real volta**;
+declaração retirada pelo coordenador continua retirada.
 
 ## Papéis de RH: Geral vs da Unidade (12/08/2026)
 

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { readFile } from 'fs/promises'
 import { createHash } from 'crypto'
 import path from 'path'
+import { createAdminClient } from '@/utils/supabase/server'
 
 /**
  * Versão + sha256 de `coletor-rep-tray.exe` disponíveis no servidor agora — é contra isto que o
@@ -40,5 +41,43 @@ export async function GET() {
     return NextResponse.json({ error: 'Binário indisponível no servidor no momento.' }, { status: 503 })
   }
 
-  return NextResponse.json({ versao, sha256 }, { headers: { 'Cache-Control': 'no-store, max-age=0' } })
+  // Política de auto-atualização. Vive em `configuracoes_globais` e NÃO no código de propósito:
+  // o parque está espalhado por unidades sem acesso físico prático, então o único jeito de parar
+  // uma versão ruim é um interruptor do lado do SERVIDOR. Trocar a chave interrompe a propagação
+  // no próximo ciclo de cada máquina, sem deploy e sem tocar em nenhuma delas.
+  //
+  // Medido em 26/08/2026, o que motivou ligar isso: 11 dos 15 relógios estavam desatualizados
+  // (9 em v0.8.0, 1 em v0.7.0, 1 em v0.10.0) e TODOS com contato recente — ou seja, o gargalo
+  // nunca foi rede nem máquina desligada, era o clique manual que ninguém dava.
+  //
+  // Ausente = ligado (é o padrão do produto). Erro de leitura = DESLIGADO: sem conseguir ler a
+  // política, o certo é não mandar o parque inteiro trocar de binário.
+  let autoUpdate = true
+  let atrasoMaxMinutos = 240
+  try {
+    const admin = await createAdminClient()
+    const { data } = await admin
+      .from('configuracoes_globais')
+      .select('chave, valor')
+      .in('chave', ['coletor_auto_update', 'coletor_auto_update_atraso_max_minutos'])
+
+    for (const row of data || []) {
+      const bruto = typeof row.valor === 'string' ? row.valor : String(row.valor ?? '')
+      if (row.chave === 'coletor_auto_update') {
+        autoUpdate = bruto !== 'false' && bruto !== '"false"' && bruto !== '0'
+      }
+      if (row.chave === 'coletor_auto_update_atraso_max_minutos') {
+        const n = parseInt(bruto.replace(/"/g, ''), 10)
+        if (Number.isFinite(n) && n >= 0) atrasoMaxMinutos = n
+      }
+    }
+  } catch (err: any) {
+    console.error('Falha ao ler politica de auto-update do coletor, assumindo desligado:', err.message)
+    autoUpdate = false
+  }
+
+  return NextResponse.json(
+    { versao, sha256, auto_update: autoUpdate, atraso_max_minutos: atrasoMaxMinutos },
+    { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+  )
 }

@@ -17,6 +17,7 @@ import React from 'react'
 import { canEditScale, UserRole } from '@/utils/governance'
 import { runComplianceCheck, getViolationsForCell, type ComplianceViolation } from '@/utils/complianceEngine'
 import { generateTemplate, TEMPLATE_OPTIONS, type TemplateType, countWorkDays } from '@/utils/scaleTemplates'
+import { encontrarConflitoExterno, diasComConflitoExterno } from '@/utils/conflitoEscala'
 import { decomporPlantao } from '@/utils/plantaoUnidades'
 import { celulaTemPassosDeIntervalo } from '@/utils/intervaloIntrajornada'
 import { statusAcionamento } from '@/utils/sobreaviso/statusAcionamento'
@@ -3017,6 +3018,55 @@ export function ScaleGrid({
       return
     }
 
+    // Validação de Sobreposição entre Setores — última barreira antes do banco.
+    // O trigger trg_escala_diaria_sem_sobreposicao_setor (20260826220000) recusa linha a linha,
+    // mas o upsert vai em LOTE: um único lançamento sobreposto aborta TODO o "Salvar Previsão"
+    // e o coordenador perde o resto do trabalho com uma mensagem crua do Postgres. Aqui a recusa
+    // é específica e diz qual servidor, dia e setor precisam ser corrigidos.
+    //
+    // A ocupação é RELIDA do banco de propósito: o externalOccupancy do mount pode estar velho,
+    // e aba desatualizada é justamente o caso que a checagem local não cobre.
+    try {
+      const { data: ocupacaoFresca } = await supabase.rpc('fn_get_monthly_occupancy', {
+        p_servidor_ids: escalaMensal.map(em => em.servidor_id),
+        p_mes: mes,
+        p_ano: ano
+      })
+
+      const conflitosSobreposicao: string[] = []
+      escalaMensal.forEach(em => {
+        const serverData = gridData[em.servidor_id]
+        if (!serverData) return
+        Object.entries(serverData).forEach(([categoria, days]) => {
+          Object.entries(days).forEach(([dayStr, turnoId]) => {
+            if (!turnoId) return
+            const day = parseInt(dayStr)
+            const turnoCel = turnos.find(t => t.id === turnoId)
+            const conflito = encontrarConflitoExterno(
+              ocupacaoFresca || externalOccupancy, em.servidor_id, em.id, day, turnoCel?.slots || []
+            )
+            if (conflito) {
+              conflitosSobreposicao.push(`Dia ${day} — ${em.servidores?.nome || 'Servidor'} (${categoria}: ${turnoCel?.codigo || '?'}) já está em ${conflito.descricao}`)
+            }
+          })
+        })
+      })
+
+      if (conflitosSobreposicao.length > 0) {
+        setAlertModal({
+          isOpen: true,
+          title: '⚠️ Servidor Escalado em Outro Setor',
+          message: `Não é possível salvar: há ${conflitosSobreposicao.length} lançamento(s) em que o servidor já está escalado em outro setor no mesmo horário. Remova-os da grade antes de salvar.\n\n${conflitosSobreposicao.slice(0, 8).join('\n')}${conflitosSobreposicao.length > 8 ? `\n...e mais ${conflitosSobreposicao.length - 8}.` : ''}`,
+          type: 'warning'
+        })
+        return
+      }
+    } catch (err) {
+      // Falha ao reler a ocupação não pode impedir de salvar: o trigger do banco continua sendo
+      // a defesa real. Aqui só se perde a mensagem amigável.
+      console.error('Erro ao verificar sobreposição entre setores:', err)
+    }
+
     // Validação: Todas as Jornadas devem estar selecionadas
     const servidorSemJornada = escalaMensal.find(em => !em.jornada_id)
     if (servidorSemJornada) {
@@ -5314,9 +5364,22 @@ export function ScaleGrid({
                     }
                   }
 
+                  // Dias em que o servidor já está escalado em OUTRO setor no mesmo horário.
+                  // O template varria o mês inteiro sem consultar as outras escalas: foi assim
+                  // que um servidor transferido de setor no dia 7 apareceu escalado nos dois
+                  // setores dos dias 3 a 7, com a mesma batida contada em duas folhas
+                  // (medido em 26/08/2026). fn_check_shift_conflicts existia e detectaria,
+                  // mas só a digitação célula a célula a chamava. Ver src/utils/conflitoEscala.ts.
+                  const conflitosExternos = diasComConflitoExterno(
+                    externalOccupancy, sId, em.id,
+                    templateModal.startDay, daysInMonth,
+                    turnoTemplate?.slots || []
+                  )
+                  const conflictDays = new Set<number>(conflitosExternos.map(c => c.dia))
+
                   // generateTemplate não escreve nos dias que recebe como protegidos —
-                  // presença confirmada e afastamento entram pelo mesmo canal.
-                  const skipDays = new Set<number>([...protectedDays, ...leaveDays])
+                  // presença confirmada, afastamento e sobreposição entram pelo mesmo canal.
+                  const skipDays = new Set<number>([...protectedDays, ...leaveDays, ...conflictDays])
 
                   const templateResult = generateTemplate(
                     {
@@ -5343,7 +5406,7 @@ export function ScaleGrid({
                     for (let d = templateModal.startDay; d <= daysInMonth; d++) {
                       if (templateResult[d]) {
                         updatedRegular[d] = templateResult[d]
-                      } else if (!protectedDays.has(d)) {
+                      } else if (!protectedDays.has(d) && !conflictDays.has(d)) {
                         delete updatedRegular[d]
                       }
                     }
@@ -5427,15 +5490,17 @@ export function ScaleGrid({
                     template: templateModal.templateType,
                     dias_preenchidos: workDays,
                     dias_protegidos: protectedDays.size,
-                    dias_afastamento: leaveDays.size
+                    dias_afastamento: leaveDays.size,
+                    dias_conflito_setor: conflictDays.size
                   })
 
                   setTemplateModal(null)
                   const diasAfastado = [...leaveDays].sort((a, b) => a - b)
+                  const diasConflito = [...conflictDays].sort((a, b) => a - b)
                   setAlertModal({
                     isOpen: true,
                     title: 'Template Aplicado',
-                    message: `Template ${templateModal.templateType} aplicado com sucesso! ${workDays} dias preenchidos${protectedDays.size > 0 ? `, ${protectedDays.size} dias protegidos por presença` : ''}${diasAfastado.length > 0 ? `, ${diasAfastado.length} dias não preenchidos por afastamento (dias ${diasAfastado.join(', ')})` : ''}. Lembre-se de salvar a escala.`,
+                    message: `Template ${templateModal.templateType} aplicado com sucesso! ${workDays} dias preenchidos${protectedDays.size > 0 ? `, ${protectedDays.size} dias protegidos por presença` : ''}${diasAfastado.length > 0 ? `, ${diasAfastado.length} dias não preenchidos por afastamento (dias ${diasAfastado.join(', ')})` : ''}${diasConflito.length > 0 ? `, ${diasConflito.length} dias não preenchidos porque o servidor já está escalado em outro setor no mesmo horário (dias ${diasConflito.join(', ')})` : ''}. Lembre-se de salvar a escala.`,
                     type: 'success'
                   })
                 }}
@@ -5679,6 +5744,7 @@ export function ScaleGrid({
                     let jaIguais = 0
                     let puladasPorPonto = 0
                     let puladasPorAfastamento = 0
+                    let puladasPorConflito = 0
 
                     // ⚠️ A mesclagem é feita AQUI, de forma síncrona, e só o resultado pronto vai
                     // para o setGridData. Não mover isto para dentro de um `setGridData(prev => …)`:
@@ -5717,6 +5783,15 @@ export function ScaleGrid({
                             const turnoGerado = turnos.find(t => t.id === turnoId)
                             if (getAfastamentoBloqueante(servidorId, day, cat, turnoGerado?.slots || [])) {
                               puladasPorAfastamento++
+                              return
+                            }
+
+                            // Sobreposição com outro setor. O motor não enxerga as outras escalas
+                            // do servidor — ele prevê a partir do histórico DESTE setor. Sem esta
+                            // rede o gerador escala alguém que já está em outro lugar no mesmo
+                            // horário, e o trigger do banco derruba o lote inteiro no salvar.
+                            if (em && encontrarConflitoExterno(externalOccupancy, servidorId, em.id, day, turnoGerado?.slots || [])) {
+                              puladasPorConflito++
                               return
                             }
 
@@ -5764,6 +5839,7 @@ export function ScaleGrid({
                       ja_iguais: jaIguais,
                       puladas_por_ponto: puladasPorPonto,
                       puladas_por_afastamento: puladasPorAfastamento,
+                      puladas_por_conflito_setor: puladasPorConflito,
                       meses_extras: extrasGravadas,
                       meses_de_origem: resultado.mesesDeOrigemEncontrados
                     })
@@ -5778,6 +5854,7 @@ export function ScaleGrid({
                         jaIguais,
                         puladasPorPonto,
                         puladasPorAfastamento,
+                        puladasPorConflito,
                         extrasGravadas,
                         extrasErro,
                         servidoresSemHistorico: resultado.servidoresSemHistorico,

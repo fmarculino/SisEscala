@@ -20,7 +20,7 @@ import (
 	"github.com/sms-maraba/sisescala-coletor-rep/sisescala"
 )
 
-const Versao = "0.11.2"
+const Versao = "0.12.0"
 
 // LimiteCadastrosPorCiclo e' o teto do ciclo AUTOMATICO. O clique manual no menu passa 0 (sem
 // teto, envia todos).
@@ -608,6 +608,22 @@ func HigienizarRemocoes(cfg *config.Config, d *config.DispositivoRepConfig, limi
 type InfoVersaoServidor struct {
 	Versao string `json:"versao"`
 	SHA256 string `json:"sha256"`
+
+	// AutoUpdate diz se esta versao pode ser aplicada SEM clique. A politica mora no SERVIDOR
+	// de proposito (chave coletor_auto_update em configuracoes_globais): o parque esta
+	// espalhado por unidades sem acesso fisico pratico, entao se a decisao vivesse no cliente
+	// uma versao ruim so pararia indo maquina por maquina - exatamente o problema que a
+	// auto-atualizacao existe para resolver. Com o interruptor no servidor, trocar a chave
+	// interrompe a propagacao no proximo ciclo de cada uma.
+	//
+	// Campo ausente (servidor anterior a v0.12.0) desserializa como false: o coletor volta a
+	// so avisar, que e o comportamento seguro quando nao se sabe a politica.
+	AutoUpdate bool `json:"auto_update"`
+
+	// AtrasoMaxMinutos e o teto do atraso aleatorio antes de aplicar. Serve para o parque nao
+	// trocar de binario todo no mesmo minuto: uma falha aparece nas primeiras maquinas antes
+	// de alcancar as demais. Zero (ou ausente) aplica assim que detecta.
+	AtrasoMaxMinutos int `json:"atraso_max_minutos"`
 }
 
 // VersaoDisponivel confere no SisEscala se existe uma versão do coletor-rep-tray mais nova que a

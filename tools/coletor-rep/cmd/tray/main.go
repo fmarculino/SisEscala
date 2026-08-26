@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -503,6 +504,12 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 		infoAtualizacao   ciclo.InfoVersaoServidor
 		atualizacaoPronta bool
 		ultimaChecagem    time.Time
+
+		// Instante sorteado em que a atualizacao automatica deve ser aplicada. Zero = nao
+		// agendada. Vive so em memoria de proposito: se o app reiniciar, sorteia de novo, e um
+		// sorteio a mais nao custa nada. Persistir isso criaria mais um arquivo de estado para
+		// dessincronizar com o config.yaml.
+		autoUpdateEm time.Time
 	)
 
 	verificarAtualizacao := func(manual bool) {
@@ -521,10 +528,16 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 		}
 
 		jaAvisado := atualizacaoPronta && infoAtualizacao.Versao == info.Versao
+		if infoAtualizacao.Versao != info.Versao {
+			// Versao alvo mudou (inclusive quando o servidor volta atras e aponta uma anterior,
+			// que e como um release ruim e revertido): o agendamento antigo nao vale mais.
+			autoUpdateEm = time.Time{}
+		}
 		infoAtualizacao = info
 
 		if !temNova {
 			atualizacaoPronta = false
+			autoUpdateEm = time.Time{}
 			itemAtualizar.SetTitle("Verificar atualizacao (voce esta atualizado)")
 			if manual {
 				_ = beeep.Notify("SisEscala - Coletor", "Voce ja esta na versao mais recente (v"+ciclo.Versao+").", nil)
@@ -601,8 +614,22 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 				".exe recem-escrito. Mantendo esta instancia (v%s) rodando.", infoAtualizacao.Versao, ciclo.Versao)
 			_ = beeep.Notify("SisEscala - Coletor",
 				"Atualizado para v"+infoAtualizacao.Versao+", mas o novo aplicativo nao chegou a iniciar sozinho "+
-					"(o Windows pode ter bloqueado o executavel novo). Abra manualmente pela pasta de instalacao, "+
-					"ou tente 'Verificar atualizacao' de novo em alguns minutos.", nil)
+					"(o Windows pode ter bloqueado o executavel novo). O aplicativo anterior foi restaurado e "+
+					"continua funcionando.", nil)
+
+			// ROLLBACK. Sem isto, exeAtual continua sendo o .exe novo que o Windows acabou de
+			// recusar: esta instancia segue rodando por ora, mas no proximo boot o autostart
+			// lanca justamente o executavel bloqueado e a unidade sai do ar sem ninguem
+			// perceber. Enquanto atualizar era um clique isso era um caso isolado; com
+			// auto-update ligado passaria a valer para o parque inteiro de uma vez.
+			if err := os.Remove(exeAtual); err != nil {
+				log.Printf("ERRO: nao foi possivel remover o executavel novo para restaurar o anterior: %v", err)
+			} else if err := os.Rename(exeAntigo, exeAtual); err != nil {
+				log.Printf("ERRO CRITICO: falhou ao restaurar o executavel anterior: %v", err)
+			} else {
+				log.Printf("rollback aplicado: executavel v%s restaurado, autostart continua valido", ciclo.Versao)
+			}
+
 			garantirInstanciaUnica() // reocupa - esta instancia (versao antiga) continua sendo a "unica" valida
 			return
 		}
@@ -713,6 +740,35 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 		// 5 minutos. A primeira chamada do app (ultimaChecagem ainda zero) sempre checa.
 		if time.Since(ultimaChecagem) > 24*time.Hour {
 			verificarAtualizacao(false)
+		}
+
+		// Atualizacao automatica. Roda AQUI, no fim do ciclo e na mesma goroutine dele, entao
+		// nunca cai no meio de um sync: trocar o .exe com um lote em voo perderia o ciclo. A
+		// fila offline e em disco (fila<dispositivo_id>), entao lote pendente sobrevive a
+		// troca de binario.
+		//
+		// O atraso sorteado existe para o parque nao trocar de binario todo no mesmo minuto -
+		// com 15 relogios, uma falha aparece nas primeiras maquinas antes de alcancar as demais.
+		if atualizacaoPronta && infoAtualizacao.AutoUpdate {
+			if autoUpdateEm.IsZero() {
+				atraso := time.Duration(0)
+				if infoAtualizacao.AtrasoMaxMinutos > 0 {
+					atraso = time.Duration(rand.Int63n(int64(infoAtualizacao.AtrasoMaxMinutos))) * time.Minute
+				}
+				autoUpdateEm = time.Now().Add(atraso)
+				log.Printf("atualizacao automatica para v%s agendada para %s (atraso sorteado de %s)",
+					infoAtualizacao.Versao, autoUpdateEm.Format("15:04:05"), atraso)
+			} else if time.Now().After(autoUpdateEm) {
+				log.Printf("aplicando atualizacao automatica de v%s para v%s", ciclo.Versao, infoAtualizacao.Versao)
+				itemAtualizar.SetTitle("Atualizando sozinho...")
+				itemAtualizar.Disable()
+				aplicarAtualizacao() // sucesso encerra o processo antes de voltar aqui
+				// So chega nesta linha se falhou. Zera para o proximo ciclo sortear de novo, em
+				// vez de martelar o download a cada 5 minutos.
+				autoUpdateEm = time.Time{}
+				itemAtualizar.SetTitle("Atualizar para v" + infoAtualizacao.Versao)
+				itemAtualizar.Enable()
+			}
 		}
 
 		atualizarBandeja(estado, itemStatus)
