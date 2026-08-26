@@ -107,7 +107,9 @@ func (c *Config) Dispositivo(referencia string) (*DispositivoRepConfig, error) {
 		if len(todos) == 1 {
 			return todos[0], nil
 		}
-		return nil, fmt.Errorf("esta maquina coleta %d relogios (%s) — informe --dispositivo <nome|ip|id>",
+		// Sem citar a flag: quem chama sabe se e' --dispositivo, --de ou --para, e mandar o
+		// operador para a flag errada no meio de uma instalacao e' pior que nao dizer nada.
+		return nil, fmt.Errorf("esta maquina coleta %d relogios (%s) — informe qual usar, por nome, ip ou id",
 			len(todos), rotulos(todos))
 	}
 	var achados []*DispositivoRepConfig

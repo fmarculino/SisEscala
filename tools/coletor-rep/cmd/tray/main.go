@@ -428,6 +428,15 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 	if len(dispositivos) == 0 {
 		itemHigienizarRemocoes.Disable()
 	}
+	// Copia de digital entre os relogios DESTA maquina (mesma unidade). Fica no menu, e nao no
+	// ciclo automatico, porque gravar template pela API ainda nao foi confirmado contra hardware
+	// real - ver rep.formatosTemplate e `coletor-rep-cli biometria-testar`. Sem pelo menos dois
+	// relogios aqui nao ha o que copiar.
+	itemSincronizarBiometria := systray.AddMenuItem("Copiar biometria entre os relogios",
+		"Copia para cada relogio as digitais que faltam nele e ja existem em outro relogio desta unidade")
+	if len(dispositivos) < 2 {
+		itemSincronizarBiometria.Disable()
+	}
 	itemVerLogs := systray.AddMenuItem("Ver logs", "Abre a pasta de logs e configuracao")
 	systray.AddSeparator()
 	// Sempre visivel, nunca clicavel - so' pra quem abrir o menu ja saber de cara qual versao
@@ -693,6 +702,22 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 				}
 				itemHigienizarRemocoes.SetTitle("Executar remocoes de higiene agora")
 				itemHigienizarRemocoes.Enable()
+			case <-itemSincronizarBiometria.ClickedCh:
+				itemSincronizarBiometria.SetTitle("Copiando biometria...")
+				itemSincronizarBiometria.Disable()
+				_ = beeep.Notify("SisEscala - Coletor", "Copiando digitais entre os relogios desta unidade...", nil)
+				resultado, err := ciclo.SincronizarBiometriaTodos(cfg, 0)
+				if err != nil {
+					log.Printf("erro ao copiar biometria: %v", err)
+					_ = beeep.Notify("SisEscala - Coletor", "Falha ao copiar biometria entre os relogios. Ver log.", nil)
+				} else if resultado.Pendentes == 0 {
+					_ = beeep.Notify("SisEscala - Coletor", "Nenhuma digital pendente entre os relogios desta unidade.", nil)
+				} else {
+					_ = beeep.Notify("SisEscala - Coletor",
+						fmt.Sprintf("%d digital(is) copiada(s), %d falha(s).", resultado.Copiados, resultado.Falhas), nil)
+				}
+				itemSincronizarBiometria.SetTitle("Copiar biometria entre os relogios")
+				itemSincronizarBiometria.Enable()
 			case <-itemVerLogs.ClickedCh:
 				exec.Command("explorer", dirInstalado).Start() //nolint:errcheck
 			case <-itemAtualizar.ClickedCh:

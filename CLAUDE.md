@@ -221,13 +221,30 @@ pessoa vira uma linha por relógio. `20260825110000` acrescenta `coberto_em`
 descontado de `nao_conseguem_bater`**, e só conta quem tem **biometria** no outro relógio — cadastro
 sem digital não registra ponto.
 
-✅ **Biometria PODE ser copiada entre relógios.** `load_users.fcgi` já é chamado com
-`templates: true` e devolve os templates (o coletor só olhava `len(templates) > 0`), e o CSV de
-"Enviar/Receber usuários" tem a coluna `digitais` em base64, com "Receber usuários" confirmado
-**aditivo** em hardware real. O procedimento por pendrive está em
-[`docs/planos/2026-08-25-copia-de-biometria-entre-relogios.md`](docs/planos/2026-08-25-copia-de-biometria-entre-relogios.md);
-a automação pela API **não foi feita** — escrever template pela API nunca foi testado, e o sintoma
-de errar é "a digital dele parou de funcionar", descoberto pelo servidor na frente do relógio.
+✅ **Biometria PODE ser copiada entre relógios**, e desde a v0.10.0 (25/08/2026) isso é
+**automático — mas travado**. O procedimento manual por pendrive e o desenho completo estão em
+[`docs/planos/2026-08-25-copia-de-biometria-entre-relogios.md`](docs/planos/2026-08-25-copia-de-biometria-entre-relogios.md).
+
+A **detecção sempre foi automática** e ninguém tinha percebido: o ciclo já lê o cadastro de cada
+relógio e reporta quem tem biometria, então o SisEscala já sabia que fulano tem digital no relógio
+A e não no B. O que faltava era o **transporte** — `fn_biometria_faltante_dispositivo`
+(`20260825130000`) diz quem falta e onde buscar, e `ciclo.SincronizarBiometria` copia.
+
+| regra | por quê |
+|---|---|
+| **o template nunca vai ao servidor** — a cópia é relógio → relógio, dentro da unidade | LGPD; e o servidor não tem rota de rede até lá de qualquer forma |
+| **a cópia não cria usuário** — só alcança quem já está no destino sem digital | quem não está é a fila de identidade (`rep_cadastros_fila`); é isso que torna impossível duplicar cadastro |
+| depois de escrever, **só o alvo pode ter ganhado biometria E o cadastro não pode ter crescido** | a 2ª conferência pega o formato que "funciona" criando usuário novo — passaria pela 1ª e seria pior que falhar |
+| falha de **transporte** não queima a pendência; **recusa** do equipamento fica 24h fora da fila | mesma distinção de `transitorio` nos cadastros |
+
+🚨 **Fora do ciclo automático até alguém confirmar em campo.** Nenhum candidato de
+`rep.formatosTemplate` foi validado contra hardware — diferente de `add_users`/`remove_users`, aqui
+a varredura **é** o mecanismo, não a contingência. O portão é
+`coletor-rep-cli biometria-testar --de <relógio> --para <relógio>`, que roda o caminho inteiro
+contra o descartável "SISESCALA TESTE - PODE APAGAR" (com um dedo cadastrado **nele**, nunca o
+template de um servidor real) e **imprime o formato aceito** — é esse nome que precisa voltar para
+o código, como aconteceu com `remove_users.fcgi` depois da LACEM.
+
 ⚠️ Copiar de um relógio cadastrado por **CPF** para um por **PIS** duplica o cadastro de quem já
 estava lá (armadilha 10): rode a Higiene no destino depois.
 

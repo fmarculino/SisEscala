@@ -98,6 +98,22 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Falha ao aplicar remocoes no rele: %v\n", err)
 			os.Exit(1)
 		}
+	case "biometria-sincronizar":
+		rodarBiometriaSincronizar(cfg)
+	case "biometria-testar":
+		// Exige os DOIS relogios explicitamente: um teste que grava em equipamento nao pode
+		// escolher sozinho onde escrever.
+		origem, err := cfg.Dispositivo(valorFlag("--de"))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "--de: %v\n", err)
+			os.Exit(1)
+		}
+		destino, err := cfg.Dispositivo(valorFlag("--para"))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "--para: %v\n", err)
+			os.Exit(1)
+		}
+		rodarBiometriaTestar(cfg, origem, destino)
 	case "terminal":
 		if len(os.Args) < 3 || os.Args[2] != "abrir" {
 			fmt.Fprintln(os.Stderr, "Uso: coletor-rep terminal abrir")
@@ -137,6 +153,12 @@ Uso:
   coletor-rep remocao-testar      cria UM usuario de teste e o APAGA - descobre qual formato de remove_users.fcgi este rele aceita, sem tocar em cadastro real
   coletor-rep higiene             le todos os usuarios do rele e reporta ao SisEscala (Fase 7b) - so' leitura, seguro rodar sempre
   coletor-rep higiene-remover     aplica no rele quem foi selecionado na tela de higiene - GRAVA/APAGA no equipamento, ver aviso em rep/client.go
+  coletor-rep biometria-testar --de <relogio> --para <relogio>
+                                  testa a COPIA de digital entre dois relogios usando so o usuario
+                                  descartavel de teste - rode ISTO antes de biometria-sincronizar
+                                  (gravar template pela API ainda nao foi confirmado em hardware)
+  coletor-rep biometria-sincronizar  copia para cada relogio as digitais que faltam nele e existem
+                                  em outro relogio da MESMA unidade - GRAVA no equipamento
   coletor-rep terminal abrir      abre a tela de presenca local no navegador (uma vez)
 
 Flags:
@@ -148,18 +170,23 @@ Flags:
                            remocao-testar) recusam ate' voce escolher.`)
 }
 
-// referenciaDispositivo le a flag --dispositivo <ref> (ou --dispositivo=<ref>). Fica fora do
-// switch de comandos porque vale para todos, e os comandos ja usam os argumentos posicionais.
-func referenciaDispositivo() string {
+// valorFlag le `--nome <valor>` ou `--nome=<valor>`. Vale para todas as flags porque os comandos
+// ja usam os argumentos posicionais para o que e' obrigatorio.
+func valorFlag(nome string) string {
 	for i, arg := range os.Args {
-		if arg == "--dispositivo" && i+1 < len(os.Args) {
+		if arg == nome && i+1 < len(os.Args) {
 			return os.Args[i+1]
 		}
-		if strings.HasPrefix(arg, "--dispositivo=") {
-			return strings.TrimPrefix(arg, "--dispositivo=")
+		if strings.HasPrefix(arg, nome+"=") {
+			return strings.TrimPrefix(arg, nome+"=")
 		}
 	}
 	return ""
+}
+
+// referenciaDispositivo e' a flag --dispositivo: qual relogio usar numa maquina que atende varios.
+func referenciaDispositivo() string {
+	return valorFlag("--dispositivo")
 }
 
 // escolherDispositivo resolve O relogio dos comandos de equipamento unico. Com varios
@@ -169,7 +196,7 @@ func referenciaDispositivo() string {
 func escolherDispositivo(cfg *config.Config) *config.DispositivoRepConfig {
 	d, err := cfg.Dispositivo(referenciaDispositivo())
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
+		fmt.Fprintf(os.Stderr, "%v\n  use: --dispositivo <nome|ip|id>\n", err)
 		os.Exit(1)
 	}
 	return d

@@ -86,6 +86,11 @@ type Client struct {
 	// modelo (a SMS recusou `cpf` pedindo `pis`), entao o primeiro cadastro de cada execucao
 	// descobre e o resto do lote reusa.
 	formatoCadastro *formatoCadastro
+
+	// formatoTemplate idem, para GRAVAR biometria (copia entre relogios da mesma unidade). Este e
+	// o menos conhecido dos tres: nenhum candidato foi confirmado contra hardware ainda, entao a
+	// varredura aqui nao e' contingencia para "outro modelo" - e' o mecanismo principal.
+	formatoTemplate *formatoTemplate
 }
 
 func NovoClient(endereco string, porta int, usaHTTPS bool, usuario, senha, certFingerprint string) *Client {
@@ -393,6 +398,15 @@ type UsuarioDispositivo struct {
 	CodeConhecido    bool
 	Registration     int64
 	RegistrationConh bool
+
+	// Templates sao os templates biometricos COMO O EQUIPAMENTO OS DEVOLVEU (load_users.fcgi ja
+	// e chamado com `templates: true` desde 12/08/2026 - ate a v0.9.1 so' o TAMANHO deste array
+	// era usado, para responder "tem biometria?", e o conteudo era descartado).
+	//
+	// ⚠️ Repassados crus, sem decodificar nem reserializar: e' container proprietario de
+	// biometria, e a unica coisa que faz uma copia entre equipamentos ter chance de funcionar e'
+	// devolver exatamente o que veio. Mesmo principio de linha_bruta no AFD.
+	Templates []interface{}
 }
 
 // ListarUsuarios devolve TODOS os usuarios cadastrados no rele agora (load_users.fcgi), nao so'
@@ -467,6 +481,7 @@ func (c *Client) ListarUsuarios() ([]UsuarioDispositivo, error) {
 				RegistrationBruto: registrationBruto,
 				Nome:              nome,
 				TemBiometria:      len(templates) > 0,
+				Templates:         templates,
 				Pis:               int64(pis),
 				Code:              code,
 				CodeConhecido:     codeConhecido,
@@ -702,4 +717,224 @@ func identificadoresAusentes(antes, depois []UsuarioDispositivo) []string {
 		}
 	}
 	return ausentes
+}
+
+// ============================================================================
+// Copia de biometria entre relogios da mesma unidade
+// ============================================================================
+//
+// 🚨 NENHUM formato abaixo foi confirmado contra hardware real. Diferente de add_users.fcgi
+// (confirmado 12/08/2026) e remove_users.fcgi (confirmado 13/08/2026), aqui a varredura NAO e'
+// contingencia para um modelo diferente - e' o mecanismo principal, e a primeira execucao em
+// campo e' quem descobre. Por isso:
+//
+//   * `coletor-rep-cli biometria-testar` existe e deve ser rodado ANTES, contra o descartavel
+//     "SISESCALA TESTE - PODE APAGAR", com um dedo cadastrado nele de proposito. Nenhum dado de
+//     servidor real se move nesse teste.
+//   * a copia real NAO entra no ciclo automatico enquanto ninguem confirmar em campo (ver
+//     cmd/tray: item de menu, clique manual).
+//
+// O que pode dar errado, e o motivo das duas conferencias em descobrirFormatoTemplate:
+//   1. um formato ser aceito e nao gravar nada (o "ok" do device ja provou nao ser prova, na
+//      remocao, em 13/08/2026);
+//   2. um formato CRIAR um usuario novo em vez de atualizar o existente - o alvo ficaria com
+//      digital no cadastro errado e o equipamento com cadastro duplicado.
+
+type formatoTemplate struct {
+	Nome    string
+	Caminho string
+	Mode    bool
+	// Corpo devolve (corpo, aplicavel). Nao-aplicavel e' candidato pulado, nao falha - ex.: o
+	// equipamento nao devolveu `registration` para aquele usuario.
+	Corpo func(u UsuarioDispositivo, templates []interface{}) (map[string]interface{}, bool)
+}
+
+// Ordem: do mais provavel para o menos. add_users.fcgi vem primeiro porque e' o unico comando
+// desta familia ja CONFIRMADO neste hardware, e o objeto "user" que ele aceita e' o mesmo que
+// load_users.fcgi devolve COM o array `templates` dentro - ou seja, reenviar o usuario inteiro
+// com os templates e' a hipotese mais simples e a que menos inventa nome de comando.
+var formatosTemplate = []formatoTemplate{
+	{"add_users:[{pis,templates}]", "add_users.fcgi", true,
+		func(u UsuarioDispositivo, t []interface{}) (map[string]interface{}, bool) {
+			return map[string]interface{}{"users": []map[string]interface{}{{
+				"name": u.Nome, "pis": u.Pis, "registration": u.Registration, "templates": t,
+			}}}, u.RegistrationConh
+		}},
+	{"add_users:[{cpf,templates}]", "add_users.fcgi", true,
+		func(u UsuarioDispositivo, t []interface{}) (map[string]interface{}, bool) {
+			return map[string]interface{}{"users": []map[string]interface{}{{
+				"name": u.Nome, "cpf": u.Pis, "registration": u.Registration, "templates": t,
+			}}}, u.RegistrationConh
+		}},
+	{"add_templates:[{pis,template}]", "add_templates.fcgi", true,
+		func(u UsuarioDispositivo, t []interface{}) (map[string]interface{}, bool) {
+			itens := make([]map[string]interface{}, 0, len(t))
+			for _, tpl := range t {
+				itens = append(itens, map[string]interface{}{"pis": u.Pis, "template": tpl})
+			}
+			return map[string]interface{}{"templates": itens}, len(itens) > 0
+		}},
+	{"add_templates:[{user_id,template}]", "add_templates.fcgi", true,
+		func(u UsuarioDispositivo, t []interface{}) (map[string]interface{}, bool) {
+			if !u.CodeConhecido {
+				return nil, false
+			}
+			itens := make([]map[string]interface{}, 0, len(t))
+			for _, tpl := range t {
+				itens = append(itens, map[string]interface{}{"user_id": u.Code, "template": tpl})
+			}
+			return map[string]interface{}{"templates": itens}, len(itens) > 0
+		}},
+	{"set_templates:[{pis,template}]", "set_templates.fcgi", true,
+		func(u UsuarioDispositivo, t []interface{}) (map[string]interface{}, bool) {
+			itens := make([]map[string]interface{}, 0, len(t))
+			for _, tpl := range t {
+				itens = append(itens, map[string]interface{}{"pis": u.Pis, "template": tpl})
+			}
+			return map[string]interface{}{"templates": itens}, len(itens) > 0
+		}},
+	{"add_users:[{pis,templates}] (sem mode)", "add_users.fcgi", false,
+		func(u UsuarioDispositivo, t []interface{}) (map[string]interface{}, bool) {
+			return map[string]interface{}{"users": []map[string]interface{}{{
+				"name": u.Nome, "pis": u.Pis, "registration": u.Registration, "templates": t,
+			}}}, u.RegistrationConh
+		}},
+}
+
+// FormatoTemplateUsado devolve qual candidato de escrita de biometria este equipamento aceitou
+// nesta execucao (vazio se nenhuma copia rodou) - e' o que o teste de campo precisa reportar
+// para o formato poder ser fixado no codigo depois.
+func (c *Client) FormatoTemplateUsado() string {
+	if c.formatoTemplate == nil {
+		return ""
+	}
+	return c.formatoTemplate.Nome
+}
+
+// GravarTemplates escreve no relogio os templates biometricos de alguem que JA ESTA cadastrado
+// nele sem digital. Devolve o nome do formato aceito.
+//
+// Nao cria usuario: se o alvo nao estiver no equipamento, isso e assunto da fila de identidade
+// (rep_cadastros_fila), que ja existe e ja roda no ciclo. Uma peca, uma responsabilidade - e e'
+// o que garante que esta operacao nunca duplique cadastro.
+func (c *Client) GravarTemplates(alvo UsuarioDispositivo, templates []interface{}) (string, error) {
+	if len(templates) == 0 {
+		return "", fmt.Errorf("nenhum template para gravar em %s", alvo.IdentificadorAFD)
+	}
+	if c.sessao == "" {
+		if err := c.Login(); err != nil {
+			return "", err
+		}
+	}
+
+	if c.formatoTemplate != nil {
+		return c.formatoTemplate.Nome, c.aplicarTemplate(*c.formatoTemplate, alvo, templates)
+	}
+	return c.descobrirFormatoTemplate(alvo, templates)
+}
+
+func (c *Client) aplicarTemplate(f formatoTemplate, alvo UsuarioDispositivo, templates []interface{}) error {
+	corpo, aplicavel := f.Corpo(alvo, templates)
+	if !aplicavel {
+		return fmt.Errorf("formato %s nao se aplica a %s (o rele nao devolveu os campos necessarios)",
+			f.Nome, alvo.IdentificadorAFD)
+	}
+
+	caminho := fmt.Sprintf("%s?session=%s", f.Caminho, c.sessao)
+	if f.Mode {
+		caminho += "&mode=671"
+	}
+	resultado, err := c.chamar(caminho, corpo)
+	if err != nil {
+		return err
+	}
+	if errMsg, ok := resultado["error"]; ok {
+		return fmt.Errorf("%s recusou (formato %s): %v", f.Caminho, f.Nome, errMsg)
+	}
+	return nil
+}
+
+// descobrirFormatoTemplate tenta os candidatos ate um deles REALMENTE gravar a digital do alvo,
+// confirmando por relistagem completa antes e depois.
+//
+// Duas conferencias, e nenhuma pode sair:
+//
+//   - **so' o alvo pode ganhar biometria.** Se outro usuario aparecer com digital que nao tinha,
+//     a execucao inteira aborta: o numero enviado foi interpretado como outro campo e casou com
+//     outra pessoa, e continuar seria espalhar a digital de alguem pelo cadastro alheio.
+//   - **o cadastro nao pode crescer.** Um formato que "funciona" criando usuario novo em vez de
+//     atualizar o existente deixa o equipamento com cadastro duplicado e a digital no registro
+//     errado - passaria pela primeira conferencia e seria pior que a falha.
+func (c *Client) descobrirFormatoTemplate(alvo UsuarioDispositivo, templates []interface{}) (string, error) {
+	antes, err := c.ListarUsuarios()
+	if err != nil {
+		return "", fmt.Errorf("nao foi possivel ler o cadastro do rele antes de gravar a biometria "+
+			"(a gravacao nao e tentada as cegas): %w", err)
+	}
+
+	var tentativas []string
+	for _, f := range formatosTemplate {
+		corpo, aplicavel := f.Corpo(alvo, templates)
+		if !aplicavel {
+			continue
+		}
+
+		caminho := fmt.Sprintf("%s?session=%s", f.Caminho, c.sessao)
+		if f.Mode {
+			caminho += "&mode=671"
+		}
+		resultado, err := c.chamar(caminho, corpo)
+		if err != nil {
+			tentativas = append(tentativas, fmt.Sprintf("%s -> erro de transporte: %v", f.Nome, err))
+			continue
+		}
+		if errMsg, ok := resultado["error"]; ok {
+			tentativas = append(tentativas, fmt.Sprintf("%s -> recusado: %v", f.Nome, errMsg))
+			continue
+		}
+
+		depois, err := c.ListarUsuarios()
+		if err != nil {
+			return "", fmt.Errorf("formato %s foi aceito pelo rele mas nao foi possivel reler o "+
+				"cadastro para confirmar o efeito - pare e confira na interface do equipamento: %w",
+				f.Nome, err)
+		}
+
+		if len(depois) > len(antes) {
+			return "", fmt.Errorf("PARE: o formato %s CRIOU cadastro no equipamento (%d -> %d usuarios) "+
+				"em vez de gravar a digital em %s. Nenhum outro formato sera tentado - confira o "+
+				"cadastro do relogio e apague o que sobrou", f.Nome, len(antes), len(depois), alvo.IdentificadorAFD)
+		}
+
+		ganharam := ganharamBiometria(antes, depois)
+		if len(ganharam) == 1 && ganharam[0] == alvo.IdentificadorAFD {
+			formato := f
+			c.formatoTemplate = &formato
+			return f.Nome, nil
+		}
+		if len(ganharam) > 0 {
+			return "", fmt.Errorf("PARE: o formato %s gravou biometria em %d cadastro(s) que nao eram "+
+				"o alvo %s (%v). Nenhum outro formato sera tentado - confira o cadastro do equipamento",
+				f.Nome, len(ganharam), alvo.IdentificadorAFD, ganharam)
+		}
+		tentativas = append(tentativas, fmt.Sprintf("%s -> aceito mas nao gravou nada", f.Nome))
+	}
+
+	return "", fmt.Errorf("nenhum formato de gravacao de biometria funcionou neste equipamento; "+
+		"tentativas: %s", strings.Join(tentativas, " | "))
+}
+
+// ganharamBiometria devolve quem NAO tinha digital em `antes` e passou a ter em `depois`.
+func ganharamBiometria(antes, depois []UsuarioDispositivo) []string {
+	tinha := make(map[string]bool, len(antes))
+	for _, u := range antes {
+		tinha[u.IdentificadorAFD] = u.TemBiometria
+	}
+	var ganharam []string
+	for _, u := range depois {
+		if u.TemBiometria && !tinha[u.IdentificadorAFD] {
+			ganharam = append(ganharam, u.IdentificadorAFD)
+		}
+	}
+	return ganharam
 }

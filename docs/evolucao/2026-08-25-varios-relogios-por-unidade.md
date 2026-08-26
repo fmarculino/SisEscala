@@ -145,6 +145,59 @@ relógio cadastrado por CPF e outro por PIS. A automação pela API fica planeja
 real tem como sintoma "a digital dele parou de funcionar", descoberto pelo servidor na frente do
 relógio.
 
+## v0.10.0 — a biometria passa a se espalhar sozinha (travada até o teste de campo)
+
+A pergunta que gerou isto: *"vou ter que ficar usando pendrive pra copiar cadastro de um relógio
+pro outro? o sistema tem que identificar que um servidor foi cadastrado com biometria em um relógio
+e sincronizar com os outros da mesma unidade."*
+
+**Metade já existia e ninguém tinha percebido.** A detecção é automática desde a Fase 7: o ciclo lê
+o cadastro de cada relógio e reporta quem tem digital (`ReportarBiometria` + snapshot). O SisEscala
+já sabia que fulano tem digital no relógio A e não no B — é a mesma informação que alimenta o
+`coberto_em` desta mesma rodada. Faltava só o **transporte**.
+
+### O template não passa pelo servidor
+
+```
+SisEscala  →  "no B faltam 12 digitais; o A tem"   (nomes e identificadores, nunca o dado)
+                        ↓
+coletor da unidade  →  lê de A  →  grava em B  →  relista e confirma
+                        ↓
+SisEscala  ←  "10 copiadas, 2 falharam"            (contagem, nunca o dado)
+```
+
+Dois motivos, cada um suficiente sozinho: dado biométrico é sensível (LGPD Art. 5º, II), e o
+servidor não tem rota de rede até os relógios. A mesma máquina já enxerga os dois equipamentos — o
+servidor no meio só adicionaria uma cópia do dado sem adicionar função.
+
+`rep_biometria_copias` guarda a auditoria (quem, de onde, para onde, quando, quantos templates) —
+**nunca o template**.
+
+### Quatro regras que não podem ser desfeitas
+
+- **A cópia não cria usuário.** Só alcança quem já está cadastrado no destino sem digital. Quem não
+  está é assunto da fila de identidade, que já existe e já roda no ciclo. Uma peça, uma
+  responsabilidade — e é isso que torna impossível esta operação duplicar cadastro.
+- **Duas conferências depois de escrever**: só o alvo pode ter ganhado biometria, **e** o cadastro
+  não pode ter crescido. A segunda é a que pega o formato que "funciona" criando um usuário novo em
+  vez de atualizar o existente — passaria pela primeira, deixaria a digital no cadastro errado, e
+  seria pior que a falha.
+- **Transporte ≠ recusa.** Rede/timeout é retentado na próxima; recusa do equipamento é registrada
+  e tira a pendência da fila por 24h. Sem essa distinção, um blecaute de um minuto queimaria a
+  pendência de alguém — e sem o registro, o coletor bateria no mesmo erro a cada 5 minutos.
+- **Fora do ciclo automático** enquanto o formato de escrita não for confirmado em campo.
+
+### Por que travado
+
+🚨 Nenhum candidato de `rep.formatosTemplate` foi validado contra hardware. Diferente de
+`add_users.fcgi` (12/08) e `remove_users.fcgi` (13/08), aqui a varredura **é** o mecanismo, não a
+contingência para outro modelo. O portão é `coletor-rep-cli biometria-testar --de X --para Y`, que
+roda o caminho inteiro contra o descartável e imprime o formato aceito.
+
+⚠️ **A digital do teste é de um dedo cadastrado no próprio usuário descartável.** Copiar o template
+de um servidor real para o usuário de teste faria aquele dedo abrir um cadastro que não é o dele —
+o teste seria pior que não testar.
+
 ## Verificação feita
 
 - `go build ./...` e `go vet ./...` limpos; `go test ./fila/` (portão novo do isolamento) passa.

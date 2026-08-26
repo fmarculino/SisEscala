@@ -460,3 +460,75 @@ func (c *Client) Heartbeat(relogioDevice *time.Time, coletorVersao, coletorHost 
 	}
 	return nil
 }
+
+// BiometriaFaltante é uma pessoa que está cadastrada NESTE relógio sem digital e já tem digital
+// em outro relógio ativo da mesma unidade — com onde ir buscar.
+//
+// ⚠️ Não carrega template. O SisEscala nunca vê dado biométrico: ele diz quem falta e onde
+// achar, e a cópia acontece equipamento-a-equipamento, dentro da unidade.
+type BiometriaFaltante struct {
+	ServidorID              string `json:"servidor_id"`
+	ServidorNome            string `json:"servidor_nome"`
+	Matricula               string `json:"matricula"`
+	DestinoIdentificadorAfd string `json:"destino_identificador_afd"`
+	OrigemID                string `json:"origem_id"`
+	OrigemNome              string `json:"origem_nome"`
+	OrigemIdentificadorAfd  string `json:"origem_identificador_afd"`
+}
+
+// ListarBiometriaFaltante pergunta quem precisa de digital NESTE relógio (o dispositivo cujo
+// token este client carrega) e em qual outro equipamento da unidade essa digital já existe.
+func (c *Client) ListarBiometriaFaltante() ([]BiometriaFaltante, error) {
+	respBytes, status, err := c.chamar(http.MethodGet, "/api/rep/v1/biometria-copias", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("falha ao listar biometria faltante (HTTP %d): %s", status, string(respBytes))
+	}
+
+	var resposta struct {
+		Pendencias []BiometriaFaltante `json:"pendencias"`
+	}
+	if err := json.Unmarshal(respBytes, &resposta); err != nil {
+		return nil, fmt.Errorf("resposta invalida do SisEscala: %s", string(respBytes))
+	}
+	return resposta.Pendencias, nil
+}
+
+// RegistrarCopiaBiometria reporta o resultado de uma cópia. Falha também é reportada, de
+// propósito: é o que impede o coletor de reencostar na mesma pessoa a cada ciclo quando o
+// equipamento recusa o template dela (fn_biometria_faltante_dispositivo pula quem tem registro
+// nas últimas 24h), e é o que deixa rastro auditável de dado biométrico que se moveu.
+func (c *Client) RegistrarCopiaBiometria(
+	servidorID, origemID string, sucesso bool, templates int, mensagemErro, formatoUsado, coletorHost string,
+) error {
+	payload := map[string]interface{}{
+		"servidor_id": servidorID,
+		"origem_id":   origemID,
+		"sucesso":     sucesso,
+		"templates":   templates,
+	}
+	if mensagemErro != "" {
+		payload["erro"] = mensagemErro
+	}
+	if formatoUsado != "" {
+		payload["formato_usado"] = formatoUsado
+	}
+	if coletorHost != "" {
+		payload["coletor_host"] = coletorHost
+	}
+	corpo, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	respBytes, status, err := c.chamar(http.MethodPost, "/api/rep/v1/biometria-copias", corpo)
+	if err != nil {
+		return err
+	}
+	if status != http.StatusOK {
+		return fmt.Errorf("falha ao registrar copia de biometria (HTTP %d): %s", status, string(respBytes))
+	}
+	return nil
+}

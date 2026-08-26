@@ -440,7 +440,14 @@ export function CoberturaTab({ isAdmin }: { isAdmin: boolean }) {
                                         <span className="text-red-600 font-bold"> · {s.batidas_perdidas} batida(s) perdida(s) em 30 dias</span>
                                       )}
                                     </p>
-                                    {s.situacao !== 'ok' && s.coberto_em && (
+                                    {s.situacao === 'sem_biometria' && s.coberto_em && (
+                                      <p className="text-[11px] text-emerald-700 dark:text-emerald-400">
+                                        A digital desta pessoa já existe em {s.coberto_em}. Não
+                                        precisa cadastrar de novo: no coletor da unidade, use
+                                        "Copiar biometria entre os relógios".
+                                      </p>
+                                    )}
+                                    {s.situacao !== 'ok' && s.situacao !== 'sem_biometria' && s.coberto_em && (
                                       <p className="text-[11px] text-emerald-700 dark:text-emerald-400">
                                         Já bate ponto em {s.coberto_em} — cadastrar aqui só é
                                         necessário se esta pessoa também usa esta entrada.

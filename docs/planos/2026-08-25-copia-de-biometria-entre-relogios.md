@@ -69,27 +69,74 @@ A cópia distribui o que já existe; não cria biometria.
 
 ---
 
-## Automação (depois, com janela de teste no equipamento)
+## Automação — IMPLEMENTADA em 25/08/2026 (coletor v0.10.0), travada até o teste de campo
 
-O caminho está aberto porque a leitura já funciona: `ListarUsuarios` já pede `templates: true` e
-recebe o array — basta parar de descartá-lo.
+O objetivo é que ninguém mexa em pendrive de novo: cadastrou a digital num relógio da unidade, os
+outros recebem sozinhos.
 
-Desenho pretendido, na ordem:
+### O que já era automático antes disto
 
-1. `coletor-rep-cli biometria-copiar --de <relógio> --para <relógio>` na **CLI**, nunca na bandeja
-   nem no ciclo automático — mesma prudência de `cadastros`/`higiene-remover`: escrita em
-   equipamento de produção só por comando explícito de quem está na unidade.
-2. **Varredura de formatos com confirmação por relistagem**, exatamente como
-   `remove_users.fcgi` exigiu em 13/08/2026: o `ok` do equipamento não é prova. Depois de
-   escrever, relistar e conferir que aquele usuário passou a ter template — e **abortar a
-   execução inteira** se a escrita afetar quem não era o alvo.
-3. **`coletor-rep-cli biometria-testar`** primeiro, contra o descartável
-   "SISESCALA TESTE - PODE APAGAR", como `cadastros-testar` e `remocao-testar` já fazem.
-4. Só então considerar um botão na tela.
+A **detecção**. O ciclo do coletor já lê o cadastro de cada relógio e reporta quem tem biometria
+(`ciclo.SincronizarCadastros` → `ReportarBiometria` + o snapshot de `rep_usuarios_dispositivo`). O
+SisEscala já sabia, sozinho, que fulano tem digital no relógio A e não no B. Faltava o transporte.
 
-**Não automatizar antes do teste em campo.** O custo de errar aqui é gravar template inválido no
-cadastro de servidor real num equipamento de produção — e o sintoma seria "a digital dele parou de
-funcionar", descoberto pelo servidor na frente do relógio.
+### O desenho
+
+```
+SisEscala  →  "no relógio B faltam 12 digitais; o relógio A tem"   (só nomes e identificadores)
+                        ↓
+coletor da unidade  →  lê template de A  →  grava em B  →  relista e confirma
+                        ↓
+SisEscala  ←  "10 copiadas, 2 falharam"                            (contagem, nunca o dado)
+```
+
+⚠️ **O template não passa pelo servidor.** A cópia é equipamento → equipamento, dentro da unidade.
+Dois motivos, cada um suficiente: dado biométrico é sensível (LGPD), e o servidor não tem rota de
+rede até os relógios.
+
+| peça | onde |
+|---|---|
+| quem falta e onde buscar | `fn_biometria_faltante_dispositivo` (`20260825130000`) |
+| auditoria do que se moveu | `rep_biometria_copias` — sem template, só a contagem |
+| o coletor pergunta / reporta | `GET`/`POST /api/rep/v1/biometria-copias` |
+| leitura do template | `rep.ListarUsuarios` — já vinha com `templates: true`, agora preserva o conteúdo cru |
+| escrita | `rep.GravarTemplates` — varredura de formatos com confirmação por relistagem |
+| orquestração | `ciclo.SincronizarBiometria` / `...Todos` |
+| gatilho | menu da bandeja **"Copiar biometria entre os relógios"** e `coletor-rep-cli biometria-sincronizar` |
+
+### Regras que não podem ser desfeitas
+
+- **Não cria usuário.** A cópia só alcança quem já está cadastrado no destino sem digital; quem não
+  está é assunto da fila de identidade (`rep_cadastros_fila`), que já existe. É isso que torna
+  impossível duplicar cadastro no equipamento.
+- **Duas conferências depois de escrever**: só o alvo pode ter ganhado biometria, e o cadastro não
+  pode ter crescido. A segunda pega o formato que "funciona" criando um usuário novo — que passaria
+  pela primeira e seria pior que a falha.
+- **Falha de transporte não queima a pendência.** Rede/timeout é retentado; recusa do equipamento é
+  registrada (e a pendência fica 24h fora da fila, para não repetir o mesmo erro a cada rodada).
+- **Fora do ciclo automático** enquanto o formato de escrita não for confirmado em campo.
+
+### O teste que destrava (rodar na unidade)
+
+```
+coletor-rep-cli cadastros-testar --dispositivo <relógio A>
+   → cadastre UM DEDO SEU no usuário "SISESCALA TESTE - PODE APAGAR" (matrícula 900000), no
+     próprio equipamento
+coletor-rep-cli biometria-testar --de <relógio A> --para <relógio B>
+   → encoste o mesmo dedo no relógio B: se ele reconhecer, funciona
+```
+
+⚠️ **A digital do teste é de um dedo cadastrado no próprio usuário descartável, nunca a de um
+servidor real.** Copiar o template de alguém para o usuário de teste faria aquele dedo abrir um
+cadastro que não é o dele.
+
+O comando imprime **qual formato o equipamento aceitou** — é esse nome que precisa ser reportado
+para o candidato virar o primeiro da lista em `rep.formatosTemplate`, como já foi feito com
+`remove_users.fcgi` depois da LACEM.
+
+**Enquanto o teste não for feito, o pendrive continua sendo o caminho.** O custo de errar é gravar
+template inválido no cadastro de um servidor real, e o sintoma é "a digital dele parou de
+funcionar", descoberto por ele na frente do relógio.
 
 ## Nota de proteção de dados
 
