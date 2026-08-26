@@ -55,7 +55,7 @@ export default async function EditSetorPage({
   // Fetch Parent Sectors with access filter
   let parentSectorsQuery = supabase
     .from('setores')
-    .select('id, unidade_id, dicionario_setores(nome)')
+    .select('id, unidade_id, parent_id, dicionario_setores(nome)')
     .neq('id', id) // Can't be parent of itself
     .eq('ativo', true)
 

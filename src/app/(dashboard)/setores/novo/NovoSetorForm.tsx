@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import { Save, Layers, Building2, ChevronRight, Info, AlertTriangle } from 'lucide-react'
 import { createSetor } from '../actions'
 import { GeoLocationPicker } from '@/components/GeoLocationPicker'
+import { formatSectorsHierarchy } from '@/utils/sectors'
 
 interface NovoSetorFormProps {
   unidades: any[]
@@ -26,7 +27,8 @@ export default function NovoSetorForm({ unidades, setoresExistentes, dicionario 
   // inclusive um que já seja filho de outro (mesma regra da tela de edição).
   const setoresPaiDisponiveis = useMemo(() => {
     if (!selectedUnidade) return []
-    return setoresExistentes.filter(s => s.unidade_id === selectedUnidade)
+    const filtrados = setoresExistentes.filter(s => s.unidade_id === selectedUnidade)
+    return formatSectorsHierarchy(filtrados)
   }, [selectedUnidade, setoresExistentes])
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {

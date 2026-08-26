@@ -5,6 +5,7 @@ import { Save, Layers, Building2, ChevronRight, Info, AlertTriangle } from 'luci
 import { updateSetor } from '../actions'
 import { LogoUploadManager } from '@/components/LogoUploadManager'
 import { GeoLocationPicker } from '@/components/GeoLocationPicker'
+import { formatSectorsHierarchy } from '@/utils/sectors'
 
 interface EditSetorFormProps {
   setor: any
@@ -26,7 +27,8 @@ export default function EditSetorForm({ setor, unidades, setoresPai, dicionario,
 
   const setoresPaiDisponiveis = useMemo(() => {
     if (!selectedUnidade) return []
-    return setoresPai.filter(s => s.unidade_id === selectedUnidade || s.id === setor.parent_id)
+    const filtrados = setoresPai.filter(s => s.unidade_id === selectedUnidade || s.id === setor.parent_id)
+    return formatSectorsHierarchy(filtrados)
   }, [selectedUnidade, setoresPai, setor.parent_id])
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
