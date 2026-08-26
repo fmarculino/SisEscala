@@ -20,7 +20,7 @@ import (
 	"github.com/sms-maraba/sisescala-coletor-rep/sisescala"
 )
 
-const Versao = "0.10.0"
+const Versao = "0.11.0"
 
 // LimiteCadastrosPorCiclo e' o teto do ciclo AUTOMATICO. O clique manual no menu passa 0 (sem
 // teto, envia todos).
@@ -197,9 +197,33 @@ func Sync(cfg *config.Config, d *config.DispositivoRepConfig) error {
 // Heartbeat reporta versão e deriva de relógio. Devolve erro só quando a chamada ao SisEscala
 // falha — não saber a hora do relógio (get_system_information sem campo reconhecido) não é
 // erro, só segue sem deriva.
+// ResultadoHeartbeat separa as duas conexoes que um heartbeat atravessa: esta maquina -> RELOGIO
+// e esta maquina -> SISESCALA. Ate a v0.11.0 as duas viravam um erro so, e quem olhava a bandeja
+// nao tinha como saber qual caiu. Com varios equipamentos por maquina isso passou a importar: o
+// normal agora e tres relogios respondendo e um mudo, e o agregado escondia exatamente esse caso.
+//
+// ⚠️ RelogioOK e falso APENAS quando o equipamento nao respondeu. Um relogio que responde mas nao
+// devolve hora reconhecivel continua ONLINE - a deriva e que fica desconhecida.
+type ResultadoHeartbeat struct {
+	RelogioOK   bool
+	ErroRelogio error
+}
+
+// Heartbeat mantem a assinatura antiga (usada pela CLI) e delega.
 func Heartbeat(cfg *config.Config, d *config.DispositivoRepConfig) error {
+	_, err := HeartbeatComEstado(cfg, d)
+	return err
+}
+
+// HeartbeatComEstado reporta versao e deriva, e diz de quebra se o EQUIPAMENTO respondeu.
+//
+// Falar com o SisEscala mesmo com o relogio mudo e deliberado e nao mudou: e assim que a tela
+// mostra "coletor vivo, relogio fora do ar" em vez de simplesmente parar de receber noticia -
+// os dois modos de falha sao diferentes e o silencio nao distingue um do outro.
+func HeartbeatComEstado(cfg *config.Config, d *config.DispositivoRepConfig) (ResultadoHeartbeat, error) {
+	var estado ResultadoHeartbeat
 	if d == nil {
-		return fmt.Errorf("nenhum relogio informado para o heartbeat")
+		return estado, fmt.Errorf("nenhum relogio informado para o heartbeat")
 	}
 	sc := sisescala.NovoClient(cfg.SisEscala.URL, d.ID, d.Token)
 
@@ -207,15 +231,17 @@ func Heartbeat(cfg *config.Config, d *config.DispositivoRepConfig) error {
 	info, err := rc.InformacoesSistema()
 	if err != nil {
 		log.Printf("aviso: nao foi possivel ler o relogio do REP (%v); heartbeat sem deriva", err)
-		return sc.Heartbeat(nil, Versao, Hostname())
+		estado.ErroRelogio = err
+		return estado, sc.Heartbeat(nil, Versao, Hostname())
 	}
+	estado.RelogioOK = true
 
 	relogioDevice := extrairRelogioDevice(info)
 	if relogioDevice.IsZero() {
 		log.Println("aviso: get_system_information.fcgi nao trouxe um campo de hora reconhecido; heartbeat sem deriva")
-		return sc.Heartbeat(nil, Versao, Hostname())
+		return estado, sc.Heartbeat(nil, Versao, Hostname())
 	}
-	return sc.Heartbeat(&relogioDevice, Versao, Hostname())
+	return estado, sc.Heartbeat(&relogioDevice, Versao, Hostname())
 }
 
 // SincronizarCadastros aplica a fila de push de identidade (Fase 7) no relógio e reporta quem

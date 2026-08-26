@@ -77,6 +77,10 @@ export function DispositivoRepModal({
   const [dispositivoId, setDispositivoId] = useState<string | null>(dispositivo?.id || null)
   const [baixando, setBaixando] = useState(false)
   const [baixandoUnidade, setBaixandoUnidade] = useState(false)
+  // Quais relógios da unidade entram no pacote. `null` = ainda não mexeram, e vale "todos" —
+  // manter o padrão em todos preserva o caso dominante (uma máquina que enxerga a unidade toda)
+  // sem obrigar ninguém a marcar 4 caixas para fazer o que a tela já fazia.
+  const [selecaoUnidade, setSelecaoUnidade] = useState<string[] | null>(null)
   const [sincronizandoCadastros, setSincronizandoCadastros] = useState(false)
   const [resultadoCadastros, setResultadoCadastros] = useState<{ enfileirados: number; sem_cpf: number; ja_vinculados: number; ja_no_relogio: number } | null>(null)
 
@@ -88,6 +92,12 @@ export function DispositivoRepModal({
   const relogiosAtivosDaUnidade = (outrosDispositivos || []).filter(
     (d: any) => d.unidade_id === unidadeId && d.ativo
   )
+
+  // `null` (ninguém mexeu) significa TODOS — e é recalculado a cada render de propósito: trocar a
+  // unidade do dispositivo troca a lista de relógios, e uma seleção guardada apontaria para
+  // equipamentos de outra unidade.
+  const escolhidosParaPacote =
+    selecaoUnidade === null ? relogiosAtivosDaUnidade.map((d: any) => d.id) : selecaoUnidade
 
   // Sobreposicao com outros relogios da MESMA unidade - so aviso, nunca bloqueio (CLAUDE.md:
   // um setor coberto por dois relogios pode ser intencional, ex. duas entradas fisicas).
@@ -185,7 +195,7 @@ export function DispositivoRepModal({
     setBaixandoUnidade(true)
     setErro(null)
     try {
-      const resultado = await gerarTokensUnidadeRep(unidadeId)
+      const resultado = await gerarTokensUnidadeRep(unidadeId, escolhidosParaPacote)
       if ('error' in resultado && resultado.error) {
         setErro(resultado.error)
         return
@@ -476,22 +486,51 @@ export function DispositivoRepModal({
                   Esta unidade tem {relogiosAtivosDaUnidade.length} relógios
                 </p>
                 <p className="text-[11px] text-zinc-500">
-                  Se um mesmo computador enxerga todos eles na rede, baixe o pacote da unidade: um
-                  aplicativo só, que sincroniza os {relogiosAtivosDaUnidade.length} no mesmo ciclo.
-                  Relógio fora do ar não impede os outros de sincronizar.
+                  Se um mesmo computador enxerga esses relógios na rede, baixe o pacote: um
+                  aplicativo só, que sincroniza todos no mesmo ciclo. Relógio fora do ar não
+                  impede os outros de sincronizar.
                 </p>
+                <p className="text-[11px] text-zinc-500">
+                  Marque só os que <strong>esta</strong> máquina vai coletar. Se os equipamentos
+                  da unidade estão divididos entre computadores, um pacote por computador.
+                </p>
+                <div className="space-y-1 rounded-lg border border-zinc-200 dark:border-zinc-800 p-2">
+                  {relogiosAtivosDaUnidade.map((d: any) => (
+                    <label key={d.id} className="flex items-center gap-2 text-[11px] text-zinc-700 dark:text-zinc-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={escolhidosParaPacote.includes(d.id)}
+                        onChange={(e) =>
+                          setSelecaoUnidade(
+                            e.target.checked
+                              ? [...escolhidosParaPacote, d.id]
+                              : escolhidosParaPacote.filter((id) => id !== d.id)
+                          )
+                        }
+                        className="rounded border-zinc-300 dark:border-zinc-700"
+                      />
+                      <span className="font-medium">{d.nome}</span>
+                      {d.endereco_ip && <span className="text-zinc-500">({d.endereco_ip})</span>}
+                      {d.id === dispositivoId && <span className="text-zinc-400">— este</span>}
+                    </label>
+                  ))}
+                </div>
                 <p className="text-[11px] text-amber-600 dark:text-amber-400">
-                  ⚠️ Gera um token novo para cada um desses relógios. Qualquer instalação antiga que
-                  esteja coletando um deles para de sincronizar até receber este pacote.
+                  ⚠️ Gera um token novo para <strong>cada relógio marcado</strong>, e o token
+                  anterior deixa de valer na hora. Qualquer instalação que já esteja coletando um
+                  deles para de sincronizar até receber este pacote. Quem ficar desmarcado não é
+                  tocado.
                 </p>
                 <button
                   type="button"
                   onClick={handleBaixarPacoteUnidade}
-                  disabled={baixandoUnidade}
+                  disabled={baixandoUnidade || escolhidosParaPacote.length === 0}
                   className="w-full border border-emerald-600 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60"
                 >
                   {baixandoUnidade ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                  Baixar pacote da unidade ({relogiosAtivosDaUnidade.length} relógios)
+                  {escolhidosParaPacote.length === relogiosAtivosDaUnidade.length
+                    ? `Baixar pacote da unidade (${escolhidosParaPacote.length} relógios)`
+                    : `Baixar pacote com ${escolhidosParaPacote.length} de ${relogiosAtivosDaUnidade.length} relógios`}
                 </button>
               </div>
             )}

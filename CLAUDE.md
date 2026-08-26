@@ -166,7 +166,7 @@ Duas lacunas conhecidas, registradas no plano:
 | binário | papel |
 |---|---|
 | `cmd/cli` | diagnóstico manual: `sync`, `heartbeat`, `diagnostico`, `afd-raw` (busca e imprime o AFD cru, não grava nada), `afd-exportar` (grava `.sisrep` para pendrive, ver abaixo), `terminal abrir`. Não roda continuamente. |
-| `cmd/tray` | o que roda o dia a dia numa unidade: ícone de bandeja (verde/vermelho conforme o ciclo), autostart via `HKCU\...\Run` (sem precisar de administrador — `kardianos/service`, que a CLI usava antes, foi **removido**, não adaptado: serviço do Windows roda na Sessão 0, isolada da área de trabalho desde o Vista, e por isso **nunca** pode mostrar ícone de bandeja nem abrir navegador na sessão do usuário), auto-instalação no primeiro uso (copia a si mesmo para `%LOCALAPPDATA%\SisEscala\coletor-rep\` e relança de lá). |
+| `cmd/tray` | o que roda o dia a dia numa unidade: ícone de bandeja (verde/vermelho conforme o ciclo) **mais uma linha por relógio com `🟢 online` / `🔴 SEM RESPOSTA`** desde a v0.11.0 — o ícone é um só para a máquina, então ele **agrega**, e o agregado escondia exatamente o caso comum de três equipamentos respondendo e um mudo (para isso `HeartbeatComEstado` separa "o relógio não respondeu" de "o SisEscala não respondeu", que antes viravam um erro só), autostart via `HKCU\...\Run` (sem precisar de administrador — `kardianos/service`, que a CLI usava antes, foi **removido**, não adaptado: serviço do Windows roda na Sessão 0, isolada da área de trabalho desde o Vista, e por isso **nunca** pode mostrar ícone de bandeja nem abrir navegador na sessão do usuário), auto-instalação no primeiro uso (copia a si mesmo para `%LOCALAPPDATA%\SisEscala\coletor-rep\` e relança de lá). |
 
 #### Uma unidade pode ter VÁRIOS relógios, e o coletor era um-por-máquina por construção (25/08/2026)
 
@@ -194,10 +194,28 @@ Desde a **v0.9.0** o `config.yaml` aceita a chave plural `dispositivos_rep:` (li
 | lote legado solto na raiz da fila só é adotado com **um único** relógio configurado | com dois, o arquivo não diz de quem é — chutar autoria de marcação já coletada é pior |
 | CLI: rotina roda em todos; comando de **um** equipamento exige `--dispositivo` | escrever usuário de teste em 4 equipamentos de produção por descuido não pode acontecer |
 
-Instalação: **"Baixar pacote da unidade (N relógios)"** no modal do dispositivo gera token novo
-para cada um e monta o `.zip` com os N. ⚠️ Isso **invalida o token anterior** deles — instalação
-antiga para de sincronizar (401) até receber o pacote. A rota recusa o pacote se **um** relógio da
-lista não for encontrado: um config com três dos quatro roda sem erro e o quarto some da coleta.
+Instalação: **"Baixar pacote da unidade"** no modal do dispositivo gera token novo para cada
+relógio **marcado** e monta o `.zip` com eles. A rota recusa o pacote se **um** relógio da lista não
+for encontrado: um config com três dos quatro roda sem erro e o quarto some da coleta.
+
+🚨 **Isso INVALIDA o token anterior de cada relógio marcado, e derrubou produção em 26/08/2026.**
+Até essa data a tela era tudo-ou-nada (rotacionava **todos** os ativos da unidade). A SMS tem
+**4 relógios**, e baixar o pacote rotacionou os 4 às 15:32 — **SMS e Reg/TI/TFD ficaram 2h49 sem
+sincronizar**, porque só CAF-01/02 receberam o arquivo. Por isso a seleção por relógio existe:
+**marque só os que AQUELA máquina vai coletar.** Equipamentos divididos entre computadores = um
+pacote por computador.
+
+⚠️ **`config.Mesclar` preserva a ENTRADA, não a CREDENCIAL.** A regra "nunca perder um relógio"
+funcionou como projetada e manteve SMS e Reg/TI/TFD no `config.yaml` — com tokens já mortos. O
+sintoma é o coletor rodando normalmente, o relógio no menu, e **401 silencioso** na sincronização
+daqueles dois. Ao diagnosticar "parou de sincronizar depois que baixei o pacote", compare
+`dispositivos_rep.updated_at` (quando o token girou) com `ultimo_contato_em`: se batem, é isto.
+Nada se perde — o AFD fica no equipamento até o coletor voltar.
+
+⚠️ A action `gerarTokensUnidadeRep` **confere a seleção contra a unidade** em vez de aceitar a
+lista como veio (armadilha 12 — tela filtrada não protege server action, que é POST chamável
+direto). Omitir a lista mantém o comportamento antigo, que é o certo para o caso dominante: uma
+máquina que enxerga a unidade inteira.
 
 ⚠️ **A mesclagem de `config.yaml` é `config.Mesclar`, e as duas regras dela não podem sair**
 (v0.9.1): **nunca perder um relógio** (o que estava instalado e não veio no download continua —
@@ -237,13 +255,35 @@ A e não no B. O que faltava era o **transporte** — `fn_biometria_faltante_dis
 | depois de escrever, **só o alvo pode ter ganhado biometria E o cadastro não pode ter crescido** | a 2ª conferência pega o formato que "funciona" criando usuário novo — passaria pela 1ª e seria pior que falhar |
 | falha de **transporte** não queima a pendência; **recusa** do equipamento fica 24h fora da fila | mesma distinção de `transitorio` nos cadastros |
 
-🚨 **Fora do ciclo automático até alguém confirmar em campo.** Nenhum candidato de
-`rep.formatosTemplate` foi validado contra hardware — diferente de `add_users`/`remove_users`, aqui
-a varredura **é** o mecanismo, não a contingência. O portão é
-`coletor-rep-cli biometria-testar --de <relógio> --para <relógio>`, que roda o caminho inteiro
-contra o descartável "SISESCALA TESTE - PODE APAGAR" (com um dedo cadastrado **nele**, nunca o
-template de um servidor real) e **imprime o formato aceito** — é esse nome que precisa voltar para
-o código, como aconteceu com `remove_users.fcgi` depois da LACEM.
+✅ **CONFIRMADA em campo em 26/08/2026 e JÁ NO CICLO AUTOMÁTICO** (piloto Almox-Pat-CAF-01 → 02;
+diário em [`docs/evolucao/2026-08-26-sincronia-de-biometria-entre-relogios.md`](docs/evolucao/2026-08-26-sincronia-de-biometria-entre-relogios.md)).
+O parágrafo que existia aqui dizia o contrário — está superado.
+
+⚠️ **O que travava não era o formato do template, era o COMANDO: `add_users.fcgi` é CRIAÇÃO, não
+atualização.** Nas 45 cópias que falharam ele respondeu `PIS já cadastrado: <n>` — recusa de
+**duplicidade**, nunca de formato. Contra quem já está no relógio (que é *sempre* o caso desta
+operação, que por regra nunca cria usuário) ele não tem como funcionar, com corpo nenhum.
+
+| comando | neste firmware |
+|---|---|
+| `add_templates` · `set_templates` · `update_templates` · … | **não existem** (`Invalid command`) |
+| **`update_users.fcgi`** | **é o certo** — `{"users":[{"pis":N,"name":"...","registration":N,"templates":[...]}]}` |
+| `add_users.fcgi` **com** `templates` | grava a digital **junto na criação** — relógio novo recebe cadastro e digital numa operação só |
+
+Sondar comando com **corpo vazio** distingue "não existe" de "campo errado" sem escrever nada — é
+o jeito barato de descobrir isso num modelo novo. `coletor-rep-cli biometria-testar --de <relógio>
+--para <relógio>` continua sendo o portão para hardware diferente, contra o descartável
+"SISESCALA TESTE - PODE APAGAR" (com um dedo cadastrado **nele**, nunca o template de um servidor
+real).
+
+⚠️ **Não acrescente candidato que mande `templates` sem `name`/`registration`.** Se um firmware
+tratar `update_users` como substituição do objeto inteiro, o cadastro perde nome e matrícula — e a
+conferência por relistagem **não pega**: ela olha biometria e tamanho do cadastro, não os campos de
+quem ficou.
+
+⚠️ **`fn_biometria_faltante_dispositivo` ignora quem falhou nas últimas 24h.** Ao investigar "diz
+zero pendentes com N pessoas faltando digital", confira `rep_biometria_copias` antes de suspeitar
+da consulta — é proteção contra repetir o mesmo erro a cada 5 min, não bug.
 
 ⚠️ Copiar de um relógio cadastrado por **CPF** para um por **PIS** duplica o cadastro de quem já
 estava lá (armadilha 10): rode a Higiene no destino depois.
@@ -553,10 +593,15 @@ cada rodada de `cadastros-testar`.
 
 Mesmo confirmado, por isso continua:
 
-- **Fora do ciclo automático** de `cmd/tray` (o ticker de 5 min só roda `Sync`/`Heartbeat`). Só
-  roda por clique manual no menu "Sincronizar cadastros agora" ou pelo subcomando
-  `coletor-rep cadastros` da CLI — prudência com escrita em equipamento de produção, não dúvida
-  sobre o formato.
+- ⚠️ **Desatualizado.** A nota aqui dizia que o push de cadastro ficava **fora** do ciclo
+  automático e que o ticker de 5 min só rodava `Sync`/`Heartbeat`. **Não é verdade desde a
+  v0.6.0**: `executarCiclo` (`cmd/tray/main.go`) roda `SincronizarCadastrosTodos` e
+  `HigienizarRemocoesTodos` com teto por ciclo, e desde a **v0.11.0** roda também
+  `SincronizarBiometriaTodos`. O que autoriza os três é o mesmo: **a fila é o gatilho** — sem
+  ninguém enfileirado, a chamada devolve lista vazia e nada é escrito no equipamento. Falha em
+  qualquer um deles **não** derruba o status para vermelho; sincronizar o AFD é a função
+  essencial. O clique manual no menu e os subcomandos da CLI continuam existindo, passando
+  `limite = 0` (sem teto).
 - `coletor-rep cadastros-testar` (subcomando) cria **um** usuário de teste bem marcado
   ("SISESCALA TESTE - PODE APAGAR") direto no relógio e lista quem tem biometria, sem tocar na
   fila real do SisEscala — o `afd-raw` desta função, útil para validar um relógio novo antes de

@@ -70,7 +70,24 @@ func SyncTodos(cfg *config.Config) error {
 
 // HeartbeatTodos reporta versão e deriva de relógio de cada equipamento.
 func HeartbeatTodos(cfg *config.Config) error {
-	return paraCada(cfg, "heartbeat", func(d *config.DispositivoRepConfig) error { return Heartbeat(cfg, d) })
+	_, err := HeartbeatTodosComEstado(cfg)
+	return err
+}
+
+// HeartbeatTodosComEstado faz o mesmo e devolve, por ID de dispositivo, se o EQUIPAMENTO
+// respondeu — é o que permite à bandeja marcar online/offline por linha em vez de um único
+// agregado para a máquina inteira.
+//
+// ⚠️ O mapa é indexado por d.ID, não pelo rótulo: dois relógios podem ter o mesmo nome (o campo
+// é livre e serve só de etiqueta), mas o ID repetido já é recusado no carregamento do config.
+func HeartbeatTodosComEstado(cfg *config.Config) (map[string]ResultadoHeartbeat, error) {
+	estados := make(map[string]ResultadoHeartbeat)
+	err := paraCada(cfg, "heartbeat", func(d *config.DispositivoRepConfig) error {
+		estado, err := HeartbeatComEstado(cfg, d)
+		estados[d.ID] = estado
+		return err
+	})
+	return estados, err
 }
 
 // SincronizarCadastrosTodos aplica a fila de identidade em cada relógio. O `limite` é POR

@@ -328,7 +328,19 @@ export async function gerarTokenDispositivoRep(id: string) {
  * Cada relógio continua com id e token PRÓPRIOS — não existe "token da unidade". É o token que
  * diz ao SisEscala de qual equipamento veio cada linha do AFD.
  */
-export async function gerarTokensUnidadeRep(unidadeId: string) {
+/**
+ * Gera token novo para os relógios que vão entrar num pacote de instalação.
+ *
+ * ⚠️ `dispositivoIds` NÃO é um filtro cosmético: gerar token substitui o anterior, e todo relógio
+ * que entra aqui para de sincronizar até alguém instalar o pacote naquela máquina. Antes esta
+ * action pegava TODOS os ativos da unidade, e numa unidade cujos equipamentos são coletados por
+ * máquinas diferentes isso derrubava os que não iam receber o arquivo — medido na SMS em
+ * 26/08/2026, com 4 relógios: dois pararam por 2h49 sem ninguém relacionar a causa.
+ *
+ * Omitir a lista mantém o comportamento antigo (todos os ativos), porque é o certo para o caso
+ * dominante: UMA máquina que enxerga a unidade inteira.
+ */
+export async function gerarTokensUnidadeRep(unidadeId: string, dispositivoIds?: string[]) {
   await exigirAdmin()
   const supabase = await createClient()
 
@@ -345,8 +357,23 @@ export async function gerarTokensUnidadeRep(unidadeId: string) {
     return { error: 'Nenhum relógio ativo nesta unidade.' }
   }
 
+  // A seleção é conferida contra a unidade, não aceita como veio: a tela filtra, mas a action é
+  // um POST chamável direto (mesma régua da armadilha 12 — tela filtrada não protege o servidor).
+  let alvos = dispositivos
+  if (dispositivoIds && dispositivoIds.length > 0) {
+    const pedidos = new Set(dispositivoIds)
+    alvos = dispositivos.filter((d) => pedidos.has(d.id))
+    const desconhecidos = dispositivoIds.filter((id) => !dispositivos.some((d) => d.id === id))
+    if (desconhecidos.length > 0) {
+      return { error: `Relógio que não é desta unidade (ou está inativo): ${desconhecidos.join(", ")}` }
+    }
+    if (alvos.length === 0) {
+      return { error: 'Selecione ao menos um relógio para o pacote.' }
+    }
+  }
+
   const comToken: { id: string; nome: string; endereco_ip: string | null; token: string }[] = []
-  for (const d of dispositivos) {
+  for (const d of alvos) {
     const { data, error } = await supabase.rpc('fn_gerar_token_dispositivo_rep', { p_dispositivo_id: d.id })
     if (error) {
       // Parar no primeiro erro, e nao seguir gerando: um pacote com metade dos relogios teria

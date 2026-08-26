@@ -371,15 +371,30 @@ func (e *estadoApp) snapshot() (ultimoSucesso time.Time, falhas int) {
 
 // rotuloMenuRelogio e' a linha (nao clicavel) que identifica um relogio no menu. O nome vem do
 // config.yaml preenchido pelo SisEscala no "Baixar aplicativo"; sem nome, o IP identifica.
-func rotuloMenuRelogio(d *config.DispositivoRepConfig) string {
+//
+// `estado` nulo = ainda nao houve ciclo nenhum, e a linha sai sem indicador: dizer "offline" para
+// um relogio que so' nao foi consultado ainda seria pior que nao dizer nada. Depois do primeiro
+// ciclo cada linha responde sozinha "este esta comunicando?" - com varios equipamentos por
+// maquina o icone da bandeja e um so' e portanto AGREGA, escondendo justamente o caso que passou
+// a ser comum: tres respondendo e um mudo.
+func rotuloMenuRelogio(d *config.DispositivoRepConfig, estado *ciclo.ResultadoHeartbeat) string {
 	endereco := d.Endereco
 	if d.Porta != 0 && d.Porta != 80 && d.Porta != 443 {
 		endereco += fmt.Sprintf(":%d", d.Porta)
 	}
+
+	base := "Relógio IP: " + endereco
 	if d.Nome != "" {
-		return "Relógio: " + d.Nome + " (" + endereco + ")"
+		base = "Relógio: " + d.Nome + " (" + endereco + ")"
 	}
-	return "Relógio IP: " + endereco
+
+	if estado == nil {
+		return base
+	}
+	if estado.RelogioOK {
+		return "🟢 " + base + " — online"
+	}
+	return "🔴 " + base + " — SEM RESPOSTA"
 }
 
 func aoIniciar(cfg *config.Config, dirInstalado string) {
@@ -396,12 +411,17 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 		itemRelogio := systray.AddMenuItem("Relógio IP: não configurado", "Esta máquina não coleta de um relógio de ponto físico")
 		itemRelogio.Disable()
 	}
+	// Indexados por ID para o ciclo poder marcar online/offline em cada linha. O ID e' a chave
+	// certa: `nome` e' campo livre e pode repetir entre equipamentos, enquanto ID repetido ja e'
+	// recusado no carregamento do config.yaml.
+	itensRelogio := make(map[string]*systray.MenuItem, len(dispositivos))
 	for _, d := range dispositivos {
 		if d.Endereco == "" {
 			continue
 		}
-		itemRelogio := systray.AddMenuItem(rotuloMenuRelogio(d), "Relógio de ponto (REP) coletado por esta máquina")
+		itemRelogio := systray.AddMenuItem(rotuloMenuRelogio(d, nil), "Relógio de ponto (REP) coletado por esta máquina")
 		itemRelogio.Disable()
+		itensRelogio[d.ID] = itemRelogio
 	}
 
 	systray.AddSeparator()
@@ -585,9 +605,20 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 				log.Printf("erro no sync: %v", err)
 				ok = false
 			}
-			if err := ciclo.HeartbeatTodos(cfg); err != nil {
-				log.Printf("erro no heartbeat: %v", err)
+			estadosRelogio, errHb := ciclo.HeartbeatTodosComEstado(cfg)
+			if errHb != nil {
+				log.Printf("erro no heartbeat: %v", errHb)
 				ok = false
+			}
+			// Pintar cada linha mesmo quando o heartbeat devolveu erro: o erro pode ser do
+			// SisEscala, e saber QUAIS equipamentos respondem e' o que resolve o chamado.
+			for _, d := range dispositivos {
+				item, temItem := itensRelogio[d.ID]
+				estado, temEstado := estadosRelogio[d.ID]
+				if !temItem || !temEstado {
+					continue
+				}
+				item.SetTitle(rotuloMenuRelogio(d, &estado))
 			}
 
 			// Cadastro de identidade e leitura do cadastro do relogio entram no ciclo desde a
@@ -612,6 +643,27 @@ func aoIniciar(cfg *config.Config, dirInstalado string) {
 			} else if resultado.Enviados > 0 || resultado.Falhas > 0 {
 				log.Printf("cadastros no ciclo: enviados=%d falhas=%d (pendentes na fila: %d)",
 					resultado.Enviados, resultado.Falhas, resultado.Pendentes)
+			}
+
+			// Copia de biometria entre os relogios DESTA maquina, logo depois dos cadastros e pelo
+			// mesmo criterio que autorizou aqueles: a FILA e' o gatilho. Sem ninguem faltando
+			// digital, fn_biometria_faltante_dispositivo devolve lista vazia e NADA e' escrito no
+			// equipamento - o custo em repouso e' um GET. A ordem importa: o cadastro cria a pessoa
+			// no relogio de destino, e so' quem ja esta la SEM digital e' candidato a receber.
+			//
+			// Ficou fora do ciclo automatico ate 26/08/2026, quando update_users.fcgi foi
+			// confirmado contra hardware real no piloto de multiplos relogios (Almox-Pat-CAF; ver
+			// rep.formatosTemplate). Ate entao NENHUM candidato de escrita de template tinha sido
+			// validado - a varredura era o mecanismo principal, nao a contingencia.
+			//
+			// Falha aqui NAO derruba o status para vermelho, mesma regra dos cadastros:
+			// sincronizar o AFD e' a funcao essencial; digital faltando e' assunto da tela de
+			// Cobertura da Escala.
+			if resBio, err := ciclo.SincronizarBiometriaTodos(cfg, ciclo.LimiteBiometriaPorCiclo); err != nil {
+				log.Printf("aviso: biometria nao sincronizada neste ciclo: %v", err)
+			} else if resBio.Copiados > 0 || resBio.Falhas > 0 {
+				log.Printf("biometria no ciclo: copiados=%d falhas=%d (pendentes: %d, sem origem nesta maquina: %d)",
+					resBio.Copiados, resBio.Falhas, resBio.Pendentes, resBio.SemOrigemLocal)
 			}
 
 			// Executa remoções de higiene pendentes enfileiradas pelo SisEscala

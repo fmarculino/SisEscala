@@ -749,11 +749,43 @@ type formatoTemplate struct {
 	Corpo func(u UsuarioDispositivo, templates []interface{}) (map[string]interface{}, bool)
 }
 
-// Ordem: do mais provavel para o menos. add_users.fcgi vem primeiro porque e' o unico comando
-// desta familia ja CONFIRMADO neste hardware, e o objeto "user" que ele aceita e' o mesmo que
-// load_users.fcgi devolve COM o array `templates` dentro - ou seja, reenviar o usuario inteiro
-// com os templates e' a hipotese mais simples e a que menos inventa nome de comando.
+// Ordem: do mais provavel para o menos. Mudou em 26/08/2026, no piloto de multiplos relogios
+// (Almox-Pat-CAF-01 -> CAF-02), que e a primeira vez que esta operacao rodou em campo.
+//
+// ✅ update_users.fcgi CONFIRMADO CONTRA HARDWARE REAL (26/08/2026). O caso testado e
+// exatamente o do dia a dia: a pessoa ja estava no relogio de destino SEM digital (criada pela
+// fila de identidade) e recebeu a digital que ja tinha no outro relogio da unidade. As tres
+// condicoes foram conferidas por relistagem: a digital chegou no alvo, SO o alvo ganhou
+// digital, e o cadastro nao cresceu nem encolheu.
+//
+// ⚠️ add_users.fcgi NAO serve para esta operacao, e esse foi o achado que destravou tudo: ele e
+// CRIACAO, nao atualizacao. Nas 45 copias que falharam as 15:48 daquele dia ele respondeu
+// "PIS ja cadastrado: <n>" - nunca foi recusa de FORMATO, era recusa de duplicidade. Contra
+// alguem que ja esta no relogio (que e sempre o caso desta operacao, que por regra nunca cria
+// usuario) ele nao tem como funcionar. Fica na lista abaixo do confirmado porque a mensagem
+// dele e diagnostica e porque um firmware sem update_users pode aceita-lo.
+//
+// ⚠️ add_templates.fcgi e set_templates.fcgi NAO EXISTEM neste firmware ("Invalid command",
+// sondados um a um com corpo vazio, que nao escreve nada). Ficam por ultimo, para outro modelo.
+//
+// 🚨 NAO acrescente candidato que mande `templates` SEM `name`/`registration`. Se um firmware
+// tratar update_users como substituicao do objeto inteiro, o cadastro perde nome e matricula -
+// e a conferencia por relistagem NAO pegaria isso: ela olha biometria e tamanho do cadastro,
+// nao os campos de quem ficou. Um candidato desses existiu aqui por algumas horas em
+// 26/08/2026 e foi removido antes de rodar em cima de cadastro real.
 var formatosTemplate = []formatoTemplate{
+	{"update_users:[{pis,name,registration,templates}]", "update_users.fcgi", true,
+		func(u UsuarioDispositivo, t []interface{}) (map[string]interface{}, bool) {
+			return map[string]interface{}{"users": []map[string]interface{}{{
+				"name": u.Nome, "pis": u.Pis, "registration": u.Registration, "templates": t,
+			}}}, u.RegistrationConh
+		}},
+	{"update_users:[{pis,name,registration,templates}] (sem mode)", "update_users.fcgi", false,
+		func(u UsuarioDispositivo, t []interface{}) (map[string]interface{}, bool) {
+			return map[string]interface{}{"users": []map[string]interface{}{{
+				"name": u.Nome, "pis": u.Pis, "registration": u.Registration, "templates": t,
+			}}}, u.RegistrationConh
+		}},
 	{"add_users:[{pis,templates}]", "add_users.fcgi", true,
 		func(u UsuarioDispositivo, t []interface{}) (map[string]interface{}, bool) {
 			return map[string]interface{}{"users": []map[string]interface{}{{
@@ -904,6 +936,18 @@ func (c *Client) descobrirFormatoTemplate(alvo UsuarioDispositivo, templates []i
 			return "", fmt.Errorf("PARE: o formato %s CRIOU cadastro no equipamento (%d -> %d usuarios) "+
 				"em vez de gravar a digital em %s. Nenhum outro formato sera tentado - confira o "+
 				"cadastro do relogio e apague o que sobrou", f.Nome, len(antes), len(depois), alvo.IdentificadorAFD)
+		}
+
+		// A direcao contraria, e ela e pior: um formato que APAGA cadastro. Sem esta conferencia o
+		// caso cai em "aceito mas nao gravou nada" logo abaixo e a varredura segue tentando os
+		// proximos candidatos em cima de um relogio que acabou de perder usuario. Vale para o alvo
+		// e para qualquer outro: identificadoresAusentes (ja usada pela remocao) diz exatamente quem
+		// sumiu, porque "quantos" nao basta para ir atras do estrago.
+		if sumiram := identificadoresAusentes(antes, depois); len(sumiram) > 0 {
+			return "", fmt.Errorf("PARE: o formato %s APAGOU %d cadastro(s) do equipamento (%d -> %d "+
+				"usuarios; sumiram: %v) em vez de gravar a digital em %s. Nenhum outro formato sera "+
+				"tentado - confira o cadastro do relogio antes de qualquer outra coisa",
+				f.Nome, len(sumiram), len(antes), len(depois), sumiram, alvo.IdentificadorAFD)
 		}
 
 		ganharam := ganharamBiometria(antes, depois)
