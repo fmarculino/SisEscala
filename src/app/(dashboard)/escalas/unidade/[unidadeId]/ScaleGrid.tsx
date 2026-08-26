@@ -884,6 +884,37 @@ export function ScaleGrid({
     return blocosPrevistos.get(edId) || null
   }, [edIdPorCelula, blocosPrevistos])
 
+  // O previsto DESTA linha dentro do bloco, quando o bloco funde mais de um turno.
+  //
+  // A fusão (armadilha 6) junta Regular 08:00–14:00 + Plantão T4 14:00–18:00 num bloco só
+  // 08:00–18:00. Indexar a previsão por escala_diaria_id devolve o BLOCO para as duas linhas,
+  // então a linha do Plantão passava a exibir o horário do EXPEDIENTE — 08:00 em vez das 14:00
+  // que o coordenador informou em hora_inicio_prevista. Caso real: IRIZAN SILVA, 26/08/2026.
+  //
+  // turnos_inicio/turnos_fim vêm de fn_blocos_previstos_dia (20260819200000) na MESMA ordem de
+  // escala_diaria_ids, e chegam à grade desde 20260826000000. Nada é derivado aqui: é o mesmo
+  // previsto que o terminal usa para os slots de fronteira, escolhido por posição.
+  //
+  // Só entrada e saída. O intervalo continua sendo o do bloco — um bloco carrega UM intervalo
+  // (v_b1_int_ini), não existe intervalo por turno fundido.
+  const previstoDaLinhaNoBloco = useCallback((
+    bloco: any,
+    tipo: 'entrada' | 'saida',
+    servidorId?: string,
+    cat?: string,
+    day?: number
+  ): string | null => {
+    if (!bloco || !servidorId || !cat || !day) return null
+    const edId = edIdPorCelula.get(`${servidorId}|${cat}|${day}`)
+    if (!edId || !Array.isArray(bloco.escala_diaria_ids)) return null
+    const idx = bloco.escala_diaria_ids.indexOf(edId)
+    if (idx < 0) return null
+    const arr = tipo === 'entrada' ? bloco.turnos_inicio : bloco.turnos_fim
+    // Bundle novo contra banco sem a migration: cai no horário do bloco, como antes.
+    if (!Array.isArray(arr) || arr.length !== bloco.escala_diaria_ids.length) return null
+    return arr[idx] || null
+  }, [edIdPorCelula])
+
   // Um turno é "ancorado" quando o próprio código determina a hora — o banco diz isso em
   // dicionario_turnos.horario_inicio (M, T, N, MT e a família M?N, gravados em 20260808100000).
   // Os demais são de duração livre: o código dá duração e período, e só quem escala sabe a hora.
@@ -2014,9 +2045,11 @@ export function ScaleGrid({
     // não tiver respondido.
     const bloco = blocoDaCelula(servidorId, cat, day)
     if (bloco) {
+      // Em bloco fundido, entrada/saída são as DESTE turno (previstoDaLinhaNoBloco); só quando
+      // o banco não informa o previsto por turno é que se cai no horário do bloco inteiro.
       const iso =
-        tipo === 'entrada'           ? bloco.inicio_previsto :
-        tipo === 'saida'             ? bloco.fim_previsto :
+        tipo === 'entrada'           ? (previstoDaLinhaNoBloco(bloco, 'entrada', servidorId, cat, day) || bloco.inicio_previsto) :
+        tipo === 'saida'             ? (previstoDaLinhaNoBloco(bloco, 'saida', servidorId, cat, day) || bloco.fim_previsto) :
         tipo === 'intervalo_saida'   ? bloco.intervalo_inicio_previsto :
         tipo === 'intervalo_retorno' ? bloco.intervalo_fim_previsto : null
       if (iso) {
@@ -2166,7 +2199,16 @@ export function ScaleGrid({
     }
 
     return null
-  }, [turnos, escalaMensal, jornadas, gridData, todosServidoresSetor, getShiftStartHour, getShiftEndHour])
+    // ⚠️ blocoDaCelula PRECISA estar aqui. Ele fecha sobre blocosPrevistos, que começa VAZIO e
+    // só é preenchido quando fn_blocos_previstos_mes responde. Sem a dependência, este callback
+    // continuava com a closure do primeiro render — mapa vazio — e nenhuma das outras deps muda
+    // ao abrir a tela, então TODA previsão da grade caía no cálculo local até o coordenador
+    // digitar alguma coisa (o que mexe em gridData e recria o callback por acaso).
+    // Sintoma medido em 26/08/2026: Plantão T4 com hora 14:00 informada exibindo previsão de
+    // 13:00 (a âncora do prefixo 'T' em getShiftStartHour) contra as 14:00 que o banco previa.
+    // O lint já apontava isso como warning; react-hooks/exhaustive-deps é "warn" no projeto,
+    // então não quebrava build nem deploy.
+  }, [turnos, escalaMensal, jornadas, gridData, todosServidoresSetor, getShiftStartHour, getShiftEndHour, blocoDaCelula, previstoDaLinhaNoBloco])
 
   const getAttemptTime = useCallback((servidorId: string, day: number, tipo: string) => {
     const matches = logsTentativas.filter(l => {
