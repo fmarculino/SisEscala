@@ -20,7 +20,7 @@ import (
 	"github.com/sms-maraba/sisescala-coletor-rep/sisescala"
 )
 
-const Versao = "0.11.1"
+const Versao = "0.11.2"
 
 // LimiteCadastrosPorCiclo e' o teto do ciclo AUTOMATICO. O clique manual no menu passa 0 (sem
 // teto, envia todos).
@@ -207,6 +207,13 @@ func Sync(cfg *config.Config, d *config.DispositivoRepConfig) error {
 type ResultadoHeartbeat struct {
 	RelogioOK   bool
 	ErroRelogio error
+
+	// RelogioDevice e' a hora que o EQUIPAMENTO marca (apos o ajuste, quando houve um).
+	RelogioDevice time.Time
+	// Deriva e' equipamento - hora confiavel. Positivo = relogio do REP adiantado.
+	Deriva time.Duration
+	// RelogioAjustado diz se este ciclo acertou a hora do equipamento.
+	RelogioAjustado bool
 }
 
 // Heartbeat mantem a assinatura antiga (usada pela CLI) e delega.
@@ -228,20 +235,76 @@ func HeartbeatComEstado(cfg *config.Config, d *config.DispositivoRepConfig) (Res
 	sc := sisescala.NovoClient(cfg.SisEscala.URL, d.ID, d.Token)
 
 	rc := rep.NovoClient(d.Endereco, d.Porta, d.UsaHTTPS, d.UsuarioRep, d.SenhaRep, d.CertFingerprint)
-	info, err := rc.InformacoesSistema()
+	relogioDevice, err := rc.DataHoraDispositivo()
 	if err != nil {
 		log.Printf("aviso: nao foi possivel ler o relogio do REP (%v); heartbeat sem deriva", err)
 		estado.ErroRelogio = err
 		return estado, sc.Heartbeat(nil, Versao, Hostname())
 	}
 	estado.RelogioOK = true
+	estado.RelogioDevice = relogioDevice
+	estado.Deriva = relogioDevice.Sub(horaConfiavel())
 
-	relogioDevice := extrairRelogioDevice(info)
-	if relogioDevice.IsZero() {
-		log.Println("aviso: get_system_information.fcgi nao trouxe um campo de hora reconhecido; heartbeat sem deriva")
-		return estado, sc.Heartbeat(nil, Versao, Hostname())
-	}
+	sincronizarRelogioDispositivo(rc, d, &estado)
+
 	return estado, sc.Heartbeat(&relogioDevice, Versao, Hostname())
+}
+
+// horaConfiavel e' a hora local CORRIGIDA pelo desvio aprendido do SisEscala (header Date das
+// respostas HTTP, a la NTP - ver sisescala/client.go).
+//
+// ⚠️ Nunca use time.Now() puro para mexer no relogio de um REP. Relogio de Windows torto em
+// maquina de unidade nao e' hipotese: foi a causa dos 401 de anti-replay da SMS em 17/08/2026, e
+// e' exatamente por isso que o coletor ja aprende a hora do servidor em vez de confiar na propria.
+// Propagar o erro da maquina para o equipamento transformaria o problema de UM computador em
+// ponto errado de servidor, com registro assinado - dano bem maior que o original.
+func horaConfiavel() time.Time {
+	return time.Now().Add(sisescala.DesvioServidor())
+}
+
+// derivaParaAjustar e' de quanto o relogio do equipamento precisa estar errado para o coletor
+// acertar sozinho.
+//
+// 90s e' folgado de proposito. Ajuste vira registro tipo 4 no AFD (o de -> para), entao um limiar
+// apertado encheria o artefato legal de linhas de correcao de um segundo - e o proprio ato de
+// ajustar tem custo de credibilidade num REP. Deriva menor que isso nao muda passo de jornada
+// nenhum: a tolerancia de presenca do SisEscala e' contada em minutos.
+const derivaParaAjustar = 90 * time.Second
+
+// sincronizarRelogioDispositivo acerta o relogio do equipamento quando ele passou do limiar.
+//
+// Por que automatico e' aceitavel aqui, sendo que este modulo inteiro e' conservador com escrita:
+// o proprio REP registra o ajuste no AFD (tipo 4, com o horario anterior E o novo), entao a
+// operacao e' auditavel por construcao e nao ha como ela passar despercebida numa fiscalizacao.
+// E' o oposto de mexer em marcacao, que continua impossivel.
+//
+// ⚠️ Falhar aqui NUNCA derruba o heartbeat: hora errada e' problema real, mas coletar o AFD e'
+// mais importante que corrigi-la, e um equipamento que recuse o ajuste precisa continuar
+// reportando batida.
+func sincronizarRelogioDispositivo(rc *rep.Client, d *config.DispositivoRepConfig, estado *ResultadoHeartbeat) {
+	if estado.Deriva > -derivaParaAjustar && estado.Deriva < derivaParaAjustar {
+		return
+	}
+
+	agora := horaConfiavel()
+	log.Printf("relogio %s: equipamento marca %s, deriva de %s - ajustando para %s",
+		d.Rotulo(), estado.RelogioDevice.Format("02/01/2006 15:04:05"),
+		estado.Deriva.Round(time.Second), agora.Format("02/01/2006 15:04:05"))
+
+	if err := rc.AjustarDataHoraDispositivo(agora); err != nil {
+		log.Printf("aviso: nao foi possivel acertar o relogio de %s: %v", d.Rotulo(), err)
+		return
+	}
+	estado.RelogioAjustado = true
+
+	// Conferir por releitura, e nao confiar no "ok": e' a mesma regra ja aprendida na remocao de
+	// cadastro (13/08/2026), onde o equipamento respondeu sucesso sem ter apagado nada.
+	if depois, err := rc.DataHoraDispositivo(); err == nil {
+		estado.RelogioDevice = depois
+		estado.Deriva = depois.Sub(horaConfiavel())
+		log.Printf("relogio %s: ajustado, agora marca %s (deriva %s)", d.Rotulo(),
+			depois.Format("02/01/2006 15:04:05"), estado.Deriva.Round(time.Second))
+	}
 }
 
 // SincronizarCadastros aplica a fila de push de identidade (Fase 7) no relógio e reporta quem
@@ -644,15 +707,11 @@ func compararVersoes(a, b string) int {
 	return 0
 }
 
-// extrairRelogioDevice tenta os nomes de campo mais prováveis da API Control iD. Não
-// confirmado contra hardware real ainda — ver aviso no topo de rep/client.go.
-func extrairRelogioDevice(info map[string]interface{}) time.Time {
-	for _, chave := range []string{"device_time", "system_time", "datetime"} {
-		if v, ok := info[chave].(string); ok {
-			if t, err := time.Parse(time.RFC3339, v); err == nil {
-				return t
-			}
-		}
-	}
-	return time.Time{}
-}
+// extrairRelogioDevice foi REMOVIDA em 26/08/2026. Ela procurava `device_time`/`system_time`/
+// `datetime` na resposta de get_system_information.fcgi, e nenhum desses campos existe - a
+// resposta real traz user_count/template_count/uptime/cuts/last_nsr e mais nada. Por isso
+// dispositivos_rep.deriva_segundos estava NULL nos 15 relogios do parque: a deriva nunca foi
+// medida uma vez sequer, em nenhum equipamento, desde que o modulo existe.
+//
+// O comando certo e' get_system_date_time.fcgi (rep.DataHoraDispositivo). Nao reponha uma busca
+// por nome de campo aqui: o palpite tinha cara de funcionar e calou por meses.

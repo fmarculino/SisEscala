@@ -421,8 +421,45 @@ em `/marcacoes` (`importarPendriveAfd` em `marcacoes/actions.ts`, que chama a me
   serviço protegido); só pela UI (Segurança do Windows → Controle de aplicativos e navegador →
   Configurações do Smart App Control → Desativar), e o próprio diálogo de confirmação mostra se
   dá para reativar sem reinstalar — não presuma, leia o texto que aparece na hora.
-- `get_system_information.fcgi` (deriva de relógio no heartbeat) continua aproximação — não
-  confirmado contra hardware real.
+- ✅ **Relógio do equipamento: `get_system_date_time.fcgi` / `set_system_date_time.fcgi`,
+  confirmados contra hardware real em 26/08/2026.** Corpo: `{"day","month","year","hour","minute",
+  "second"}` — campos soltos, sem fuso, então quem lê decide o fuso (local, porque equipamento e
+  máquina estão na mesma sala).
+
+  🚨 **`get_system_information.fcgi` NÃO devolve hora nenhuma, e por isso `deriva_segundos` estava
+  `NULL` nos 15 relógios do parque — a deriva nunca foi medida uma vez sequer.** A antiga
+  `extrairRelogioDevice` procurava `device_time`/`system_time`/`datetime` ali, campos que não
+  existem; a resposta real traz `user_count`/`template_count`/`uptime`/`cuts`/`last_nsr`. O
+  servidor sempre soube gravar a deriva (`/api/rep/v1/heartbeat`) — só nunca recebia o dado.
+
+  ⚠️ **Os nomes foram achados na interface web do próprio equipamento**, depois de 22 chutes
+  (`set_time`, `set_clock`, `set_rtc`, `adjust_time`, `sync_time`, `set_ntp`…) darem todos
+  `Invalid command`. `curl -sk https://<ip>/ | grep -o '[a-z_]*\.fcgi'` lista o que a página usa —
+  mais barato que adivinhar, e revelou também `import_users_csv.fcgi`, `template_extract.fcgi` e
+  `template_merge.fcgi`, ainda não explorados.
+
+  ✅ **Ajustar a hora é operação AUDITADA, e é isso que a torna aceitável:** o próprio REP grava no
+  AFD um registro **tipo 4** com o de → para (`010120010008` → `260820261658`). Não há como um
+  ajuste passar despercebido em fiscalização. É o oposto de mexer em marcação, que continua
+  impossível por construção.
+
+  ⚠️ **A hora enviada NUNCA pode ser `time.Now()` puro.** Relógio de Windows torto em máquina de
+  unidade não é hipótese — foi a causa dos 401 de anti-replay da SMS em 17/08/2026. `ciclo.horaConfiavel()`
+  usa `time.Now() + sisescala.DesvioServidor()`, o desvio já aprendido do header `Date`. Propagar o
+  erro da máquina para o equipamento transformaria problema de UM computador em ponto errado de
+  servidor, com registro assinado.
+
+  O ciclo ajusta sozinho acima de **90s** (`derivaParaAjustar`) e confere por releitura. O limiar é
+  folgado de propósito: cada ajuste é uma linha no artefato legal, e deriva menor que isso não muda
+  passo de jornada nenhum. `coletor-rep-cli diagnostico` mostra a hora de cada relógio e marca
+  `<<< FORA DE HORA`.
+
+  ⚠️ **Medido em 26/08/2026, no piloto:** CAF-01 com **+1min37s** e CAF-02 marcando
+  **01/01/2001 00:08** — RTC perdido, provável bateria. E não estava assim horas antes (os
+  cadastros das 15:20 saíram carimbados corretamente), então o relógio perdeu a hora sozinho. Com
+  `ponto_valido_desde` = 26/08/2026, batidas carimbadas em 2001 seriam **orfanadas em silêncio**
+  (armadilha 20): a folha não corrompe, mas o ponto da pessoa some. **Ao ligar um relógio novo,
+  confira a hora antes de liberar a biometria.**
 - ✅ **`sync` passou a ser incremental em 17/08/2026 (v0.5.0).** Antes pedia o AFD sempre a
   partir do NSR 1 e confiava na idempotência de `fn_ingerir_afd`. Isso não era só desperdício:
   no **REP iDClass - SMS** (10.110.0.20) era falha **total** — de 14/08 a 17/08/2026 o

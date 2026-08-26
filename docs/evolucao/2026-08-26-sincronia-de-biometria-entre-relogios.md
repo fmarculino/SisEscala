@@ -152,7 +152,69 @@ tela filtrada não protege a action, que é um POST chamável direto.
 
 ⚠️ Nada disso perde marcação. O AFD fica no equipamento e é coletado quando o coletor volta.
 
+## O relógio dos relógios (v0.11.2)
+
+Pedido: manter a hora dos equipamentos sincronizada pelo comunicador. Investigando, achei duas
+coisas — e a segunda era urgente.
+
+**A deriva nunca foi medida, em nenhum dos 15 relógios do parque.** `deriva_segundos` é `NULL` em
+todos desde que o módulo existe. A causa: `extrairRelogioDevice` procurava `device_time` /
+`system_time` / `datetime` na resposta de `get_system_information.fcgi`, e **nenhum desses campos
+existe** — a resposta real traz `user_count`, `template_count`, `uptime`, `cuts`, `last_nsr`. O
+servidor sempre soube gravar a deriva; só nunca recebia o dado. Palpite com cara de certo, calado
+por meses.
+
+**Os comandos certos existem**: `get_system_date_time.fcgi` e `set_system_date_time.fcgi`. Achei-os
+na interface web do próprio equipamento depois de 22 chutes de nome darem `Invalid command`:
+
+```
+curl -sk https://<ip>/ | grep -o '[a-z_]*\.fcgi'
+```
+
+Isso também revelou `import_users_csv.fcgi`, `template_extract.fcgi` e `template_merge.fcgi`, ainda
+não explorados. **Ler a página do device é mais barato que adivinhar nome de comando.**
+
+### Estado medido no piloto
+
+| relógio | hora do equipamento | real | desvio |
+|---|---|---|---|
+| CAF-01 | 26/08/2026 16:59:55 | 16:58:18 | **+1min37s** |
+| CAF-02 | **01/01/2001 00:08:09** | 16:58:18 | RTC perdido |
+
+🚨 O CAF-02 **não estava assim horas antes**: os cadastros que gravei por volta das 15:20 saíram
+carimbados `26/08/2026 18:19`. Ele perdeu a hora sozinho no meio do dia — sintoma de bateria de
+RTC, não de desconfiguração.
+
+E o efeito seria silencioso: com `ponto_valido_desde` = 26/08/2026, batida carimbada em 2001 é
+**orfanada** pela armadilha 20. A folha não corrompe — mas o ponto da pessoa some sem erro em lugar
+nenhum, justamente no relógio que acabara de receber as 49 digitais.
+
+### Por que ajustar automaticamente é aceitável
+
+O próprio REP grava o ajuste no AFD, **registro tipo 4**, com o de → para:
+
+```
+000061351 4 010120010008 260820261658 <crc>
+            01/01/2001 00:08  ->  26/08/2026 16:58
+```
+
+A operação é auditável por construção: não há como um ajuste passar despercebido em fiscalização.
+É o oposto de mexer em marcação, que continua impossível.
+
+⚠️ **A hora enviada nunca é `time.Now()` puro.** Relógio de Windows torto em máquina de unidade não
+é hipótese — foi a causa dos 401 de anti-replay da SMS em 17/08/2026. `ciclo.horaConfiavel()` usa o
+desvio já aprendido do header `Date` do SisEscala (`sisescala.DesvioServidor()`). Propagar o erro
+da máquina para o equipamento transformaria problema de um computador em ponto errado de servidor,
+com registro assinado — dano bem maior que o original.
+
+Limiar de **90s**, folgado de propósito: cada ajuste é uma linha no artefato legal, e deriva menor
+que isso não muda passo de jornada nenhum (a tolerância do SisEscala é contada em minutos). O ajuste
+é conferido por releitura, mesma regra aprendida na remoção de cadastro em 13/08/2026 — "ok" do
+equipamento não é prova. Falha ao ajustar **não** derruba o heartbeat: coletar o AFD importa mais.
+
+`coletor-rep-cli diagnostico` passou a mostrar a hora de cada relógio, marcando `<<< FORA DE HORA`.
+
 ## Versão
 
-v0.11.1 — `ciclo.Versao`, `dist/VERSION` e os dois `.exe` recompilados (tray com
+v0.11.2 — `ciclo.Versao`, `dist/VERSION` e os dois `.exe` recompilados (tray com
 `-H=windowsgui`, subsystem conferido: 2 no tray, 3 na CLI).

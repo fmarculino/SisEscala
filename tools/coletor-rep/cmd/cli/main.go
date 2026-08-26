@@ -269,6 +269,21 @@ func rodarDiagnostico(cfg *config.Config) {
 			fmt.Println("  login no REP: OK")
 		}
 
+		// Hora do equipamento: e' a primeira coisa que alguem quer saber num relogio de ponto, e
+		// ate 26/08/2026 nao havia jeito nenhum de ver isso sem ir ate o aparelho. So' LE - o
+		// ajuste automatico e' do ciclo, nao de um comando de diagnostico.
+		if hora, err := rc.DataHoraDispositivo(); err != nil {
+			fmt.Printf("  hora do equipamento: FALHOU (%v)\n", err)
+		} else {
+			deriva := hora.Sub(time.Now())
+			aviso := ""
+			if deriva > 90*time.Second || deriva < -90*time.Second {
+				aviso = "  <<< FORA DE HORA"
+			}
+			fmt.Printf("  hora do equipamento: %s (deriva %s desta maquina)%s\n",
+				hora.Format("02/01/2006 15:04:05"), deriva.Round(time.Second), aviso)
+		}
+
 		sc := sisescala.NovoClient(cfg.SisEscala.URL, d.ID, d.Token)
 		if err := sc.Heartbeat(nil, ciclo.Versao, ciclo.Hostname()); err != nil {
 			fmt.Printf("  heartbeat no SisEscala: FALHOU (%v)\n", err)

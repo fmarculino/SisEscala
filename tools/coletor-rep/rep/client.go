@@ -228,6 +228,89 @@ func (c *Client) InformacoesSistema() (map[string]interface{}, error) {
 	return c.chamar(fmt.Sprintf("get_system_information.fcgi?session=%s", c.sessao), map[string]interface{}{})
 }
 
+// ============================================================================
+// Relogio do equipamento (26/08/2026)
+// ============================================================================
+//
+// ✅ get_system_date_time.fcgi / set_system_date_time.fcgi CONFIRMADOS contra hardware real
+// (Almox-Pat-CAF-01 e 02). Achados na propria interface web do equipamento, depois de 22 chutes
+// de nome (`set_time`, `set_clock`, `set_rtc`, `adjust_time`, `sync_time`, `set_ntp`, ...) darem
+// todos "Invalid command" - a pagina do device referencia os .fcgi que ela usa, e ler isso e' mais
+// barato que adivinhar.
+//
+// ⚠️ get_system_information.fcgi NAO devolve hora nenhuma. extrairRelogioDevice procurava
+// `device_time`/`system_time`/`datetime` nela e por isso `dispositivos_rep.deriva_segundos` estava
+// NULL nos 15 relogios do parque desde sempre: a deriva nunca foi medida, em nenhum equipamento.
+//
+// ⚠️ AJUSTAR O RELOGIO E' OPERACAO AUDITADA, e e' isso que a torna aceitavel. O proprio REP grava
+// no AFD um registro TIPO 4 com o de -> para:
+//
+//	000061351 4 010120010008 260820261658 <crc>
+//	            01/01/2001 00:08  ->  26/08/2026 16:58
+//
+// Ou seja, nao ha como um ajuste passar despercebido em fiscalizacao - o artefato legal registra
+// sozinho. E' o oposto de mexer em marcacao, que continua impossivel por construcao.
+
+// DataHoraDispositivo le o relogio interno do equipamento.
+//
+// Devolve time.Time no fuso LOCAL do processo: o device responde campos soltos (day/month/year/
+// hour/minute/second) sem offset nenhum, entao quem le e' que decide o fuso. Local e' o certo -
+// o equipamento e a maquina que o coleta estao fisicamente na mesma sala.
+func (c *Client) DataHoraDispositivo() (time.Time, error) {
+	if c.sessao == "" {
+		if err := c.Login(); err != nil {
+			return time.Time{}, err
+		}
+	}
+	resp, err := c.chamar(fmt.Sprintf("get_system_date_time.fcgi?session=%s", c.sessao), map[string]interface{}{})
+	if err != nil {
+		return time.Time{}, err
+	}
+	if errMsg, ok := resp["error"]; ok {
+		return time.Time{}, fmt.Errorf("get_system_date_time.fcgi recusou: %v", errMsg)
+	}
+
+	campo := func(nome string) (int, bool) {
+		v, ok := resp[nome].(float64)
+		return int(v), ok
+	}
+	dia, okD := campo("day")
+	mes, okM := campo("month")
+	ano, okA := campo("year")
+	hora, okH := campo("hour")
+	minuto, okMi := campo("minute")
+	segundo, okS := campo("second")
+	if !okD || !okM || !okA || !okH || !okMi || !okS {
+		return time.Time{}, fmt.Errorf("get_system_date_time.fcgi devolveu campos inesperados: %v", resp)
+	}
+	return time.Date(ano, time.Month(mes), dia, hora, minuto, segundo, 0, time.Local), nil
+}
+
+// AjustarDataHoraDispositivo grava a hora no relogio interno do equipamento.
+//
+// ⚠️ Quem chama precisa passar uma hora CONFIAVEL. A hora crua da maquina nao serve: relogio de
+// Windows torto em unidade e' problema medido em campo (foi o que gerou os 401 de anti-replay na
+// SMS em 17/08/2026), e propagar esse erro para o relogio de ponto transformaria um problema de
+// uma maquina em ponto errado de servidor. Ver ciclo.horaConfiavel.
+func (c *Client) AjustarDataHoraDispositivo(t time.Time) error {
+	if c.sessao == "" {
+		if err := c.Login(); err != nil {
+			return err
+		}
+	}
+	resp, err := c.chamar(fmt.Sprintf("set_system_date_time.fcgi?session=%s", c.sessao), map[string]interface{}{
+		"day": t.Day(), "month": int(t.Month()), "year": t.Year(),
+		"hour": t.Hour(), "minute": t.Minute(), "second": t.Second(),
+	})
+	if err != nil {
+		return err
+	}
+	if errMsg, ok := resp["error"]; ok {
+		return fmt.Errorf("set_system_date_time.fcgi recusou: %v", errMsg)
+	}
+	return nil
+}
+
 // ✅ CONFIRMADO CONTRA HARDWARE REAL em 12/08/2026 (10.110.2.89, cinco rodadas via
 // `coletor-rep-cli cadastros-testar`): `add_users.fcgi` (criar) e `load_users.fcgi` (listar) sao
 // os comandos certos da linha iDClass/REP-C — a linha de produto de Acesso (iDAccess/iDFlex/
