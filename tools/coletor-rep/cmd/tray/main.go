@@ -101,6 +101,13 @@ var handleMutexUnico windows.Handle
 // garantirInstanciaUnica evita duas bandejas do mesmo app rodando ao mesmo tempo (ex.: usuario
 // clica no .exe baixado de novo depois de ja estar instalado). Mutex nomeado e o jeito padrao
 // do Windows para isso - se ja existe, so sair.
+//
+// ⚠️ Sair EM SILENCIO so' vale para quem ja esta instalado (autostart disparando duas vezes,
+// duplo-clique no .exe da pasta de instalacao). Quando quem esta rodando e' o INSTALADOR - o
+// .exe recem-extraido do .zip, fora de %LOCALAPPDATA% -, silencio e' a pior resposta possivel:
+// a pessoa da duplo-clique para instalar a versao nova (ou o pacote com o segundo relogio da
+// unidade), nada acontece na tela, e ela vai embora achando que instalou. Continua rodando a
+// instalacao antiga, com o token que o download acabou de invalidar.
 func garantirInstanciaUnica() {
 	nome, err := windows.UTF16PtrFromString(nomeMutexUnico)
 	if err != nil {
@@ -108,6 +115,15 @@ func garantirInstanciaUnica() {
 	}
 	h, err := windows.CreateMutex(nil, false, nome)
 	if err == windows.ERROR_ALREADY_EXISTS {
+		if !rodandoViaGoRun() && !estaRodandoDe(diretorioInstalado()) {
+			mostrarErroFatal(
+				"O coletor do SisEscala ja esta rodando nesta maquina, e por isso a instalacao " +
+					"NAO foi feita.\n\n" +
+					"Para instalar esta versao:\n" +
+					"1. clique com o botao direito no icone do SisEscala, ao lado do relogio do " +
+					"Windows (pode estar escondido na setinha ^), e escolha \"Sair\";\n" +
+					"2. execute este arquivo de novo.")
+		}
 		os.Exit(0)
 	}
 	handleMutexUnico = h
@@ -279,17 +295,14 @@ func instalarConfig(configOrigem, configDestino string) error {
 		return os.WriteFile(configDestino, novoConteudo, 0o644)
 	}
 
-	mesclado := novo
-	if novo.DispositivoRep == nil && existente.DispositivoRep != nil {
-		mesclado.DispositivoRep = existente.DispositivoRep
-		log.Println("config.yaml: preservada a secao dispositivo_rep de uma instalacao anterior")
-	}
-	if novo.TerminalLocal == nil && existente.TerminalLocal != nil {
-		mesclado.TerminalLocal = existente.TerminalLocal
-		log.Println("config.yaml: preservada a secao terminal_local de uma instalacao anterior")
-	}
+	// A regra de mesclagem vive em config.Mesclar (testavel sem systray, `go test ./config/`) -
+	// nao aqui. Ela e' o que impede o pacote da unidade instalado por cima de uma instalacao
+	// antiga de produzir o MESMO relogio duas vezes (lista com token novo + singular com token
+	// velho), que faz Carregar recusar o arquivo inteiro e o app nem abrir.
+	mesclado := config.Mesclar(&existente, &novo)
+	log.Printf("config.yaml: %d relogio(s) apos mesclar com a instalacao anterior", len(mesclado.Dispositivos()))
 
-	saida, err := yaml.Marshal(&mesclado)
+	saida, err := yaml.Marshal(mesclado)
 	if err != nil {
 		return err
 	}

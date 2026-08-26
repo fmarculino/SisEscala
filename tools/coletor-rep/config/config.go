@@ -137,6 +137,64 @@ func rotulos(todos []*DispositivoRepConfig) string {
 	return texto
 }
 
+// Mesclar junta o config.yaml que ACABOU de ser baixado com o que já estava instalado na
+// máquina, e é o que permite instalar o pacote do relógio e o do terminal em qualquer ordem.
+//
+// ⚠️ O que torna isto delicado desde a v0.9.0: existem DUAS formas de declarar relógio
+// (`dispositivo_rep` singular, legado, e `dispositivos_rep` lista), e o mesmo equipamento pode
+// aparecer nas duas. A mesclagem ingênua (preservar o singular sempre que o novo não o traz)
+// produzia justamente isso ao instalar o "pacote da unidade" por cima de uma instalação antiga:
+// o relógio 1 ficava na lista COM O TOKEN NOVO e no singular COM O TOKEN VELHO, id repetido,
+// e `Carregar` recusa o arquivo inteiro — o app de bandeja nem abre.
+//
+// Duas regras, nesta ordem:
+//
+//  1. **Nunca perder um relógio.** Tudo que estava instalado e não veio no download continua —
+//     senão baixar o pacote de UM relógio numa máquina que atende quatro apagaria os outros três,
+//     e a unidade pararia de coletar sem ninguém notar.
+//  2. **Quem repete, o novo ganha.** O download acabou de gerar o token; o que está em disco é o
+//     token anterior, já invalidado pelo servidor. Manter o antigo seria preservar credencial
+//     morta.
+func Mesclar(existente, novo *Config) *Config {
+	mesclado := *novo
+
+	if novo.TerminalLocal == nil && existente.TerminalLocal != nil {
+		mesclado.TerminalLocal = existente.TerminalLocal
+	}
+
+	// Ids que o download novo ja traz — em qualquer uma das duas formas.
+	novos := map[string]bool{}
+	if novo.DispositivoRep != nil {
+		novos[novo.DispositivoRep.ID] = true
+	}
+	for _, d := range novo.DispositivosRep {
+		novos[d.ID] = true
+	}
+
+	// O singular antigo so sobrevive se o novo nao tiver falado daquele relogio de forma nenhuma.
+	// Quando sobrevive e o novo ja usa a forma de lista, ele ENTRA NA LISTA em vez de continuar
+	// numa chave a parte: duas formas descrevendo o mesmo parque e o que confunde na proxima vez.
+	if existente.DispositivoRep != nil && !novos[existente.DispositivoRep.ID] {
+		if mesclado.DispositivoRep == nil && len(mesclado.DispositivosRep) == 0 {
+			copia := *existente.DispositivoRep
+			mesclado.DispositivoRep = &copia
+		} else {
+			mesclado.DispositivosRep = append(mesclado.DispositivosRep, *existente.DispositivoRep)
+		}
+		novos[existente.DispositivoRep.ID] = true
+	}
+
+	for _, d := range existente.DispositivosRep {
+		if novos[d.ID] {
+			continue
+		}
+		mesclado.DispositivosRep = append(mesclado.DispositivosRep, d)
+		novos[d.ID] = true
+	}
+
+	return &mesclado
+}
+
 func Carregar(caminho string) (*Config, error) {
 	dados, err := os.ReadFile(caminho)
 	if err != nil {

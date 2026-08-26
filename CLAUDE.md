@@ -199,6 +199,20 @@ para cada um e monta o `.zip` com os N. ⚠️ Isso **invalida o token anterior*
 antiga para de sincronizar (401) até receber o pacote. A rota recusa o pacote se **um** relógio da
 lista não for encontrado: um config com três dos quatro roda sem erro e o quarto some da coleta.
 
+⚠️ **A mesclagem de `config.yaml` é `config.Mesclar`, e as duas regras dela não podem sair**
+(v0.9.1): **nunca perder um relógio** (o que estava instalado e não veio no download continua —
+senão baixar o pacote de um relógio numa máquina que atende quatro apaga os outros três) e **quem
+repete, o novo ganha** (o de disco é o token que o download acabou de invalidar). A versão anterior
+preservava o `dispositivo_rep` singular sempre que o novo não o trazia — instalar o pacote da
+unidade por cima produzia o mesmo relógio nas duas chaves, `id` repetido, e o app **nem abria**.
+Portão: `go test ./config/`.
+
+⚠️ **Instalador com o app aberto saía em silêncio** (`garantirInstanciaUnica` é a primeira linha do
+`main`; `ERROR_ALREADY_EXISTS` → `os.Exit(0)` mudo). Quem dava duplo-clique no `.exe` recém-extraído
+não via nada e ia embora achando que instalou, com o token já invalidado. Desde a v0.9.1 o silêncio
+vale só para quem roda **de dentro** de `%LOCALAPPDATA%`; o instalador mostra caixa pedindo "Sair"
+pela bandeja primeiro.
+
 ⚠️ **A Cobertura da Escala é por dispositivo, e isso está certo** (para bater num relógio é preciso
 estar cadastrado *naquele*, com biometria) — mas na unidade com relógio geral + setoriais a mesma
 pessoa vira uma linha por relógio. `20260825110000` acrescenta `coberto_em`

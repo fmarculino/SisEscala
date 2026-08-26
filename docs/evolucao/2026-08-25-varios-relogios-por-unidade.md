@@ -73,6 +73,40 @@ coletor só, e a tela avisa antes do clique. Falta **um** relógio na lista? A r
 inteiro: um config.yaml com três dos quatro instala e roda sem erro nenhum, e o quarto simplesmente
 não é coletado — o modo de falha silencioso que este módulo existe para não ter.
 
+## v0.9.1 — duas armadilhas que só apareceram ao escrever o roteiro de instalação
+
+Nenhuma das duas aparece em build, teste de tipo ou revisão de código: as duas só existem **na
+máquina da unidade, na hora de instalar por cima do que já está lá**.
+
+### 1. A mesclagem de `config.yaml` duplicaria o relógio e o app não abriria
+
+`instalarConfig` preservava a seção `dispositivo_rep` sempre que o download novo não a trazia — a
+regra certa quando só existia a forma singular. O pacote da unidade traz **`dispositivos_rep`
+(lista)**, e a máquina que já coletava tem **`dispositivo_rep` (singular)** do mesmo relógio.
+Resultado: o relógio 1 na lista com o token novo **e** no singular com o token que o download
+acabou de invalidar → `id` repetido → `Carregar` recusa o arquivo → `mostrarErroFatal` e o app de
+bandeja **não abre**.
+
+O inverso também: baixar "Baixar aplicativo" de **um** relógio numa máquina que atende quatro
+sobrescrevia a lista e apagava os outros três.
+
+A regra vive agora em **`config.Mesclar`** (fora do `cmd/tray`, testável sem systray —
+`go test ./config/`), com duas linhas que não podem sair:
+
+- **nunca perder um relógio** — o que estava instalado e não veio no download continua;
+- **quem repete, o novo ganha** — o download acabou de gerar o token; o de disco já está morto.
+
+### 2. Instalador com o app aberto saía em silêncio
+
+`garantirInstanciaUnica()` é a primeira linha do `main`, e o ramo "já existe" fazia `os.Exit(0)`
+mudo. Isso é correto para o autostart disparando duas vezes — e péssimo para quem acabou de
+extrair o `.zip` e dá duplo-clique: nada acontece na tela, a pessoa vai embora achando que
+instalou, e a máquina continua com a instalação antiga e o **token já invalidado**.
+
+Agora, quando quem roda está **fora** de `%LOCALAPPDATA%` (ou seja, é o instalador), aparece uma
+caixa dizendo para sair pelo ícone da bandeja e executar de novo. Quem já está instalado continua
+saindo em silêncio.
+
 ## Cobertura: o caso misto ficava ambíguo
 
 A cobertura é calculada **por dispositivo**, e isso continua certo — para bater num relógio, a
