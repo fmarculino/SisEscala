@@ -1665,8 +1665,32 @@ A defesa é `rep_excecoes_ponto` (`20260820030000`): pares (servidor, dispositiv
 CPF, PIS) — cobrir só um deixa o furo aberto para quem tem vínculo. A batida continua gravada em
 `rep_afd_registros` e `marcacoes_ponto`; ela apenas não ganha dono, então não projeta na folha.
 
-O seed é por `SELECT` sobre `dispositivos_rep` (todos menos o relógio onde a pessoa realmente bate),
-e não por lista de UUID, **para que todo relógio novo já entre**.
+⚠️ **O seed da `20260820030000` NÃO alcança relógio novo, e o comentário dele diz que sim.** Ele é
+um `SELECT` sobre `dispositivos_rep` — "todos menos o relógio onde a pessoa realmente bate" — e não
+uma lista de UUID, mas **`INSERT` roda uma vez**: pegou os equipamentos que existiam em 20/08/2026 e
+nenhum dos oito criados depois. Numa unidade que ganha o segundo, o terceiro e o quarto relógio,
+**cada equipamento novo volta a converter em ponto o teste de quem o está instalando**, em silêncio.
+
+⚠️ **E a primeira correção (`20260825120000`) tinha critério INSATISFAZÍVEL.** Ela herdava a exceção
+de quem fosse exceção em **todos os demais** equipamentos — só que quem administra o parque tem, de
+propósito, **um relógio sem exceção**: aquele onde o ponto dele é real. Medido no mesmo dia: exceção
+em 5 de 14 relógios, cadastro com biometria em 8 e exceção em nenhum desses 8, backfill inserindo
+**zero** linhas e um gatilho que nunca dispararia. **Quem administra o parque é um fato
+administrativo, não algo a inferir da forma das exceções já gravadas.**
+
+Fonte única desde `20260825140000`: a tabela **`rep_administradores_parque`** (`servidor_id` +
+`dispositivo_ponto_id` + motivo). `trg_herdar_excecoes_ponto_dispositivo_novo` cria exceção para
+todo administrador a cada `INSERT` em `dispositivos_rep`, **menos** no `dispositivo_ponto_id` dele —
+criar exceção ali faria o ponto real da pessoa parar de contar, o erro na direção contrária e o
+único caro dos dois (`NULL` = não bate em relógio nenhum). ✅ Aplicada e conferida em produção em
+25/08/2026: **13 exceções para os 13 relógios que não são o dele**, e nenhuma no dele.
+
+⚠️ **A exceção age na ATRIBUIÇÃO e não alcança ponto já gravado** (armadilha 20) — a porta é
+`marcacoes_tratamentos` com `tipo = 'desconsiderar'`. Conferido em 25/08/2026: das 6 batidas do
+administrador em relógio com exceção, a de 17/08 (ENF-ZEZINHA) já estava desconsiderada e **duas
+continuam na folha**: 15/08 11:24 (entrada do Plantão, CEI) e 24/08 07:33 (entrada do Regular,
+USF-JBB). Diário em
+[`docs/evolucao/2026-08-25-administrador-do-parque-e-a-excecao-que-nunca-disparava.md`](docs/evolucao/2026-08-25-administrador-do-parque-e-a-excecao-que-nunca-disparava.md).
 
 ⚠️ **Duas alternativas foram consideradas e descartadas**: encerrar o vínculo não resolve (no CEI
 não havia vínculo nenhum), e restringir a resolução à unidade do dispositivo quebraria
