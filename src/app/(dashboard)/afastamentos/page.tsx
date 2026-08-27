@@ -1,12 +1,12 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { formatarData, formatarDataHoraComSegundos } from '@/utils/horario'
 import { createClient } from '@/utils/supabase/client'
 import { 
   Plus, Calendar as CalendarIcon, Loader2, Trash2, 
   Search, AlertTriangle, Building2, Layers, Users, Tag, Info, Edit2,
-  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Printer
+  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Printer, UserSearch, X
 } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { applyAccessFilters, hasSectorAccess } from '@/utils/permissions'
@@ -19,6 +19,24 @@ interface Servidor {
   matricula: string | null
   unidade_id: string
   setor_id: string
+}
+
+/**
+ * Catálogo para a busca direta de servidor (27/08/2026). O RH gerencia ~500 pessoas e não tem
+ * como saber de cabeça onde cada uma trabalha — antes era obrigatório acertar unidade e setor
+ * ANTES de conseguir procurar o nome. Aqui a ordem se inverte: acha a pessoa, e ela diz onde
+ * trabalha. Carregado uma vez, então a busca é incremental de verdade (sem ida ao servidor a
+ * cada tecla).
+ */
+interface ServidorBusca {
+  id: string
+  nome: string
+  matricula: string | null
+  cpf: string | null
+  unidade_id: string
+  setor_id: string
+  unidade_nome: string
+  setor_nome: string
 }
 
 interface TipoEvento {
@@ -79,6 +97,12 @@ export default function AfastamentosPage() {
   const [horaInicio, setHoraInicio] = useState('')
   const [horaFim, setHoraFim] = useState('')
   const [regimeAbono, setRegimeAbono] = useState<'abonado' | 'a_compensar'>('abonado')
+
+  // Busca direta de servidor no formulário (nome, matrícula ou CPF)
+  const [catalogoServidores, setCatalogoServidores] = useState<ServidorBusca[]>([])
+  const [buscaServidor, setBuscaServidor] = useState('')
+  const [mostrarResultados, setMostrarResultados] = useState(false)
+  const buscaRef = useRef<HTMLDivElement>(null)
 
   // Search & List Filters
   const [searchTerm, setSearchTerm] = useState('')
@@ -160,6 +184,64 @@ export default function AfastamentosPage() {
     init()
   }, [])
 
+  /**
+   * Catálogo da busca direta de servidor.
+   *
+   * Paginado por Range: o PostgREST corta em 1000 linhas EM SILÊNCIO (armadilha 8 do CLAUDE.md)
+   * e são 1.318 servidores ativos — medido em produção em 27/08/2026. Sem a paginação a busca
+   * simplesmente não acharia ~300 pessoas, sem erro nenhum na tela.
+   *
+   * Filtrado pelo MESMO escopo das listas de unidade e setor do formulário: quem aparece na
+   * busca precisa ser lançável. Achar alguém e descobrir que o setor dele não existe no seletor
+   * seria pior do que não achar.
+   */
+  async function carregarCatalogoServidores(units: any[], sectors: any[]) {
+    try {
+      const idsUnidades = new Set(units.map((u: any) => u.id))
+      const idsSetores = new Set(sectors.map((s: any) => s.id))
+      const catalogo: ServidorBusca[] = []
+
+      for (let from = 0; ; from += 1000) {
+        const { data: pagina, error } = await supabase
+          .from('servidores')
+          .select('id, nome, matricula, cpf, unidade_id, setor_id, unidades(nome), setores(dicionario_setores(nome))')
+          .eq('status', 'Ativo')
+          .order('nome')
+          .range(from, from + 999)
+
+        if (error) {
+          console.error('Erro ao carregar catálogo de servidores:', error)
+          break
+        }
+
+        ;(pagina || []).forEach((sv: any) => {
+          if (!idsUnidades.has(sv.unidade_id) || !idsSetores.has(sv.setor_id)) return
+          const uni = Array.isArray(sv.unidades) ? sv.unidades[0] : sv.unidades
+          const set = Array.isArray(sv.setores) ? sv.setores[0] : sv.setores
+          const dic = Array.isArray(set?.dicionario_setores) ? set.dicionario_setores[0] : set?.dicionario_setores
+          catalogo.push({
+            id: sv.id,
+            nome: sv.nome,
+            matricula: sv.matricula,
+            cpf: sv.cpf,
+            unidade_id: sv.unidade_id,
+            setor_id: sv.setor_id,
+            unidade_nome: uni?.nome || 'Sem unidade',
+            setor_nome: dic?.nome || 'Sem setor',
+          })
+        })
+
+        if (!pagina || pagina.length < 1000) break
+      }
+
+      setCatalogoServidores(catalogo)
+    } catch (error) {
+      // Falhar aqui não pode derrubar a tela: o formulário continua funcionando pelo caminho
+      // antigo (unidade → setor → servidor), só sem o atalho da busca.
+      console.error('Erro ao montar catálogo de busca de servidores:', error)
+    }
+  }
+
   // Load static resources
   async function loadInitialData(userProfile: any) {
     setLoading(true)
@@ -183,6 +265,12 @@ export default function AfastamentosPage() {
         nome: (Array.isArray(s.dicionario_setores) ? s.dicionario_setores[0]?.nome : s.dicionario_setores?.nome) || 'SETOR SEM NOME'
       })) || []
       setSetores(formatSectorsHierarchy(sectors))
+
+      // 2b. Catálogo para a busca direta de servidor — SEM await de propósito: são 1.318
+      // servidores ativos (medido em 27/08/2026), duas páginas de consulta, e nada mais na tela
+      // depende disso. Esperar por ele só atrasaria o formulário inteiro; o campo de busca
+      // simplesmente não acha ninguém pelos primeiros instantes.
+      carregarCatalogoServidores(units || [], sectors)
 
       // 3. Fetch event types
       const { data: types } = await supabase
@@ -281,6 +369,81 @@ export default function AfastamentosPage() {
     }
     fetchServidoresForm()
   }, [selectedUnidade, selectedSetor])
+
+  // Fecha o dropdown ao clicar fora — senão ele fica por cima dos campos de baixo.
+  useEffect(() => {
+    function aoClicarFora(e: MouseEvent) {
+      if (buscaRef.current && !buscaRef.current.contains(e.target as Node)) setMostrarResultados(false)
+    }
+    document.addEventListener('mousedown', aoClicarFora)
+    return () => document.removeEventListener('mousedown', aoClicarFora)
+  }, [])
+
+  // Busca incremental sobre o catálogo já em memória: nome, matrícula ou CPF.
+  //
+  // Acentos e pontuação são ignorados dos dois lados — quem digita "jose" precisa achar "JOSÉ",
+  // e o CPF é procurado tanto como está digitado quanto só com os dígitos (o cadastro tem os
+  // dois formatos). Uma letra só já filtra, mas o resultado só aparece com 2+ caracteres para a
+  // lista não nascer com 500 nomes.
+  const resultadosBusca = useMemo(() => {
+    const normalizar = (t: string) => (t || '')
+      .normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .toLowerCase().trim()
+
+    const termo = normalizar(buscaServidor)
+    if (termo.length < 2) return []
+    const termoDigitos = termo.replace(/\D/g, '')
+
+    const achados = catalogoServidores.filter(sv => {
+      if (normalizar(sv.nome).includes(termo)) return true
+      if (sv.matricula && normalizar(sv.matricula).includes(termo)) return true
+      if (sv.cpf) {
+        const cpfDigitos = sv.cpf.replace(/\D/g, '')
+        if (normalizar(sv.cpf).includes(termo)) return true
+        if (termoDigitos.length >= 3 && cpfDigitos.includes(termoDigitos)) return true
+      }
+      if (sv.matricula && termoDigitos.length >= 2 && sv.matricula.replace(/\D/g, '').includes(termoDigitos)) return true
+      return false
+    })
+
+    // Ordem por relevância. Sem ela, "silva" devolve 351 pessoas em ordem alfabética e quem
+    // digitou a matrícula exata pode não estar entre as primeiras — medido na base real
+    // (1.318 ativos): a matrícula "205" casa com 15 servidores por conter esses dígitos.
+    const peso = (sv: ServidorBusca) => {
+      if (sv.matricula && normalizar(sv.matricula) === termo) return 0
+      if (sv.cpf && termoDigitos.length >= 11 && sv.cpf.replace(/\D/g, '') === termoDigitos) return 0
+      const nome = normalizar(sv.nome)
+      if (nome.startsWith(termo)) return 1
+      if (nome.split(' ').some(parte => parte.startsWith(termo))) return 2
+      return 3
+    }
+
+    // sort é estável em JS moderno, então dentro do mesmo peso a ordem alfabética do catálogo
+    // (que já vem ordenado por nome do banco) é preservada.
+    return [...achados].sort((a, b) => peso(a) - peso(b))
+  }, [buscaServidor, catalogoServidores])
+
+  // Escolher alguém na busca preenche unidade, setor e servidor de uma vez. Os três estados
+  // mudam no mesmo ciclo, então o efeito que recarrega a lista do formulário roda já com
+  // unidade E setor preenchidos e não cai no ramo que zera o servidor.
+  const selecionarServidorBusca = (sv: ServidorBusca) => {
+    setSelectedUnidade(sv.unidade_id)
+    setSelectedSetor(sv.setor_id)
+    setSelectedServidor(sv.id)
+    // A lista do <select> vem de uma consulta por unidade+setor; enquanto ela não chega, o
+    // campo ficaria visualmente vazio. Semear com o escolhido evita esse piscar.
+    setServidores(prev => prev.some(x => x.id === sv.id) ? prev : [{
+      id: sv.id, nome: sv.nome, matricula: sv.matricula,
+      unidade_id: sv.unidade_id, setor_id: sv.setor_id,
+    }])
+    setBuscaServidor(sv.nome)
+    setMostrarResultados(false)
+  }
+
+  const limparBuscaServidor = () => {
+    setBuscaServidor('')
+    setMostrarResultados(false)
+  }
 
   const logAction = useCallback(async (acao: string, detalhes: any = {}) => {
     try {
@@ -491,6 +654,7 @@ export default function AfastamentosPage() {
       setEndDate('')
       setObservacao('')
       setSelectedServidor('')
+      setBuscaServidor('')
       setSelectedPeriodo('integral')
       setCustomSlots([])
       setHoraInicio('')
@@ -523,6 +687,7 @@ export default function AfastamentosPage() {
 
   const startEditing = (a: ServidorEvento) => {
     setEditingId(a.id)
+    setBuscaServidor(a.servidores?.nome || '')
     setSelectedUnidade(a.servidores?.unidade_id || '')
     setSelectedSetor(a.servidores?.setor_id || '')
     setSelectedServidor(a.servidor_id)
@@ -557,6 +722,7 @@ export default function AfastamentosPage() {
 
   const cancelEditing = () => {
     setEditingId(null)
+    setBuscaServidor('')
     setSelectedUnidade('')
     setSelectedSetor('')
     setSelectedServidor('')
@@ -1108,6 +1274,72 @@ export default function AfastamentosPage() {
           </h2>
           
           <div className="space-y-5">
+            {/* Busca direta: acha a pessoa e preenche unidade e setor sozinho. O RH gerencia
+                centenas de servidores e não tem como saber a lotação de cada um de cabeça. */}
+            <div ref={buscaRef} className="relative">
+              <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">
+                Localizar Servidor
+              </label>
+              <div className="relative">
+                <UserSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-500 pointer-events-none" />
+                <input
+                  type="text"
+                  value={buscaServidor}
+                  onChange={e => { setBuscaServidor(e.target.value); setMostrarResultados(true) }}
+                  onFocus={() => setMostrarResultados(true)}
+                  placeholder="Nome, matrícula ou CPF..."
+                  className="w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 pl-10 pr-9 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-sm"
+                />
+                {buscaServidor && (
+                  <button
+                    type="button"
+                    onClick={limparBuscaServidor}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+                    title="Limpar busca"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+
+              {mostrarResultados && buscaServidor.trim().length >= 2 && (
+                <div className="absolute z-30 mt-1 w-full max-h-72 overflow-y-auto rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-xl">
+                  {resultadosBusca.length === 0 ? (
+                    <div className="px-4 py-3 text-xs text-zinc-500 italic">
+                      Nenhum servidor ativo encontrado no seu escopo de acesso.
+                    </div>
+                  ) : (
+                    <>
+                      {resultadosBusca.slice(0, 20).map(sv => (
+                        <button
+                          key={sv.id}
+                          type="button"
+                          onClick={() => selecionarServidorBusca(sv)}
+                          className="w-full text-left px-4 py-2.5 hover:bg-blue-50 dark:hover:bg-blue-950/30 border-b border-zinc-100 dark:border-zinc-800 last:border-0 transition-colors"
+                        >
+                          <div className="text-sm font-bold text-zinc-900 dark:text-white truncate">{sv.nome}</div>
+                          <div className="text-[11px] text-zinc-500 truncate">
+                            Matrícula: {sv.matricula || '---'}
+                          </div>
+                          <div className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold truncate">
+                            {sv.unidade_nome} → {sv.setor_nome}
+                          </div>
+                        </button>
+                      ))}
+                      {resultadosBusca.length > 20 && (
+                        <div className="px-4 py-2 text-[11px] text-zinc-400 italic bg-zinc-50 dark:bg-zinc-800/50">
+                          +{resultadosBusca.length - 20} resultados. Refine a busca.
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+              <p className="mt-1 text-[10px] text-zinc-400 italic">
+                Ao escolher, unidade e setor são preenchidos automaticamente.
+              </p>
+            </div>
+
             <div>
               <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Unidade</label>
               <select
@@ -1115,6 +1347,7 @@ export default function AfastamentosPage() {
                 onChange={e => {
                   setSelectedUnidade(e.target.value)
                   setSelectedSetor('')
+                  setBuscaServidor('')
                 }}
                 className="w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-sm"
               >
@@ -1130,7 +1363,7 @@ export default function AfastamentosPage() {
               <select
                 value={selectedSetor}
                 disabled={!selectedUnidade}
-                onChange={e => setSelectedSetor(e.target.value)}
+                onChange={e => { setSelectedSetor(e.target.value); setBuscaServidor('') }}
                 className="w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-sm disabled:opacity-50"
               >
                 <option value="">Selecione o Setor</option>

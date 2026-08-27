@@ -324,3 +324,42 @@ export async function toggleStatusSetor(id: string, currentStatus: boolean) {
 }
 
 
+
+/**
+ * Exclui um setor — Administrador Geral apenas, e so' quando nada o referencia.
+ *
+ * A validacao de verdade mora no banco (`fn_excluir_setor`, migration 20260827010000), que
+ * varre pg_constraint e recusa se qualquer tabela ainda apontar para o setor. Aqui a checagem
+ * de papel e' repetida de proposito: server action e' um POST cujo id sai no bundle, entao a
+ * tela esconder o botao nunca foi a defesa (armadilha 12 do CLAUDE.md).
+ *
+ * Diferente das demais actions deste arquivo, NAO faz redirect no caminho de erro: a tela
+ * precisa mostrar quais vinculos impedem a exclusao.
+ */
+export async function excluirSetor(id: string) {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return { error: 'Sessão expirada. Entre novamente.' }
+  }
+
+  const { data: perfil } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  if (perfil?.role !== 'super_admin') {
+    return { error: 'Apenas o Administrador Geral pode excluir setores.' }
+  }
+
+  const { error } = await supabase.rpc('fn_excluir_setor', { p_setor_id: id })
+
+  if (error) {
+    return { error: translateError(error.message) }
+  }
+
+  revalidatePath('/setores')
+  return { success: true }
+}

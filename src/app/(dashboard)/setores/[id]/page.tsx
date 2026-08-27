@@ -5,6 +5,7 @@ import { ArrowLeft, Layers } from 'lucide-react'
 import Link from 'next/link'
 import { applyAccessFilters } from '@/utils/permissions'
 import EditSetorForm from './EditSetorForm'
+import { ExcluirSetorButton } from './ExcluirSetorButton'
 
 export default async function EditSetorPage({
   params,
@@ -100,14 +101,22 @@ export default async function EditSetorPage({
           Voltar para Lista
         </Link>
         
-        <StatusToggleButton 
-          action={toggleAction}
-          isActive={isAtivo}
-          label={isAtivo ? 'Desativar Setor' : 'Reativar Setor'}
-          confirmMessage={isAtivo 
-            ? 'Deseja realmente desativar este setor? Ele não aparecerá mais em novas escalas.' 
-            : 'Deseja reativar este setor?'}
-        />
+        <div className="flex items-center gap-3">
+          {/* Excluir é exclusivo do Administrador Geral e só alcança setor sem vínculo nenhum —
+              a recusa e a lista de vínculos vêm de fn_excluir_setor, no banco. */}
+          {profile?.role === 'super_admin' && (
+            <ExcluirSetorButton setorId={id} setorNome={setor.nome} />
+          )}
+
+          <StatusToggleButton 
+            action={toggleAction}
+            isActive={isAtivo}
+            label={isAtivo ? 'Desativar Setor' : 'Reativar Setor'}
+            confirmMessage={isAtivo 
+              ? 'Deseja realmente desativar este setor? Ele não aparecerá mais em novas escalas.' 
+              : 'Deseja reativar este setor?'}
+          />
+        </div>
       </div>
 
       <div className="rounded-[2.5rem] bg-white p-10 shadow-2xl dark:bg-zinc-900 border border-zinc-200/50 dark:border-zinc-800/50">

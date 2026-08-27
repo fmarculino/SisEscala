@@ -29,7 +29,7 @@ interface SolicitacoesTransferenciaSectionProps {
   erro: string | null
   isSuperAdmin: boolean
   unidades: { id: string; nome: string }[]
-  setores: { id: string; unidade_id: string | null; nome: string }[]
+  setores: { id: string; unidade_id: string | null; nome: string; ativo?: boolean }[]
 }
 
 export function SolicitacoesTransferenciaSection({
@@ -94,7 +94,7 @@ function LinhaSolicitacao({
   solicitacao: SolicitacaoTransferencia
   isSuperAdmin: boolean
   unidades: { id: string; nome: string }[]
-  setores: { id: string; unidade_id: string | null; nome: string }[]
+  setores: { id: string; unidade_id: string | null; nome: string; ativo?: boolean }[]
   onResolvida: () => void
 }) {
   const isDestinoIndefinido = !solicitacao.unidadeDestinoId
@@ -107,9 +107,13 @@ function LinhaSolicitacao({
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
 
-  const filteredSetores = selectedUnidade
+  // Destino de transferência é escolha NOVA — setor inativo fica fora (mesma regra da promoção
+  // de pendência). Exceção: o destino que a própria solicitação já trazia continua selecionável,
+  // senão aprovar um pedido antigo passaria a ser impossível sem ninguém entender por quê.
+  const filteredSetores = (selectedUnidade
     ? setores.filter(s => s.unidade_id === selectedUnidade)
     : setores
+  ).filter(s => s.ativo !== false || s.id === solicitacao.setorDestinoId)
 
   async function aprovar() {
     if (mostrarSelecaoDestino || isDestinoIndefinido) {

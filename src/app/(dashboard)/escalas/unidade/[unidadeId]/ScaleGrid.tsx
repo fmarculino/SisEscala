@@ -14,7 +14,7 @@ import { gerarFolhaPonto } from '@/app/(dashboard)/folha-ponto/actions'
 import { ScalePrintView } from '@/components/ScalePrintView'
 import { Modal } from '@/components/ui/Modal'
 import React from 'react'
-import { canEditScale, UserRole } from '@/utils/governance'
+import { canEditScale, podeEditarForaDoPrazo, UserRole } from '@/utils/governance'
 import { runComplianceCheck, getViolationsForCell, type ComplianceViolation } from '@/utils/complianceEngine'
 import { generateTemplate, TEMPLATE_OPTIONS, type TemplateType, countWorkDays } from '@/utils/scaleTemplates'
 import { encontrarConflitoExterno, diasComConflitoExterno } from '@/utils/conflitoEscala'
@@ -1356,7 +1356,7 @@ export function ScaleGrid({
       return
     }
 
-    if (isCompetenciaEncerrada || escalaMensal[0]?.status === 'Fechada' || (isClosed && userProfile?.role !== 'admin' && userProfile?.role !== 'super_admin')) return
+    if (isCompetenciaEncerrada || escalaMensal[0]?.status === 'Fechada' || (isClosed && !podeEditarForaDoPrazo(userProfile?.role))) return
     
     setConfirmModal({
       isOpen: true,
@@ -3992,7 +3992,7 @@ export function ScaleGrid({
               <FileText className="mr-2 h-4 w-4" /> Gerar PDF
             </button>
             
-            <button onClick={handleSave} disabled={loading || isCompetenciaEncerrada || escalaMensal[0]?.status === 'Fechada' || (isClosed && userProfile?.role !== 'admin' && userProfile?.role !== 'super_admin')} className="inline-flex items-center rounded-md bg-green-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-700 transition-all disabled:opacity-50">
+            <button onClick={handleSave} disabled={loading || isCompetenciaEncerrada || escalaMensal[0]?.status === 'Fechada' || (isClosed && !podeEditarForaDoPrazo(userProfile?.role))} className="inline-flex items-center rounded-md bg-green-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-700 transition-all disabled:opacity-50">
               {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
               Salvar Previsão
             </button>
@@ -4001,7 +4001,7 @@ export function ScaleGrid({
                 <Lock className="mr-2 h-4 w-4" /> Fechar Escala
               </button>
             )}
-            {isClosed && !isCompetenciaEncerrada && (userProfile?.role === 'admin' || userProfile?.role === 'super_admin') && (
+            {isClosed && !isCompetenciaEncerrada && podeEditarForaDoPrazo(userProfile?.role) && (
               <button onClick={handleReopenScale} disabled={loading} className="inline-flex items-center rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-700 transition-all">
                 <Unlock className="mr-2 h-4 w-4" /> Reabrir Escala
               </button>
@@ -4232,7 +4232,7 @@ export function ScaleGrid({
                             // Mesmo guard das celulas de turno. O seletor de jornada nunca teve
                             // um: dava para trocar a jornada de uma escala Fechada ou de
                             // competencia encerrada na tela (o Salvar e que barrava depois).
-                            disabled={isCompetenciaEncerrada || escalaMensal[0]?.status === 'Fechada' || (isClosed && userProfile?.role !== 'admin' && userProfile?.role !== 'super_admin')}
+                            disabled={isCompetenciaEncerrada || escalaMensal[0]?.status === 'Fechada' || (isClosed && !podeEditarForaDoPrazo(userProfile?.role))}
                             className={`w-full ${!em.jornada_id ? 'bg-red-50 dark:bg-red-900/10 text-red-500 animate-pulse' : 'bg-transparent'} border-none outline-none text-[10px] font-bold uppercase focus:ring-1 focus:ring-blue-500 rounded p-0 transition-colors disabled:opacity-60 disabled:cursor-not-allowed`}
                           >
                             <option value="">Selecione...</option>
@@ -4399,7 +4399,7 @@ export function ScaleGrid({
                                     'turnos-normal-list'
                                   }
                                   value={turno?.codigo || ''}
-                                  disabled={isCompetenciaEncerrada || escalaMensal[0]?.status === 'Fechada' || (isClosed && userProfile?.role !== 'admin' && userProfile?.role !== 'super_admin')}
+                                  disabled={isCompetenciaEncerrada || escalaMensal[0]?.status === 'Fechada' || (isClosed && !podeEditarForaDoPrazo(userProfile?.role))}
                                   onChange={(e) => {
                                     const val = e.target.value.toUpperCase()
                                     const targetTipo = cat === 'Sobreaviso' ? 'Sobreaviso' : cat === 'Extra' ? 'Extra' : cat === 'Plantão' ? 'Plantão' : 'Normal'
@@ -4488,7 +4488,7 @@ export function ScaleGrid({
                                 title={`Trabalha em outro setor: ${realExternalShifts.find(os => os.categoria?.toLowerCase().trim() === cat.toLowerCase().trim())?.descricao_conflito || ''}`}
                               />
                             )}
-                            {isFailed && permitirValidacaoManual && !isClosed && (userProfile?.role === 'admin' || userProfile?.role === 'super_admin') && (
+                            {isFailed && permitirValidacaoManual && !isClosed && podeEditarForaDoPrazo(userProfile?.role) && (
                               <button 
                                 onClick={(e) => {
                                   e.stopPropagation();

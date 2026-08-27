@@ -82,7 +82,7 @@ export default async function PendenciasCadastroPage() {
       profile?.acesso_todas_unidades
         ? supabase.from('unidades').select('id, nome').order('nome')
         : supabase.from('unidades').select('id, nome').in('id', permittedUnidades.length ? permittedUnidades : ['00000000-0000-0000-0000-000000000000']).order('nome'),
-      supabase.from('setores').select('id, unidade_id, parent_id, dicionario_setores(nome)').order('id'),
+      supabase.from('setores').select('id, unidade_id, parent_id, ativo, dicionario_setores(nome)').order('id'),
       supabase.from('cargos').select('id, nome').eq('ativo', true).order('nome'),
     ])
 
@@ -168,7 +168,7 @@ export default async function PendenciasCadastroPage() {
     supabase.from('servidores').select('id', { count: 'exact', head: true }).is('pis_pasep', null),
     buscarPendentesRh(),
     supabase.from('unidades').select('id, nome').order('nome'),
-    supabase.from('setores').select('id, unidade_id, parent_id, dicionario_setores(nome)').order('id'),
+    supabase.from('setores').select('id, unidade_id, parent_id, ativo, dicionario_setores(nome)').order('id'),
     supabase.from('cargos').select('id, nome').eq('ativo', true).order('nome'),
     // servidores(nome, matricula) é FK simples (sem ambiguidade); unidade/setor de
     // origem/destino são DUAS FKs pra mesma tabela (armadilha 8b do CLAUDE.md) - resolvidas por

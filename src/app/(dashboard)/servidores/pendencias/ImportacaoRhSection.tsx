@@ -32,7 +32,7 @@ interface PendenteRh {
 }
 
 interface Unidade { id: string; nome: string }
-interface Setor { id: string; unidade_id: string | null; nome: string }
+interface Setor { id: string; unidade_id: string | null; nome: string; ativo?: boolean }
 interface Cargo { id: string; nome: string }
 
 interface ImportacaoRhSectionProps {
@@ -332,7 +332,15 @@ function LinhaPendente({ pendente, aberta, onToggle, onPromovido, unidades, seto
   const emConflitoMatricula = conflito?.tipo === 'matricula'
   const cpfFaltando = !cpfPendencia && !cpfDigitado.trim()
 
-  const setoresDaUnidade = useMemo(() => setores.filter(s => s.unidade_id === unidadeId), [setores, unidadeId])
+  // Setor INATIVO não é oferecido: lotar alguém agora num setor que a administração desativou
+  // recria o problema que a inativação existe para resolver — e o inativo continuava na lista
+  // porque a consulta nunca filtrou por `ativo` (17 dos 645 setores estão inativos, medido em
+  // 27/08/2026). A lista completa continua chegando ao componente porque a EXIBIÇÃO de lotação
+  // de origem precisa reconhecer setor já desativado.
+  const setoresDaUnidade = useMemo(
+    () => setores.filter(s => s.unidade_id === unidadeId && s.ativo !== false),
+    [setores, unidadeId]
+  )
 
   async function handleConfirmarVinculoDuplo() {
     const cargoNome = cargos.find(c => c.id === cargoId)?.nome
