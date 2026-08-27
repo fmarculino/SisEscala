@@ -924,3 +924,129 @@ export async function aceitarMarcacaoPendente(input: {
   revalidatePath('/marcacoes')
   return Array.isArray(data) ? data[0] : data
 }
+
+// ============================================================================
+// Autorizações de validação coletiva de ponto (27/08/2026)
+// ============================================================================
+// Plano: docs/planos/2026-08-27-dispensa-de-registro-de-ponto.md
+//
+// Quem concede é o RH Geral — nunca o coordenador, que é justamente quem vai USAR a autorização
+// na grade. Conferido aqui E dentro da função do banco: a RPC é chamável direto (armadilha 12).
+
+async function exigirRhGeral() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Não autenticado')
+
+  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
+  if (!profile || !['rh', 'super_admin'].includes(profile.role)) {
+    throw new Error('Apenas o RH Geral pode autorizar validação coletiva de ponto.')
+  }
+  return user
+}
+
+export async function listarAutorizacoesPontoColetivo() {
+  await exigirGestor()
+  const supabase = await createAdminClient()
+
+  const { data, error } = await supabase
+    .from('autorizacoes_ponto_coletivo')
+    .select(`
+      id, passos, vigencia_inicio, vigencia_fim, documento, motivo,
+      created_at, revogado_em, revogacao_motivo,
+      servidores(id, nome, matricula, unidades(nome), setores(dicionario_setores(nome)))
+    `)
+    .order('created_at', { ascending: false })
+
+  if (error) return { error: error.message, dados: [] as any[] }
+
+  const dados = (data || []).map((a: any) => ({
+    ...a,
+    servidor_nome: a.servidores?.nome || '—',
+    servidor_matricula: a.servidores?.matricula || null,
+    unidade_nome: a.servidores?.unidades?.nome || null,
+    setor_nome: a.servidores?.setores?.dicionario_setores?.nome || null,
+  }))
+
+  return { error: null, dados }
+}
+
+/**
+ * Servidores para o RH escolher. Busca por nome ou matrícula, dentro de um setor quando
+ * informado — o caso real é "todos os técnicos do Porta a Porta", então filtrar por setor é o
+ * caminho curto. Paginado: são 1.318 ativos e o PostgREST corta em 1000 sem avisar (armadilha 8).
+ */
+export async function listarServidoresParaAutorizacao(setorId?: string | null, termo?: string | null) {
+  await exigirGestor()
+  const supabase = await createAdminClient()
+
+  const todos: any[] = []
+  for (let from = 0; ; from += 1000) {
+    let query = supabase
+      .from('servidores')
+      .select('id, nome, matricula, setor_id, unidades(nome), setores(dicionario_setores(nome))')
+      .eq('status', 'Ativo')
+      .order('nome')
+      .range(from, from + 999)
+
+    if (setorId) query = query.eq('setor_id', setorId)
+    if (termo && termo.trim()) query = query.or(`nome.ilike.%${termo.trim()}%,matricula.ilike.%${termo.trim()}%`)
+
+    const { data, error } = await query
+    if (error) return { error: error.message, dados: [] as any[] }
+    todos.push(...(data || []))
+    if (!data || data.length < 1000) break
+  }
+
+  return {
+    error: null,
+    dados: todos.map((s: any) => ({
+      id: s.id,
+      nome: s.nome,
+      matricula: s.matricula,
+      unidade_nome: s.unidades?.nome || null,
+      setor_nome: s.setores?.dicionario_setores?.nome || null,
+    })),
+  }
+}
+
+export async function concederAutorizacaoPontoColetivo(input: {
+  servidorIds: string[]
+  passos: string[]
+  vigenciaInicio: string
+  vigenciaFim: string
+  documento: string
+  motivo: string
+}) {
+  await exigirRhGeral()
+  const supabase = await createClient()
+
+  const { data, error } = await supabase.rpc('fn_conceder_autorizacao_ponto_coletivo', {
+    p_servidor_ids: input.servidorIds,
+    p_passos: input.passos,
+    p_vigencia_inicio: input.vigenciaInicio,
+    p_vigencia_fim: input.vigenciaFim,
+    p_documento: input.documento,
+    p_motivo: input.motivo,
+  })
+
+  if (error) return { error: error.message }
+
+  revalidatePath('/marcacoes')
+  return { error: null, resultado: data }
+}
+
+export async function revogarAutorizacaoPontoColetivo(id: string, motivo: string) {
+  await exigirRhGeral()
+  const supabase = await createClient()
+
+  const { error } = await supabase.rpc('fn_revogar_autorizacao_ponto_coletivo', {
+    p_autorizacao_id: id,
+    p_motivo: motivo,
+  })
+
+  if (error) return { error: error.message }
+
+  revalidatePath('/marcacoes')
+  return { error: null }
+}

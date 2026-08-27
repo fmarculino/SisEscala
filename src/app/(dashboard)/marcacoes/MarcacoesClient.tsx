@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { formatarDataHoraComSegundos } from '@/utils/horario'
-import { Monitor, Fingerprint, ListChecks, Plus, Pencil, Trash2, ShieldCheck, UploadCloud, HeartPulse } from 'lucide-react'
+import { Monitor, Fingerprint, ListChecks, Plus, Pencil, Trash2, ShieldCheck, UploadCloud, HeartPulse, FileCheck2 } from 'lucide-react'
 import { listarTerminaisLocais, listarDispositivosRep, excluirTerminalLocal, excluirDispositivoRep, listarCoberturaResumo } from './actions'
 import { TerminalLocalModal } from './TerminalLocalModal'
 import { DispositivoRepModal } from './DispositivoRepModal'
@@ -11,9 +11,10 @@ import { BiometriaTab } from './BiometriaTab'
 import { HigieneDispositivoTab } from './HigieneDispositivoTab'
 import { ImportarPendriveTab } from './ImportarPendriveTab'
 import { CoberturaTab } from './CoberturaTab'
+import { AutorizacoesPontoTab } from './AutorizacoesPontoTab'
 import { IdCopyBadge } from './IdCopyBadge'
 
-type Aba = 'terminais' | 'dispositivos' | 'cobertura' | 'pendencias' | 'biometria' | 'higiene' | 'pendrive'
+type Aba = 'terminais' | 'dispositivos' | 'cobertura' | 'pendencias' | 'biometria' | 'higiene' | 'pendrive' | 'autorizacoes'
 
 interface Opcoes {
   unidades: { id: string; nome: string }[]
@@ -115,7 +116,7 @@ function statusColetaDispositivo(d: any): { texto: string; classe: string } {
   return { texto: `Offline há ${texto}`, classe: CLASSES_STATUS_COLETA.vermelho }
 }
 
-export function MarcacoesClient({ isAdmin, opcoes }: { isAdmin: boolean; opcoes: Opcoes }) {
+export function MarcacoesClient({ isAdmin, podeAutorizar, opcoes }: { isAdmin: boolean; podeAutorizar: boolean; opcoes: Opcoes }) {
   const [aba, setAba] = useState<Aba>(isAdmin ? 'terminais' : 'pendencias')
 
   const [terminais, setTerminais] = useState<any[]>([])
@@ -187,6 +188,9 @@ export function MarcacoesClient({ isAdmin, opcoes }: { isAdmin: boolean; opcoes:
     { id: 'biometria', label: 'Biometria Pendente', icon: Fingerprint, visivel: true },
     { id: 'higiene', label: 'Higiene do Relógio', icon: ShieldCheck, visivel: isAdmin },
     { id: 'pendrive', label: 'Importar por Pendrive', icon: UploadCloud, visivel: isAdmin },
+    // Visível para todo gestor: o coordenador precisa conferir a vigência antes de declarar em
+    // massa. Conceder e revogar é que ficam com o RH Geral (podeAutorizar).
+    { id: 'autorizacoes', label: 'Autorizações do RH', icon: FileCheck2, visivel: true },
   ]
 
   return (
@@ -378,6 +382,7 @@ export function MarcacoesClient({ isAdmin, opcoes }: { isAdmin: boolean; opcoes:
       {aba === 'biometria' && <BiometriaTab />}
       {aba === 'higiene' && isAdmin && <HigieneDispositivoTab />}
       {aba === 'pendrive' && isAdmin && <ImportarPendriveTab />}
+      {aba === 'autorizacoes' && <AutorizacoesPontoTab podeAutorizar={podeAutorizar} />}
     </div>
   )
 }

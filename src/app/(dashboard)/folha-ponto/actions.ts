@@ -15,6 +15,7 @@ import { normalizarRegistrosFolha } from '@/utils/folha/normalizarHorarios'
 import { sequenciarDia, PASSOS_FOLHA } from '@/utils/folha/sequenciaDia'
 import { preservarCampo } from '@/utils/folha/preservacao'
 import { montarCargaPorJornada, horasNormaisDoDia } from '@/utils/folha/cargaDiaria'
+import { autorizacaoDoDia, aplicarObservacaoAutorizacao } from '@/utils/folha/autorizacaoPonto'
 import { afastamentosDoDia, descreverAfastamentos, isShiftOverlappingAfastamento } from '@/utils/folha/afastamentosDia'
 
 // Helper: Get user profile with unit/sector permissions
@@ -547,6 +548,17 @@ export async function executeGerarFolhaPonto(
       .lte('data_inicio', endDate)
       .gte('data_fim', startDate)
 
+    // Autorizacoes do RH para validacao coletiva (27/08/2026). A folha precisa IMPRIMIR o
+    // oficio: sem ele o dia aparece como horario manual qualquer, e o documento e' justamente
+    // o que responde a fiscalizacao. Nao preenche horario nenhum.
+    const { data: autorizacoesPonto } = await supabase
+      .from('autorizacoes_ponto_coletivo')
+      .select('passos, documento, vigencia_inicio, vigencia_fim')
+      .eq('servidor_id', servidorId)
+      .is('revogado_em', null)
+      .lte('vigencia_inicio', endDate)
+      .gte('vigencia_fim', startDate)
+
     // Fetch temporary journeys overlapping this month
     const { data: tempJourneys } = await supabase
       .from('servidores_jornadas_temporarias')
@@ -986,6 +998,10 @@ export async function executeGerarFolhaPonto(
         }
       }
 
+      // A dispensa autorizada e' acrescentada por ULTIMO, depois de feriado/afastamento/ponto
+      // facultativo terem montado a observacao — ela convive com eles, nao os substitui.
+      aplicarObservacaoAutorizacao(registro, autorizacaoDoDia(autorizacoesPonto, dateStr))
+
       registros.push(registro)
     }
 
@@ -1257,6 +1273,17 @@ export async function sincronizarFolhaPonto(folhaId: string) {
       .select('data_inicio, data_fim, observacao, slots, periodo_tipo, hora_inicio, hora_fim, minutos_afastamento, regime_abono, tipos_eventos(nome)')
       .eq('servidor_id', folha.servidor_id)
       .or(`data_inicio.lte.${endDate},data_fim.gte.${startDate}`)
+
+    // Autorizacoes do RH para validacao coletiva (27/08/2026). A folha precisa IMPRIMIR o
+    // oficio: sem ele o dia aparece como horario manual qualquer, e o documento e' justamente
+    // o que responde a fiscalizacao. Nao preenche horario nenhum.
+    const { data: autorizacoesPonto } = await supabase
+      .from('autorizacoes_ponto_coletivo')
+      .select('passos, documento, vigencia_inicio, vigencia_fim')
+      .eq('servidor_id', folha.servidor_id)
+      .is('revogado_em', null)
+      .lte('vigencia_inicio', endDate)
+      .gte('vigencia_fim', startDate)
 
     // Fetch temporary journeys overlapping this month
     const { data: tempJourneys } = await supabase
@@ -1723,6 +1750,10 @@ export async function sincronizarFolhaPonto(folhaId: string) {
           registro.hora_extra_tipo = null
         }
       }
+
+      // A dispensa autorizada e' acrescentada por ULTIMO, depois de feriado/afastamento/ponto
+      // facultativo terem montado a observacao — ela convive com eles, nao os substitui.
+      aplicarObservacaoAutorizacao(registro, autorizacaoDoDia(autorizacoesPonto, dateStr))
 
       registrosAtualizados.push(registro)
     }

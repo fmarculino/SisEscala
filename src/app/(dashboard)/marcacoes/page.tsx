@@ -16,6 +16,9 @@ export default async function MarcacoesPage() {
   if (!profile || !ROLES_COM_ACESSO.includes(profile.role)) return <AcessoNegado />
 
   const isAdmin = ROLES_ADMIN.includes(profile.role)
+  // Conceder autorização de validação coletiva é do RH Geral (e do Administrador Geral) — nunca
+  // do coordenador, que é quem vai USAR a autorização na grade.
+  const podeAutorizar = ['rh', 'super_admin'].includes(profile.role)
   // Dispositivos e terminais são gestão administrativa (infraestrutura de TI); coordenador e
   // RH Geral (12/08/2026 — só vê a tela, não ganhou acesso a device) só usam a aba Pendências,
   // que já é filtrada por escopo dentro de fn_marcacoes_pendentes_revisao (fn_unidade_no_escopo).
@@ -35,7 +38,7 @@ export default async function MarcacoesPage() {
         </div>
       </div>
 
-      <MarcacoesClient isAdmin={isAdmin} opcoes={opcoes} />
+      <MarcacoesClient isAdmin={isAdmin} podeAutorizar={podeAutorizar} opcoes={opcoes} />
     </div>
   )
 }

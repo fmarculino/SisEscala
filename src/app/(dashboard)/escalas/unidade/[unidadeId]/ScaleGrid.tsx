@@ -523,10 +523,17 @@ export function ScaleGrid({
     selectedServidorIds: string[];
     startDay: number;
     endDay: number;
-    modo: 'completo' | 'periodo_1' | 'periodo_2';
+    modo: 'completo' | 'periodo_1' | 'periodo_2' | 'autorizado';
     categorias: RowCategory[];
     justificativa: string;
   } | null>(null)
+
+  // Autorizações do RH para validação coletiva (27/08/2026), por servidor desta grade.
+  //
+  // Quem decide o que pode ser declarado é o banco (fn_atestar_passos_autorizados_bulk); isto
+  // aqui é só para a tela saber se oferece o modo e com qual texto — se a tela derivasse a regra
+  // por conta própria, prometeria o que o banco recusa.
+  const [autorizacoesPonto, setAutorizacoesPonto] = useState<Record<string, any>>({})
 
   const [sobreavisoManualModal, setSobreavisoManualModal] = useState<{
     isOpen: boolean;
@@ -1222,6 +1229,34 @@ export function ScaleGrid({
     )
     return hasOnCallArrival
   }, [presenceData, logsSobreaviso])
+
+  // Autorizações do RH que alcançam ESTE mês. Uma vigência que cobre qualquer parte do mês já
+  // conta: o banco confere dia a dia depois, e o dia exato é decidido lá, não aqui.
+  useEffect(() => {
+    const servidorIds = escalaMensal.map(em => em.servidor_id).filter(Boolean)
+    if (servidorIds.length === 0) { setAutorizacoesPonto({}); return }
+
+    const primeiroDia = `${ano}-${String(mes).padStart(2, '0')}-01`
+    const ultimoDia = `${ano}-${String(mes).padStart(2, '0')}-${String(new Date(ano, mes, 0).getDate()).padStart(2, '0')}`
+
+    let vivo = true
+    supabase
+      .from('autorizacoes_ponto_coletivo')
+      .select('id, servidor_id, passos, documento, motivo, vigencia_inicio, vigencia_fim')
+      .in('servidor_id', servidorIds)
+      .is('revogado_em', null)
+      .lte('vigencia_inicio', ultimoDia)
+      .gte('vigencia_fim', primeiroDia)
+      .then(({ data }) => {
+        if (!vivo) return
+        const mapa: Record<string, any> = {}
+        ;(data || []).forEach((a: any) => { mapa[a.servidor_id] = a })
+        setAutorizacoesPonto(mapa)
+      })
+
+    return () => { vivo = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [escalaMensal, mes, ano])
 
   /**
    * Dias do mes em que este servidor ja tem entrada ou saida registrada, em qualquer categoria
@@ -2787,14 +2822,26 @@ export function ScaleGrid({
     setLoading(true)
     try {
       const { data: { user } } = await supabase.auth.getUser()
-      const { data, error } = await supabase.rpc('fn_atestar_jornada_bulk', {
-        p_escala_mensal_ids: escalaMensalIds,
-        p_dias: days,
-        p_categorias: bulkGlobalModal.categorias,
-        p_tipo: bulkGlobalModal.modo,
-        p_validador_id: user?.id || userProfile?.id,
-        p_justificativa: bulkGlobalModal.justificativa.trim()
-      })
+
+      // Modo autorizado pelo RH: RPC diferente, que declara SOMENTE os passos autorizados por
+      // servidor e por data — e nunca toca na saída. Quem não tiver autorização vigente é
+      // pulado pelo banco e volta nominalmente na resposta.
+      const { data, error } = bulkGlobalModal.modo === 'autorizado'
+        ? await supabase.rpc('fn_atestar_passos_autorizados_bulk', {
+            p_escala_mensal_ids: escalaMensalIds,
+            p_dias: days,
+            p_categorias: bulkGlobalModal.categorias,
+            p_validador_id: user?.id || userProfile?.id,
+            p_justificativa: bulkGlobalModal.justificativa.trim()
+          })
+        : await supabase.rpc('fn_atestar_jornada_bulk', {
+            p_escala_mensal_ids: escalaMensalIds,
+            p_dias: days,
+            p_categorias: bulkGlobalModal.categorias,
+            p_tipo: bulkGlobalModal.modo,
+            p_validador_id: user?.id || userProfile?.id,
+            p_justificativa: bulkGlobalModal.justificativa.trim()
+          })
       if (error) throw error
       if (data && !data.success) throw new Error(data.message)
 
@@ -2806,16 +2853,31 @@ export function ScaleGrid({
         (acc[p.servidor_nome] = acc[p.servidor_nome] || []).push(p.dia)
         return acc
       }, {})
+      // ⚠️ Relatar o que MUDOU e por que o resto não (armadilha 22 do CLAUDE.md). No modo
+      // autorizado há uma segunda razão de exclusão — servidor sem autorização vigente — e
+      // esconder isso faria o coordenador achar que declarou o setor inteiro.
+      const semAutorizacao: any[] = data?.sem_autorizacao || []
+      const nomesSemAutorizacao = [...new Set(semAutorizacao.map((x: any) => x.servidor_nome))]
+
       setAlertModal({
         isOpen: true,
-        title: pendentesG.length ? 'Atestado Concluído — com pendências' : 'Atestado Global Concluído',
-        message: pendentesG.length
-          ? `Jornada atestada em ${data.atestados} registro(s) para ${escalaMensalIds.length} servidor(es). `
-            + `${pendentesG.length} dia(s) ficaram de fora por terem ponto registrado no terminal `
-            + `aguardando revisão — ${Object.entries(porServidor).map(([n, ds]) => `${n}: dia(s) ${(ds as number[]).join(', ')}`).join(' | ')}. `
-            + `Abra cada um e use o horário real da batida.`
-          : `Jornada atestada em ${data?.atestados ?? 0} registro(s) para ${escalaMensalIds.length} servidor(es), dias ${start} a ${end}.`,
-        type: pendentesG.length ? 'warning' : 'success'
+        title: (pendentesG.length || nomesSemAutorizacao.length)
+          ? 'Atestado Concluído — com pendências'
+          : 'Atestado Global Concluído',
+        message: [
+          bulkGlobalModal.modo === 'autorizado'
+            ? `Jornada declarada em ${data?.atestados ?? 0} registro(s), somente nos passos autorizados pelo RH. A saída não foi preenchida em nenhum dia.`
+            : `Jornada atestada em ${data?.atestados ?? 0} registro(s) para ${escalaMensalIds.length} servidor(es), dias ${start} a ${end}.`,
+          nomesSemAutorizacao.length
+            ? `Sem autorização vigente (nada foi declarado): ${nomesSemAutorizacao.join(', ')}.`
+            : '',
+          pendentesG.length
+            ? `${pendentesG.length} dia(s) ficaram de fora por terem ponto registrado no terminal aguardando revisão — `
+              + `${Object.entries(porServidor).map(([n, ds]) => `${n}: dia(s) ${(ds as number[]).join(', ')}`).join(' | ')}. `
+              + `Abra cada um e use o horário real da batida.`
+            : '',
+        ].filter(Boolean).join(' '),
+        type: (pendentesG.length || nomesSemAutorizacao.length) ? 'warning' : 'success'
       })
     } catch (err: any) {
       console.error('Erro na validação em massa global:', err)
@@ -6863,6 +6925,49 @@ export function ScaleGrid({
                   🌇 2º Período
                 </button>
               </div>
+
+              {/* Modo autorizado pelo RH (27/08/2026). Só aparece quando algum dos servidores
+                  selecionados tem autorização vigente neste mês — oferecer sempre daria a
+                  entender que o coordenador decide isso sozinho, e não decide. */}
+              {(() => {
+                const comAutorizacao = bulkGlobalModal.selectedServidorIds
+                  .map(id => autorizacoesPonto[id])
+                  .filter(Boolean)
+                if (comAutorizacao.length === 0) return null
+
+                const documentos = [...new Set(comAutorizacao.map((a: any) => a.documento))]
+                const passos = [...new Set(comAutorizacao.flatMap((a: any) => a.passos))] as string[]
+                const rotulos: Record<string, string> = {
+                  entrada: 'entrada',
+                  intervalo_saida: 'saída p/ intervalo',
+                  intervalo_retorno: 'retorno do intervalo',
+                }
+
+                return (
+                  <div className="mt-2 space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => setBulkGlobalModal(prev => prev ? {
+                        ...prev,
+                        modo: 'autorizado',
+                        // A justificativa oficial vem do ato do RH — é ela que sai na folha.
+                        justificativa: prev.justificativa?.trim()
+                          ? prev.justificativa
+                          : (comAutorizacao[0] as any).motivo,
+                      } : null)}
+                      className={`w-full p-2 text-xs font-bold rounded-lg border transition-all ${bulkGlobalModal.modo === 'autorizado' ? 'bg-indigo-600 text-white border-indigo-600 shadow' : 'bg-zinc-50 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100'}`}
+                    >
+                      🔒 Autorizado pelo RH — somente {passos.map(x => rotulos[x] || x).join(', ')}
+                    </button>
+                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-snug">
+                      {comAutorizacao.length} de {bulkGlobalModal.selectedServidorIds.length} servidor(es)
+                      selecionado(s) com autorização vigente ({documentos.join(', ')}).
+                      <strong> A saída não é preenchida</strong> — continua vindo do relógio. Quem não
+                      tem autorização é ignorado neste modo.
+                    </p>
+                  </div>
+                )
+              })()}
             </div>
 
             <div className="space-y-1.5">
