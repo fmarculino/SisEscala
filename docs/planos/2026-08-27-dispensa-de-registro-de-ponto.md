@@ -4,7 +4,7 @@
 
 | fase | estado |
 |---|---|
-| 0 — confirmar com o coordenador que o Validar em Massa já resolve o volume | ⏳ **com você** — não é código |
+| 0 — confirmar com o coordenador que o Validar em Massa já resolve o volume | ✅ **confirmado em 27/08/2026**: o coordenador já conhece a validação em massa e sabe usá-la. O ganho desta entrega é a autorização e o modo que preserva a saída, não a mão de obra |
 | 1 — tabela de autorizações + tela do RH Geral | ✅ `autorizacoes_ponto_coletivo`, aba **Autorizações do RH** em `/marcacoes` |
 | 2 — modo "somente passos autorizados" no Validar em Massa | ✅ `fn_atestar_passos_autorizados_bulk` + botão 🔒 no modal da grade |
 | 3 — folha cita o ofício | ✅ `src/utils/folha/autorizacaoPonto.ts`, aplicado nas **4** cópias da geração |

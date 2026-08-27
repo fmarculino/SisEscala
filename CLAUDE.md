@@ -2219,6 +2219,59 @@ sobre a batida de terminal. Se o dia ficar com o setor certo depois, a batida re
 por `restaurar` — o último tratamento por `created_at` é o efetivo. **Só batida real volta**;
 declaração retirada pelo coordenador continua retirada.
 
+### 24. `GRANT ... TO authenticated` nunca restringiu nada — o REVOKE tem que ser de PUBLIC (27/08/2026)
+
+🚨 **Medido em produção: 369 das 394 funções do schema eram executáveis por `anon`** — sem login
+nenhum. Entre elas `fn_confirmar_presenca`, `fn_confirmar_presenca_manual`,
+`fn_atestar_jornada_bulk` e `fn_registrar_ponto`: dava para **gravar presença em folha de ponto
+com a chave anon**, que vai no bundle do navegador.
+
+⚠️ **A causa é o padrão usado em todo o projeto.** No PostgreSQL, `CREATE FUNCTION` já concede
+`EXECUTE` a **PUBLIC**. Escrever `GRANT EXECUTE ... TO authenticated, service_role` é inofensivo
+e **inútil como restrição**: quem não está na lista continua entrando por PUBLIC. As únicas
+funções que estavam fechadas eram as que escreveram `REVOKE ... FROM PUBLIC`
+(`fn_ingerir_afd`, `fn_autenticar_*`, `fn_registrar_ponto_terminal_local`).
+
+⚠️ **E `REVOKE` de quem NÃO é dono da função não falha: emite `WARNING` e segue.** A primeira
+correção (`20260827030000`) "aplicou com sucesso" e não mudou **nada** — só se descobriu medindo
+por fora. Desde então **toda migration de privilégio confere o próprio resultado**
+(`has_function_privilege`) e **aborta** se ele divergir; a mensagem traz banco, usuário e o dono
+de cada função pendente, que separa "rodei no banco errado" (armadilha 3) de "não sou o dono".
+
+⚠️ **A verificação precisa olhar os DOIS sentidos.** Revogar demais derruba a tela do coordenador
+com a mesma discrição: `20260827050000` aborta tanto se `anon` continuar entrando quanto se uma
+função que a tela usa **perder** `authenticated`.
+
+| grupo | regra |
+|---|---|
+| ninguém no app chama direto (só envelopes `SECURITY DEFINER`) | `REVOKE FROM PUBLIC, anon, authenticated` + `GRANT TO service_role` |
+| a tela chama com usuário logado | `REVOKE FROM PUBLIC, anon` + **reafirmar** `GRANT TO authenticated` |
+| rota de máquina (`CRON_SECRET`, HMAC do coletor, `createAdminClient`) | só `service_role` |
+
+⚠️ **Não feche o que é público por desenho.** `accept_sobreaviso_call`,
+`decline_sobreaviso_call`, `mark_sobreaviso_timeout` e `register_sobreaviso_arrival` são
+chamadas por `/sobreaviso/[token]` **sem login** (`createClient` do navegador) — revogar ali
+quebra o ciclo de sobreaviso inteiro. A defesa delas é o `magic_token` que todas exigem, não o
+privilégio de execução.
+
+ℹ️ **Duas contagens diferentes, e a confusão é fácil:** `pg_proc` diz 818 de 890 abertas a anon,
+mas isso inclui as centenas de funções do PostGIS e as de **trigger** — que o PostgREST **não
+expõe como RPC**. O que é alcançável de fora são as **324** que aparecem no OpenAPI com a chave
+anon (`GET /rest/v1/` com `apikey: <anon>`). Função que retorna `trigger` não precisa de REVOKE.
+
+**Ao criar função nova, escreva o `REVOKE ... FROM PUBLIC` na mesma migration** — é o único
+momento em que você é comprovadamente o dono.
+
+### 25. `fn_atestar_jornada_bulk` anunciava "0 registro(s)" mesmo tendo gravado (27/08/2026)
+
+`fn_confirmar_presenca_manual_bulk` devolve **`processed_count`** (assim desde
+`20260804040000`) e `fn_atestar_jornada_bulk` lia `total_processed`, que nunca existiu — nas
+duas versões dela (`20260808120000` e `20260808130000`). O `COALESCE` resolvia para 0 sempre.
+
+Nada era gravado errado; o que quebrava era a confiança de quem clicou — a Validação em Massa
+funcionava e dizia que não tinha feito nada. É a armadilha 22 na forma pior: **relatar zero
+quando mudou**. Corrigido em `20260827020000`.
+
 ## Papéis de RH: Geral vs da Unidade (12/08/2026)
 
 `role = 'rh'` ("RH Geral") enxerga tudo; `role = 'rh_unidade'` ("RH da Unidade") é escopado por
