@@ -18,6 +18,7 @@ import { canEditScale, UserRole } from '@/utils/governance'
 import { runComplianceCheck, getViolationsForCell, type ComplianceViolation } from '@/utils/complianceEngine'
 import { generateTemplate, TEMPLATE_OPTIONS, type TemplateType, countWorkDays } from '@/utils/scaleTemplates'
 import { encontrarConflitoExterno, diasComConflitoExterno } from '@/utils/conflitoEscala'
+import { formatSectorsHierarchy } from '@/utils/sectors'
 import { decomporPlantao } from '@/utils/plantaoUnidades'
 import { celulaTemPassosDeIntervalo } from '@/utils/intervaloIntrajornada'
 import { statusAcionamento } from '@/utils/sobreaviso/statusAcionamento'
@@ -37,6 +38,7 @@ import {
   rotuloAfastamento,
   type AfastamentoEvento
 } from '@/utils/afastamentos'
+import { NavegacaoEscalas } from './NavegacaoEscalas'
 import { SwapRequestPanel } from '@/components/SwapRequestPanel'
 import { sendWhatsAppMessageAction } from '@/app/actions/communication'
 import { AcionarSobreavisoModal } from '@/components/sobreaviso/AcionarSobreavisoModal'
@@ -73,6 +75,34 @@ type SelecaoBatida = { fonte: 'marcacao' | 'tentativa'; id: string; hora: string
 // Com segundos de propósito: é o que distingue batida real de horário sintético (armadilha 5).
 // Esconder os segundos aqui apagaria justamente a evidência que a seleção existe para preservar.
 const horaComSegundos = (d: Date) => formatarHoraComSegundos(d)
+
+/**
+ * Assinatura canonica do que a grade tem lancado (turno + hora informada por celula).
+ *
+ * Serve para saber se ha edicao pendente antes de sair da tela pelas setas de navegacao.
+ * Ignora celula vazia de proposito: adicionar servidor a grade JA grava `escala_mensal` no
+ * banco e cria uma linha vazia no estado -- contar isso como alteracao daria aviso falso, e
+ * aviso falso ensina o usuario a ignorar o aviso verdadeiro.
+ */
+function assinaturaDaGrade(
+  gridData: Record<string, Record<string, Record<number, string>>>,
+  gridHoras: Record<string, Record<string, Record<number, string>>>
+): string {
+  const partes: string[] = []
+  Object.keys(gridData).sort().forEach(servidorId => {
+    const categorias = gridData[servidorId] || {}
+    Object.keys(categorias).sort().forEach(categoria => {
+      const dias = categorias[categoria] || {}
+      Object.keys(dias).map(Number).sort((a, b) => a - b).forEach(dia => {
+        const turno = dias[dia]
+        if (!turno) return
+        const hora = gridHoras[servidorId]?.[categoria]?.[dia] || ''
+        partes.push(`${servidorId}|${categoria}|${dia}|${turno}|${hora}`)
+      })
+    })
+  })
+  return partes.join(';')
+}
 
 export function ScaleGrid({
   unidadeId,
@@ -589,7 +619,13 @@ export function ScaleGrid({
   // Fetch sectors when unit changes in modal
   useEffect(() => {
     if (externalData.unidadeId) {
-      const filtered = allSetores.filter(s => s.unidade_id === externalData.unidadeId)
+      // Em arvore (pai seguido dos filhos, com recuo "↳"), mesmo criterio das demais telas:
+      // ha setores com o MESMO nome em ramos diferentes da mesma unidade, e a lista plana nao
+      // dizia qual era qual -- quem escolhia o setor de origem do servidor externo escolhia as
+      // cegas. Ver `formatSectorsHierarchy` em `src/utils/sectors.ts`.
+      const filtered = formatSectorsHierarchy(
+        allSetores.filter(s => s.unidade_id === externalData.unidadeId)
+      )
       setExternalSectors(filtered)
       setExternalData(prev => ({ ...prev, setorId: '', servidorId: '' }))
     }
@@ -717,6 +753,22 @@ export function ScaleGrid({
     })
     return initial
   })
+
+  // Foto do que ja esta gravado. Comeca nula e e preenchida no mount (o primeiro render ainda
+  // nao tem os dados normalizados), entao "sem alteracao" e o estado inicial seguro.
+  const [assinaturaSalva, setAssinaturaSalva] = useState<string | null>(null)
+
+  const assinaturaAtual = useMemo(() => assinaturaDaGrade(gridData, gridHoras), [gridData, gridHoras])
+
+  useEffect(() => {
+    setAssinaturaSalva(assinaturaDaGrade(gridData, gridHoras))
+    // So no mount: daqui em diante quem atualiza a foto e o "Salvar Previsao".
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  /** Ha lancamento na tela que ainda nao foi gravado. */
+  const gradeAlterada = assinaturaSalva !== null && assinaturaAtual !== assinaturaSalva
+
 
   const [presenceData, setPresenceData] = useState<Record<string, Record<RowCategory, Record<number, { entrada: boolean, intervalo_saida: boolean, intervalo_retorno: boolean, saida: boolean, entrada_em?: string | null, intervalo_saida_em?: string | null, intervalo_retorno_em?: string | null, saida_em?: string | null, is_entrada_manual?: boolean, is_intervalo_saida_manual?: boolean, is_intervalo_retorno_manual?: boolean, is_saida_manual?: boolean }>>>>(() => {
     const initial: Record<string, Record<RowCategory, Record<number, { entrada: boolean, intervalo_saida: boolean, intervalo_retorno: boolean, saida: boolean, entrada_em?: string | null, intervalo_saida_em?: string | null, intervalo_retorno_em?: string | null, saida_em?: string | null, is_entrada_manual?: boolean, is_intervalo_saida_manual?: boolean, is_intervalo_retorno_manual?: boolean, is_saida_manual?: boolean }>>> = {}
@@ -3363,6 +3415,10 @@ export function ScaleGrid({
       }
       
       
+      // O que acabou de ser gravado passa a ser a foto: sem isso o aviso de "alteracoes nao
+      // salvas" continuaria aparecendo depois de salvar.
+      setAssinaturaSalva(assinaturaDaGrade(gridData, gridHoras))
+
       setAlertModal({
         isOpen: true,
         title: 'Escala Salva',
@@ -3785,6 +3841,18 @@ export function ScaleGrid({
           {governanceLock.reason} - Modo de Somente Leitura Ativado
         </div>
       )}
+
+      {/* Navegacao entre escalas: percorre a mesma sequencia da lista de onde o usuario veio,
+          e o botao da esquerda devolve a lista COM os filtros que ele tinha. Fica fora do
+          `!isComum` de proposito -- quem so consulta tambem precisa do caminho de volta. */}
+      <NavegacaoEscalas
+        unidadeId={unidadeId}
+        setorId={setorId}
+        mes={mes}
+        ano={ano}
+        userProfile={userProfile}
+        gradeAlterada={gradeAlterada}
+      />
 
       {/* Toolbar */}
       {!isComum && (

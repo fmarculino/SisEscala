@@ -1,13 +1,22 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { autoCloseExpiredScalesAndTimesheets } from '@/utils/autoClose'
 import { Calendar, Plus, ChevronRight, Layers, Filter, Eye, EyeOff, Search, Loader2, Building2, Check, ShieldCheck, FileText, UserSearch, UserCheck, X, AlertCircle } from 'lucide-react'
 import Link from 'next/link'
 import { Modal } from '@/components/ui/Modal'
-import { applyAccessFilters, hasSectorAccess, hasUnitAccess } from '@/utils/permissions'
 import { useCallback } from 'react'
+import { useRouter } from 'next/navigation'
+import {
+  agruparEscalas,
+  buscarEscalasMensais,
+  escalaVisivel,
+  escreverFiltros,
+  lerFiltros,
+  urlDaGrade,
+  type FiltrosEscalas
+} from '@/utils/escalasNavegacao'
 
 function formatCpf(cpf: string | null) {
   if (!cpf) return ''
@@ -20,6 +29,7 @@ function formatCpf(cpf: string | null) {
 
 export default function EscalasPage() {
   const supabase = createClient()
+  const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [escalas, setEscalas] = useState<any[]>([])
   const [showInactive, setShowInactive] = useState(false)
@@ -59,6 +69,34 @@ export default function EscalasPage() {
     type: 'default' | 'danger' | 'warning'
   } | null>(null)
 
+  // Os filtros vivem na URL. Sem isso, voltar da grade para a lista devolvia a tela zerada e
+  // obrigava a refazer unidade/mes/status a cada escala visitada -- e a grade nao teria como
+  // saber por qual sequencia de escalas o usuario estava andando.
+  const filtrosAtuais: FiltrosEscalas = {
+    busca: searchTerm,
+    servidor: searchServidor,
+    unidade: filterUnidade,
+    mes: filterMes,
+    ano: filterAno,
+    status: filterStatus,
+    incluirInativas: showInactive
+  }
+  const origem = escreverFiltros(filtrosAtuais)
+
+  /** Ultimo periodo efetivamente buscado -- evita o refetch em duplicata logo apos o init. */
+  const periodoBuscado = useRef<string | null>(null)
+  /** So sincroniza a URL depois de ler os filtros dela, senao o primeiro render a apagaria. */
+  const filtrosLidosDaUrl = useRef(false)
+
+  // `replace` (nao `push`) e com folga de 300 ms: digitar na busca nao pode empilhar uma entrada
+  // de historico por tecla nem disparar uma navegacao a cada caractere.
+  useEffect(() => {
+    if (!filtrosLidosDaUrl.current) return
+    if (window.location.search.replace(/^\?/, '') === origem) return
+    const timer = setTimeout(() => router.replace(`/escalas?${origem}`, { scroll: false }), 300)
+    return () => clearTimeout(timer)
+  }, [origem, router])
+
   const logAction = useCallback(async (acao: string, unidadeId: string, setorId: string, mes: number, ano: number, detalhes: any = {}) => {
     try {
       const { data: { user } } = await supabase.auth.getUser()
@@ -85,6 +123,17 @@ export default function EscalasPage() {
   // Load user profile & initial filters
   useEffect(() => {
     async function init() {
+      const filtrosUrl = lerFiltros(window.location.search)
+      setSearchTerm(filtrosUrl.busca)
+      setSearchServidor(filtrosUrl.servidor)
+      setFilterUnidade(filtrosUrl.unidade)
+      setFilterMes(filtrosUrl.mes)
+      setFilterAno(filtrosUrl.ano)
+      setFilterStatus(filtrosUrl.status)
+      setShowInactive(filtrosUrl.incluirInativas)
+      periodoBuscado.current = `${filtrosUrl.mes}|${filtrosUrl.ano}`
+      filtrosLidosDaUrl.current = true
+
       try {
         await autoCloseExpiredScalesAndTimesheets()
       } catch (err) {
@@ -116,11 +165,11 @@ export default function EscalasPage() {
           }
 
           // Fetch with the profile we just loaded to avoid race conditions
-          fetchEscalas(userProfile, String(new Date().getMonth() + 1), String(new Date().getFullYear()))
+          fetchEscalas(userProfile, filtrosUrl.mes, filtrosUrl.ano)
           return
         }
       }
-      fetchEscalas(undefined, String(new Date().getMonth() + 1), String(new Date().getFullYear()))
+      fetchEscalas(undefined, filtrosUrl.mes, filtrosUrl.ano)
     }
     init()
   }, [])
@@ -212,54 +261,27 @@ export default function EscalasPage() {
 
   // Trigger fetchEscalas when period filters change
   useEffect(() => {
-    if (profile) {
-      fetchEscalas()
-    }
-  }, [filterMes, filterAno])
+    if (!profile) return
+    const periodo = `${filterMes}|${filterAno}`
+    if (periodoBuscado.current === periodo) return
+    periodoBuscado.current = periodo
+    fetchEscalas()
+  }, [filterMes, filterAno, profile])
 
   async function fetchEscalas(activeProfile?: any, mesVal?: string, anoVal?: string) {
     setLoading(true)
-    let query = supabase
-      .from('escala_mensal')
-      .select('*, servidores(id, nome, cpf, matricula), unidades(nome), setores(dicionario_setores(nome))')
-      .order('ano', { ascending: false })
-      .order('mes', { ascending: false })
 
-    const targetProfile = activeProfile || profile
+    // A busca (com paginacao por Range e o escopo de acesso) mora em escalasNavegacao.ts,
+    // compartilhada com as setas de navegacao da grade.
+    const { linhas, erro } = await buscarEscalasMensais(supabase, activeProfile || profile, {
+      mes: mesVal !== undefined ? mesVal : filterMes,
+      ano: anoVal !== undefined ? anoVal : filterAno
+    })
 
-    if (targetProfile) {
-      query = applyAccessFilters(query, targetProfile)
-    }
-
-    const currentMes = mesVal !== undefined ? mesVal : filterMes
-    const currentAno = anoVal !== undefined ? anoVal : filterAno
-
-    if (currentMes !== 'todos') {
-      query = query.eq('mes', parseInt(currentMes, 10))
-    }
-    if (currentAno !== 'todos') {
-      query = query.eq('ano', parseInt(currentAno, 10))
-    }
-
-    const { data, error } = await query
-
-    if (error) {
-      console.error('Erro ao carregar escalas:', error)
-    } else if (data) {
-      const mapped = data.map(e => {
-        const sectorData = Array.isArray(e.setores) ? e.setores[0] : e.setores
-        const dictData = sectorData ? (Array.isArray(sectorData.dicionario_setores) 
-          ? sectorData.dicionario_setores[0] 
-          : sectorData.dicionario_setores) : null
-          
-        return {
-          ...e,
-          setores: sectorData ? {
-            nome: dictData?.nome || 'SETOR SEM NOME'
-          } : null
-        }
-      })
-      setEscalas(mapped)
+    if (erro) {
+      console.error('Erro ao carregar escalas:', erro)
+    } else {
+      setEscalas(linhas)
     }
     setLoading(false)
   }
@@ -314,52 +336,10 @@ export default function EscalasPage() {
   const unidades = Array.from(new Set(escalas.map(e => JSON.stringify({ id: e.unidade_id, nome: e.unidades?.nome }))))
     .map(s => JSON.parse(s))
 
-  // Grouped logic
-  const filteredEscalas = escalas.filter(e => {
-    const searchTermLower = searchTerm.toLowerCase()
-    const unitName = (e.unidades?.nome || '').toLowerCase()
-    const sectorName = (e.setores?.nome || '').toLowerCase()
-
-    const matchesSearch = unitName.includes(searchTermLower) || sectorName.includes(searchTermLower)
-    const matchesUnidade = filterUnidade === 'todas' || e.unidade_id === filterUnidade
-    const matchesAtivo = showInactive ? true : e.ativo !== false
-    const matchesStatus = filterStatus === 'todos' || 
-      (filterStatus === 'fechada' && e.status === 'Fechada') ||
-      (filterStatus === 'previsao' && e.status !== 'Fechada')
-
-    // Incremental Servidor Filter (Nome, CPF ou Matrícula)
-    let matchesServidor = true
-    if (searchServidor.trim()) {
-      const servTermLower = searchServidor.trim().toLowerCase()
-      const cleanCpfSearch = searchServidor.replace(/\D/g, '')
-
-      const servNome = (e.servidores?.nome || '').toLowerCase()
-      const servMatricula = (e.servidores?.matricula || '').toLowerCase()
-      const servCpf = (e.servidores?.cpf || '').replace(/\D/g, '')
-      const rawServCpf = (e.servidores?.cpf || '').toLowerCase()
-
-      const matchName = servNome.includes(servTermLower)
-      const matchMatricula = servMatricula.includes(servTermLower)
-      const matchCpf = cleanCpfSearch ? servCpf.includes(cleanCpfSearch) : rawServCpf.includes(servTermLower)
-
-      matchesServidor = matchName || matchMatricula || matchCpf
-    }
-    
-    // Security layer in memory (Secondary check)
-    let rolePermitted = true
-    if (profile?.role === 'super_admin') {
-      rolePermitted = true
-    } else if (profile?.role === 'admin') {
-      rolePermitted = hasSectorAccess(profile, e.setor_id, e.unidade_id)
-    } else if (profile?.role === 'coordenador' || profile?.role === 'ass_adm') {
-      // Regra restrita: Coordenador/Ass. Adm só vê se estiver vinculado ao setor ou se tiver acesso total aos setores da sua unidade
-      rolePermitted = hasSectorAccess(profile, e.setor_id, e.unidade_id)
-    } else if (profile?.role === 'comum' || profile?.role === 'servidor') {
-      rolePermitted = e.servidor_id === linkedServidorId
-    }
-
-    return matchesSearch && matchesUnidade && matchesAtivo && matchesStatus && matchesServidor && rolePermitted
-  })
+  // Quem pode e o que o usuario escolheu ver: predicado unico em escalasNavegacao.ts, o mesmo
+  // que as setas da grade usam para montar a sequencia. Se cada tela tivesse o seu, "proxima
+  // escala" pularia itens que a lista mostra.
+  const filteredEscalas = escalas.filter(e => escalaVisivel(e, filtrosAtuais, profile, linkedServidorId))
 
   const meses = [
     { value: 'todos', label: 'Todos os Meses' },
@@ -385,12 +365,14 @@ export default function EscalasPage() {
     })
   ]
 
-  const groupedKeys = Array.from(new Set(filteredEscalas.map(e => `${e.unidade_id}|${e.setor_id}|${e.mes}|${e.ano}`)))
+  // Ordem deterministica (competencia mais recente, depois unidade e setor por nome): e a
+  // sequencia que as setas da grade percorrem.
+  const grupos = agruparEscalas(filteredEscalas)
 
   const itemsPerPage = 10
-  const totalItems = groupedKeys.length
+  const totalItems = grupos.length
   const totalPages = Math.ceil(totalItems / itemsPerPage)
-  const paginatedKeys = groupedKeys.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+  const paginatedGrupos = grupos.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
 
   const getPageNumbers = () => {
     const range = 2
@@ -564,7 +546,7 @@ export default function EscalasPage() {
           {/* Scenario 2: Server has scales in other months/years, but none match current active filter */}
           {serverSearchResult.matchedServidores.length > 0 && 
            serverSearchResult.globalEscalas.length > 0 && 
-           groupedKeys.length === 0 && 
+           grupos.length === 0 && 
            (filterMes !== 'todos' || filterAno !== 'todos') && (
             <div className="p-4 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-blue-900 dark:text-blue-200 text-sm">
               <div className="flex items-start gap-3">
@@ -601,16 +583,14 @@ export default function EscalasPage() {
       {/* List */}
       <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-xl overflow-hidden">
         <div className="divide-y divide-zinc-200 dark:divide-zinc-800">
-          {paginatedKeys.map((key) => {
-            const [uId, sId, mes, ano] = key.split('|')
-            const item = filteredEscalas.find(e => 
-              e.unidade_id === uId && 
-              e.setor_id === sId && 
-              e.mes === parseInt(mes) && 
-              e.ano === parseInt(ano)
-            )
+          {paginatedGrupos.map((grupo) => {
+            const uId = grupo.unidade_id
+            const sId = grupo.setor_id
+            // Mes/ano seguem como texto: e a forma que a URL e o restante do card ja usavam.
+            const mes = String(grupo.mes)
+            const ano = String(grupo.ano)
+            const item = grupo.item
 
-            if (!item) return null
             const isAtiva = item.ativo !== false
 
             // Find matching servers for this card if searchServidor is typed
@@ -637,9 +617,9 @@ export default function EscalasPage() {
             }
 
             return (
-              <div key={key} className={`flex flex-col sm:flex-row sm:items-center justify-between p-6 hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-all group gap-4 ${!isAtiva ? 'opacity-60 bg-zinc-50/50 dark:bg-zinc-900/50' : ''}`}>
+              <div key={grupo.chave} className={`flex flex-col sm:flex-row sm:items-center justify-between p-6 hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-all group gap-4 ${!isAtiva ? 'opacity-60 bg-zinc-50/50 dark:bg-zinc-900/50' : ''}`}>
                 <Link
-                  href={`/escalas/unidade/${uId}?setor=${sId}&mes=${mes}&ano=${ano}`}
+                  href={urlDaGrade(grupo, origem)}
                   className="flex-1 flex items-start sm:items-center space-x-6 sm:space-x-8"
                 >
                   <div className="text-center w-20 border-r border-zinc-200 dark:border-zinc-800 pr-6 shrink-0">
@@ -703,7 +683,7 @@ export default function EscalasPage() {
                   >
                     {isAtiva ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                   </button>
-                  <Link href={`/escalas/unidade/${uId}?setor=${sId}&mes=${mes}&ano=${ano}`}>
+                  <Link href={urlDaGrade(grupo, origem)}>
                     <ChevronRight className="h-6 w-6 text-zinc-300 group-hover:text-blue-500 transition-colors" />
                   </Link>
                 </div>
@@ -711,7 +691,7 @@ export default function EscalasPage() {
             )
           })}
 
-          {groupedKeys.length === 0 && (
+          {grupos.length === 0 && (
             <div className="p-20 text-center text-zinc-500 dark:text-zinc-400">
               <Calendar className="mx-auto h-16 w-16 opacity-10 mb-6" />
               <p className="text-xl font-bold uppercase tracking-tight">Nenhuma escala encontrada</p>
