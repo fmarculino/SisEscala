@@ -122,6 +122,8 @@ export default async function UsuariosPage() {
     cpf: s.cpf,
     cargo: s.cargo,
     vinculo: s.vinculo,
+    unidade_id: s.unidade_id,
+    setor_id: s.setor_id,
     unidade_nome: s.unidades?.nome || null,
     setor_nome: (s.setores as any)?.dicionario_setores?.nome || null,
   })) || []
@@ -153,6 +155,8 @@ export default async function UsuariosPage() {
         cpf: s.cpf,
         cargo: s.cargo,
         vinculo: s.vinculo,
+        unidade_id: s.unidade_id,
+        setor_id: s.setor_id,
         unidade_nome: s.unidades?.nome || null,
         setor_nome: (s.setores as any)?.dicionario_setores?.nome || null,
       })
@@ -198,6 +202,11 @@ export default async function UsuariosPage() {
       vinculo: matchedServidor?.vinculo || null,
       lotacao_unidade: matchedServidor?.unidade_nome || null,
       lotacao_setor: matchedServidor?.setor_nome || null,
+      // Os ids da lotacao alimentam os filtros de Unidade/Setor da lista. Sem eles o filtro so
+      // conseguia casar contra o ESCOPO DE PERMISSAO, que e outra pergunta — e era por isso que
+      // filtrar um setor devolvia 71 das 95 contas (medido em 27/08/2026).
+      lotacao_unidade_id: matchedServidor?.unidade_id || null,
+      lotacao_setor_id: matchedServidor?.setor_id || null,
       // Só o vínculo de verdade volta em `servidor_id` — mandar o palpite aqui faria o formulário
       // de edição gravar como escolha do usuário algo que ninguém escolheu.
       servidor_id: p?.servidor_id || null,

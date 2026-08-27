@@ -247,11 +247,25 @@ export default function UserManagementClient({
     setPage(1)
   }, [userSearchTerm, filterRole, filterUnidade, filterSetor])
 
-  // Filter sectors based on selected unit for search filter dropdown
+  // Opções do dropdown de setor. Com unidade escolhida a lista é plana; sem unidade ela é
+  // AGRUPADA POR UNIDADE — são 644 setores e 79 nomes se repetem entre unidades ("RECEPÇÃO"
+  // existe 33 vezes, "PORTARIA" 32), então uma lista plana fazia a escolha parecer sorteio.
   const filteredSetoresOptions = useMemo(() => {
-    if (!filterUnidade) return setores
-    return setores.filter(s => s.unidade_id === filterUnidade)
+    const lista = filterUnidade ? setores.filter(s => s.unidade_id === filterUnidade) : setores
+    return [...lista].sort((a, b) => (a.nome || '').localeCompare(b.nome || ''))
   }, [filterUnidade, setores])
+
+  const setoresPorUnidade = useMemo(() => {
+    if (filterUnidade) return []
+    const nomeUnidade = new Map<string, string>(unidades.map((u: any) => [u.id, u.nome]))
+    const grupos = new Map<string, any[]>()
+    filteredSetoresOptions.forEach(s => {
+      const chave = nomeUnidade.get(s.unidade_id) || 'SEM UNIDADE'
+      if (!grupos.has(chave)) grupos.set(chave, [])
+      grupos.get(chave)!.push(s)
+    })
+    return [...grupos.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  }, [filterUnidade, filteredSetoresOptions, unidades])
 
   // Filter profiles based on search and selected options
   const filteredProfiles = useMemo(() => {
@@ -266,19 +280,38 @@ export default function UserManagementClient({
 
       const matchesRole = !filterRole || p.role === filterRole
 
-      const matchesUnidade = !filterUnidade || p.acesso_todas_unidades || p.permitted_unidades?.includes(filterUnidade)
+      // Unidade/Setor casam por LOTAÇÃO (onde a pessoa trabalha, o que o card mostra) OU por
+      // vínculo EXPLÍCITO de permissão. Decisão do usuário em 27/08/2026.
+      //
+      // ⚠️ Os coringas saíram de propósito: "Acesso Total" (todas as unidades / todos os setores)
+      // e "tem a unidade-pai do setor" faziam a conta passar em qualquer filtro. Medido em
+      // produção: filtrar o setor DMAC devolvia 71 das 95 contas — 38 entravam só por Acesso
+      // Total e 26 só por terem a unidade —, contra 7 vinculadas ao setor e 6 lotadas nele.
+      // O filtro parecia não funcionar porque a lista praticamente não mudava.
+      const matchesUnidade = !filterUnidade ||
+        p.lotacao_unidade_id === filterUnidade ||
+        p.permitted_unidades?.includes(filterUnidade)
 
-      const matchesSetor = !filterSetor || (() => {
-        if (p.acesso_todos_setores || p.acesso_todas_unidades) return true
-        if (p.permitted_setores?.includes(filterSetor)) return true
-        const sectorObj = setores.find(s => s.id === filterSetor)
-        if (sectorObj && p.permitted_unidades?.includes(sectorObj.unidade_id)) return true
-        return false
-      })()
+      const matchesSetor = !filterSetor ||
+        p.lotacao_setor_id === filterSetor ||
+        p.permitted_setores?.includes(filterSetor)
 
       return matchesSearch && matchesRole && matchesUnidade && matchesSetor
     })
-  }, [initialProfiles, userSearchTerm, filterRole, filterUnidade, filterSetor, setores])
+  }, [initialProfiles, userSearchTerm, filterRole, filterUnidade, filterSetor])
+
+  // Quantas contas de "Acesso Total" o filtro de Unidade/Setor está deixando de fora. Elas
+  // alcançam qualquer lugar, então entrariam em todo filtro e o esvaziariam de sentido — mas
+  // sumir sem explicação é pior: a lista diz quantas são e por quê.
+  const totalGlobaisOcultas = useMemo(() => {
+    if (!filterUnidade && !filterSetor) return 0
+    const idsVisiveis = new Set(filteredProfiles.map(p => p.id))
+    return initialProfiles.filter(p =>
+      !idsVisiveis.has(p.id) &&
+      (filterUnidade ? p.acesso_todas_unidades : (p.acesso_todos_setores || p.acesso_todas_unidades)) &&
+      (!filterRole || p.role === filterRole)
+    ).length
+  }, [initialProfiles, filteredProfiles, filterUnidade, filterSetor, filterRole])
 
   const totalCount = filteredProfiles.length
   const totalPages = Math.ceil(totalCount / pageSize)
@@ -957,9 +990,17 @@ export default function UserManagementClient({
                   className="flex-1 px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
                 >
                   <option value="">Todos os Setores</option>
-                  {filteredSetoresOptions.map(s => (
-                    <option key={s.id} value={s.id}>{s.nome}</option>
-                  ))}
+                  {filterUnidade
+                    ? filteredSetoresOptions.map(s => (
+                        <option key={s.id} value={s.id}>{s.nome}</option>
+                      ))
+                    : setoresPorUnidade.map(([unidadeNome, lista]) => (
+                        <optgroup key={unidadeNome} label={unidadeNome}>
+                          {lista.map((s: any) => (
+                            <option key={s.id} value={s.id}>{s.nome}</option>
+                          ))}
+                        </optgroup>
+                      ))}
                 </select>
 
                 {(userSearchTerm || filterRole || filterUnidade || filterSetor) && (
@@ -1118,6 +1159,11 @@ export default function UserManagementClient({
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-6 bg-zinc-50/50 dark:bg-zinc-800/20 border-t border-zinc-100 dark:border-zinc-800/80 print:hidden select-none">
               <div className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">
                 Mostrando <span className="text-zinc-800 dark:text-zinc-200">{totalCount === 0 ? 0 : (page - 1) * pageSize + 1}</span> - <span className="text-zinc-800 dark:text-zinc-200">{Math.min(page * pageSize, totalCount)}</span> de <span className="text-zinc-800 dark:text-zinc-200">{totalCount}</span> registros
+                {totalGlobaisOcultas > 0 && (
+                  <div className="mt-1 normal-case tracking-normal font-normal text-[11px] text-zinc-400 dark:text-zinc-500">
+                    {totalGlobaisOcultas} {totalGlobaisOcultas === 1 ? 'conta com Acesso Total não entra' : 'contas com Acesso Total não entram'} neste filtro de lugar — use o filtro de Nível de Acesso ou a busca por nome.
+                  </div>
+                )}
               </div>
               
               <div className="flex items-center gap-2">

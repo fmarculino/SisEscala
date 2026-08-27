@@ -30,6 +30,11 @@ export default function PresencaTerminalPage() {
   // pendente. Como a falha é silenciosa dos dois lados, ninguém percebe até auditarem os dados.
   const [atualizacaoPendente, setAtualizacaoPendente] = useState(false)
 
+  // Terminal clássico desativado nas Configurações. `null` = ainda não sabemos: a tela não pode
+  // piscar o formulário antes da resposta, senão volta a existir uma janela em que dá para digitar.
+  // A defesa real é fn_registrar_ponto no banco — isto aqui é para a pessoa ver o motivo.
+  const [terminalDesativado, setTerminalDesativado] = useState<boolean | null>(null)
+
   useEffect(() => {
     const versaoCarregada = process.env.NEXT_PUBLIC_APP_VERSION
     if (!versaoCarregada) return
@@ -51,6 +56,21 @@ export default function PresencaTerminalPage() {
     const id = setInterval(conferir, 5 * 60 * 1000)
     return () => { vivo = false; clearInterval(id) }
   }, [])
+
+  useEffect(() => {
+    let vivo = true
+    async function conferirCanal() {
+      const { data } = await supabase
+        .from('configuracoes_globais')
+        .select('valor')
+        .eq('chave', 'terminal_classico_habilitado')
+        .maybeSingle()
+      // Chave ausente ou falha de leitura = habilitado, o mesmo default do resto do sistema.
+      if (vivo) setTerminalDesativado(data?.valor === false)
+    }
+    conferirCanal()
+    return () => { vivo = false }
+  }, [supabase])
 
   // 1. Check for supervisor session on load
   useEffect(() => {
@@ -194,6 +214,32 @@ export default function PresencaTerminalPage() {
     await supabase.auth.signOut()
     setSupervisor(null)
     setStatus({ type: 'idle', message: '' })
+  }
+
+  // CANAL DESATIVADO: nenhuma tela de digitação, nem a de ativação do supervisor.
+  if (terminalDesativado !== false) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-zinc-50 dark:bg-zinc-950 p-4">
+        {terminalDesativado === null ? (
+          <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
+        ) : (
+          <div className="w-full max-w-md space-y-6 bg-white dark:bg-zinc-900 p-10 rounded-3xl shadow-2xl border border-zinc-200 dark:border-zinc-800 text-center">
+            <div className="mx-auto w-16 h-16 bg-amber-100 dark:bg-amber-900/30 text-amber-600 rounded-2xl flex items-center justify-center">
+              <AlertTriangle className="h-8 w-8" />
+            </div>
+            <h1 className="text-2xl font-black text-zinc-900 dark:text-white uppercase tracking-tight">Terminal Desativado</h1>
+            <p className="text-zinc-500 text-sm">
+              Este terminal de presença foi desativado pela administração. Registre o ponto no
+              relógio da sua unidade ou procure a administração do sistema.
+            </p>
+            <Link href="/login" className="inline-flex items-center gap-2 text-sm font-semibold text-blue-600 hover:text-blue-700">
+              <ArrowLeft className="h-4 w-4" />
+              Voltar para o Login
+            </Link>
+          </div>
+        )}
+      </div>
+    )
   }
 
   // IF NO SUPERVISOR: Show activation screen

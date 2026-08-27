@@ -1055,9 +1055,10 @@ export default function ConfigPage() {
                   <option value="false">Desabilitado</option>
                 </select>
                 <p className="text-[11px] text-zinc-400 leading-normal mt-1">
-                  Mostra ou esconde os botões &quot;Confirmar Presença&quot; (menu lateral e tela de login) que levam ao terminal
-                  clássico com login de coordenador. Desative depois de instalar o app coletor com o Terminal Local em todas
-                  as unidades — o botão fica escondido, mas o recurso não é removido.
+                  Liga ou desliga o terminal clássico de presença, com login de coordenador. Desative depois que a unidade
+                  já registrar ponto pelo relógio ou pelo Terminal Local. <strong className="text-amber-600 dark:text-amber-500">Desativado, o
+                  recurso deixa de existir</strong>: além de o botão sumir do menu e da tela de login, a página /presenca não
+                  abre e o banco recusa a marcação — link salvo nos favoritos não contorna. O Terminal Local não é afetado.
                 </p>
               </div>
             </div>

@@ -71,6 +71,39 @@ export async function updateSession(request: NextRequest) {
                            // /login, e e' por isso que "Verificar atualizacao" nunca funcionou.
   ]
 
+  // TERMINAL CLASSICO DESATIVADO — a rota nem chega a ser servida.
+  //
+  // Até 27/08/2026 `configuracoes_globais.terminal_classico_habilitado = false` só escondia os
+  // botões da sidebar e da tela de login. A página continuava respondendo, então quem guardou
+  // /presenca nos favoritos seguiu batendo ponto: 97 batidas de 18 servidores depois de a chave
+  // ser desligada, medido em produção. Esconder o caminho nunca fechou o caminho.
+  //
+  // Esta é a camada de conveniência (a pessoa vê o motivo em vez de um formulário que falha); a
+  // defesa de verdade é `fn_registrar_ponto`, que recusa a marcação no banco — a página é HTML
+  // estático servido de cache, e a RPC é chamável direto por quem tiver sessão.
+  //
+  // /presenca-local NÃO entra aqui: é outro canal, com token de dispositivo próprio.
+  const ehTerminalClassico = request.nextUrl.pathname === '/presenca' ||
+    request.nextUrl.pathname.startsWith('/presenca/')
+
+  if (ehTerminalClassico) {
+    const { data: cfg } = await supabase
+      .from('configuracoes_globais')
+      .select('valor')
+      .eq('chave', 'terminal_classico_habilitado')
+      .maybeSingle()
+
+    // Chave ausente = habilitado, o mesmo default do resto do sistema. Falha de leitura devolve
+    // `undefined` e também deixa passar: derrubar o terminal de ponto por instabilidade de rede
+    // seria pior que o problema que esta trava resolve — o banco recusa de qualquer forma.
+    if (cfg?.valor === false) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/login'
+      url.searchParams.set('terminal', 'desativado')
+      return NextResponse.redirect(url)
+    }
+  }
+
   if (
     !user &&
     !request.nextUrl.pathname.startsWith('/login') &&
