@@ -2396,8 +2396,29 @@ do escopo pelo próprio formulário.
 (`rh_unidade` incluído) solicitam. E **`historico_transferencias` ficou de fora** — a `FOR ALL` de
 lá tem a mesma folga, mas aquilo é log: escrever nele não move ninguém. Pendência conhecida.
 
-Portão: `node scratchpad/sim_avaliacao_transferencia.js` (14 casos). Diário em
-[`docs/evolucao/2026-08-28-avaliacao-de-transferencia-pelo-rh.md`](docs/evolucao/2026-08-28-avaliacao-de-transferencia-pelo-rh.md).
+⚠️ **Nome de setor sozinho não identifica setor, e a saída que estava sendo usada era batizar o
+dicionário de "BLOCO A SHL".** "BLOCO A" existe embaixo de mais de um pai, e a linha da
+transferência (`UNIDADE / SETOR`) e os `<select>` mostravam só a folha — escrever a hierarquia
+dentro do nome duplica no cadastro o que o `parent_id` já sabe. **`buildSectorPathMap` /
+`formatSectorPaths` (`src/utils/sectors.ts`)** montam o caminho completo (`SHL \ BLOCO A`).
+Separador é **barra invertida** de propósito: a tela já usa `" / "` entre unidade e setor, e
+repetir a barra normal apagaria essa fronteira. **Não substituem `formatSectorsHierarchy`** — o
+recuo com `↳` serve para lista curta, onde o pai fica na linha de cima; o caminho serve para texto
+solto e `<select>` longo, onde o pai sai da tela ao rolar. Hoje aplicados só em
+`/servidores/pendencias`; são reutilizáveis em qualquer tela com a mesma dor.
+
+⚠️ **Nessa mesma passada apareceu um filtro que nunca filtrou:** os dois `<select>` de setor de
+`/servidores/pendencias` fazem `.filter(s => s.ativo !== false)` para não oferecer setor
+desativado, mas `page.tsx` montava a lista sem repassar `ativo` — e `undefined !== false` é
+**sempre true**, então os 17 setores inativos continuavam aparecendo. O comentário no componente
+descrevia um comportamento que o dado não sustentava. Ao montar lista para componente que filtra
+por campo, **confira que o campo chega lá**.
+
+Portões: `node scratchpad/sim_avaliacao_transferencia.js` (14 casos) e
+`node scratchpad/sim_caminho_setor.js` (caminho, órfão, ciclo em `parent_id`, preservação de
+`ativo`). Transpile antes com
+`npx tsc src/utils/avaliacaoTransferencia.ts src/utils/sectors.ts --outDir scratchpad/_sim --module commonjs --target es2020`.
+Diário em [`docs/evolucao/2026-08-28-avaliacao-de-transferencia-pelo-rh.md`](docs/evolucao/2026-08-28-avaliacao-de-transferencia-pelo-rh.md).
 
 ## Convenções
 

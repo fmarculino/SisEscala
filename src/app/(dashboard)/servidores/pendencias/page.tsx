@@ -1,7 +1,7 @@
 import { createClient } from '@/utils/supabase/server'
 import { ShieldAlert } from 'lucide-react'
 import { PendenciasCadastroClient } from './PendenciasCadastroClient'
-import { formatSectorsHierarchy } from '@/utils/sectors'
+import { buildSectorPathMap, formatSectorPaths } from '@/utils/sectors'
 import { avaliarPermissaoTransferencia, ehAvaliadorDeTransferencia, type EscopoAvaliador } from '@/utils/avaliacaoTransferencia'
 
 /**
@@ -181,19 +181,22 @@ export default async function PendenciasCadastroPage() {
       }
     })
 
-    // Nomes SEM prefixo de hierarquia - viram `setorOrigemNome`/`setorDestinoNome`, texto solto
-    // na lista de transferências, onde um "↳ " colado no rótulo ficaria fora de lugar.
+    // ⚠️ `ativo` PRECISA vir junto. Os dois <select> desta tela filtram por `s.ativo !== false`
+    // pra não oferecer setor desativado — e como o campo não era repassado aqui, o filtro nunca
+    // recusou nada: `undefined !== false` é sempre true, e os 17 setores inativos continuavam na
+    // lista. O comentário no componente descrevia um comportamento que o dado não sustentava.
     const setoresFlat = (setoresRes.data || []).map((s: any) => {
       const dictData = Array.isArray(s.dicionario_setores) ? s.dicionario_setores[0] : s.dicionario_setores
-      return { id: s.id, unidade_id: s.unidade_id, parent_id: s.parent_id, nome: dictData?.nome || 'SETOR SEM NOME' }
+      return { id: s.id, unidade_id: s.unidade_id, parent_id: s.parent_id, ativo: s.ativo, nome: dictData?.nome || 'SETOR SEM NOME' }
     })
-    // Hierarquico so pra alimentar os <select> do formulario (ImportacaoRhSection,
-    // SolicitacoesTransferenciaSection).
-    const setoresRh = formatSectorsHierarchy(setoresFlat)
+    // Caminho completo ("SHL \ BLOCO A") em vez do nome solto: "BLOCO A" existe embaixo de mais
+    // de um pai, e nem a linha da transferência nem o <select> davam como saber de qual se trata.
+    const caminhoSetorPorId = buildSectorPathMap(setoresFlat)
+    const setoresRh = formatSectorPaths(setoresFlat)
 
     const solicitacoesTransferencia = mapearSolicitacoes(solicitacoesRes.data || [], {
       nomeUnidadePorId: new Map((unidadesTodasRes.data || []).map((u: any) => [u.id, u.nome])),
-      nomeSetorPorId: new Map(setoresFlat.map((s) => [s.id, s.nome])),
+      nomeSetorPorId: caminhoSetorPorId,
       nomePerfilPorId: new Map((profilesRes.data || []).map((p: any) => [p.id, p.full_name])),
       escopo: escopoAvaliador,
     })
@@ -249,7 +252,7 @@ export default async function PendenciasCadastroPage() {
     supabase.rpc('fn_possiveis_duplicidades_servidor'),
     supabase
       .from('servidores')
-      .select('id, nome, matricula, status, unidades(nome), setores(dicionario_setores(nome))')
+      .select('id, nome, matricula, status, setor_id, unidades(nome), setores(dicionario_setores(nome))')
       .is('cpf', null)
       .order('nome'),
     supabase.from('servidores').select('id', { count: 'exact', head: true }),
@@ -273,6 +276,16 @@ export default async function PendenciasCadastroPage() {
   const { count: totalServidores } = totaisRes
   const { count: semPisCount } = semPisRes
 
+  // ⚠️ `ativo` PRECISA vir junto — ver o comentário gêmeo no ramo escopado acima.
+  const setoresRhFlat = (setoresRes.data || []).map((s: any) => {
+    const dictData = Array.isArray(s.dicionario_setores) ? s.dicionario_setores[0] : s.dicionario_setores
+    return { id: s.id, unidade_id: s.unidade_id, parent_id: s.parent_id, ativo: s.ativo, nome: dictData?.nome || 'SETOR SEM NOME' }
+  })
+  // Caminho completo ("SHL \ BLOCO A"), tanto no texto solto das listas quanto nos <select> —
+  // nome de setor sozinho não diz de qual pai ele é.
+  const caminhoSetorPorId = buildSectorPathMap(setoresRhFlat)
+  const setoresRh = formatSectorPaths(setoresRhFlat)
+
   const semCpf = (semCpfRes.data || []).map((s: any) => {
     const setorData = Array.isArray(s.setores) ? s.setores[0] : s.setores
     const dictData = setorData
@@ -285,7 +298,9 @@ export default async function PendenciasCadastroPage() {
       matricula: s.matricula,
       status: s.status,
       unidade_nome: unidadeData?.nome || null,
-      setor_nome: dictData?.nome || null,
+      // Caminho completo quando o setor está na lista; o nome do embed é o fallback (setor fora
+      // do escopo de leitura desta consulta não teria caminho a montar).
+      setor_nome: caminhoSetorPorId.get(s.setor_id) || dictData?.nome || null,
     }
   })
 
@@ -304,19 +319,9 @@ export default async function PendenciasCadastroPage() {
     }
   })
 
-  // Nomes SEM prefixo de hierarquia - vira `setorOrigemNome`/`setorDestinoNome` (texto solto na
-  // lista de transferencias), onde um "↳ " colado no rotulo ficaria fora de lugar.
-  const setoresRhFlat = (setoresRes.data || []).map((s: any) => {
-    const dictData = Array.isArray(s.dicionario_setores) ? s.dicionario_setores[0] : s.dicionario_setores
-    return { id: s.id, unidade_id: s.unidade_id, parent_id: s.parent_id, nome: dictData?.nome || 'SETOR SEM NOME' }
-  })
-  // Mesma lista, com recuo/marcador de arvore - so pros <select> (ImportacaoRhSection,
-  // SolicitacoesTransferenciaSection).
-  const setoresRh = formatSectorsHierarchy(setoresRhFlat)
-
   const solicitacoesTransferencia = mapearSolicitacoes(solicitacoesTransferenciaRes.data || [], {
     nomeUnidadePorId: new Map((unidadesRes.data || []).map((u: any) => [u.id, u.nome])),
-    nomeSetorPorId: new Map(setoresRhFlat.map((s) => [s.id, s.nome])),
+    nomeSetorPorId: caminhoSetorPorId,
     nomePerfilPorId: new Map((profilesRes.data || []).map((p: any) => [p.id, p.full_name])),
     escopo: escopoAvaliador,
   })

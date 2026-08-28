@@ -67,3 +67,72 @@ export function formatSectorsHierarchy(sectors: Sector[]): Sector[] {
 
   return result;
 }
+
+/**
+ * Separador do caminho de setor. Barra INVERTIDA de proposito: a tela ja usa " / " entre unidade
+ * e setor ("HMI - Hospital Materno Infantil / BLOCO A"), entao repetir a barra normal apagaria a
+ * fronteira entre as duas coisas.
+ */
+export const SECTOR_PATH_SEPARATOR = ' \\ ';
+
+/**
+ * Caminho completo de cada setor, da raiz ate ele ("SHL \ BLOCO A").
+ *
+ * Existe porque nome de setor sozinho nao identifica nada: "BLOCO A" aparece embaixo de mais de
+ * um pai, e quem le a lista de transferencia (ou escolhe um destino) nao tem como saber de qual
+ * se trata. A saida ate 28/08/2026 era batizar o setor no dicionario de "BLOCO A SHL" -- ou
+ * seja, escrever a hierarquia dentro do nome, duplicando no cadastro o que o `parent_id` ja sabe.
+ *
+ * NAO substitui `formatSectorsHierarchy`: aquela ordena em arvore e recua com "↳", o que serve
+ * para lista curta, onde o pai fica visivel na linha de cima. Esta serve para texto solto e para
+ * <select> longo, onde o pai sai da tela assim que se rola a lista.
+ *
+ * Setor cujo pai nao esta na lista (fora do escopo de quem consulta) comeca o caminho nele mesmo
+ * -- inventar ancestral que nao se pode ler seria pior que mostrar o caminho curto. Ciclo em
+ * `parent_id` para de subir e devolve o que ja montou.
+ */
+export function buildSectorPathMap(
+  sectors: Sector[],
+  separator: string = SECTOR_PATH_SEPARATOR,
+): Map<string, string> {
+  const byId = new Map(sectors.map(s => [s.id, s]));
+  const cache = new Map<string, string>();
+
+  const caminho = (sector: Sector): string => {
+    const pronto = cache.get(sector.id);
+    if (pronto !== undefined) return pronto;
+
+    // Marca ANTES de subir: se um ancestral voltar a este id (ciclo em parent_id), ele encontra
+    // o proprio nome ja no cache e a recursao para, em vez de estourar a pilha.
+    cache.set(sector.id, sector.nome);
+
+    const parentId = sector.parent_id && sector.parent_id !== sector.id ? sector.parent_id : null;
+    const parent = parentId ? byId.get(parentId) : undefined;
+    const valor = parent ? `${caminho(parent)}${separator}${sector.nome}` : sector.nome;
+
+    cache.set(sector.id, valor);
+    return valor;
+  };
+
+  sectors.forEach(caminho);
+  return cache;
+}
+
+/**
+ * A mesma lista, com `nome` trocado pelo caminho completo e ordenada POR caminho -- filhos do
+ * mesmo pai ficam juntos sem precisar de recuo. Para alimentar <select>.
+ *
+ * Generica de proposito: `ativo`, `parent_id` e o que mais vier junto no objeto sobrevivem. A
+ * tela que filtra por `ativo` depende disso (`.filter(s => s.ativo !== false)` em
+ * ImportacaoRhSection e SolicitacoesTransferenciaSection).
+ */
+export function formatSectorPaths<T extends Sector>(
+  sectors: T[],
+  separator: string = SECTOR_PATH_SEPARATOR,
+): T[] {
+  if (!sectors || sectors.length === 0) return [];
+  const caminhos = buildSectorPathMap(sectors, separator);
+  return sectors
+    .map(s => ({ ...s, nome: caminhos.get(s.id) || s.nome }))
+    .sort((a, b) => a.nome.localeCompare(b.nome));
+}

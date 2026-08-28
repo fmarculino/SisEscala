@@ -68,7 +68,12 @@ interface PendenciasCadastroClientProps {
   pendentesRh: PendenteRh[]
   erroPendentesRh: string | null
   unidades: { id: string; nome: string }[]
-  setores: { id: string; unidade_id: string | null; nome: string }[]
+  /**
+   * `nome` já vem como CAMINHO COMPLETO ("SHL \ BLOCO A", `formatSectorPaths`) — as duas seções
+   * mostram setor como texto solto e em <select> longo, e o nome da folha sozinho não diz de
+   * qual pai ele é. `ativo` é o que os dois <select> usam pra não oferecer setor desativado.
+   */
+  setores: { id: string; unidade_id: string | null; nome: string; ativo?: boolean }[]
   cargos: { id: string; nome: string }[]
   solicitacoesTransferencia: {
     id: string

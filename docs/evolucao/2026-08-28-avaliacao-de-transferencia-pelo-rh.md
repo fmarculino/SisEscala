@@ -74,6 +74,40 @@ Linha que o avaliador vê mas não pode decidir aparece **sem botão, com o moti
 da lista seria pior: o pedido existe, é da unidade dele, e sumir sem explicação é o modo de falha
 silencioso que este projeto já pagou várias vezes.
 
+## Segunda parte: o setor aparecia só pela folha, e isso estava virando cadastro duplicado
+
+A linha do pedido dizia `HMI - Hospital Materno Infantil / BLOCO A`. **"BLOCO A" existe embaixo de
+mais de um pai**, então não dava para saber de qual se tratava — e a saída que estava em uso era
+batizar o setor no dicionário de `BLOCO A SHL`, ou seja, escrever a hierarquia dentro do nome,
+duplicando no cadastro o que o `parent_id` já sabe.
+
+**`buildSectorPathMap` / `formatSectorPaths` (`src/utils/sectors.ts`)** montam o caminho completo:
+`HMI - Hospital Materno Infantil / SHL \ BLOCO A`. Aplicados em `/servidores/pendencias` no texto
+solto (linha da transferência, tabela "Servidores sem CPF") e nos dois `<select>` de setor.
+
+⚠️ **Separador é barra invertida de propósito.** A tela já usa `" / "` entre unidade e setor;
+repetir a barra normal apagaria a fronteira entre "onde termina a unidade" e "onde começa o
+caminho do setor".
+
+⚠️ **Não substituem `formatSectorsHierarchy`, e ela continua onde está.** O recuo com `↳` serve
+para lista curta, onde o pai está na linha de cima; o caminho serve para texto solto e para
+`<select>` longo, onde o pai sai da tela assim que se rola. As outras 15 telas que usam a versão
+em árvore não foram tocadas.
+
+Pai fora da lista (fora do escopo de leitura de quem consulta) começa o caminho nele mesmo —
+inventar ancestral que não se pode ler seria pior que mostrar o caminho curto. Ciclo em
+`parent_id` para de subir em vez de estourar a pilha.
+
+### Um filtro que nunca filtrou, encontrado no caminho
+
+⚠️ Os dois `<select>` de setor desta tela fazem `.filter(s => s.ativo !== false)` para não
+oferecer setor desativado — a consulta busca `ativo`, o comentário no componente explica a regra —
+mas **`page.tsx` montava a lista sem repassar o campo**. `undefined !== false` é sempre `true`:
+os 17 setores inativos continuavam aparecendo, nas duas seções, desde sempre. Corrigido junto.
+
+**Lição:** ao montar a lista que alimenta um componente que filtra por um campo, confira que o
+campo chega lá — o filtro não reclama quando o dado não existe, ele simplesmente aceita tudo.
+
 ## O que NÃO foi alterado
 
 - **`updateServidor`** continua como estava: `super_admin` e `rh` transferem direto; todos os
@@ -86,8 +120,11 @@ silencioso que este projeto já pagou várias vezes.
 ## Verificação
 
 - `npx tsc --noEmit` e `npm run build` — limpos.
-- `node scratchpad/sim_avaliacao_transferencia.js` — 14 casos de papel/escopo/ação, todos OK
-  (transpile antes: `npx tsc src/utils/avaliacaoTransferencia.ts --outDir scratchpad/_sim --module commonjs --target es2020`).
+- `node scratchpad/sim_avaliacao_transferencia.js` — 14 casos de papel/escopo/ação, todos OK.
+- `node scratchpad/sim_caminho_setor.js` — caminho de 3 níveis, duas "BLOCO A" em ramos
+  diferentes, órfão, ciclo em `parent_id` e preservação de `ativo`/`unidade_id`, todos OK.
+- Transpile antes dos dois:
+  `npx tsc src/utils/avaliacaoTransferencia.ts src/utils/sectors.ts --outDir scratchpad/_sim --module commonjs --target es2020`.
 - A migration **confere o próprio resultado** e aborta: nenhuma policy `FOR ALL` pode sobrar,
   tem que existir exatamente **uma** de `UPDATE` (a nova), e as 4 de `SELECT`/`INSERT` continuam
   no lugar.
