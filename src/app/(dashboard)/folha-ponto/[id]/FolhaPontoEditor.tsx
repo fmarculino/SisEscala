@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { salvarFolhaPonto, verificarDivergenciaEscala, sincronizarFolhaPonto, gerarFolhaPonto, reclassificarPassoPresenca, getDadosPlantoesSobreavisosServidor, autoCorrigirFolhaPonto } from '../actions'
 import { Modal } from '@/components/ui/Modal'
+import { ocorrenciasDoMes } from '@/utils/folha/ocorrencias'
 import { createClient } from '@/utils/supabase/client'
 import { isFaltaDefinitiva } from '@/utils/folha/faltaAutomatica'
 import { isPendenciaRevisao, resolverPendenciaRevisao } from '@/utils/folha/diaIncompleto'
@@ -617,114 +618,16 @@ export function FolhaPontoEditor({
     }
   }, [registros, jornada, folha.ano, folha.mes])
 
-  // Extrai todas as ocorrências e justificativas do mês para o Verso (Página 2)
-  const ocorrenciasMes = useMemo(() => {
-    const lista: Array<{
-      dia: number
-      dia_semana: string
-      data_formatada: string
-      tipo: string
-      passo: string
-      justificativa: string
-      origem: string
-    }> = []
-
-    const weekDaysShort = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB']
-
-    registros.forEach((r) => {
-      const dateObj = new Date(folha.ano, folha.mes - 1, r.dia)
-      const dataFormatada = `${String(r.dia).padStart(2, '0')}/${String(folha.mes).padStart(2, '0')}/${folha.ano}`
-      const diaSem = weekDaysShort[dateObj.getDay()]
-
-      // 1. Afastamento / Férias / Atestado / Licença
-      if (r.afastamento) {
-        lista.push({
-          dia: r.dia,
-          dia_semana: diaSem,
-          data_formatada: dataFormatada,
-          tipo: 'Afastamento / Atestado',
-          passo: 'Dia Integral',
-          justificativa: r.observacao || r.afastamento,
-          origem: 'Registro de RH / Gestão'
-        })
-      }
-      // 2. Feriado
-      else if (r.feriado) {
-        lista.push({
-          dia: r.dia,
-          dia_semana: diaSem,
-          data_formatada: dataFormatada,
-          tipo: 'Feriado Oficial',
-          passo: 'Dia Integral',
-          justificativa: r.observacao || 'Feriado Nacional / Municipal',
-          origem: 'Calendário Oficial'
-        })
-      }
-      // 3. Ponto Facultativo
-      else if (r.ponto_facultativo) {
-        lista.push({
-          dia: r.dia,
-          dia_semana: diaSem,
-          data_formatada: dataFormatada,
-          tipo: 'Ponto Facultativo',
-          passo: r.entrada && r.saida ? 'Parcial' : 'Dia Integral',
-          justificativa: r.observacao || 'Decreto de Ponto Facultativo',
-          origem: 'Decreto Municipal'
-        })
-      }
-
-      // 4. Ajustes manuais de batidas
-      const temAjusteEntrada = r.origem_entrada === 'manual' || r.origem_entrada === 'ajuste_coordenador' || r.origem_entrada === 'ajuste_servidor'
-      const temAjusteSaida = r.origem_saida === 'manual' || r.origem_saida === 'ajuste_coordenador' || r.origem_saida === 'ajuste_servidor'
-      const temAjusteIntSaida = r.origem_saida_intervalo === 'manual' || r.origem_saida_intervalo === 'ajuste_coordenador'
-      const temAjusteIntRetorno = r.origem_retorno_intervalo === 'manual' || r.origem_retorno_intervalo === 'ajuste_coordenador'
-
-      if (temAjusteEntrada || temAjusteSaida || temAjusteIntSaida || temAjusteIntRetorno) {
-        const passosAjustados: string[] = []
-        if (temAjusteEntrada) passosAjustados.push(`Entrada (${r.entrada || '--:--'})`)
-        if (temAjusteIntSaida) passosAjustados.push(`Saída Int. (${r.saida_intervalo || '--:--'})`)
-        if (temAjusteIntRetorno) passosAjustados.push(`Retorno Int. (${r.retorno_intervalo || '--:--'})`)
-        if (temAjusteSaida) passosAjustados.push(`Saída (${r.saida || '--:--'})`)
-
-        lista.push({
-          dia: r.dia,
-          dia_semana: diaSem,
-          data_formatada: dataFormatada,
-          tipo: 'Inclusão / Ajuste Manual de Ponto',
-          passo: passosAjustados.join(', '),
-          justificativa: r.observacao || 'Esquecimento de registro / Atividade externa autorizada',
-          origem: 'Ajuste Manual Homologado'
-        })
-      }
-      // 5. Observação manual avulsa digitada (sem ser afastamento/feriado já incluído)
-      else if (r.observacao && !r.afastamento && !r.feriado && !r.ponto_facultativo) {
-        lista.push({
-          dia: r.dia,
-          dia_semana: diaSem,
-          data_formatada: dataFormatada,
-          tipo: 'Observação / Justificativa',
-          passo: r.entrada && r.saida ? `${r.entrada} às ${r.saida}` : 'Jornada',
-          justificativa: r.observacao,
-          origem: 'Gestão / Coordenação'
-        })
-      }
-
-      // 6. Jornada Temporária
-      if (r.jornada_temporaria) {
-        lista.push({
-          dia: r.dia,
-          dia_semana: diaSem,
-          data_formatada: dataFormatada,
-          tipo: 'Jornada Temporária',
-          passo: r.jornada_nome || 'Horário Especial',
-          justificativa: `Cumprimento em escala/jornada autorizada: ${r.jornada_nome || ''}`,
-          origem: 'Ordem de Serviço / Portaria'
-        })
-      }
-    })
-
-    return lista.sort((a, b) => a.dia - b.dia)
-  }, [registros, folha.ano, folha.mes])
+  // Ocorrências do verso (Página 2) — regra em src/utils/folha/ocorrencias.ts.
+  //
+  // ⚠️ Antes esta lista incluía TODO dia com `observacao` preenchida, e a geração da folha
+  // escreve SÁBADO/DOMINGO/FOLGA sozinha em todo dia sem escala: 6.216 das 11.505 linhas de
+  // 08/2026 eram fim de semana, assinadas como "Gestão / Coordenação". A regra vive num lugar
+  // só porque a impressão em lote (folha-ponto/page.tsx) monta o mesmo relatório.
+  const ocorrenciasMes = useMemo(
+    () => ocorrenciasDoMes(registros as any[], folha.mes, folha.ano),
+    [registros, folha.ano, folha.mes]
+  )
 
   // Estatísticas de Frequência do Mês para o Verso
   const estatisticasVerso = useMemo(() => {

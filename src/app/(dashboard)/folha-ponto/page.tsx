@@ -10,6 +10,7 @@ import { applyAccessFilters, isAccessUnrestricted } from '@/utils/permissions'
 import { getServidoresFolhaPonto, gerarFolhaPonto, gerarFolhasEmLote, getFolhasPontoPrintData, autoCorrigirTodasFolhasPonto, buscarServidoresFolhaPonto } from './actions'
 import { Modal } from '@/components/ui/Modal'
 import { formatSectorsHierarchy } from '@/utils/sectors'
+import { ocorrenciasDoMes } from '@/utils/folha/ocorrencias'
 
 export default function FolhaPontoPage() {
   const supabase = createClient()
@@ -629,14 +630,19 @@ export default function FolhaPontoPage() {
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-zinc-200">
-                  ${parsedRegs.filter((r: any) => r.afastamento || r.feriado || r.ponto_facultativo || r.observacao || r.origem_entrada === 'manual' || r.origem_saida === 'manual').length > 0 ? (
-                    parsedRegs
-                      .filter((r: any) => r.afastamento || r.feriado || r.ponto_facultativo || r.observacao || r.origem_entrada === 'manual' || r.origem_saida === 'manual')
+                  ${(() => {
+                    // Mesma regra do editor da folha — src/utils/folha/ocorrencias.ts. Este
+                    // relatório listava todo dia com `observacao`, e SÁBADO/DOMINGO/FOLGA são
+                    // escritos pela própria geração: eram 54% das linhas, assinadas como se
+                    // alguém tivesse justificado.
+                    const ocorrencias = ocorrenciasDoMes(parsedRegs as any[], folha.mes, folha.ano)
+                    return ocorrencias.length > 0 ? (
+                    ocorrencias
                       .map((r: any) => {
-                        const tipo = r.afastamento ? 'Afastamento / Atestado' : r.feriado ? 'Feriado Oficial' : r.ponto_facultativo ? 'Ponto Facultativo' : (r.origem_entrada === 'manual' || r.origem_saida === 'manual') ? 'Ajuste Manual de Ponto' : 'Justificativa de Ponto'
-                        const passo = r.afastamento || r.feriado ? 'Dia Integral' : `${r.entrada || '--:--'} às ${r.saida || '--:--'}`
-                        const motivo = r.observacao || r.afastamento || 'Regularização de frequência homologada'
-                        const origem = r.afastamento ? 'RH / Gestão' : r.feriado ? 'Calendário Oficial' : (r.origem_entrada === 'manual' || r.origem_saida === 'manual') ? 'Ajuste Manual' : 'Coordenação'
+                        const tipo = r.tipo
+                        const passo = r.passo
+                        const motivo = r.justificativa
+                        const origem = r.origem
 
                         return `
                           <tr>
@@ -653,7 +659,8 @@ export default function FolhaPontoPage() {
                     <tr>
                       <td colspan="6" class="px-4 py-4 text-center text-zinc-400 italic">Nenhuma ocorrência extraordinária ou ajuste manual registrado no período.</td>
                     </tr>
-                  `}
+                  `
+                  })()}
                 </tbody>
               </table>
             </div>
