@@ -77,6 +77,22 @@ export default async function EditServidorPage({
     .eq('servidor_id', id)
     .order('data_inicio', { ascending: false })
 
+  // Quem pode gravar vigência de jornada vem da MESMA função que as policies de escrita usam
+  // (fn_pode_gerir_vigencia_jornada, 20260828140000) — não de uma lista de papéis repetida aqui.
+  // Até 28/08/2026 a tela oferecia o formulário a todo mundo e o RH da Unidade só descobria que
+  // não podia quando a RLS recusava, com a mensagem crua do Postgres na cara dele.
+  const { data: podeGerirRpc, error: erroPodeGerir } = await supabase
+    .rpc('fn_pode_gerir_vigencia_jornada', { p_servidor_id: id })
+
+  // Fallback para a janela entre o deploy do código e a aplicação da migration: sem a função no
+  // banco, a RPC falha e todo mundo perderia o formulário — inclusive quem a policy ANTIGA já
+  // aceitava. Nesse caso vale exatamente a lista antiga, nunca mais que ela: o banco continua
+  // sendo quem decide, e prometer na tela o que ele ainda recusa é o defeito que se está
+  // corrigindo. Pode sair depois que 20260828140000 estiver nos dois ambientes.
+  const podeGerirVigencia = erroPodeGerir
+    ? ['super_admin', 'admin', 'coordenador'].includes(profile?.role || '')
+    : podeGerirRpc === true
+
   if (!servidor) {
     return <div className="p-8 text-center text-red-600 font-bold">Servidor não encontrado</div>
   }
@@ -141,6 +157,7 @@ export default async function EditServidorPage({
       folhas={folhas || []}
       jornadas={jornadas || []}
       jornadasTemporarias={jornadasTemporarias || []}
+      podeGerirVigencia={podeGerirVigencia}
     />
   )
 }

@@ -2,6 +2,7 @@
 
 import { createClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { MOTIVO_OBRIGATORIO, traduzirErroVigencia } from '@/utils/vigenciaJornada'
 
 /**
  * Mudanca de jornada de um servidor numa escala em curso.
@@ -37,7 +38,7 @@ export async function criarVigenciaJornada(
   if (!user) return { error: 'Não autenticado.' }
 
   if (!motivo || !motivo.trim()) {
-    return { error: 'Informe o motivo da alteração de jornada.' }
+    return { error: MOTIVO_OBRIGATORIO }
   }
 
   const { error } = await supabase
@@ -52,8 +53,9 @@ export async function criarVigenciaJornada(
     })
 
   if (error) {
-    // A trigger trg_vigencia_jornada_sem_sobreposicao devolve uma mensagem ja legivel.
-    return { error: error.message }
+    // A trigger trg_vigencia_jornada_sem_sobreposicao devolve uma mensagem ja legivel; a recusa
+    // da RLS nao (era ela que aparecia crua na tela ate 28/08/2026).
+    return { error: traduzirErroVigencia(error.message) }
   }
 
   revalidatePath(`/escalas/unidade/${unidadeId}`)

@@ -8,6 +8,7 @@ import { Info, History, User, Calendar, FileText, ArrowRight, Clock, MapPin, Che
 import Link from 'next/link'
 import { createJornadaTemporaria, deleteJornadaTemporaria } from '../actions'
 import { useDialog } from '@/components/ui/DialogProvider'
+import { MOTIVO_OBRIGATORIO } from '@/utils/vigenciaJornada'
 
 interface ServidorDetalhesClientProps {
   id: string
@@ -21,6 +22,8 @@ interface ServidorDetalhesClientProps {
   folhas: any[]
   jornadas: any[]
   jornadasTemporarias: any[]
+  /** Resolvido no servidor por fn_pode_gerir_vigencia_jornada — a mesma função das policies. */
+  podeGerirVigencia: boolean
 }
 
 export function ServidorDetalhesClient({
@@ -34,7 +37,8 @@ export function ServidorDetalhesClient({
   escalas,
   folhas,
   jornadas,
-  jornadasTemporarias
+  jornadasTemporarias,
+  podeGerirVigencia
 }: ServidorDetalhesClientProps) {
   const dialog = useDialog()
   const [activeTab, setActiveTab] = useState<'cadastro' | 'historico' | 'jornadas_temporarias'>('cadastro')
@@ -197,6 +201,14 @@ export function ServidorDetalhesClient({
       return
     }
 
+    // Justificativa é obrigatória nas duas portas que gravam esta tabela (a outra é a grade de
+    // escala) e é CHECK no banco desde 20260828140000 — aqui só para não gastar ida ao servidor.
+    if (!motivo.trim()) {
+      setFormError(MOTIVO_OBRIGATORIO)
+      setLoading(false)
+      return
+    }
+
     if (new Date(dataInicio) > new Date(dataFim)) {
       setFormError('A data de início não pode ser posterior à data de término.')
       setLoading(false)
@@ -323,7 +335,19 @@ export function ServidorDetalhesClient({
 
         {activeTab === 'jornadas_temporarias' && (
           <div className="space-y-8 animate-in fade-in">
+            {/* Quem o banco vai recusar não recebe o formulário — a recusa da RLS chegava crua na
+                tela (28/08/2026, RH da Unidade). A regra é a mesma dos dois lados:
+                fn_pode_gerir_vigencia_jornada. */}
+            {!podeGerirVigencia && (
+              <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 p-6 rounded-2xl text-sm text-amber-900 dark:text-amber-300 font-semibold">
+                Seu perfil não permite alterar a jornada deste servidor — a lista abaixo é só
+                consulta. RH da Unidade alcança apenas servidores lotados nas unidades vinculadas
+                ao seu usuário.
+              </div>
+            )}
+
             {/* Create temporary journey form */}
+            {podeGerirVigencia && (
             <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-8 rounded-2xl shadow-sm space-y-6">
               <h2 className="text-lg font-bold text-zinc-900 dark:text-white flex items-center gap-2">
                 <Plus className="h-5 w-5 text-blue-500" />
@@ -375,14 +399,19 @@ export function ServidorDetalhesClient({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Motivo / Observação</label>
+                  <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Motivo / Justificativa *</label>
                   <textarea
                     value={motivo}
                     onChange={(e) => setMotivo(e.target.value)}
                     rows={2}
+                    required
                     placeholder="Ex: Acordo operacional de troca de turno temporário..."
                     className="w-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none"
                   />
+                  <p className="mt-2 text-[11px] text-zinc-500">
+                    Obrigatória: a vigência muda como cada dia do período é julgado na folha — sem
+                    o motivo, a mudança legítima fica indistinguível de um engano.
+                  </p>
                 </div>
 
                 <div className="flex justify-end">
@@ -396,6 +425,7 @@ export function ServidorDetalhesClient({
                 </div>
               </form>
             </div>
+            )}
 
             {/* List of active temporary journeys */}
             <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-8 rounded-2xl shadow-sm space-y-6">
@@ -415,7 +445,7 @@ export function ServidorDetalhesClient({
                         <th scope="col" className="px-6 py-3">Período</th>
                         <th scope="col" className="px-6 py-3">Duração</th>
                         <th scope="col" className="px-6 py-3">Motivo</th>
-                        <th scope="col" className="px-6 py-3 text-right">Ação</th>
+                        {podeGerirVigencia && <th scope="col" className="px-6 py-3 text-right">Ação</th>}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
@@ -433,15 +463,17 @@ export function ServidorDetalhesClient({
                           <td className="px-6 py-4 text-xs italic">
                             {jt.motivo || '-'}
                           </td>
-                          <td className="px-6 py-4 text-right">
-                            <button
-                              onClick={() => handleDeleteJornada(jt.id)}
-                              className="p-2 bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 hover:bg-red-100 rounded-lg transition-colors border border-red-100/30"
-                              title="Remover alteração de jornada"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </td>
+                          {podeGerirVigencia && (
+                            <td className="px-6 py-4 text-right">
+                              <button
+                                onClick={() => handleDeleteJornada(jt.id)}
+                                className="p-2 bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 hover:bg-red-100 rounded-lg transition-colors border border-red-100/30"
+                                title="Remover alteração de jornada"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>

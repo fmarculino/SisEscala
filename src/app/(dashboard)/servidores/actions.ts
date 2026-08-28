@@ -8,6 +8,7 @@ import { erroDocumento, normalizarDoc } from '@/utils/documentos'
 import { validarDataTransferencia } from '@/utils/transferValidation'
 import { avaliarPermissaoTransferencia, ehAvaliadorDeTransferencia, ERRO_PAPEL_SEM_PODER } from '@/utils/avaliacaoTransferencia'
 import { listarTodosUsuariosAuth } from '@/utils/authAdmin'
+import { MOTIVO_OBRIGATORIO, traduzirErroVigencia } from '@/utils/vigenciaJornada'
 
 const normalizarCpf = (cpf?: string | null) => (cpf || '').replace(/\D/g, '')
 
@@ -1346,15 +1347,26 @@ export async function toggleServidorStatus(id: string, status: 'Ativo' | 'Afasta
   return { success: true }
 }
 
+/**
+ * Cria a vigência de jornada pela ficha do servidor.
+ *
+ * Mesma tabela — e mesmas regras — de `criarVigenciaJornada` (grade de escala): justificativa
+ * obrigatória e quem pode gravar decidido pelas policies de `20260828140000`. Esta action só
+ * recusa antes e traduz o erro do banco; a regra continua sendo do banco.
+ */
 export async function createJornadaTemporaria(
-  servidorId: string, 
-  jornadaId: string, 
-  dataInicio: string, 
-  dataFim: string, 
+  servidorId: string,
+  jornadaId: string,
+  dataInicio: string,
+  dataFim: string,
   motivo?: string
 ) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
+
+  if (!motivo || !motivo.trim()) {
+    return { error: MOTIVO_OBRIGATORIO }
+  }
 
   const { error } = await supabase
     .from('servidores_jornadas_temporarias')
@@ -1363,12 +1375,12 @@ export async function createJornadaTemporaria(
       jornada_id: jornadaId,
       data_inicio: dataInicio,
       data_fim: dataFim,
-      motivo: motivo || null,
+      motivo: motivo.trim(),
       criado_por: user?.id
     })
 
   if (error) {
-    return { error: error.message }
+    return { error: traduzirErroVigencia(error.message) }
   }
 
   revalidatePath(`/servidores/${servidorId}`)
@@ -1384,7 +1396,7 @@ export async function deleteJornadaTemporaria(id: string, servidorId: string) {
     .eq('id', id)
 
   if (error) {
-    return { error: error.message }
+    return { error: traduzirErroVigencia(error.message) }
   }
 
   revalidatePath(`/servidores/${servidorId}`)
