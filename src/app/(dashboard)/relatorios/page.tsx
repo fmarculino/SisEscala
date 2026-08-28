@@ -1,4 +1,4 @@
-import { FileText, ChevronRight, BarChart3, PieChart, Download, Search, Activity } from 'lucide-react'
+import { FileText, ChevronRight, BarChart3, PieChart, Download, Search, Activity, Layers } from 'lucide-react'
 import { createClient } from '@/utils/supabase/server'
 import { AcessoNegado } from '@/components/AcessoNegado'
 import Link from 'next/link'
@@ -37,11 +37,17 @@ export default async function RelatoriosPage() {
       icon: Activity,
       href: '/relatorios/plantao-sobreaviso'
     },
-    { 
-      title: 'Folha de RH', 
-      desc: 'Exportação simplificada para fechamento de folha.', 
+    {
+      title: 'Folha de RH',
+      desc: 'Exportação simplificada para fechamento de folha.',
       icon: Download,
       href: '/relatorios/rh'
+    },
+    {
+      title: 'Carga Consolidada do Mês',
+      desc: 'Quem está em mais de uma escala e o total de horas somando todas elas.',
+      icon: Layers,
+      href: '/relatorios/carga-consolidada'
     },
   ]
 

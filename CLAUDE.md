@@ -2432,6 +2432,73 @@ Portões: `node scratchpad/sim_avaliacao_transferencia.js` (14 casos) e
 `npx tsc src/utils/avaliacaoTransferencia.ts src/utils/sectors.ts --outDir scratchpad/_sim --module commonjs --target es2020`.
 Diário em [`docs/evolucao/2026-08-28-avaliacao-de-transferencia-pelo-rh.md`](docs/evolucao/2026-08-28-avaliacao-de-transferencia-pelo-rh.md).
 
+### 26. O teto de 300h era da GRADE, e a pessoa tem várias escalas (28/08/2026)
+
+⚠️ **`configuracoes_globais.max_horas_escala_servidor` (300h) sempre foi um limite DA PESSOA no
+mês, e a única conta que o defendia era a do SETOR.** `handleCellChange` simulava contra
+`calculateTotals(servidorId)`, que soma o `gridData` daquela grade — servidor escalado em dois
+lugares tinha duas contas dentro do teto e uma soma fora dele, com as duas telas mostrando um
+número válido.
+
+Caso real medido em produção: **JEANE CONCEICAO SILVA**, 09/2026, HMI — `SHL \ ACOLHIMENTO` 289h +
+`SHL \ LAVANDERIA` 120h = **409h**. Mais EDIVONETE 314h e ERIKA SOUZA 302h, todas na mesma
+competência. Plano em
+[`docs/planos/2026-08-28-limite-de-horas-consolidado-entre-escalas.md`](docs/planos/2026-08-28-limite-de-horas-consolidado-entre-escalas.md).
+
+⚠️ **E `handleCellChange` era o ÚNICO chamador da checagem em todo o repositório** — Aplicar
+Template, Gerador Inteligente e `persistirMesesGerados` escrevem direto no `gridData` e nunca
+consultaram o teto, nem dentro do próprio setor. É a **armadilha 14 e a 23 num terceiro eixo**: lá
+o furo do template era afastamento (`20260820120000`) e sobreposição entre setores
+(`20260826220000`); aqui era carga horária. **Não existia nada no banco** — `max_horas_escala_servidor`
+aparecia em UMA migration, a que cria a chave.
+
+✅ **Medido em 28/08/2026, e é o que tornou a correção barata:** `excecoes_escala_servidor` tinha
+**0 linhas** em produção inteira — ninguém nunca exerceu o teto. E o problema **explodiu agora**: 49
+servidores em 2+ escalas em 09/2026, contra 2 ou 3 em 06, 07 e 08.
+
+| peça | onde |
+|---|---|
+| carga escala a escala do servidor no mês | **`fn_carga_mensal_servidor`** (`20260828120000`) |
+| teto efetivo (global + autorização) | **`fn_teto_carga_servidor`** — as duas recebem **lista** de servidores |
+| caminho do setor em SQL | `fn_setor_caminho`, espelho de `buildSectorPathMap` |
+| fonte única do frontend | **`src/utils/limiteCargaMensal.ts`** (`avaliarCarga`, `descreverExcesso`, `avisoAoAdicionar`) |
+| relatório fora da grade | `fn_carga_mensal_consolidada` (`20260828130000`) → `/relatorios/carga-consolidada` |
+
+⚠️ **A Autorização Extraordinária passou a ser UMA por (servidor, mês, ano)** — a chave era
+`(servidor, unidade, mês, ano)`. Com o teto consolidado, duas unidades concederiam +100h cada e o
+teto viraria 500h sem que ninguém decidisse isso. `unidade_id` fica como registro de **onde** a
+autorização foi dada. `fetchExcecoesEscala` perdeu o filtro por unidade pelo mesmo motivo: filtrar
+faria uma grade ignorar a autorização concedida a partir do outro setor.
+
+⚠️ **A escala DESTA grade é excluída da carga vinda do banco e substituída pelo total local.** O
+banco tem o que foi salvo, a grade tem o que está sendo lançado — somar os dois conta o mesmo turno
+duas vezes. Mesmo motivo de `encontrarConflitoExterno` receber `escalaMensalId`.
+
+⚠️ **NÃO replicar `decomporPlantao` (armadilha 16) no SQL da agregação, e tentar isso é o erro.** O
+total de `calculateTotals` é `pl12*12 + pl6*6 + pl4*4 + avulso`, que é **exatamente
+`SUM(horas_computadas)`** — as unidades PL existem para as COLUNAS de pagamento, nunca para o total.
+Somar por faixa de duração ali reintroduziria, dentro da trava, o bug de 21/08/2026 (44 dos 53
+códigos contando errado).
+
+⚠️ **Não há trigger no banco, e isso é decisão registrada** — o comportamento é aviso + autorização
+do administrador, e um trigger duro exigiria a exceção gravada **antes** do upsert em lote, o que
+inverte a ordem do fluxo. Consequência: a barreira do `handleSave` é a **última** defesa, então ela
+**recusa em caso de falha de rede** (ao contrário da de sobreposição, que pode deixar passar porque
+o trigger segura).
+
+⚠️ **`calculateTotals` ganhou um segundo parâmetro `override`** para simular um lançamento antes de
+escrevê-lo. Sem ele, Template e Gerador teriam que reimplementar a fórmula de horas — inclusive o
+teto líquido da jornada, que é fácil de esquecer.
+
+⚠️ **O motor de compliance tem o MESMO ponto cego e continua com ele.** `runComplianceCheck`
+(`complianceEngine.ts`) recebe só o `gridData` local, então **interjornada e DSR não enxergam o
+outro setor**: a mesma pessoa pode ter `MT` num setor e `N` no outro em dias vizinhos sem nenhum
+dos dois alertas disparar. Fora do escopo da correção de 28/08/2026.
+
+Portão: `node scratchpad/sim_limite_carga.js` (45 casos). Transpile antes com
+`npx tsc src/utils/limiteCargaMensal.ts --outDir scratchpad/_sim --module commonjs --target es2020`.
+Medição em produção: `node scratchpad/an_limite_horas.mjs`.
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.

@@ -187,6 +187,10 @@ export function montarResumoGerador(dados: {
   puladasPorPonto: number
   puladasPorAfastamento: number
   puladasPorConflito: number
+  /** Células descartadas por levarem o servidor acima do teto mensal consolidado. */
+  puladasPorTeto?: number
+  /** Uma linha por servidor recusado pelo teto, já dizendo onde estão as outras horas. */
+  servidoresPorTeto?: string[]
   extrasGravadas: { rotulo: string; celulas: number }[]
   extrasErro: string
   servidoresSemHistorico: number
@@ -224,7 +228,15 @@ export function montarResumoGerador(dados: {
   if (dados.puladasPorPonto > 0) motivos.push(`${dados.puladasPorPonto} ${dados.puladasPorPonto === 1 ? 'caiu' : 'caíram'} em dia que já tem ponto registrado (não são sobrescritos)`)
   if (dados.puladasPorAfastamento > 0) motivos.push(`${dados.puladasPorAfastamento} ${dados.puladasPorAfastamento === 1 ? 'caiu' : 'caíram'} em dia de afastamento`)
   if (dados.puladasPorConflito > 0) motivos.push(`${dados.puladasPorConflito} ${dados.puladasPorConflito === 1 ? 'caiu' : 'caíram'} em dia com o servidor já escalado em outro setor no mesmo horário`)
+  if ((dados.puladasPorTeto || 0) > 0) motivos.push(`${dados.puladasPorTeto} ${dados.puladasPorTeto === 1 ? 'foi descartada' : 'foram descartadas'} por levarem o servidor acima do teto de horas do mês`)
   if (motivos.length > 0) linhas.push(`\nO gerador propôs mais do que aplicou: ${motivos.join('; ')}.`)
+
+  // O teto é o único destes motivos que depende de OUTRA escala — sem dizer onde estão as horas,
+  // o coordenador olha a própria grade, vê espaço sobrando e não entende a recusa.
+  if (dados.servidoresPorTeto && dados.servidoresPorTeto.length > 0) {
+    linhas.push(`\nNão gerado por teto mensal (nada foi lançado para ${dados.servidoresPorTeto.length === 1 ? 'este servidor' : 'estes servidores'}):`)
+    linhas.push(...dados.servidoresPorTeto.map(s => `• ${s}`))
+  }
 
   if (mesDaGrade) {
     const abaixo = CATEGORIAS_GERAVEIS.reduce((a, c) => a + mesDaGrade.porCategoria[c].abaixoDoLimiar, 0)

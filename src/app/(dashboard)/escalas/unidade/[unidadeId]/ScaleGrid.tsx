@@ -18,6 +18,15 @@ import { canEditScale, podeEditarForaDoPrazo, UserRole } from '@/utils/governanc
 import { runComplianceCheck, getViolationsForCell, type ComplianceViolation } from '@/utils/complianceEngine'
 import { generateTemplate, TEMPLATE_OPTIONS, type TemplateType, countWorkDays } from '@/utils/scaleTemplates'
 import { encontrarConflitoExterno, diasComConflitoExterno } from '@/utils/conflitoEscala'
+import {
+  avaliarCarga,
+  avisoAoAdicionar,
+  descreverExcesso,
+  formatarHoras,
+  type AvaliacaoCarga,
+  type CargaEscala,
+  type TetoServidor
+} from '@/utils/limiteCargaMensal'
 import { buildSectorPathMap, formatSectorsHierarchy } from '@/utils/sectors'
 import { decomporPlantao } from '@/utils/plantaoUnidades'
 import { celulaTemPassosDeIntervalo } from '@/utils/intervaloIntrajornada'
@@ -268,19 +277,24 @@ export function ScaleGrid({
     sobreavisosAtuais: number
   } | null>(null)
 
+  /**
+   * ⚠️ SEM filtro por unidade desde 28/08/2026. A Autorização Extraordinária passou a ser uma por
+   * (servidor, mês, ano) — o teto é da pessoa, então a autorização também é. Filtrar por unidade
+   * faria esta grade ignorar uma autorização concedida a partir do outro setor e recusar um
+   * lançamento que já estava autorizado.
+   */
   const fetchExcecoesEscala = useCallback(async () => {
-    if (!unidadeId || !mes || !ano) return
+    if (!mes || !ano) return
     const { data, error } = await supabase
       .from('excecoes_escala_servidor')
       .select('*')
-      .eq('unidade_id', unidadeId)
       .eq('mes', mes)
       .eq('ano', ano)
 
     if (!error && data) {
       setExcecoesEscala(data)
     }
-  }, [supabase, unidadeId, mes, ano])
+  }, [supabase, mes, ano])
 
   useEffect(() => {
     fetchServidoresEventos()
@@ -554,6 +568,15 @@ export function ScaleGrid({
 
   const [externalOccupancy, setExternalOccupancy] = useState<any[]>([])
 
+  /**
+   * Carga do servidor em TODAS as escalas da competência (`fn_carga_mensal_servidor`), indexada
+   * por servidor_id — inclusive a escala desta grade, que `avaliarCarga` descarta em favor do
+   * total local. Ver src/utils/limiteCargaMensal.ts.
+   */
+  const [cargaMensal, setCargaMensal] = useState<Record<string, CargaEscala[]>>({})
+  /** Teto efetivo por servidor (`fn_teto_carga_servidor`): global + Autorização Extraordinária. */
+  const [tetoCarga, setTetoCarga] = useState<Record<string, TetoServidor>>({})
+
   // Template Modal State
   const [templateModal, setTemplateModal] = useState<{
     isOpen: boolean
@@ -595,12 +618,53 @@ export function ScaleGrid({
     if (error) console.error('Erro ao buscar ocupação externa:', error)
   }, [supabase, mes, ano])
 
+  /**
+   * A carga do servidor nas OUTRAS escalas do mês e o teto efetivo dele.
+   *
+   * ⚠️ Sem isto, o teto de 300h era conferido só contra o `gridData` DESTA grade — servidor em
+   * dois setores tinha duas contas dentro do teto e uma soma fora dele (JEANE, 09/2026: 289h no
+   * ACOLHIMENTO + 120h na LAVANDERIA = 409h, com as duas telas mostrando um número válido).
+   * As duas RPCs recebem a lista inteira de servidores de uma vez: uma chamada por linha da
+   * grade seria dezenas de requisições a cada carregamento.
+   */
+  const fetchCargaMensal = useCallback(async (
+    servidorIds: string[]
+  ): Promise<{ cargas: Record<string, CargaEscala[]>; tetos: Record<string, TetoServidor> }> => {
+    const vazio = { cargas: {} as Record<string, CargaEscala[]>, tetos: {} as Record<string, TetoServidor> }
+    const ids = Array.from(new Set(servidorIds.filter(Boolean)))
+    if (ids.length === 0) return vazio
+
+    const [{ data: cargas, error: errCarga }, { data: tetos, error: errTeto }] = await Promise.all([
+      supabase.rpc('fn_carga_mensal_servidor', { p_servidor_ids: ids, p_mes: mes, p_ano: ano }),
+      supabase.rpc('fn_teto_carga_servidor', { p_servidor_ids: ids, p_mes: mes, p_ano: ano })
+    ])
+
+    if (errCarga) console.error('Erro ao buscar a carga mensal consolidada:', errCarga)
+    if (errTeto) console.error('Erro ao buscar o teto mensal do servidor:', errTeto)
+
+    const porCarga: Record<string, CargaEscala[]> = {}
+    ;((cargas as any[]) || []).forEach(c => {
+      (porCarga[c.servidor_id] = porCarga[c.servidor_id] || []).push(c as CargaEscala)
+    })
+    const porTeto: Record<string, TetoServidor> = {}
+    ;((tetos as any[]) || []).forEach(t => { porTeto[t.servidor_id] = t as TetoServidor })
+
+    if (cargas) setCargaMensal(porCarga)
+    if (tetos) setTetoCarga(porTeto)
+
+    // Devolvido além de guardado no estado: quem acabou de adicionar um servidor precisa do
+    // dado AGORA para avisar "esta pessoa já tem 289h em outro setor", e o setState só chega
+    // no próximo render.
+    return { cargas: porCarga, tetos: porTeto }
+  }, [supabase, mes, ano])
+
   useEffect(() => {
     if (escalaMensal.length > 0) {
       const ids = escalaMensal.map(em => em.servidor_id)
       fetchOccupancy(ids)
+      fetchCargaMensal(ids)
     }
-  }, [escalaMensal, fetchOccupancy])
+  }, [escalaMensal, fetchOccupancy, fetchCargaMensal])
 
   useEffect(() => {
     const fetchData = async () => {
@@ -1378,11 +1442,22 @@ export function ScaleGrid({
         nome: data.servidores?.nome 
       })
       setIsExternalModalOpen(false)
+
+      // Servidor Externo é o caso onde a carga em outra escala é mais provável — ele vem de
+      // outra lotação, e a escala de origem dele é justamente a que esta grade não mostra.
+      const { cargas, tetos } = await fetchCargaMensal(
+        [...escalaMensal.map(em => em.servidor_id), externalData.servidorId]
+      )
+      const nome = data.servidores?.nome || 'Servidor'
+      const aviso = avisoAoAdicionar(nome, cargas[externalData.servidorId], tetos[externalData.servidorId])
+
       setAlertModal({
         isOpen: true,
-        title: 'Sucesso',
-        message: 'Servidor externo adicionado à grade!',
-        type: 'success'
+        title: aviso ? 'Adicionado — atenção à carga do mês' : 'Sucesso',
+        message: aviso
+          ? `Servidor externo adicionado à grade.\n\n${aviso}`
+          : 'Servidor externo adicionado à grade!',
+        type: aviso ? 'warning' : 'success'
       })
     } catch (error: any) {
       setAlertModal({
@@ -1726,14 +1801,12 @@ export function ScaleGrid({
       }
     }
 
-    // Validação de Limites Globais de Horas e Sobreavisos por Servidor
+    // Teto mensal de horas e sobreavisos — consolidado entre TODAS as escalas do servidor.
+    //
+    // ⚠️ A conta era só a desta grade (`calculateTotals`), e o teto sempre foi da PESSOA. Servidor
+    // escalado em dois setores tinha duas contas dentro do teto e uma soma fora dele. Ver
+    // src/utils/limiteCargaMensal.ts e a migration 20260828120000.
     if (turnoId) {
-      const globalMaxHoras = Number(configs['max_horas_escala_servidor']) || 300
-      const globalMaxSobreavisos = Number(configs['max_sobreavisos_escala_servidor']) || 10
-      const excecao = excecoesEscala.find(e => e.servidor_id === servidorId)
-      const maxHorasEfetivo = globalMaxHoras + (Number(excecao?.horas_adicionais_autorizadas) || 0)
-      const maxSobreavisosEfetivo = globalMaxSobreavisos + (Number(excecao?.sobreavisos_adicionais_autorizados) || 0)
-
       const totals = calculateTotals(servidorId)
       let simulatedHoras = totals.totalPlanejado
       let simulatedSobreavisos = totals.p_soQtd
@@ -1749,19 +1822,21 @@ export function ScaleGrid({
         simulatedHoras = simulatedHoras - currH + newH
       }
 
-      const exceedsHoras = simulatedHoras > maxHorasEfetivo
-      const exceedsSob = simulatedSobreavisos > maxSobreavisosEfetivo
+      const avaliacao = avaliarCargaDoServidor(servidorId, simulatedHoras, simulatedSobreavisos)
 
-      if (exceedsHoras || exceedsSob) {
+      if (avaliacao.excede) {
         const servidor = todosServidoresSetor.find(s => s.id === servidorId)
         const servidorNome = servidor?.nome || 'Servidor'
         const isAdmin = userProfile?.role === 'super_admin' || userProfile?.role === 'admin'
+        // O texto lista as outras escalas: sem dizer ONDE estão as horas, quem lança não tem
+        // como decidir nada — o número dele continua parecendo certo.
+        const detalhe = descreverExcesso(avaliacao, servidorNome)
 
         if (isAdmin) {
           setConfirmModal({
             isOpen: true,
-            title: '⚠️ Limite Máximo Excedido (Bloqueio de Escala)',
-            message: `Esta ação elevaria ${exceedsHoras ? `as horas de ${servidorNome} para ${simulatedHoras}h (teto atual: ${maxHorasEfetivo}h)` : ''} ${exceedsSob ? `os sobreavisos de ${servidorNome} para ${simulatedSobreavisos} un (teto atual: ${maxSobreavisosEfetivo} un)` : ''}.\n\nComo Administrador, você pode autorizar uma Exceção Extraordinária para este servidor neste mês. Deseja abrir a tela de autorização?`,
+            title: '⚠️ Teto Mensal Excedido (Bloqueio de Escala)',
+            message: `${detalhe}\n\nComo Administrador, você pode autorizar uma Exceção Extraordinária para este servidor neste mês. Deseja abrir a tela de autorização?`,
             type: 'warning',
             onConfirm: () => {
               setAutorizacaoModalState({
@@ -1776,8 +1851,8 @@ export function ScaleGrid({
         } else {
           setAlertModal({
             isOpen: true,
-            title: '⚠️ Limite Máximo Excedido',
-            message: `A inclusão deste turno faria o servidor ${servidorNome} ultrapassar ${exceedsHoras ? `o limite de horas (${simulatedHoras}h > teto ${maxHorasEfetivo}h)` : `o limite de sobreavisos (${simulatedSobreavisos} un > teto ${maxSobreavisosEfetivo} un)`}.\n\nSolicite a um Administrador a concessão de uma Autorização Extraordinária.`,
+            title: '⚠️ Teto Mensal Excedido',
+            message: `${detalhe}\n\nSolicite a um Administrador a concessão de uma Autorização Extraordinária.`,
             type: 'warning'
           })
         }
@@ -1912,8 +1987,17 @@ export function ScaleGrid({
     }
   }
 
-  const calculateTotals = (servidorId: string) => {
-    const serverData = gridData[servidorId] || { 'Regular': {}, 'Extra': {}, 'Plantão': {}, 'Sobreaviso': {} }
+  /**
+   * @param override  grade hipotética do servidor, para SIMULAR o efeito de um lançamento antes
+   *                  de escrevê-lo (Aplicar Template, Gerador Inteligente). Sem ele, usa a grade
+   *                  viva. Existe para a checagem de teto não ter que reimplementar a fórmula de
+   *                  horas — inclusive o teto líquido da jornada, que é fácil de esquecer.
+   */
+  const calculateTotals = (
+    servidorId: string,
+    override?: Record<RowCategory, Record<number, string>>
+  ) => {
+    const serverData = override || gridData[servidorId] || { 'Regular': {}, 'Extra': {}, 'Plantão': {}, 'Sobreaviso': {} }
     
     // Contadores para o Total Validado (Respeita as regras de presença)
     let v_ch = 0, v_he100 = 0, v_he50 = 0, v_pl12 = 0, v_pl6 = 0, v_pl4 = 0, v_so12 = 0
@@ -2078,6 +2162,35 @@ export function ScaleGrid({
       totalGeral: totalValidado,
       totalPlanejado
     }
+  }
+
+  /**
+   * A carga do servidor no MÊS INTEIRO — esta grade mais todas as outras escalas dele na
+   * competência — contra o teto efetivo dele.
+   *
+   * ⚠️ Fonte única da checagem de teto na tela. Os quatro caminhos que escrevem na grade
+   * (célula, Aplicar Template, Gerador Inteligente e a barreira do "Salvar Previsão") passam
+   * por aqui. Até 28/08/2026 só a digitação célula a célula conferia qualquer coisa, e ainda
+   * assim contra o `gridData` deste setor — é a armadilha 14/23 num terceiro eixo.
+   *
+   * `horasLocais`/`sobreavisosLocais` omitidos = usa o total da grade viva. Passe valores
+   * explícitos para SIMULAR o efeito de um lançamento antes de escrevê-lo.
+   */
+  const avaliarCargaDoServidor = (
+    servidorId: string,
+    horasLocais?: number,
+    sobreavisosLocais?: number
+  ): AvaliacaoCarga => {
+    const totals = horasLocais === undefined || sobreavisosLocais === undefined
+      ? calculateTotals(servidorId)
+      : null
+    return avaliarCarga({
+      horasLocais: horasLocais ?? totals!.totalPlanejado,
+      sobreavisosLocais: sobreavisosLocais ?? totals!.p_soQtd,
+      cargas: cargaMensal[servidorId],
+      escalaMensalIdAtual: escalaMensal.find(em => em.servidor_id === servidorId)?.id ?? null,
+      teto: tetoCarga[servidorId]
+    })
   }
 
 
@@ -3039,7 +3152,9 @@ export function ScaleGrid({
         (jaGravadas || []).map((d: any) => `${d.escala_mensal_id}|${d.categoria}|${d.dia}`)
       )
 
-      const inserts: any[] = []
+      // O que entraria, agrupado por servidor — antes de decidir se entra.
+      const porServidorInserts = new Map<string, any[]>()
+      const gridNovoPorServidor = new Map<string, Record<RowCategory, Record<number, string>>>()
       for (const [servidorId, categorias] of Object.entries(alvo.grid)) {
         const emAlvo = porServidor.get(servidorId)
         if (!emAlvo || emAlvo.status === 'Fechada') continue
@@ -3047,15 +3162,67 @@ export function ScaleGrid({
           for (const [diaStr, turnoId] of Object.entries(dias as Record<string, string>)) {
             const dia = parseInt(diaStr)
             if (ocupadas.has(`${emAlvo.id}|${categoria}|${dia}`)) continue
-            inserts.push({
+            const linha = {
               escala_mensal_id: emAlvo.id,
               dia,
               categoria,
               dicionario_turnos_id: turnoId
-            })
+            }
+            const lista = porServidorInserts.get(servidorId)
+            if (lista) lista.push(linha)
+            else porServidorInserts.set(servidorId, [linha])
+
+            const g = gridNovoPorServidor.get(servidorId)
+              || { 'Regular': {}, 'Extra': {}, 'Plantão': {}, 'Sobreaviso': {} }
+            g[categoria as RowCategory][dia] = turnoId
+            gridNovoPorServidor.set(servidorId, g)
           }
         }
       }
+
+      // Teto mensal do servidor NAQUELA competência. Estes meses vão direto para o banco, sem
+      // grade aberta para segurá-los — se o teto não for conferido aqui, ele não é conferido em
+      // lugar nenhum para eles.
+      //
+      // ⚠️ `escalaMensalIdAtual: null` de propósito: aqui NADA é excluído da carga do banco. As
+      // células novas são o "local", e tudo que já está gravado (neste setor e nos outros) é o
+      // externo. Excluir a escala deste setor apagaria da conta o que já foi lançado nela.
+      const idsParaConferir = [...porServidorInserts.keys()]
+      let bloqueadosPorTeto = 0
+      if (idsParaConferir.length > 0) {
+        const [{ data: cargasAlvo }, { data: tetosAlvo }] = await Promise.all([
+          supabase.rpc('fn_carga_mensal_servidor', { p_servidor_ids: idsParaConferir, p_mes: alvo.mes, p_ano: alvo.ano }),
+          supabase.rpc('fn_teto_carga_servidor', { p_servidor_ids: idsParaConferir, p_mes: alvo.mes, p_ano: alvo.ano })
+        ])
+
+        const cargasPor: Record<string, CargaEscala[]> = {}
+        ;((cargasAlvo as any[]) || []).forEach(c => {
+          (cargasPor[c.servidor_id] = cargasPor[c.servidor_id] || []).push(c as CargaEscala)
+        })
+        const tetosPor: Record<string, TetoServidor> = {}
+        ;((tetosAlvo as any[]) || []).forEach(t => { tetosPor[t.servidor_id] = t as TetoServidor })
+
+        for (const servidorId of idsParaConferir) {
+          const novo = gridNovoPorServidor.get(servidorId)
+          if (!novo) continue
+          // A jornada usada é a da grade aberta (ou a herdada, que é a mesma que acabou de ser
+          // gravada em escala_mensal) — é o teto líquido do Regular, e não há outra fonte aqui.
+          const totaisNovos = calculateTotals(servidorId, novo)
+          const avaliacao = avaliarCarga({
+            horasLocais: totaisNovos.totalPlanejado,
+            sobreavisosLocais: totaisNovos.p_soQtd,
+            cargas: cargasPor[servidorId],
+            escalaMensalIdAtual: null,
+            teto: tetosPor[servidorId]
+          })
+          if (avaliacao.excede) {
+            bloqueadosPorTeto += (porServidorInserts.get(servidorId) || []).length
+            porServidorInserts.delete(servidorId)
+          }
+        }
+      }
+
+      const inserts: any[] = [...porServidorInserts.values()].flat()
 
       // Em lotes: o upsert em bloco único de um mês inteiro de um setor grande já passou de
       // 2 mil linhas, e o erro de uma derruba todas.
@@ -3064,11 +3231,16 @@ export function ScaleGrid({
         if (error) throw new Error(`Competência ${rotulo}: ${error.message}`)
       }
 
-      resumo.push({ rotulo, celulas: inserts.length })
+      // Relatar o que MUDOU, e por que o resto não (armadilha 22): dizer "0 células" sem contar
+      // que um servidor inteiro foi recusado pelo teto é o mesmo defeito de 25/08/2026.
+      resumo.push({
+        rotulo: bloqueadosPorTeto > 0 ? `${rotulo} (${bloqueadosPorTeto} não gerada(s) por teto mensal)` : rotulo,
+        celulas: inserts.length
+      })
     }
 
     return resumo
-  }, [supabase, unidadeId, setorId, escalaMensal, configsGlobais])
+  }, [supabase, unidadeId, setorId, escalaMensal, configsGlobais, calculateTotals])
 
   const handleSave = async () => {
     if (isCompetenciaEncerrada) return
@@ -3196,6 +3368,88 @@ export function ScaleGrid({
       // Falha ao reler a ocupação não pode impedir de salvar: o trigger do banco continua sendo
       // a defesa real. Aqui só se perde a mensagem amigável.
       console.error('Erro ao verificar sobreposição entre setores:', err)
+    }
+
+    // Teto mensal consolidado — última barreira antes do banco.
+    //
+    // ⚠️ A carga das outras escalas é RELIDA do banco de propósito, como já se faz com
+    // fn_get_monthly_occupancy: o `cargaMensal` do mount pode estar velho, e aba desatualizada é
+    // justamente o caso que a checagem por célula não cobre — dois coordenadores lançando o mesmo
+    // servidor em setores diferentes ao mesmo tempo é o caso real (49 servidores em 2+ escalas
+    // em 09/2026).
+    //
+    // ⚠️ E não existe trigger equivalente no banco (decisão registrada no plano): diferente da
+    // sobreposição entre setores, aqui esta é a ÚLTIMA defesa. Uma falha de rede não pode virar
+    // "salvou mesmo estourando" em silêncio, então o `catch` recusa em vez de deixar passar.
+    try {
+      const servidorIds = escalaMensal.map(em => em.servidor_id)
+      const [{ data: cargasFrescas }, { data: tetosFrescos }] = await Promise.all([
+        supabase.rpc('fn_carga_mensal_servidor', { p_servidor_ids: servidorIds, p_mes: mes, p_ano: ano }),
+        supabase.rpc('fn_teto_carga_servidor', { p_servidor_ids: servidorIds, p_mes: mes, p_ano: ano })
+      ])
+
+      const cargasPorServidor: Record<string, CargaEscala[]> = {}
+      ;((cargasFrescas as any[]) || []).forEach(c => {
+        (cargasPorServidor[c.servidor_id] = cargasPorServidor[c.servidor_id] || []).push(c as CargaEscala)
+      })
+      const tetosPorServidor: Record<string, TetoServidor> = {}
+      ;((tetosFrescos as any[]) || []).forEach(t => { tetosPorServidor[t.servidor_id] = t as TetoServidor })
+
+      const estouros: string[] = []
+      escalaMensal.forEach(em => {
+        const totals = calculateTotals(em.servidor_id)
+        const avaliacao = avaliarCarga({
+          horasLocais: totals.totalPlanejado,
+          sobreavisosLocais: totals.p_soQtd,
+          cargas: cargasPorServidor[em.servidor_id] ?? cargaMensal[em.servidor_id],
+          escalaMensalIdAtual: em.id,
+          teto: tetosPorServidor[em.servidor_id] ?? tetoCarga[em.servidor_id]
+        })
+        if (!avaliacao.excede) return
+
+        const nome = em.servidores?.nome || 'Servidor'
+        const partes: string[] = []
+        if (avaliacao.excedeHoras) {
+          partes.push(`${formatarHoras(avaliacao.totalHoras)}h no mês (teto ${formatarHoras(avaliacao.tetoHoras)}h)`)
+        }
+        if (avaliacao.excedeSobreavisos) {
+          partes.push(`${avaliacao.totalSobreavisos} un de sobreaviso (teto ${avaliacao.tetoSobreavisos})`)
+        }
+        const onde = avaliacao.outras.length > 0
+          ? ` — ${formatarHoras(avaliacao.horasLocais)}h aqui e ${avaliacao.outras.map(o => `${formatarHoras(o.horas)}h em ${o.unidade_nome} / ${o.setor_caminho}`).join(', ')}`
+          : ''
+        estouros.push(`${nome}: ${partes.join(' e ')}${onde}`)
+      })
+
+      if (estouros.length > 0) {
+        // Cache atualizado antes de mostrar a mensagem: o escudo vermelho na linha do servidor
+        // (por onde o administrador abre a Autorização Extraordinária) precisa aparecer agora,
+        // não no próximo carregamento da tela.
+        setCargaMensal(prev => ({ ...prev, ...cargasPorServidor }))
+        setTetoCarga(prev => ({ ...prev, ...tetosPorServidor }))
+
+        const isAdmin = userProfile?.role === 'super_admin' || userProfile?.role === 'admin'
+        setAlertModal({
+          isOpen: true,
+          title: '⚠️ Teto Mensal Excedido',
+          message: `Não é possível salvar: ${estouros.length === 1 ? 'um servidor ultrapassa' : `${estouros.length} servidores ultrapassam`} o teto do mês somando TODAS as escalas da competência.\n\n${estouros.slice(0, 8).join('\n')}${estouros.length > 8 ? `\n...e mais ${estouros.length - 8}.` : ''}\n\n${
+            isAdmin
+              ? 'Reduza a escala ou clique no escudo vermelho ao lado do nome para autorizar excepcionalmente.'
+              : 'Reduza a escala ou solicite a um Administrador uma Autorização Extraordinária.'
+          }`,
+          type: 'warning'
+        })
+        return
+      }
+    } catch (err) {
+      console.error('Erro ao verificar o teto mensal consolidado:', err)
+      setAlertModal({
+        isOpen: true,
+        title: 'Não foi possível conferir o teto mensal',
+        message: 'A conferência do teto de horas do mês não pôde ser feita agora, e ela é a única defesa contra lançar acima do limite (não há trava no banco). Verifique a conexão e tente salvar de novo.',
+        type: 'danger'
+      })
+      return
     }
 
     // Validação: Todas as Jornadas devem estar selecionadas
@@ -3561,7 +3815,25 @@ export function ScaleGrid({
         }
       }))
       // Refresh occupancy for the new server
-      fetchOccupancy([...escalaMensal.map(em => em.servidor_id), servidorId])
+      const todosIds = [...escalaMensal.map(em => em.servidor_id), servidorId]
+      fetchOccupancy(todosIds)
+
+      // Avisar AGORA que a pessoa já tem carga em outra escala do mês. É o momento mais barato:
+      // depois de lançar o mês inteiro dela aqui, a saída é apagar tudo de novo.
+      const { cargas, tetos } = await fetchCargaMensal(todosIds)
+      const aviso = avisoAoAdicionar(
+        data.servidores?.nome || servidor.nome || 'Servidor',
+        cargas[servidorId],
+        tetos[servidorId]
+      )
+      if (aviso) {
+        setAlertModal({
+          isOpen: true,
+          title: 'Servidor já escalado em outro lugar neste mês',
+          message: aviso,
+          type: 'warning'
+        })
+      }
     } catch (error: any) {
       setAlertModal({
         isOpen: true,
@@ -3614,7 +3886,26 @@ export function ScaleGrid({
       })
       setGridData(newGridData)
       // Refresh occupancy for all
-      fetchOccupancy([...escalaMensal.map(em => em.servidor_id), ...newIds])
+      const todosIds = [...escalaMensal.map(em => em.servidor_id), ...newIds]
+      fetchOccupancy(todosIds)
+
+      // Quem entrou já carregando horas de outra escala. Um por linha: "Adicionar Todos" traz
+      // o setor inteiro, e um resumo agregado não diria de quem é o problema.
+      const { cargas, tetos } = await fetchCargaMensal(todosIds)
+      const jaCarregados = data
+        .map((em: any) => ({
+          nome: em.servidores?.nome || 'Servidor',
+          aviso: avisoAoAdicionar(em.servidores?.nome || 'Servidor', cargas[em.servidor_id], tetos[em.servidor_id])
+        }))
+        .filter((x: any) => x.aviso)
+      if (jaCarregados.length > 0) {
+        setAlertModal({
+          isOpen: true,
+          title: `${jaCarregados.length} ${jaCarregados.length === 1 ? 'servidor já escalado' : 'servidores já escalados'} em outro lugar neste mês`,
+          message: jaCarregados.map((x: any) => x.aviso).join('\n\n'),
+          type: 'warning'
+        })
+      }
     } catch (error: any) {
       setAlertModal({
         isOpen: true,
@@ -4160,6 +4451,8 @@ export function ScaleGrid({
               const gridEndRange = `${ano}-${mes.toString().padStart(2, '0')}-${daysInMonth.toString().padStart(2, '0')}`
               return visibleEscalaMensal.map(em => {
                 const totals = calculateTotals(em.servidor_id)
+                // Carga do MÊS (esta escala + as outras da competência) contra o teto da pessoa.
+                const cargaMes = avaliarCargaDoServidor(em.servidor_id)
                 const categories: RowCategory[] = ['Regular', 'Extra', 'Plantão', 'Sobreaviso']
                 const isExternal = em.servidores?.unidade_id !== unidadeId || em.servidores?.setor_id !== setorId
                 const serverTempJourneys = jornadasTemporarias.filter(jt => 
@@ -4253,6 +4546,40 @@ export function ScaleGrid({
                                       title={`Autorização Extraordinária Vigente:\n+${excecao.horas_adicionais_autorizadas}h adicionais\n+${excecao.sobreavisos_adicionais_autorizados} sobreavisos adicionais\nMotivo: ${excecao.motivo_justificativa}`}
                                     >
                                       <Shield className="h-3.5 w-3.5 fill-amber-500/20" />
+                                    </button>
+                                  )
+                                }
+                                // Sem autorização e acima do teto do MÊS: o alerta precisa estar
+                                // na linha do servidor, não só no momento do lançamento. É por
+                                // aqui que o administrador abre a autorização depois de o
+                                // "Salvar Previsão" recusar o lote.
+                                if (cargaMes.excede) {
+                                  const resumo = descreverExcesso(cargaMes, em.servidores?.nome || 'Servidor')
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (isAdmin) {
+                                          setAutorizacaoModalState({
+                                            isOpen: true,
+                                            servidorId: em.servidor_id,
+                                            servidorNome: em.servidores?.nome || 'Servidor',
+                                            horasAtuais: totals.totalPlanejado,
+                                            sobreavisosAtuais: totals.p_soQtd
+                                          })
+                                        } else {
+                                          setAlertModal({
+                                            isOpen: true,
+                                            title: '⚠️ Teto Mensal Excedido',
+                                            message: `${resumo}\n\nSolicite a um Administrador a concessão de uma Autorização Extraordinária.`,
+                                            type: 'warning'
+                                          })
+                                        }
+                                      }}
+                                      className="p-1 text-red-700 dark:text-red-300 bg-red-100/80 dark:bg-red-950/70 hover:bg-red-200 dark:hover:bg-red-900 rounded border border-red-300 dark:border-red-800 transition-colors shadow-xs"
+                                      title={`${resumo}\n\n${isAdmin ? 'Clique para autorizar excepcionalmente.' : 'Clique para ver o detalhe.'}`}
+                                    >
+                                      <ShieldAlert className="h-3.5 w-3.5 fill-red-500/20" />
                                     </button>
                                   )
                                 }
@@ -4937,18 +5264,59 @@ export function ScaleGrid({
                             </>
                           )}
 
-                          <td rowSpan={4} className="sticky right-0 z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-amber-400 text-black">
-                            <div className="flex flex-col h-full divide-y divide-black/10">
-                              <div className="flex-1 flex flex-col justify-center p-1">
-                                <span className="text-[7px] uppercase leading-none opacity-60">Previsão</span>
-                                <span className="text-[11px] leading-tight">{totals.totalPlanejado}</span>
-                              </div>
-                              <div className="flex-1 flex flex-col justify-center p-1 bg-black/5">
-                                <span className="text-[7px] uppercase leading-none opacity-60">Validado</span>
-                                <span className="text-[11px] leading-tight">{totals.totalGeral}</span>
-                              </div>
-                            </div>
-                          </td>
+                          {/*
+                            TOTAL H/MÊS. "Previsão" e "Validado" são desta escala; "Outras" e
+                            "Mês" só aparecem quando o servidor tem carga em OUTRA escala da
+                            competência — o caso comum é não ter, e uma linha "0" em 500 linhas
+                            de grade seria ruído. É este bloco que responde "409h, e as outras
+                            289h estão no ACOLHIMENTO" sem obrigar a abrir a outra grade.
+                          */}
+                          {(() => {
+                            const carga = cargaMes
+                            const temOutras = carga.outras.length > 0
+                            const tooltip = temOutras
+                              ? `Carga do mês inteiro: ${formatarHoras(carga.totalHoras)}h (teto ${formatarHoras(carga.tetoHoras)}h)\n\n`
+                                + `• esta escala — ${formatarHoras(carga.horasLocais)}h\n`
+                                + carga.outras
+                                    .map(o => `• ${o.unidade_nome} / ${o.setor_caminho} — ${formatarHoras(o.horas)}h${o.sobreavisos > 0 ? ` e ${o.sobreavisos} un de sobreaviso` : ''}`)
+                                    .join('\n')
+                                + (carga.excede ? '\n\n⚠️ Acima do teto mensal. Exige Autorização Extraordinária.' : '')
+                              : `Previsão desta escala: ${formatarHoras(totals.totalPlanejado)}h (teto do mês: ${formatarHoras(carga.tetoHoras)}h)`
+                            return (
+                              <td
+                                rowSpan={4}
+                                title={tooltip}
+                                className={`sticky right-0 z-10 p-0 border font-black cursor-help ${
+                                  carga.excede
+                                    ? 'border-red-700 bg-red-500 text-white'
+                                    : 'border-zinc-200 dark:border-zinc-700 bg-amber-400 text-black'
+                                }`}
+                              >
+                                <div className={`flex flex-col h-full ${carga.excede ? 'divide-y divide-white/20' : 'divide-y divide-black/10'}`}>
+                                  <div className="flex-1 flex flex-col justify-center p-1">
+                                    <span className="text-[7px] uppercase leading-none opacity-60">Previsão</span>
+                                    <span className="text-[11px] leading-tight">{totals.totalPlanejado}</span>
+                                  </div>
+                                  <div className={`flex-1 flex flex-col justify-center p-1 ${carga.excede ? 'bg-white/10' : 'bg-black/5'}`}>
+                                    <span className="text-[7px] uppercase leading-none opacity-60">Validado</span>
+                                    <span className="text-[11px] leading-tight">{totals.totalGeral}</span>
+                                  </div>
+                                  {temOutras && (
+                                    <>
+                                      <div className="flex-1 flex flex-col justify-center p-1">
+                                        <span className="text-[7px] uppercase leading-none opacity-60">Outras</span>
+                                        <span className="text-[11px] leading-tight">{formatarHoras(carga.horasOutras)}</span>
+                                      </div>
+                                      <div className={`flex-1 flex flex-col justify-center p-1 ${carga.excede ? 'bg-white/20' : 'bg-black/10'}`}>
+                                        <span className="text-[7px] uppercase leading-none opacity-60">Mês</span>
+                                        <span className="text-[11px] leading-tight">{formatarHoras(carga.totalHoras)}</span>
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                            )
+                          })()}
                         </>
                       )}
                     </tr>
@@ -5541,31 +5909,80 @@ export function ScaleGrid({
                     skipDays
                   )
 
-                  // Injetar no gridData apenas na linha Regular, preservando os dias anteriores ao dia de início
-                  setGridData(prev => {
-                    const existingRegular = prev[sId]?.['Regular'] || {}
-                    const updatedRegular = { ...existingRegular }
+                  // Injetar no gridData apenas na linha Regular, preservando os dias anteriores ao
+                  // dia de início.
+                  //
+                  // ⚠️ A mesclagem é feita AQUI, síncrona, e só o resultado pronto vai para o
+                  // setGridData — o React chama o updater na fase de render, e a checagem de teto
+                  // abaixo precisa do mapa final antes de decidir se aplica (mesma razão do
+                  // contador do Gerador Inteligente, armadilha 22).
+                  const existingRegular = gridData[sId]?.['Regular'] || {}
+                  const updatedRegular = { ...existingRegular }
 
-                    // Limpa escalas do dia de início em diante e aplica as geradas pelo template.
-                    // Dia com presença confirmada é preservado como está — a tela promete que
-                    // ele "não será sobrescrito", e apagar o turno de um dia já batido deixaria
-                    // a marcação real sem escala correspondente.
-                    for (let d = templateModal.startDay; d <= daysInMonth; d++) {
-                      if (templateResult[d]) {
-                        updatedRegular[d] = templateResult[d]
-                      } else if (!protectedDays.has(d) && !conflictDays.has(d)) {
-                        delete updatedRegular[d]
-                      }
+                  // Limpa escalas do dia de início em diante e aplica as geradas pelo template.
+                  // Dia com presença confirmada é preservado como está — a tela promete que
+                  // ele "não será sobrescrito", e apagar o turno de um dia já batido deixaria
+                  // a marcação real sem escala correspondente.
+                  for (let d = templateModal.startDay; d <= daysInMonth; d++) {
+                    if (templateResult[d]) {
+                      updatedRegular[d] = templateResult[d]
+                    } else if (!protectedDays.has(d) && !conflictDays.has(d)) {
+                      delete updatedRegular[d]
                     }
+                  }
 
-                    return {
-                      ...prev,
-                      [sId]: {
-                        ...prev[sId],
-                        'Regular': updatedRegular
-                      }
-                    }
+                  // Teto mensal do servidor, somando as outras escalas da competência.
+                  //
+                  // ⚠️ O template preenche o mês inteiro de uma vez e NUNCA consultou o teto:
+                  // `handleCellChange` era o único chamador da checagem em todo o repositório, e
+                  // ele só roda na digitação célula a célula. É a armadilha 14/23 num terceiro
+                  // eixo — lá o furo era afastamento e sobreposição, aqui é carga horária.
+                  const simulado = calculateTotals(sId, {
+                    ...(gridData[sId] || { 'Regular': {}, 'Extra': {}, 'Plantão': {}, 'Sobreaviso': {} }),
+                    'Regular': updatedRegular
                   })
+                  const cargaSimulada = avaliarCargaDoServidor(sId, simulado.totalPlanejado, simulado.p_soQtd)
+
+                  if (cargaSimulada.excede) {
+                    const nome = escalaMensal.find(x => x.servidor_id === sId)?.servidores?.nome || 'Servidor'
+                    const detalhe = descreverExcesso(cargaSimulada, nome)
+                    const isAdmin = userProfile?.role === 'super_admin' || userProfile?.role === 'admin'
+
+                    if (isAdmin) {
+                      setConfirmModal({
+                        isOpen: true,
+                        title: '⚠️ Teto Mensal Excedido (Template não aplicado)',
+                        message: `${detalhe}\n\nO template NÃO foi aplicado. Como Administrador, você pode autorizar uma Exceção Extraordinária e aplicá-lo de novo. Deseja abrir a tela de autorização?`,
+                        type: 'warning',
+                        onConfirm: () => {
+                          setTemplateModal(null)
+                          setAutorizacaoModalState({
+                            isOpen: true,
+                            servidorId: sId,
+                            servidorNome: nome,
+                            horasAtuais: calculateTotals(sId).totalPlanejado,
+                            sobreavisosAtuais: calculateTotals(sId).p_soQtd
+                          })
+                        }
+                      })
+                    } else {
+                      setAlertModal({
+                        isOpen: true,
+                        title: '⚠️ Teto Mensal Excedido (Template não aplicado)',
+                        message: `${detalhe}\n\nO template NÃO foi aplicado. Reduza o período ou solicite a um Administrador uma Autorização Extraordinária.`,
+                        type: 'warning'
+                      })
+                    }
+                    return
+                  }
+
+                  setGridData(prev => ({
+                    ...prev,
+                    [sId]: {
+                      ...prev[sId],
+                      'Regular': updatedRegular
+                    }
+                  }))
 
                   // Se marcado para validar dias passados, atualizar a presenceData local
                   if (templateModal.validatePastDays) {
@@ -5892,6 +6309,8 @@ export function ScaleGrid({
                     let puladasPorPonto = 0
                     let puladasPorAfastamento = 0
                     let puladasPorConflito = 0
+                    let puladasPorTeto = 0
+                    const servidoresPorTeto: string[] = []
 
                     // ⚠️ A mesclagem é feita AQUI, de forma síncrona, e só o resultado pronto vai
                     // para o setGridData. Não mover isto para dentro de um `setGridData(prev => …)`:
@@ -5905,6 +6324,7 @@ export function ScaleGrid({
 
                       Object.entries(mesDaGrade.grid).forEach(([servidorId, categorias]) => {
                         const anterior = atualizado[servidorId] || { Regular: {}, Extra: {}, 'Plantão': {}, Sobreaviso: {} }
+                        let aplicadasDoServidor = 0
                         const novo: Record<RowCategory, Record<number, string>> = {
                           Regular: { ...anterior['Regular'] },
                           Extra: { ...anterior['Extra'] },
@@ -5949,8 +6369,38 @@ export function ScaleGrid({
 
                             novo[cat][day] = turnoId
                             aplicadas++
+                            aplicadasDoServidor++
                           })
                         })
+
+                        // Teto mensal do servidor, somando as outras escalas da competência.
+                        //
+                        // ⚠️ Tudo ou nada por servidor, de propósito. Preencher "até bater no
+                        // teto" entregaria meio mês escalado e a outra metade em branco, com o
+                        // corte caindo num dia arbitrário — pior que não gerar e dizer por quê.
+                        //
+                        // Só recusa se o resultado PIORA: quem já estava acima do teto (com
+                        // Autorização Extraordinária vencida ou lançamento anterior) não fica
+                        // impedido de receber uma sugestão que não acrescenta hora nenhuma.
+                        if (aplicadasDoServidor > 0) {
+                          const antes = calculateTotals(servidorId, anterior)
+                          const depois = calculateTotals(servidorId, novo)
+                          const cargaDepois = avaliarCargaDoServidor(servidorId, depois.totalPlanejado, depois.p_soQtd)
+                          const piorou = depois.totalPlanejado > antes.totalPlanejado
+                                      || depois.p_soQtd > antes.p_soQtd
+
+                          if (cargaDepois.excede && piorou) {
+                            const nome = escalaMensal.find(x => x.servidor_id === servidorId)?.servidores?.nome || 'Servidor'
+                            const onde = cargaDepois.outras.length > 0
+                              ? ` (${formatarHoras(cargaDepois.horasLocais)}h aqui e ${cargaDepois.outras.map(o => `${formatarHoras(o.horas)}h em ${o.setor_caminho}`).join(', ')})`
+                              : ''
+                            servidoresPorTeto.push(`${nome} chegaria a ${formatarHoras(cargaDepois.totalHoras)}h, teto ${formatarHoras(cargaDepois.tetoHoras)}h${onde}`)
+                            puladasPorTeto += aplicadasDoServidor
+                            aplicadas -= aplicadasDoServidor
+                            atualizado[servidorId] = anterior
+                            return
+                          }
+                        }
 
                         atualizado[servidorId] = novo
                       })
@@ -5987,6 +6437,8 @@ export function ScaleGrid({
                       puladas_por_ponto: puladasPorPonto,
                       puladas_por_afastamento: puladasPorAfastamento,
                       puladas_por_conflito_setor: puladasPorConflito,
+                      puladas_por_teto_mensal: puladasPorTeto,
+                      servidores_acima_do_teto: servidoresPorTeto,
                       meses_extras: extrasGravadas,
                       meses_de_origem: resultado.mesesDeOrigemEncontrados
                     })
@@ -6002,6 +6454,8 @@ export function ScaleGrid({
                         puladasPorPonto,
                         puladasPorAfastamento,
                         puladasPorConflito,
+                        puladasPorTeto,
+                        servidoresPorTeto,
                         extrasGravadas,
                         extrasErro,
                         servidoresSemHistorico: resultado.servidoresSemHistorico,
@@ -7060,6 +7514,9 @@ export function ScaleGrid({
           onClose={() => setAutorizacaoModalState(null)}
           onSaved={() => {
             fetchExcecoesEscala()
+            // O teto vem de fn_teto_carga_servidor, que soma a autorização: sem recarregar, o
+            // escudo vermelho continuaria na linha e o lançamento seguiria recusado.
+            fetchCargaMensal(escalaMensal.map(em => em.servidor_id))
           }}
           servidorId={autorizacaoModalState.servidorId}
           servidorNome={autorizacaoModalState.servidorNome}
@@ -7067,10 +7524,13 @@ export function ScaleGrid({
           unidadeNome={allUnidades.find(u => u.id === unidadeId)?.nome}
           mes={mes}
           ano={ano}
-          limiteGlobalHoras={Number(configs['max_horas_escala_servidor']) || 300}
-          limiteGlobalSobreavisos={Number(configs['max_sobreavisos_escala_servidor']) || 10}
+          limiteGlobalHoras={Number(tetoCarga[autorizacaoModalState.servidorId]?.limite_global_horas ?? configs['max_horas_escala_servidor']) || 300}
+          limiteGlobalSobreavisos={Number(tetoCarga[autorizacaoModalState.servidorId]?.limite_global_sobreavisos ?? configs['max_sobreavisos_escala_servidor']) || 10}
           horasAtuais={autorizacaoModalState.horasAtuais}
           sobreavisosAtuais={autorizacaoModalState.sobreavisosAtuais}
+          cargasOutras={(cargaMensal[autorizacaoModalState.servidorId] || []).filter(
+            c => c.escala_mensal_id !== escalaMensal.find(em => em.servidor_id === autorizacaoModalState.servidorId)?.id
+          )}
           excecaoExistente={excecoesEscala.find(e => e.servidor_id === autorizacaoModalState.servidorId)}
         />
       )}

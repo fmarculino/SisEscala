@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { Shield, Loader2, Save, X, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { formatarHoras, type CargaEscala } from '@/utils/limiteCargaMensal'
 
 interface AutorizacaoExcecaoModalProps {
   isOpen: boolean
@@ -16,8 +17,17 @@ interface AutorizacaoExcecaoModalProps {
   ano: number
   limiteGlobalHoras: number
   limiteGlobalSobreavisos: number
+  /** Horas e sobreavisos desta grade. */
   horasAtuais: number
   sobreavisosAtuais: number
+  /**
+   * As OUTRAS escalas do servidor na mesma competência (`fn_carga_mensal_servidor`).
+   *
+   * ⚠️ Sem isto o modal comparava o teto contra o total de uma grade só — o mesmo erro que ele
+   * existe para tratar. A autorização é sobre o mês da pessoa, então a tela precisa mostrar o
+   * mês da pessoa.
+   */
+  cargasOutras?: CargaEscala[]
   excecaoExistente?: {
     id?: string
     horas_adicionais_autorizadas: number
@@ -40,6 +50,7 @@ export function AutorizacaoExcecaoModal({
   limiteGlobalSobreavisos,
   horasAtuais,
   sobreavisosAtuais,
+  cargasOutras,
   excecaoExistente
 }: AutorizacaoExcecaoModalProps) {
   const supabase = createClient()
@@ -50,6 +61,14 @@ export function AutorizacaoExcecaoModal({
   const [sobreavisosAdicionais, setSobreavisosAdicionais] = useState<number>(0)
   const [justificativa, setJustificativa] = useState('')
 
+  // O que a autorização de fato precisa cobrir: a soma de TODAS as escalas do mês, não só a
+  // desta grade. Era exatamente aqui que a margem sugerida saía curta.
+  const outras = (cargasOutras || []).filter(c => Number(c.horas) > 0 || Number(c.sobreavisos) > 0)
+  const horasOutras = outras.reduce((acc, c) => acc + (Number(c.horas) || 0), 0)
+  const sobreavisosOutras = outras.reduce((acc, c) => acc + (Number(c.sobreavisos) || 0), 0)
+  const horasMes = (Number(horasAtuais) || 0) + horasOutras
+  const sobreavisosMes = (Number(sobreavisosAtuais) || 0) + sobreavisosOutras
+
   useEffect(() => {
     if (isOpen) {
       setErrorMsg('')
@@ -58,15 +77,15 @@ export function AutorizacaoExcecaoModal({
         setSobreavisosAdicionais(Number(excecaoExistente.sobreavisos_adicionais_autorizados) || 0)
         setJustificativa(excecaoExistente.motivo_justificativa || '')
       } else {
-        // Sugere margem para cobrir o excesso atual se houver
-        const excessoHoras = Math.max(0, Math.ceil(horasAtuais - limiteGlobalHoras))
-        const excessoSob = Math.max(0, sobreavisosAtuais - limiteGlobalSobreavisos)
+        // Sugere margem para cobrir o excesso do MÊS INTEIRO, se houver
+        const excessoHoras = Math.max(0, Math.ceil(horasMes - limiteGlobalHoras))
+        const excessoSob = Math.max(0, sobreavisosMes - limiteGlobalSobreavisos)
         setHorasAdicionais(excessoHoras)
         setSobreavisosAdicionais(excessoSob)
         setJustificativa('')
       }
     }
-  }, [isOpen, excecaoExistente, horasAtuais, sobreavisosAtuais, limiteGlobalHoras, limiteGlobalSobreavisos])
+  }, [isOpen, excecaoExistente, horasMes, sobreavisosMes, limiteGlobalHoras, limiteGlobalSobreavisos])
 
   if (!isOpen) return null
 
@@ -99,9 +118,13 @@ export function AutorizacaoExcecaoModal({
         updated_at: new Date().toISOString()
       }
 
+      // ⚠️ A chave é (servidor, mês, ano) desde 20260828120000: o teto é da pessoa no mês, e uma
+      // autorização por unidade deixaria dois administradores concederem +100h cada, elevando o
+      // teto efetivo a 500h sem que ninguém tenha decidido isso. `unidade_id` continua no
+      // payload como registro de ONDE a autorização foi dada.
       const { error } = await supabase
         .from('excecoes_escala_servidor')
-        .upsert(payload, { onConflict: 'servidor_id,unidade_id,mes,ano' })
+        .upsert(payload, { onConflict: 'servidor_id,mes,ano' })
 
       if (error) throw error
 
@@ -153,24 +176,60 @@ export function AutorizacaoExcecaoModal({
             {unidadeNome && <p className="text-xs text-zinc-500">{unidadeNome}</p>}
           </div>
 
-          {/* Comparativo de Limites Globais vs Atuais */}
+          {/* Comparativo de Limites Globais vs o MÊS INTEIRO da pessoa */}
           <div className="grid grid-cols-2 gap-4">
             <div className="p-4 bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200/60 dark:border-blue-900/40 rounded-2xl space-y-1">
               <span className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest">Horas de Trabalho</span>
               <div className="flex items-baseline justify-between">
-                <span className="text-xs text-zinc-500">Grade: <strong className="text-zinc-900 dark:text-white">{horasAtuais}h</strong></span>
-                <span className="text-xs text-zinc-500">Global: <strong>{limiteGlobalHoras}h</strong></span>
+                <span className="text-xs text-zinc-500">Mês: <strong className="text-zinc-900 dark:text-white">{formatarHoras(horasMes)}h</strong></span>
+                <span className="text-xs text-zinc-500">Global: <strong>{formatarHoras(limiteGlobalHoras)}h</strong></span>
               </div>
             </div>
 
             <div className="p-4 bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 rounded-2xl space-y-1">
               <span className="text-[10px] font-black text-amber-600 dark:text-amber-400 uppercase tracking-widest">Sobreavisos (Unidades)</span>
               <div className="flex items-baseline justify-between">
-                <span className="text-xs text-zinc-500">Grade: <strong className="text-zinc-900 dark:text-white">{sobreavisosAtuais} un</strong></span>
+                <span className="text-xs text-zinc-500">Mês: <strong className="text-zinc-900 dark:text-white">{sobreavisosMes} un</strong></span>
                 <span className="text-xs text-zinc-500">Global: <strong>{limiteGlobalSobreavisos} un</strong></span>
               </div>
             </div>
           </div>
+
+          {/*
+            De onde vem o número do mês. Sem esta composição, o administrador vê "409h" numa
+            grade que mostra 120h e não tem como conferir nada — e é justamente essa cegueira
+            que a autorização está sendo chamada a resolver.
+          */}
+          {outras.length > 0 && (
+            <div className="p-4 bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200/80 dark:border-zinc-700/60 rounded-2xl space-y-2">
+              <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block">
+                Composição do mês
+              </span>
+              <div className="flex items-baseline justify-between text-xs">
+                <span className="text-zinc-600 dark:text-zinc-300">Esta escala</span>
+                <span className="font-bold text-zinc-900 dark:text-white">
+                  {formatarHoras(horasAtuais)}h{sobreavisosAtuais > 0 ? ` · ${sobreavisosAtuais} un` : ''}
+                </span>
+              </div>
+              {outras.map(c => (
+                <div key={c.escala_mensal_id} className="flex items-baseline justify-between gap-3 text-xs">
+                  <span className="text-zinc-600 dark:text-zinc-300 truncate" title={`${c.unidade_nome} / ${c.setor_caminho}`}>
+                    {c.unidade_nome} / {c.setor_caminho}
+                    {c.status === 'Fechada' && <span className="text-[10px] text-zinc-400"> (Fechada)</span>}
+                  </span>
+                  <span className="font-bold text-zinc-900 dark:text-white whitespace-nowrap">
+                    {formatarHoras(c.horas)}h{Number(c.sobreavisos) > 0 ? ` · ${c.sobreavisos} un` : ''}
+                  </span>
+                </div>
+              ))}
+              <div className="flex items-baseline justify-between text-xs pt-2 border-t border-zinc-200 dark:border-zinc-700">
+                <span className="font-black text-zinc-500 uppercase tracking-wider">Total</span>
+                <span className="font-black text-zinc-900 dark:text-white">
+                  {formatarHoras(horasMes)}h{sobreavisosMes > 0 ? ` · ${sobreavisosMes} un` : ''}
+                </span>
+              </div>
+            </div>
+          )}
 
           {/* Formulário de Exceção */}
           <div className="space-y-4 pt-2 border-t border-zinc-100 dark:border-zinc-800">
