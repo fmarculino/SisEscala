@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache'
 import { registrarLog, calcularAlteracoes } from '@/utils/auditoria'
 import { erroDocumento, normalizarDoc } from '@/utils/documentos'
 import { validarDataTransferencia } from '@/utils/transferValidation'
+import { avaliarPermissaoTransferencia, ehAvaliadorDeTransferencia, ERRO_PAPEL_SEM_PODER } from '@/utils/avaliacaoTransferencia'
 import { listarTodosUsuariosAuth } from '@/utils/authAdmin'
 
 const normalizarCpf = (cpf?: string | null) => (cpf || '').replace(/\D/g, '')
@@ -1560,12 +1561,17 @@ export async function buscarPendenciaRhPorTermo(termo: string) {
 }
 
 /**
- * Aprova ou rejeita um pedido de transferência de unidade/setor (v1.43.0). Só `super_admin` —
- * a RLS de `solicitacoes_transferencia_servidor` (20260811110000) já recusaria o `UPDATE` de
- * qualquer outro papel, mas a checagem aqui dá mensagem legível em vez do erro cru da policy.
+ * Aprova ou rejeita um pedido de transferência de unidade/setor (v1.43.0). Desde 28/08/2026
+ * também o RH Geral (`rh`) e o RH da Unidade (`rh_unidade`, dentro das unidades dele) — a regra
+ * é `src/utils/avaliacaoTransferencia.ts`, a MESMA que a tela usa pra decidir os botões e que a
+ * policy de UPDATE (20260828100000) aplica no banco.
+ *
+ * A checagem aqui não é redundante com a RLS: é ela que dá mensagem legível em vez do erro cru
+ * da policy, e é a única camada que distingue "não é seu papel" de "não é sua unidade". Server
+ * action é um POST cujo id sai no bundle — a tela nunca protegeu nada (armadilha 12).
  *
  * Aprovar reaproveita `registrarTransferenciaEfetivada` — a mesma função que `updateServidor`
- * usa pra transferência direta do super_admin — pra não ter duas cópias da limpeza de escala.
+ * usa pra transferência direta — pra não ter duas cópias da limpeza de escala.
  */
 export async function avaliarSolicitacaoTransferencia(params: {
   solicitacaoId: string
@@ -1580,12 +1586,24 @@ export async function avaliarSolicitacaoTransferencia(params: {
   const { data: { user: avaliador } } = await supabase.auth.getUser()
   const { data: perfilAvaliador } = await supabase
     .from('profiles')
-    .select('role')
+    .select('role, profile_unidades(unidade_id), profile_setores(setores(unidade_id))')
     .eq('id', avaliador?.id)
     .single()
 
-  if (perfilAvaliador?.role !== 'super_admin') {
-    return { error: 'Só o administrador geral pode avaliar solicitações de transferência.' }
+  if (!ehAvaliadorDeTransferencia(perfilAvaliador?.role)) {
+    return { error: ERRO_PAPEL_SEM_PODER }
+  }
+
+  // Une a unidade vinculada direto com a alcançada só por um setor — quem tem acesso inteiramente
+  // por `profile_setores` (sem a unidade-pai vinculada) ficaria com escopo vazio aqui, o mesmo
+  // buraco que `fn_unidade_no_escopo` tem e `fn_unidade_alcancavel_por_setor` cobre no SQL.
+  const escopoAvaliador = {
+    role: perfilAvaliador?.role as string | null | undefined,
+    unidadesPermitidas: Array.from(new Set([
+      ...(((perfilAvaliador as any)?.profile_unidades || []) as any[]).map(pu => pu.unidade_id),
+      ...(((perfilAvaliador as any)?.profile_setores || []) as any[])
+        .map(ps => (Array.isArray(ps.setores) ? ps.setores[0] : ps.setores)?.unidade_id),
+    ].filter(Boolean))) as string[],
   }
 
   const { data: solicitacao, error: fetchError } = await supabase
@@ -1600,6 +1618,16 @@ export async function avaliarSolicitacaoTransferencia(params: {
   }
 
   if (acao === 'rejeitar') {
+    // Rejeitar não escreve em `servidores`, então basta a origem estar no escopo de quem avalia.
+    const permissaoRejeitar = avaliarPermissaoTransferencia(
+      escopoAvaliador,
+      { unidadeOrigemId: solicitacao.unidade_origem_id, unidadeDestinoId: solicitacao.unidade_destino_id },
+      'rejeitar',
+    )
+    if (!permissaoRejeitar.ok) {
+      return { error: permissaoRejeitar.erro }
+    }
+
     if (!parecer || parecer.trim().length < 5) {
       return { error: 'Informe o motivo da rejeição (mínimo 5 caracteres).' }
     }
@@ -1621,6 +1649,18 @@ export async function avaliarSolicitacaoTransferencia(params: {
 
   if (!finalUnidadeDestinoId || !finalSetorDestinoId) {
     return { error: 'Para aprovar a transferência, por favor selecione a unidade e o setor de destino do servidor.' }
+  }
+
+  // Escopo conferido sobre o destino FINAL (o do pedido OU o que o avaliador acabou de escolher)
+  // — checar só o do pedido deixaria o RH da Unidade mandar alguém pra fora do escopo dele pelo
+  // `<select>` da própria aprovação.
+  const permissaoAprovar = avaliarPermissaoTransferencia(
+    escopoAvaliador,
+    { unidadeOrigemId: solicitacao.unidade_origem_id, unidadeDestinoId: finalUnidadeDestinoId },
+    'aprovar',
+  )
+  if (!permissaoAprovar.ok) {
+    return { error: permissaoAprovar.erro }
   }
 
   // Aprovar: efetiva a transferência de verdade — mesmo caminho da transferência direta.

@@ -2,6 +2,58 @@ import { createClient } from '@/utils/supabase/server'
 import { ShieldAlert } from 'lucide-react'
 import { PendenciasCadastroClient } from './PendenciasCadastroClient'
 import { formatSectorsHierarchy } from '@/utils/sectors'
+import { avaliarPermissaoTransferencia, ehAvaliadorDeTransferencia, type EscopoAvaliador } from '@/utils/avaliacaoTransferencia'
+
+/**
+ * Monta as linhas da seção de transferência. Vive fora do componente porque os DOIS ramos da
+ * página a usam — o de administrador e o escopado (RH da Unidade, desde 28/08/2026) —, e duas
+ * cópias desse mapeamento divergiriam na primeira mudança, como já aconteceu com a geração de
+ * folha (CLAUDE.md, "mexa nas quatro cópias pelo mesmo critério").
+ *
+ * `podeAvaliar` é resolvido AQUI, no servidor, por `avaliarPermissaoTransferencia` — a mesma
+ * função que a server action aplica. A tela só decide o que mostrar; quem recusa de verdade é a
+ * action (e, atrás dela, a policy de UPDATE).
+ */
+function mapearSolicitacoes(
+  linhas: any[],
+  ctx: {
+    nomeUnidadePorId: Map<string, string>
+    nomeSetorPorId: Map<string, string>
+    nomePerfilPorId: Map<string, string>
+    escopo: EscopoAvaliador
+  },
+) {
+  return linhas.map((s: any) => {
+    const servidorData = Array.isArray(s.servidores) ? s.servidores[0] : s.servidores
+    // Pedido sem destino ("A definir pelo RH") é conferido só pela origem aqui — o destino ainda
+    // vai ser escolhido no formulário, e a action reconfere com o destino FINAL antes de gravar.
+    const permissao = avaliarPermissaoTransferencia(
+      ctx.escopo,
+      { unidadeOrigemId: s.unidade_origem_id, unidadeDestinoId: s.unidade_destino_id },
+      s.unidade_destino_id ? 'aprovar' : 'rejeitar',
+    )
+    return {
+      id: s.id,
+      servidorId: s.servidor_id,
+      servidorNome: servidorData?.nome || '(servidor não encontrado)',
+      servidorMatricula: servidorData?.matricula || null,
+      unidadeOrigemId: s.unidade_origem_id,
+      setorOrigemId: s.setor_origem_id,
+      unidadeDestinoId: s.unidade_destino_id,
+      setorDestinoId: s.setor_destino_id,
+      unidadeOrigemNome: ctx.nomeUnidadePorId.get(s.unidade_origem_id) || '—',
+      setorOrigemNome: ctx.nomeSetorPorId.get(s.setor_origem_id) || '—',
+      unidadeDestinoNome: s.unidade_destino_id ? (ctx.nomeUnidadePorId.get(s.unidade_destino_id) || '—') : 'A definir pelo RH',
+      setorDestinoNome: s.setor_destino_id ? (ctx.nomeSetorPorId.get(s.setor_destino_id) || '—') : 'A definir pelo RH',
+      dataTransferenciaSugerida: s.data_transferencia_sugerida,
+      motivo: s.motivo,
+      solicitadoPorNome: ctx.nomePerfilPorId.get(s.solicitado_por_id) || '—',
+      solicitadoEm: s.solicitado_em,
+      podeAvaliar: permissao.ok,
+      motivoSemPermissao: permissao.ok ? null : permissao.erro,
+    }
+  })
+}
 
 export default async function PendenciasCadastroPage() {
   const supabase = await createClient()
@@ -38,26 +90,32 @@ export default async function PendenciasCadastroPage() {
     )
   }
 
+  // Une unidade vinculada direto (profile_unidades) com unidade alcançada só por um setor
+  // (profile_setores → setores.unidade_id) — coordenador cujo acesso vem inteiramente de
+  // setor vinculado (sem a unidade-pai explicitamente vinculada também) tinha permittedUnidades
+  // sempre vazio aqui, mesmo tendo acesso legítimo à unidade pelo próprio setor (mesmo bug que
+  // a RLS de importacao_rh_pendentes tinha antes de 20260812050000 — fn_unidade_no_escopo
+  // nunca considerou profile_setores, só fn_unidade_alcancavel_por_setor complementa isso).
+  const unidadesPorSetor = ((profile as any)?.profile_setores || [])
+    .map((ps: any) => (Array.isArray(ps.setores) ? ps.setores[0] : ps.setores)?.unidade_id)
+    .filter(Boolean)
+  const permittedUnidades: string[] = Array.from(new Set([
+    ...((profile as any)?.profile_unidades || []).map((pu: any) => pu.unidade_id),
+    ...unidadesPorSetor,
+  ]))
+
+  // Quem avalia transferência: Administrador Geral, RH Geral e — desde 28/08/2026, dentro das
+  // próprias unidades — o RH da Unidade. Fonte única em src/utils/avaliacaoTransferencia.ts.
+  const escopoAvaliador: EscopoAvaliador = { role, unidadesPermitidas: permittedUnidades }
+  const podeAvaliarTransferencia = ehAvaliadorDeTransferencia(role)
+
   // Coordenador: só a importação de RH importa pra ele, e só da própria unidade (a
   // RLS nova de importacao_rh_pendentes já filtra isso sozinha - 20260812020000). As demais
-  // consultas (documentos inválidos, duplicidades, sem CPF, transferências) são SECURITY
-  // DEFINER e enxergam a base inteira de propósito - puladas aqui pra não vazar dado de outra
-  // unidade nem gastar consulta à toa.
+  // consultas (documentos inválidos, duplicidades, sem CPF) são SECURITY DEFINER e enxergam a
+  // base inteira de propósito - puladas aqui pra não vazar dado de outra unidade nem gastar
+  // consulta à toa. Transferências viraram exceção em 28/08/2026: a RLS delas já é escopada
+  // (20260812100000) e o RH da Unidade precisa da lista pra avaliar o que é da unidade dele.
   if (isCoordEscopo) {
-    // Une unidade vinculada direto (profile_unidades) com unidade alcançada só por um setor
-    // (profile_setores → setores.unidade_id) — coordenador cujo acesso vem inteiramente de
-    // setor vinculado (sem a unidade-pai explicitamente vinculada também) tinha permittedUnidades
-    // sempre vazio aqui, mesmo tendo acesso legítimo à unidade pelo próprio setor (mesmo bug que
-    // a RLS de importacao_rh_pendentes tinha antes de 20260812050000 — fn_unidade_no_escopo
-    // nunca considerou profile_setores, só fn_unidade_alcancavel_por_setor complementa isso).
-    const unidadesPorSetor = ((profile as any)?.profile_setores || [])
-      .map((ps: any) => (Array.isArray(ps.setores) ? ps.setores[0] : ps.setores)?.unidade_id)
-      .filter(Boolean)
-    const permittedUnidades = Array.from(new Set([
-      ...((profile as any)?.profile_unidades || []).map((pu: any) => pu.unidade_id),
-      ...unidadesPorSetor,
-    ]))
-
     async function buscarPendentesRhEscopado() {
       const linhas: any[] = []
       for (let from = 0; ; from += 1000) {
@@ -74,16 +132,38 @@ export default async function PendenciasCadastroPage() {
       return { data: linhas, error: null }
     }
 
-    const [pendentesRhRes, unidadesRes, setoresRes, cargosRes] = await Promise.all([
+    // A RLS de solicitacoes_transferencia_servidor (20260812100000) já escopa por unidade/setor -
+    // não há filtro adicional aqui, e não deve haver: replicar o escopo em JS é o padrão que já
+    // divergiu do banco antes. Quem não avalia (coordenador) nem consulta.
+    async function buscarSolicitacoesEscopadas() {
+      if (!podeAvaliarTransferencia) return { data: [] as any[], error: null }
+      return await supabase
+        .from('solicitacoes_transferencia_servidor')
+        .select('id, servidor_id, unidade_origem_id, setor_origem_id, unidade_destino_id, setor_destino_id, data_transferencia_sugerida, motivo, solicitado_por_id, solicitado_em, servidores(nome, matricula)')
+        .eq('status', 'pendente')
+        .order('solicitado_em')
+    }
+
+    const [pendentesRhRes, unidadesRes, unidadesTodasRes, setoresRes, cargosRes, solicitacoesRes, profilesRes] = await Promise.all([
       buscarPendentesRhEscopado(),
       // Unidade fora do escopo do coordenador nunca aparece no seletor - promover pra lá é
       // recusado pela RPC de qualquer forma, mas mostrar a opção seria confuso (CLAUDE.md:
-      // "direcionar pra onde é mais prático").
+      // "direcionar pra onde é mais prático"). Vale igual pro destino da transferência: o RH da
+      // Unidade só aprova destino dentro do escopo dele, então oferecer outro seria armadilha.
       profile?.acesso_todas_unidades
         ? supabase.from('unidades').select('id, nome').order('nome')
         : supabase.from('unidades').select('id, nome').in('id', permittedUnidades.length ? permittedUnidades : ['00000000-0000-0000-0000-000000000000']).order('nome'),
+      // Lista COMPLETA, só pra resolver NOME de unidade na linha da transferência: o destino de
+      // um pedido pode estar fora do escopo de quem avalia, e mostrar "—" ali esconderia
+      // justamente a informação que explica por que aquele pedido não tem botão. `unidades` é
+      // legível por qualquer autenticado (policy "Authenticated users can view units").
+      supabase.from('unidades').select('id, nome').order('nome'),
       supabase.from('setores').select('id, unidade_id, parent_id, ativo, dicionario_setores(nome)').order('id'),
       supabase.from('cargos').select('id, nome').eq('ativo', true).order('nome'),
+      buscarSolicitacoesEscopadas(),
+      podeAvaliarTransferencia
+        ? supabase.from('profiles').select('id, full_name')
+        : Promise.resolve({ data: [] as any[], error: null }),
     ])
 
     const pendentesRh = (pendentesRhRes.data || []).map((p: any) => {
@@ -101,12 +181,22 @@ export default async function PendenciasCadastroPage() {
       }
     })
 
-    // Hierarquico so pra alimentar os <select> do formulario (ImportacaoRhSection) - aqui nao
-    // ha rotulo de texto solto que herdaria o prefixo "↳ " por engano, como acontece la embaixo.
-    const setoresRh = formatSectorsHierarchy((setoresRes.data || []).map((s: any) => {
+    // Nomes SEM prefixo de hierarquia - viram `setorOrigemNome`/`setorDestinoNome`, texto solto
+    // na lista de transferências, onde um "↳ " colado no rótulo ficaria fora de lugar.
+    const setoresFlat = (setoresRes.data || []).map((s: any) => {
       const dictData = Array.isArray(s.dicionario_setores) ? s.dicionario_setores[0] : s.dicionario_setores
       return { id: s.id, unidade_id: s.unidade_id, parent_id: s.parent_id, nome: dictData?.nome || 'SETOR SEM NOME' }
-    }))
+    })
+    // Hierarquico so pra alimentar os <select> do formulario (ImportacaoRhSection,
+    // SolicitacoesTransferenciaSection).
+    const setoresRh = formatSectorsHierarchy(setoresFlat)
+
+    const solicitacoesTransferencia = mapearSolicitacoes(solicitacoesRes.data || [], {
+      nomeUnidadePorId: new Map((unidadesTodasRes.data || []).map((u: any) => [u.id, u.nome])),
+      nomeSetorPorId: new Map(setoresFlat.map((s) => [s.id, s.nome])),
+      nomePerfilPorId: new Map((profilesRes.data || []).map((p: any) => [p.id, p.full_name])),
+      escopo: escopoAvaliador,
+    })
 
     return (
       <PendenciasCadastroClient
@@ -122,9 +212,9 @@ export default async function PendenciasCadastroPage() {
         unidades={unidadesRes.data || []}
         setores={setoresRh}
         cargos={cargosRes.data || []}
-        solicitacoesTransferencia={[]}
-        erroSolicitacoesTransferencia={null}
-        isSuperAdmin={false}
+        solicitacoesTransferencia={solicitacoesTransferencia}
+        erroSolicitacoesTransferencia={solicitacoesRes.error?.message || null}
+        podeAvaliarTransferencia={podeAvaliarTransferencia}
         escopoLimitado
       />
     )
@@ -149,8 +239,6 @@ export default async function PendenciasCadastroPage() {
     }
     return { data: linhas, error: null }
   }
-
-  const isSuperAdmin = profile?.role === 'super_admin'
 
   const [
     documentosInvalidosRes, duplicidadesRes, semCpfRes, totaisRes, semPisRes,
@@ -226,30 +314,11 @@ export default async function PendenciasCadastroPage() {
   // SolicitacoesTransferenciaSection).
   const setoresRh = formatSectorsHierarchy(setoresRhFlat)
 
-  const nomeUnidadePorId = new Map((unidadesRes.data || []).map((u: any) => [u.id, u.nome]))
-  const nomeSetorPorId = new Map(setoresRhFlat.map((s) => [s.id, s.nome]))
-  const nomePerfilPorId = new Map((profilesRes.data || []).map((p: any) => [p.id, p.full_name]))
-
-  const solicitacoesTransferencia = (solicitacoesTransferenciaRes.data || []).map((s: any) => {
-    const servidorData = Array.isArray(s.servidores) ? s.servidores[0] : s.servidores
-    return {
-      id: s.id,
-      servidorId: s.servidor_id,
-      servidorNome: servidorData?.nome || '(servidor não encontrado)',
-      servidorMatricula: servidorData?.matricula || null,
-      unidadeOrigemId: s.unidade_origem_id,
-      setorOrigemId: s.setor_origem_id,
-      unidadeDestinoId: s.unidade_destino_id,
-      setorDestinoId: s.setor_destino_id,
-      unidadeOrigemNome: nomeUnidadePorId.get(s.unidade_origem_id) || '—',
-      setorOrigemNome: nomeSetorPorId.get(s.setor_origem_id) || '—',
-      unidadeDestinoNome: s.unidade_destino_id ? (nomeUnidadePorId.get(s.unidade_destino_id) || '—') : 'A definir pelo RH',
-      setorDestinoNome: s.setor_destino_id ? (nomeSetorPorId.get(s.setor_destino_id) || '—') : 'A definir pelo RH',
-      dataTransferenciaSugerida: s.data_transferencia_sugerida,
-      motivo: s.motivo,
-      solicitadoPorNome: nomePerfilPorId.get(s.solicitado_por_id) || '—',
-      solicitadoEm: s.solicitado_em,
-    }
+  const solicitacoesTransferencia = mapearSolicitacoes(solicitacoesTransferenciaRes.data || [], {
+    nomeUnidadePorId: new Map((unidadesRes.data || []).map((u: any) => [u.id, u.nome])),
+    nomeSetorPorId: new Map(setoresRhFlat.map((s) => [s.id, s.nome])),
+    nomePerfilPorId: new Map((profilesRes.data || []).map((p: any) => [p.id, p.full_name])),
+    escopo: escopoAvaliador,
   })
 
   return (
@@ -268,7 +337,7 @@ export default async function PendenciasCadastroPage() {
       cargos={cargosRes.data || []}
       solicitacoesTransferencia={solicitacoesTransferencia}
       erroSolicitacoesTransferencia={solicitacoesTransferenciaRes.error?.message || null}
-      isSuperAdmin={isSuperAdmin}
+      podeAvaliarTransferencia={podeAvaliarTransferencia}
       escopoLimitado={false}
     />
   )

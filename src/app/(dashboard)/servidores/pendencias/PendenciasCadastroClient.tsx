@@ -87,12 +87,15 @@ interface PendenciasCadastroClientProps {
     motivo: string
     solicitadoPorNome: string
     solicitadoEm: string
+    podeAvaliar: boolean
+    motivoSemPermissao: string | null
   }[]
   erroSolicitacoesTransferencia: string | null
-  isSuperAdmin: boolean
+  /** O papel de quem olha avalia transferência (super_admin, RH Geral ou RH da Unidade). */
+  podeAvaliarTransferencia: boolean
   /**
-   * true pra coordenador/ass_adm: só a seção de importação de RH (escopada pela própria
-   * unidade via RLS) é relevante pra eles. As demais seções são `SECURITY DEFINER` e enxergam
+   * true pra coordenador e RH da Unidade: a seção de importação de RH (escopada pela própria
+   * unidade via RLS) é a relevante pra eles — mais a de transferências, pra quem avalia. As demais seções são `SECURITY DEFINER` e enxergam
    * a base inteira sem escopo de unidade/setor, de propósito (armadilha do CLAUDE.md sobre
    * `fn_documentos_invalidos`/`fn_possiveis_duplicidades_servidor`) — abri-las pra coordenador
    * vazaria CPF/nome de servidor de outras unidades.
@@ -156,7 +159,7 @@ export function PendenciasCadastroClient({
   documentosInvalidos, duplicidades, semCpf, totalServidores, semPisCount,
   erroDocumentos, erroDuplicidades,
   pendentesRh, erroPendentesRh, unidades, setores, cargos,
-  solicitacoesTransferencia, erroSolicitacoesTransferencia, isSuperAdmin,
+  solicitacoesTransferencia, erroSolicitacoesTransferencia, podeAvaliarTransferencia,
   escopoLimitado,
 }: PendenciasCadastroClientProps) {
   const [buscaSemCpf, setBuscaSemCpf] = useState('')
@@ -187,13 +190,25 @@ export function PendenciasCadastroClient({
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-white">Pendências de Cadastro</h1>
           <p className="mt-2 text-zinc-600 dark:text-zinc-400">
-            Vínculos importados do RH aguardando virar cadastro ativo na sua unidade.
+            {podeAvaliarTransferencia
+              ? 'Vínculos importados do RH aguardando virar cadastro ativo e pedidos de transferência das suas unidades.'
+              : 'Vínculos importados do RH aguardando virar cadastro ativo na sua unidade.'}
           </p>
         </div>
 
         <div className="grid grid-cols-1 sm:max-w-xs gap-4">
           <StatCard icon={UserPlus} label="Importados aguardando cadastro" value={pendentesRh.length} tone={pendentesRh.length ? 'amber' : 'green'} note="da sua unidade" />
         </div>
+
+        {podeAvaliarTransferencia && (
+          <SolicitacoesTransferenciaSection
+            solicitacoes={solicitacoesTransferencia}
+            erro={erroSolicitacoesTransferencia}
+            avaliador={podeAvaliarTransferencia}
+            unidades={unidades}
+            setores={setores}
+          />
+        )}
 
         <ImportacaoRhSection
           pendentesRh={pendentesRh}
@@ -217,7 +232,7 @@ export function PendenciasCadastroClient({
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
         <StatCard icon={UserPlus} label="Importados aguardando cadastro" value={pendentesRh.length} tone={pendentesRh.length ? 'amber' : 'green'} note="importação de RH, v1.42.0" />
-        <StatCard icon={ArrowRightLeft} label="Transferências pendentes" value={solicitacoesTransferencia.length} tone={solicitacoesTransferencia.length ? 'amber' : 'green'} note={isSuperAdmin ? 'aguardando sua avaliação' : 'aguardando Administrador Geral'} />
+        <StatCard icon={ArrowRightLeft} label="Transferências pendentes" value={solicitacoesTransferencia.length} tone={solicitacoesTransferencia.length ? 'amber' : 'green'} note={podeAvaliarTransferencia ? 'aguardando sua avaliação' : 'aguardando o RH'} />
         <StatCard icon={AlertTriangle} label="Documentos com dígito inválido" value={documentosInvalidos.length} tone={documentosInvalidos.length ? 'red' : 'green'} />
         <StatCard icon={UserX} label="Servidores sem CPF" value={semCpf.length} tone={semCpf.length ? 'amber' : 'green'} note={totalServidores ? `${Math.round((semCpf.length / totalServidores) * 100)}% do quadro` : undefined} />
         <StatCard icon={Copy} label="Possíveis duplicidades" value={duplicidades.length} tone={duplicidades.length ? 'amber' : 'green'} note="grupos suspeitos" />
@@ -227,7 +242,7 @@ export function PendenciasCadastroClient({
       <SolicitacoesTransferenciaSection
         solicitacoes={solicitacoesTransferencia}
         erro={erroSolicitacoesTransferencia}
-        isSuperAdmin={isSuperAdmin}
+        avaliador={podeAvaliarTransferencia}
         unidades={unidades}
         setores={setores}
       />

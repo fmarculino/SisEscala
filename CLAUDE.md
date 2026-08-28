@@ -2361,6 +2361,44 @@ alcance/payload/exclusão. Transpile antes com
 
 Diário em [`docs/evolucao/2026-08-22-gestao-de-usuarios-pelo-rh.md`](docs/evolucao/2026-08-22-gestao-de-usuarios-pelo-rh.md).
 
+### RH também AVALIA transferência, e a policy que dizia `só super_admin` nunca restringiu (28/08/2026)
+
+Aprovar/rejeitar um pedido de transferência de unidade/setor deixou de ser exclusividade do
+Administrador Geral: **RH Geral (`rh`) avalia qualquer pedido; RH da Unidade (`rh_unidade`) avalia
+dentro das unidades dele**. Os demais papéis continuam apenas **solicitando**.
+
+🚨 **A policy `Avaliacao de solicitacoes_transferencia so super_admin` (`20260811110000`) nunca
+restringiu nada.** Policies permissivas se somam com `OR`, e `20260818100000` criou na MESMA tabela
+uma policy **`FOR ALL`** (ampliada para `ass_adm` em `20260818170000`). `FOR ALL` cobre `UPDATE`, e
+sem `WITH CHECK` próprio ele cai para o `USING` — então **`admin`, `coordenador`, `rh_unidade` e
+`ass_adm` podiam marcar um pedido como `aprovada` chamando o PostgREST direto**. O que os segurava
+era o `if` da server action. É a **armadilha 24 em outra forma**: a policy estrita existe, e a
+permissiva ao lado dela é que decide. `20260828100000` derruba a `FOR ALL` e escreve `SELECT`,
+`INSERT` e `UPDATE` separados — quem SOLICITA não perde nada.
+
+Fonte única da regra: **`src/utils/avaliacaoTransferencia.ts`**, aplicada nos três lugares — tela
+(`podeAvaliar` resolvido no servidor, linha a linha), action (mensagem legível) e policy de
+`UPDATE` (o que o banco grava).
+
+⚠️ **`rh_unidade` aprova só com ORIGEM *e* DESTINO no escopo dele.** A policy de escrita de
+`servidores` (`Scoped access for Admins and Coordinators`) só aceita `unidade_id ∈ profile_unidades`
+nesse braço, e o `WITH CHECK` roda sobre a linha **nova** — transferência para outra unidade seria
+recusada lá de qualquer forma, com o sintoma mudo *"Nenhuma alteração foi gravada"*. Rejeitar não
+escreve em `servidores`, então basta a origem. E **`acesso_todas_unidades` NÃO vale como bypass**
+para esse papel: aquele braço da policy não o reconhece, e honrá-lo aqui aprovaria o pedido para o
+`UPDATE` de `servidores` falhar em seguida — o defeito de 10/08/2026 (KETTELE) de volta.
+
+⚠️ **O destino é conferido pelo valor FINAL**, o do pedido ou o que o avaliador acabou de escolher
+no `<select>` da aprovação — checar só o do pedido deixaria o RH da Unidade mandar alguém para fora
+do escopo pelo próprio formulário.
+
+⚠️ **`updateServidor` não mudou**: `super_admin` e `rh` transferem direto, todos os demais
+(`rh_unidade` incluído) solicitam. E **`historico_transferencias` ficou de fora** — a `FOR ALL` de
+lá tem a mesma folga, mas aquilo é log: escrever nele não move ninguém. Pendência conhecida.
+
+Portão: `node scratchpad/sim_avaliacao_transferencia.js` (14 casos). Diário em
+[`docs/evolucao/2026-08-28-avaliacao-de-transferencia-pelo-rh.md`](docs/evolucao/2026-08-28-avaliacao-de-transferencia-pelo-rh.md).
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.

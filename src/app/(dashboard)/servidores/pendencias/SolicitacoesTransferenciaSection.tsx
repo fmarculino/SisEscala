@@ -22,12 +22,22 @@ interface SolicitacaoTransferencia {
   motivo: string
   solicitadoPorNome: string
   solicitadoEm: string
+  /**
+   * Decidido NO SERVIDOR por `avaliarPermissaoTransferencia` (src/utils/avaliacaoTransferencia.ts),
+   * linha a linha — o RH da Unidade avalia o remanejamento dentro das unidades dele e enxerga,
+   * sem botão, o pedido que precisa do RH Geral. A action confere de novo: isto aqui só decide o
+   * que a tela mostra.
+   */
+  podeAvaliar: boolean
+  /** Por que esta linha não tem botão, quando quem olha é um avaliador. */
+  motivoSemPermissao: string | null
 }
 
 interface SolicitacoesTransferenciaSectionProps {
   solicitacoes: SolicitacaoTransferencia[]
   erro: string | null
-  isSuperAdmin: boolean
+  /** O papel de quem olha avalia transferência (super_admin, RH Geral ou RH da Unidade). */
+  avaliador: boolean
   unidades: { id: string; nome: string }[]
   setores: { id: string; unidade_id: string | null; nome: string; ativo?: boolean }[]
 }
@@ -35,7 +45,7 @@ interface SolicitacoesTransferenciaSectionProps {
 export function SolicitacoesTransferenciaSection({
   solicitacoes,
   erro,
-  isSuperAdmin,
+  avaliador,
   unidades,
   setores,
 }: SolicitacoesTransferenciaSectionProps) {
@@ -49,9 +59,9 @@ export function SolicitacoesTransferenciaSection({
           <ArrowRightLeft className="h-4 w-4 text-blue-500" /> Solicitações de Transferência / Disponibilização ao RH
         </h2>
         <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-          {isSuperAdmin
-            ? 'Só o administrador geral efetiva transferência de unidade/setor. Quando o pedido vier sem destino ("A definir pelo RH"), escolha a unidade e setor de destino ao aprovar.'
-            : 'Pedidos de transferência aguardando avaliação do Administrador Geral. Você vê aqui os que estão no seu escopo.'}
+          {avaliador
+            ? 'Administrador Geral e RH Geral avaliam qualquer pedido; o RH da Unidade avalia o remanejamento dentro das próprias unidades. Quando o pedido vier sem destino ("A definir pelo RH"), escolha a unidade e setor de destino ao aprovar.'
+            : 'Pedidos de transferência aguardando avaliação do RH. Você vê aqui os que estão no seu escopo.'}
         </p>
       </div>
 
@@ -71,7 +81,7 @@ export function SolicitacoesTransferenciaSection({
               <LinhaSolicitacao
                 key={s.id}
                 solicitacao={s}
-                isSuperAdmin={isSuperAdmin}
+                avaliador={avaliador}
                 unidades={unidades}
                 setores={setores}
                 onResolvida={() => setResolvidas(prev => new Set(prev).add(s.id))}
@@ -86,18 +96,19 @@ export function SolicitacoesTransferenciaSection({
 
 function LinhaSolicitacao({
   solicitacao,
-  isSuperAdmin,
+  avaliador,
   unidades,
   setores,
   onResolvida,
 }: {
   solicitacao: SolicitacaoTransferencia
-  isSuperAdmin: boolean
+  avaliador: boolean
   unidades: { id: string; nome: string }[]
   setores: { id: string; unidade_id: string | null; nome: string; ativo?: boolean }[]
   onResolvida: () => void
 }) {
   const isDestinoIndefinido = !solicitacao.unidadeDestinoId
+  const podeAvaliar = solicitacao.podeAvaliar
 
   const [mostrarRejeicao, setMostrarRejeicao] = useState(false)
   const [mostrarSelecaoDestino, setMostrarSelecaoDestino] = useState(isDestinoIndefinido)
@@ -178,7 +189,7 @@ function LinhaSolicitacao({
           </div>
         </div>
 
-        {isSuperAdmin && (
+        {podeAvaliar && (
           <div className="flex items-center gap-2 shrink-0">
             {!mostrarSelecaoDestino && !isDestinoIndefinido && (
               <button
@@ -202,7 +213,13 @@ function LinhaSolicitacao({
         )}
       </div>
 
-      {isSuperAdmin && (mostrarSelecaoDestino || isDestinoIndefinido) && (
+      {avaliador && !podeAvaliar && solicitacao.motivoSemPermissao && (
+        <p className="text-[11px] text-zinc-500 dark:text-zinc-400 italic border-t border-zinc-100 dark:border-zinc-800 pt-2">
+          {solicitacao.motivoSemPermissao}
+        </p>
+      )}
+
+      {podeAvaliar && (mostrarSelecaoDestino || isDestinoIndefinido) && (
         <div className="p-3 bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-900/40 rounded-lg space-y-3">
           <div className="flex items-center justify-between">
             <p className="text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
