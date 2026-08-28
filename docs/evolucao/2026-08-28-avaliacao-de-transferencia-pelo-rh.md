@@ -85,6 +85,37 @@ duplicando no cadastro o que o `parent_id` já sabe.
 `HMI - Hospital Materno Infantil / SHL \ BLOCO A`. Aplicados em `/servidores/pendencias` no texto
 solto (linha da transferência, tabela "Servidores sem CPF") e nos dois `<select>` de setor.
 
+⚠️ **O embed `setores(dicionario_setores(nome))` só traz a FOLHA.** Nenhuma das consultas do
+projeto trazia os ancestrais, então o caminho não sai de graça em lugar nenhum: quem precisa dele
+chama **`buscarCaminhosDeSetor(supabase)`**, que busca a árvore inteira (paginada — 645 setores em
+08/2026, perto demais do teto de 1000 do PostgREST) e devolve o mapa `id → caminho`. **Sem filtro
+por unidade de propósito**: bastaria um pai cadastrado em outra unidade para o caminho do filho
+ficar curto, e o resultado continuaria parecendo certo.
+
+### Onde já está aplicado
+
+| tela | o que passou a mostrar o caminho |
+|---|---|
+| `/servidores/pendencias` | linha da transferência, tabela "Servidores sem CPF", os dois `<select>` de setor |
+| `/escalas` | label do card e a busca por servidor |
+| grade (`/escalas/unidade/[id]`) | cabeçalho "Setor:", a seta **Próxima/Anterior** e o cabeçalho do **PDF** |
+
+A lista e a navegação vieram juntas porque `setor_nome` **nasce em um lugar só**,
+`buscarEscalasMensais` (`escalasNavegacao.ts`) — foi de propósito que aquela função existe. A
+busca por texto passou a casar com o caminho: procurar "SHL" agora acha os filhos, o que é o
+comportamento desejado.
+
+⚠️ `allSetores` do `ScaleGrid` **continua com o nome curto**. Quem consome aquela lista é o modal
+de Servidor Externo, que usa `formatSectorsHierarchy` (árvore com `↳`) — somar caminho ao recuo
+mostraria a hierarquia duas vezes. Só o setor da grade ganha caminho, e só para o PDF.
+
+### Ainda mostrando só a folha
+
+`/folha-ponto`, `/afastamentos`, `/ferias-licencas`, `/justificativas`, `/marcacoes`,
+`/servidores` (lista e ficha), `/auditoria` e os relatórios. Não é limitação técnica — o util
+resolve —, é escopo: várias delas alimentam PDF e coluna de relatório, onde trocar o rótulo tem
+efeito de layout que merece ser visto antes de ir para produção.
+
 ⚠️ **Separador é barra invertida de propósito.** A tela já usa `" / "` entre unidade e setor;
 repetir a barra normal apagaria a fronteira entre "onde termina a unidade" e "onde começa o
 caminho do setor".

@@ -136,3 +136,57 @@ export function formatSectorPaths<T extends Sector>(
     .map(s => ({ ...s, nome: caminhos.get(s.id) || s.nome }))
     .sort((a, b) => a.nome.localeCompare(b.nome));
 }
+
+const PAGINA_SETORES = 1000;
+
+/**
+ * Busca a arvore de setores e devolve o mapa `id -> caminho completo`, pronto para resolver o
+ * nome de um setor que veio de outra consulta (embed `setores(dicionario_setores(nome))` so'
+ * traz a FOLHA -- por isso a lista de escalas mostrava "BLOCO A" sem dizer de qual pai).
+ *
+ * ⚠️ PAGINA por `Range` (armadilha 8 do CLAUDE.md): o PostgREST corta em 1000 linhas **em
+ * silencio**, e sao 645 setores em 08/2026 -- perto demais do teto para confiar. Aqui truncar
+ * seria pior que numa lista comum: pai que ficasse de fora sumiria do caminho dos filhos dele,
+ * e o resultado pareceria certo.
+ *
+ * Traz setor INATIVO tambem, de proposito -- ele nao e' oferecido para escolha nova, mas
+ * continua sendo o pai de quem esta escalado hoje, e sem ele o caminho ficaria quebrado.
+ *
+ * ⚠️ SEM filtro por unidade, de proposito. Filtrar parece economia e e' risco: bastaria um pai
+ * cadastrado em outra unidade para o caminho do filho ficar curto, e o resultado continuaria
+ * parecendo certo. Sao 645 linhas de tres colunas -- uma consulta.
+ *
+ * `supabase` sem tipo pelo mesmo motivo de `escalasNavegacao.ts`: serve ao client e ao server
+ * component, que constroem clientes diferentes.
+ */
+export async function buscarCaminhosDeSetor(
+  supabase: any,
+  opts: { separator?: string } = {},
+): Promise<Map<string, string>> {
+  const linhas: Sector[] = [];
+
+  for (let inicio = 0; ; inicio += PAGINA_SETORES) {
+    const { data, error } = await supabase
+      .from('setores')
+      .select('id, unidade_id, parent_id, dicionario_setores(nome)')
+      .order('id')
+      .range(inicio, inicio + PAGINA_SETORES - 1);
+
+    if (error) return buildSectorPathMap(linhas, opts.separator);
+
+    const pagina = (data || []).map((s: any) => {
+      const dict = Array.isArray(s.dicionario_setores) ? s.dicionario_setores[0] : s.dicionario_setores;
+      return {
+        id: s.id,
+        unidade_id: s.unidade_id,
+        parent_id: s.parent_id,
+        nome: dict?.nome || 'SETOR SEM NOME',
+      } as Sector;
+    });
+
+    linhas.push(...pagina);
+    if (pagina.length < PAGINA_SETORES) break;
+  }
+
+  return buildSectorPathMap(linhas, opts.separator);
+}

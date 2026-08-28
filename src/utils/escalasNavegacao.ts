@@ -12,6 +12,7 @@
  * DETERMINÍSTICA (`agruparEscalas`) e a leitura/escrita dos filtros na URL.
  */
 import { applyAccessFilters, hasSectorAccess, type UserProfile } from './permissions'
+import { buscarCaminhosDeSetor } from './sectors'
 
 /** Os filtros da tela `/escalas`, na forma em que trafegam pela URL. */
 export interface FiltrosEscalas {
@@ -99,6 +100,12 @@ const TAMANHO_PAGINA = 1000
  * `escala_mensal` tem uma linha por servidor — um mês inteiro do parque passa disso. Sem a
  * paginação, tanto a lista quanto a navegação perderiam escalas sem erro nenhum na tela.
  * A ordem inclui `id` como desempate: `range` sobre ordenação instável repete e pula linhas.
+ *
+ * ⚠️ O nome do setor sai daqui como CAMINHO COMPLETO (`SHL \ BLOCO A`). O embed
+ * `setores(dicionario_setores(nome))` só traz a FOLHA, e "BLOCO A" existe embaixo de mais de um
+ * pai — a lista mostrava dois cards indistinguíveis, e a seta "Próxima" dizia o mesmo nome duas
+ * vezes. Como `setor_nome` nasce aqui, arrumar neste ponto conserta a lista, a navegação e a
+ * busca por texto de uma vez (buscar "SHL" passa a achar os filhos, o que é o desejado).
  */
 export async function buscarEscalasMensais(
   supabase: any,
@@ -107,6 +114,7 @@ export async function buscarEscalasMensais(
   periodo: { mes: string; ano: string }
 ): Promise<{ linhas: any[]; erro: any }> {
   const linhas: any[] = []
+  const caminhoSetor = await buscarCaminhosDeSetor(supabase)
 
   for (let inicio = 0; ; inicio += TAMANHO_PAGINA) {
     let query = supabase
@@ -129,7 +137,10 @@ export async function buscarEscalasMensais(
       const dicionario = setor
         ? (Array.isArray(setor.dicionario_setores) ? setor.dicionario_setores[0] : setor.dicionario_setores)
         : null
-      return { ...e, setores: setor ? { nome: dicionario?.nome || 'SETOR SEM NOME' } : null }
+      // Caminho quando o setor está no mapa; a folha do embed é o fallback (setor fora do escopo
+      // de leitura de `setores` não teria caminho a montar, e sumir com o nome seria pior).
+      const nome = caminhoSetor.get(e.setor_id) || dicionario?.nome || 'SETOR SEM NOME'
+      return { ...e, setores: setor ? { nome } : null }
     })
 
     linhas.push(...pagina)

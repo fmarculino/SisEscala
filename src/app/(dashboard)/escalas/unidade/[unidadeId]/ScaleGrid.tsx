@@ -18,7 +18,7 @@ import { canEditScale, podeEditarForaDoPrazo, UserRole } from '@/utils/governanc
 import { runComplianceCheck, getViolationsForCell, type ComplianceViolation } from '@/utils/complianceEngine'
 import { generateTemplate, TEMPLATE_OPTIONS, type TemplateType, countWorkDays } from '@/utils/scaleTemplates'
 import { encontrarConflitoExterno, diasComConflitoExterno } from '@/utils/conflitoEscala'
-import { formatSectorsHierarchy } from '@/utils/sectors'
+import { buildSectorPathMap, formatSectorsHierarchy } from '@/utils/sectors'
 import { decomporPlantao } from '@/utils/plantaoUnidades'
 import { celulaTemPassosDeIntervalo } from '@/utils/intervaloIntrajornada'
 import { statusAcionamento } from '@/utils/sobreaviso/statusAcionamento'
@@ -622,6 +622,23 @@ export function ScaleGrid({
     }
     fetchData()
   }, [supabase, setorId])
+
+  /**
+   * O setor da grade com o nome em CAMINHO COMPLETO ("SHL \ BLOCO A"), só para o cabeçalho do
+   * PDF: "BLOCO A — HMI" não diz de qual dos "BLOCO A" da unidade a folha impressa é.
+   *
+   * `allSetores` continua com o nome curto de propósito — quem consome a lista é o modal de
+   * Servidor Externo, que usa `formatSectorsHierarchy` (árvore com "↳"), e somar caminho ao
+   * recuo mostraria a hierarquia duas vezes.
+   *
+   * ⚠️ `allSetores` vem filtrado por `ativo = true`: setor cujo pai foi desativado cai no
+   * fallback e imprime só a folha, como antes. Nunca fica sem nome.
+   */
+  const setorAtualComCaminho = useMemo(() => {
+    const atual = allSetores.find(s => s.id === setorId)
+    if (!atual) return atual
+    return { ...atual, nome: buildSectorPathMap(allSetores).get(setorId) || atual.nome }
+  }, [allSetores, setorId])
 
   // Fetch sectors when unit changes in modal
   useEffect(() => {
@@ -5031,7 +5048,7 @@ export function ScaleGrid({
       {/* Actual Print View Hidden component */}
       <ScalePrintView 
         unidade={allUnidades.find(u => u.id === unidadeId)}
-        setor={allSetores.find(s => s.id === setorId)}
+        setor={setorAtualComCaminho}
         mes={mes}
         ano={ano}
         escalaMensal={escalaMensal}

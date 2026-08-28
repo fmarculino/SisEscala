@@ -2404,8 +2404,20 @@ dentro do nome duplica no cadastro o que o `parent_id` já sabe. **`buildSectorP
 Separador é **barra invertida** de propósito: a tela já usa `" / "` entre unidade e setor, e
 repetir a barra normal apagaria essa fronteira. **Não substituem `formatSectorsHierarchy`** — o
 recuo com `↳` serve para lista curta, onde o pai fica na linha de cima; o caminho serve para texto
-solto e `<select>` longo, onde o pai sai da tela ao rolar. Hoje aplicados só em
-`/servidores/pendencias`; são reutilizáveis em qualquer tela com a mesma dor.
+solto e `<select>` longo, onde o pai sai da tela ao rolar.
+
+⚠️ **O embed `setores(dicionario_setores(nome))` só traz a FOLHA** — é por isso que o caminho não
+sai de graça em nenhuma consulta. `buscarCaminhosDeSetor(supabase)` faz a busca da árvore inteira
+(paginada, armadilha 8: são 645 setores em 08/2026, perto demais do teto de 1000) e devolve o mapa
+`id → caminho`. **Sem filtro por unidade de propósito**: bastaria um pai cadastrado em outra
+unidade para o caminho do filho ficar curto, parecendo certo.
+
+Aplicado até aqui em: `/servidores/pendencias` (linha da transferência, "sem CPF" e os dois
+`<select>`), `/escalas` (label do card, busca por servidor e a seta "Próxima", todos via
+`buscarEscalasMensais` — `setor_nome` nasce lá) e `/escalas/unidade/[id]` (cabeçalho "Setor:" e o
+cabeçalho do PDF). **Ainda mostram só a folha** e são a fila natural: `/folha-ponto`,
+`/afastamentos`, `/ferias-licencas`, `/justificativas`, `/marcacoes`, `/servidores` (lista e
+ficha), `/auditoria` e os relatórios.
 
 ⚠️ **Nessa mesma passada apareceu um filtro que nunca filtrou:** os dois `<select>` de setor de
 `/servidores/pendencias` fazem `.filter(s => s.ativo !== false)` para não oferecer setor

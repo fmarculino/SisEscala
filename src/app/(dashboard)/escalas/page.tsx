@@ -17,6 +17,7 @@ import {
   urlDaGrade,
   type FiltrosEscalas
 } from '@/utils/escalasNavegacao'
+import { buscarCaminhosDeSetor } from '@/utils/sectors'
 
 function formatCpf(cpf: string | null) {
   if (!cpf) return ''
@@ -225,16 +226,21 @@ export default function EscalasPage() {
           .select('id, mes, ano, status, ativo, unidade_id, setor_id, unidades(nome), setores(dicionario_setores(nome)), servidores(id, nome, cpf, matricula)')
           .in('servidor_id', servIds)
 
+        // Mesmo caminho completo ("SHL \ BLOCO A") da lista normal — esta é a SEGUNDA cópia do
+        // mapeamento de nome de setor (a outra é `buscarEscalasMensais`), e mostrar só a folha
+        // aqui faria a busca por servidor apontar um setor que o resto da tela chama de outro
+        // jeito.
+        const caminhoSetor = await buscarCaminhosDeSetor(supabase)
         const mappedGlobEsc = (globEsc || []).map((e: any) => {
           const sectorData = Array.isArray(e.setores) ? e.setores[0] : e.setores
-          const dictData = sectorData ? (Array.isArray(sectorData.dicionario_setores) 
-            ? sectorData.dicionario_setores[0] 
+          const dictData = sectorData ? (Array.isArray(sectorData.dicionario_setores)
+            ? sectorData.dicionario_setores[0]
             : sectorData.dicionario_setores) : null
-            
+
           return {
             ...e,
             setores: sectorData ? {
-              nome: dictData?.nome || 'SETOR SEM NOME'
+              nome: caminhoSetor.get(e.setor_id) || dictData?.nome || 'SETOR SEM NOME'
             } : null
           }
         })

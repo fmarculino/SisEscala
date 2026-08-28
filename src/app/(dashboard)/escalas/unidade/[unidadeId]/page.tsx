@@ -2,6 +2,7 @@ import { createClient } from '@/utils/supabase/server'
 import { ScaleGrid } from './ScaleGrid'
 import { hasUnitAccess, hasSectorAccess } from '@/utils/permissions'
 import { autoCloseExpiredScalesAndTimesheets } from '@/utils/autoClose'
+import { buscarCaminhosDeSetor } from '@/utils/sectors'
 
 export default async function UnidadeEscalaPage({
   params,
@@ -76,11 +77,17 @@ export default async function UnidadeEscalaPage({
     .eq('id', setor)
     .single()
 
+  // Caminho completo ("SHL \ BLOCO A") no cabeçalho: o embed só traz a folha, e "BLOCO A" existe
+  // embaixo de mais de um pai — o título dizia em qual UNIDADE se está, nunca em qual ramo.
+  const caminhoSetor = await buscarCaminhosDeSetor(supabase)
+
   const setorInfo = setorRaw ? {
     ...setorRaw,
-    nome: (Array.isArray(setorRaw.dicionario_setores) 
-      ? setorRaw.dicionario_setores[0]?.nome 
-      : (setorRaw as any).dicionario_setores?.nome) || 'SETOR SEM NOME'
+    nome: caminhoSetor.get(setorRaw.id)
+      || (Array.isArray(setorRaw.dicionario_setores)
+        ? setorRaw.dicionario_setores[0]?.nome
+        : (setorRaw as any).dicionario_setores?.nome)
+      || 'SETOR SEM NOME'
   } : null
 
   // 3. Fetch ALL servers for this sector (to allow adding them)
