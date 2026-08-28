@@ -1,4 +1,4 @@
-# SisEscala 📅[![Version](https://img.shields.io/badge/version-2.21.0-green.svg)](https://github.com/fmarculino/SisEscala)
+# SisEscala 📅[![Version](https://img.shields.io/badge/version-2.22.0-green.svg)](https://github.com/fmarculino/SisEscala)
 [![Next.js](https://img.shields.io/badge/framework-Next.js%2015-black.svg)](https://nextjs.org/)
 [![Supabase](https://img.shields.io/badge/backend-Supabase-green.svg)](https://supabase.com/)
 [![Tailwind CSS](https://img.shields.io/badge/styling-Tailwind%20CSS-38B2AC.svg)](https://tailwindcss.com/)
@@ -10,6 +10,28 @@ O sistema foca em **governança, segurança jurídica e eficiência operacional*
 ---
 
 ## 🚀 Principais Funcionalidades
+
+### ⏱️ Teto de Horas Consolidado Entre Escalas (v2.22.0)
+- **Correção crítica**: o teto de 300h/mês por servidor (Configurações → Regras) sempre foi um limite **da pessoa**, mas a única conta que o defendia era a da **grade aberta**. Servidor escalado em dois setores tinha duas contas dentro do teto e uma soma fora dele — caso real: 289h no `SHL \ ACOLHIMENTO` mais 120h na `SHL \ LAVANDERIA` do HMI, **409h**, com as duas telas mostrando um número válido.
+- **A checagem alcançava um caminho só**: apenas a digitação célula a célula conferia o teto. **Aplicar Template**, **Gerador Inteligente** e a gravação de meses futuros nunca consultaram nada, e não havia trava no banco.
+- **Agora a conta é do mês inteiro da pessoa**, somando todas as escalas da competência — entre setores e entre unidades. A coluna **TOTAL H/MÊS** ganhou as linhas **Outras** e **Mês**, com tooltip dizendo `UNIDADE / SETOR — Nh`, e fica vermelha acima do teto; um **escudo vermelho** ao lado do nome abre a Autorização Extraordinária. Ao **adicionar** um servidor à grade, o sistema avisa na hora quanto ele já tem em outro lugar — antes de lançar o mês dele.
+- **A Autorização Extraordinária passou a ser uma por servidor/mês**, não por unidade: duas unidades concedendo +100h cada elevariam o teto a 500h sem que ninguém tivesse decidido isso.
+- **Aplicar Template e Gerador Inteligente são tudo ou nada**, e o Gerador **nomeia quem recusou e por quê** — o teto é o único motivo de recusa que depende de outra escala, e sem dizer isso o coordenador olha a própria grade, vê espaço sobrando e não entende nada.
+
+### 📊 Relatório de Carga Consolidada do Mês (v2.22.0)
+- **Responde a pergunta fora da grade**: quem está em mais de uma escala na competência, quanto dá no total e onde estão as horas. Sem ele, a informação só existia para quem abrisse justamente uma das duas grades — conferir o mês exigiria abrir todos os setores.
+- **Sem filtro de unidade ou setor, de propósito**: a pergunta é quanto **a pessoa** tem no mês, e a resposta cruza setores por definição — filtrar devolveria a conta parcial que o relatório existe para corrigir.
+- Mostra o total, o teto efetivo, a situação (dentro do teto / autorizado / acima) e a composição escala a escala, com o caminho completo do setor.
+
+### 🔀 Avaliação de Transferência pelo RH (v2.22.0)
+- **RH Geral avalia qualquer solicitação; RH da Unidade avalia dentro das unidades dele.** Antes, aprovar ou rejeitar era exclusividade do Administrador Geral. Os demais perfis continuam apenas solicitando.
+- **Correção de segurança**: a policy que dizia "avaliação só do Administrador Geral" **nunca restringiu nada** — outra policy `FOR ALL` na mesma tabela se somava a ela com `OR`, e `FOR ALL` cobre `UPDATE`. Na prática, quatro perfis podiam marcar um pedido como aprovado chamando a API direto; o que os segurava era só a verificação da tela.
+- **RH da Unidade só aprova com origem e destino dentro do escopo dele**, conferidos pelo valor final — o do pedido ou o que ele acabou de escolher no formulário da aprovação.
+
+### 🧭 Caminho Completo de Setor (v2.22.0)
+- **Nome de setor sozinho não identifica setor**: "BLOCO A" existe embaixo de mais de um pai. A saída que vinha sendo usada era batizar o cadastro de "BLOCO A SHL" — escrever a hierarquia dentro do nome, duplicando o que a árvore já sabe.
+- As listas e os textos passam a mostrar `SHL \ BLOCO A`. A **barra invertida** é deliberada: a tela já usa `" / "` entre unidade e setor, e repetir a barra normal apagaria essa fronteira.
+- Aplicado em Pendências de Cadastro, na lista de Escalas e no cabeçalho e PDF da grade. Demais telas seguem na fila.
 
 ### 📋 Justificativa Coletiva Autorizada pelo RH (v2.21.0)
 - **Autorização nominal, com ofício obrigatório**: o RH Geral libera, **por servidor** e por período, quais passos de ponto o coordenador pode declarar em massa — nunca por setor, para que servidor novo não herde dispensa que ninguém concedeu. Caso de origem: os técnicos do Programa Porta a Porta, que iniciam a jornada de madrugada em campo e não passam na sede para registrar a entrada.
