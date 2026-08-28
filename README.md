@@ -1,4 +1,4 @@
-# SisEscala 📅[![Version](https://img.shields.io/badge/version-2.8.0-green.svg)](https://github.com/fmarculino/SisEscala)
+# SisEscala 📅[![Version](https://img.shields.io/badge/version-2.21.0-green.svg)](https://github.com/fmarculino/SisEscala)
 [![Next.js](https://img.shields.io/badge/framework-Next.js%2015-black.svg)](https://nextjs.org/)
 [![Supabase](https://img.shields.io/badge/backend-Supabase-green.svg)](https://supabase.com/)
 [![Tailwind CSS](https://img.shields.io/badge/styling-Tailwind%20CSS-38B2AC.svg)](https://tailwindcss.com/)
@@ -10,6 +10,33 @@ O sistema foca em **governança, segurança jurídica e eficiência operacional*
 ---
 
 ## 🚀 Principais Funcionalidades
+
+### 📋 Justificativa Coletiva Autorizada pelo RH (v2.21.0)
+- **Autorização nominal, com ofício obrigatório**: o RH Geral libera, **por servidor** e por período, quais passos de ponto o coordenador pode declarar em massa — nunca por setor, para que servidor novo não herde dispensa que ninguém concedeu. Caso de origem: os técnicos do Programa Porta a Porta, que iniciam a jornada de madrugada em campo e não passam na sede para registrar a entrada.
+- **A batida de saída nunca é dispensada**: `CHECK` no banco impede `saida` na lista de passos, e nenhum caminho do modo restrito toca nesse campo. A saída continua vindo do relógio, biométrica.
+- **Não é marcação automática**: o que se grava é declaração do coordenador, com justificativa, rotulada como **manual** na folha — o mesmo tratamento do Art. 82, parágrafo único, que a validação manual já usava. O que a versão acrescenta é a **autorização prévia do RH como pré-condição**, conferida no banco e não só na tela.
+- **A folha imprime o ofício**: `REGISTRO DE ENTRADA DISPENSADO CONF. OFÍCIO 249/2026` na observação do dia — é o documento que responde à fiscalização.
+- **Vigência com prazo**: obrigatória e limitada a 12 meses, renovável por novo ato; revoga-se, nunca se apaga.
+
+### 🔒 Fechamento do Acesso Anônimo às Funções de Ponto (v2.21.0)
+- **Correção crítica**: funções como `fn_confirmar_presenca`, `fn_registrar_ponto` e `fn_atestar_jornada_bulk` eram executáveis com a chave `anon` — a mesma que vai no bundle do navegador —, o que permitia gravar presença em folha de ponto **sem nenhum login**.
+- **A causa era o padrão de GRANT**: no PostgreSQL, `CREATE FUNCTION` já concede `EXECUTE` a `PUBLIC`, então `GRANT ... TO authenticated` nunca restringiu nada. Das 394 funções do schema, **369 eram alcançáveis por anon**; hoje são 324, e as que escrevem sem conferir papel caíram de 35 para 4 — todas do fluxo público de sobreaviso, que exigem `magic_token`.
+- **Migration de privilégio que confere o próprio resultado**: `REVOKE` de quem não é dono da função não falha, apenas emite `WARNING` — uma correção pode "aplicar com sucesso" sem mudar nada. As migrations passaram a verificar `has_function_privilege` **nos dois sentidos** e abortar: se anon continuar entrando, ou se uma função que a tela usa perder o acesso de quem está logado.
+
+### 🚪 Terminal Clássico Realmente Desativável (v2.21.0)
+- **A chave passou a desligar o recurso, não só o botão**: até aqui `terminal_classico_habilitado = false` apenas escondia o link na sidebar e no login — a rota continuava servida e a função de registro continuava alcançável, então quem tinha o endereço nos favoritos seguia batendo ponto.
+- **Três camadas**: o banco recusa antes de qualquer escrita e antes de conferir o PIN; o middleware não serve mais a rota; a tela mostra "Terminal Desativado". O **Terminal Local não é afetado** — tem canal próprio, com token de dispositivo e escopo de unidade/setor.
+- ⚠️ **Não é restrição de horário** (vedação da Portaria MTP 671/2021): nada aqui olha a hora da batida. Onde o canal está ligado, a regra de nunca recusar batida por horário continua intacta.
+
+### 📄 Verso da Folha Só com Justificativas Reais (v2.21.0)
+- **O relatório de ocorrências deixou de listar fim de semana**: ele incluía todo dia com observação preenchida, e a geração da folha escreve `SÁBADO`/`DOMINGO`/`FOLGA` sozinha em cada dia sem escala. Nas 482 folhas de agosto/2026 eram **11.505 linhas, das quais 6.216 de fim de semana**, todas assinadas como "Gestão / Coordenação" — o documento afirmava que alguém justificou o que ninguém justificou.
+- **Ficam 4.838 linhas**: ajustes manuais, afastamentos, observações escritas por pessoas e jornadas temporárias. **Trabalho em feriado passa a aparecer** com o horário; feriado sem trabalho é calendário e sai.
+- **A parte humana é preservada** quando vem colada ao rótulo (`AFASTAMENTO PARCIAL: ... | SÁBADO`), e nenhum dado é alterado — o verso é derivado dos registros na renderização.
+
+### 🛠️ Gestão de Cadastros e Escala (v2.21.0)
+- **Exclusão de setor pelo Administrador Geral**: apenas para setor **sem nenhum vínculo**, e a recusa **lista o que o segura**. A varredura é dinâmica sobre as chaves estrangeiras do banco, porque parte delas é `ON DELETE CASCADE`/`SET NULL` e um `DELETE` direto apagaria dado real em silêncio.
+- **Busca direta de servidor em Afastamentos**: campo incremental por nome, matrícula ou CPF que preenche unidade e setor ao escolher — com 1.318 servidores ativos, o RH não tem como saber a lotação de cada um de cabeça.
+- **RH Geral e RH da Unidade editam a grade fora do prazo de planejamento**, como o Diretor. Os dropdowns de escolha de setor deixam de oferecer setores inativos, e os filtros da tela de usuários passam a casar por **lotação ou vínculo explícito**, em vez do escopo de permissão com coringas.
 
 ### 👥 Gestão de Usuários pelo RH, com Escopo Real (v2.8.0)
 - **RH Geral e RH da Unidade passam a cadastrar usuários**: o item **Usuários** foi liberado no menu SISTEMA para os dois perfis de RH — Configurações, Backup e Segurança seguem exclusivos do Administrador Geral, e Diretor, Coordenador e Ass. Administrativo continuam sem acesso à tela.
