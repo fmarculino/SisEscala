@@ -41,7 +41,11 @@ export function JustificativasClient({
   // Filters with sessionStorage persistence
   const [selectedUnidade, setSelectedUnidade] = useState(() => {
     if (typeof window !== 'undefined') {
-      return sessionStorage.getItem('justificativa_filtro_unidade') || (unidades[0]?.id || '')
+      // `?? ` e não `|| `: string vazia agora é uma escolha legítima ("Todas as Unidades"), e
+      // com `||` ela caía de volta para a primeira unidade a cada recarga — a opção existiria
+      // na tela e não sobreviveria a um F5.
+      const salvo = sessionStorage.getItem('justificativa_filtro_unidade')
+      if (salvo !== null) return salvo
     }
     return unidades[0]?.id || ''
   })
@@ -119,6 +123,8 @@ export function JustificativasClient({
     cumpridos_sem_justificativa?: number
     /** Nada pendente de ação: justificado OU cumprido. É o que a barra de progresso mede. */
     resolvidos?: number
+    /** Quantos casam com o filtro de Status. `total` é o mês inteiro; este é o recorte. */
+    filtrados?: number
     sugestoes: number
     em_avaliacao?: number
     faltas?: number
@@ -127,6 +133,9 @@ export function JustificativasClient({
     total: 0, justificados: 0, pendentes: 0, cumpridos_sem_justificativa: 0,
     resolvidos: 0, sugestoes: 0, em_avaliacao: 0, faltas: 0, items: []
   })
+
+  /** Erro da última carga da fila. `null` = carregou. Ver o tratamento em `fetchEventos`. */
+  const [erroCarga, setErroCarga] = useState<string | null>(null)
 
   const [templates, setTemplates] = useState<any[]>([])
   const [selectedEventoIds, setSelectedEventoIds] = useState<Set<string>>(new Set())
@@ -168,10 +177,11 @@ export function JustificativasClient({
 
   // Load events via Server Action
   const fetchEventos = useCallback(async () => {
-    if (!selectedUnidade) return
+    // Sem unidade escolhida a busca ACONTECE — é o modo "Todas as Unidades". O `return` que
+    // existia aqui era metade do motivo de a visão global não existir.
     setLoading(true)
     const res = await getEventosPendentes({
-      unidadeId: selectedUnidade,
+      unidadeId: selectedUnidade || undefined,
       setorId: selectedSetor || undefined,
       servidorId: selectedServidor || undefined,
       mes,
@@ -183,19 +193,30 @@ export function JustificativasClient({
     })
 
     if (res.data) {
+      setErroCarga(null)
       setEventosData({
         total: res.data.total || 0,
         justificados: res.data.justificados || 0,
         pendentes: res.data.pendentes || 0,
         cumpridos_sem_justificativa: res.data.cumpridos_sem_justificativa || 0,
         resolvidos: res.data.resolvidos || 0,
+        filtrados: res.data.filtrados ?? (res.data.items || []).length,
         sugestoes: res.data.sugestoes || 0,
         em_avaliacao: res.data.em_avaliacao || 0,
         faltas: res.data.faltas || 0,
         items: res.data.items || []
       })
     } else if (res.error) {
+      // 🚨 ISTO ERA SÓ UM console.error — a falha não chegava a lugar nenhum.
+      // Quando a busca morria em HTTP 414 (SMS e HMI com "Todos os Setores", medido em
+      // 29/08/2026), a tela ficava com os dados ANTERIORES ou com zeros, sem uma palavra de
+      // erro. Fila vazia é indistinguível de fila que não carregou — e num módulo que decide
+      // falta de servidor público, "não apareceu nada" tem de ser distinguível de "não há nada".
       console.error('Erro ao carregar eventos:', res.error)
+      setErroCarga(res.error)
+      setEventosData(prev => ({ ...prev, total: 0, justificados: 0, pendentes: 0,
+        cumpridos_sem_justificativa: 0, resolvidos: 0, filtrados: 0, sugestoes: 0,
+        em_avaliacao: 0, faltas: 0, items: [] }))
     }
     setLoading(false)
   }, [selectedUnidade, selectedSetor, selectedServidor, mes, ano, filterCategoria, filterStatus, currentPage])
@@ -340,6 +361,18 @@ export function JustificativasClient({
               onChange={(e) => { setSelectedUnidade(e.target.value); setSelectedSetor(''); setSelectedServidor(''); setCurrentPage(1) }}
               className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2.5 text-xs font-bold text-zinc-800 dark:text-zinc-200 focus:ring-2 focus:ring-indigo-500 outline-none"
             >
+              {/*
+                "TODAS AS UNIDADES" — 29/08/2026.
+                A tela abria na PRIMEIRA unidade em ordem alfabética e não tinha opção de sair
+                dela: `fetchEventos` nem buscava sem unidade, e a action filtrava duro por
+                `unidade_id`. Com 33 unidades cadastradas (11 com escala em 08/2026), um
+                Administrador Geral — que por definição enxerga tudo — só conseguia ver a rede
+                visitando unidade por unidade. O escopo por papel sempre esteve certo; o que
+                faltava era a tela permitir exercê-lo.
+                Quem é escopado não ganha nada indevido: `applyAccessFilters` continua sendo
+                quem recorta, e "todas" significa "todas as que já são minhas".
+              */}
+              <option value="">Todas as Unidades</option>
               {unidades.map(u => (
                 <option key={u.id} value={u.id}>{u.nome}</option>
               ))}
@@ -541,6 +574,22 @@ export function JustificativasClient({
         </div>
       </div>
 
+      {/* A falha de carga precisa ser VISÍVEL: fila vazia não pode parecer "não há nada". */}
+      {erroCarga && (
+        <div className="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 p-4 rounded-2xl flex items-start gap-3">
+          <AlertCircle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-black text-red-700 dark:text-red-300 uppercase tracking-wide">
+              Não foi possível carregar a fila
+            </p>
+            <p className="text-xs text-red-600 dark:text-red-400 mt-1 leading-relaxed">
+              Os números abaixo estão zerados por falha de carga, não por ausência de eventos.
+              Detalhe técnico: {erroCarga}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* CARDS DE MÉTRICAS RÁPIDAS */}
       <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-6">
         <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-6 rounded-3xl shadow-sm space-y-2">
@@ -633,7 +682,12 @@ export function JustificativasClient({
           }`}
         >
           <ClipboardCheck className="h-4 w-4" />
-          Fila de Justificativas ({eventosData.items.length})
+          {/*
+            Era `items.length` — os itens da PÁGINA, no máximo 20. Com 40 eventos a aba dizia
+            "(20)" e o card dizia 40, sem nada explicando a diferença. Agora conta o que casa
+            com o filtro, que é o que a aba de fato lista.
+          */}
+          Fila de Justificativas ({eventosData.filtrados ?? eventosData.items.length})
         </button>
 
         <button
@@ -689,6 +743,28 @@ export function JustificativasClient({
             <div>
               <h3 className="font-black text-zinc-900 dark:text-white uppercase tracking-tight text-base">Fila Operacional de Eventos</h3>
               <p className="text-xs text-zinc-500">Selecione eventos individuais ou em lote para aplicar justificativas motivacionais.</p>
+
+              {/*
+                OS CARDS MEDEM O MÊS; A LISTA MEDE O FILTRO — e nada dizia isso.
+                Com o Status em qualquer recorte, "PENDENTES 21" convivia com "Nenhum evento
+                encontrado" logo abaixo, e a leitura natural era que a tela tinha parado de
+                mostrar os eventos. Pior: o filtro é sticky em sessionStorage, então seguia o
+                usuário ao trocar de unidade, setor e mês. A frase abaixo é o que faltava para
+                os dois números serem comparáveis.
+              */}
+              {filterStatus !== 'todos' && (
+                <p className="text-xs font-bold text-indigo-600 dark:text-indigo-400 mt-1">
+                  Exibindo {eventosData.filtrados ?? 0} de {eventosData.total} evento(s) do mês —
+                  filtro de status ativo.{' '}
+                  <button
+                    type="button"
+                    onClick={() => { setFilterStatus('todos'); setCurrentPage(1) }}
+                    className="underline hover:no-underline"
+                  >
+                    Limpar filtro
+                  </button>
+                </p>
+              )}
             </div>
 
             {selectedEventoIds.size > 0 && (
@@ -768,6 +844,19 @@ export function JustificativasClient({
                         <td className="p-4">
                           <div className="font-bold text-zinc-900 dark:text-white">{ev.servidor_nome}</div>
                           <div className="text-[10px] text-zinc-400 font-mono">Mat: {ev.servidor_matricula || '—'}</div>
+                          {/*
+                            Só aparece quando a lista mistura unidades. Sem unidade escolhida,
+                            a fila junta a rede inteira e "FERNANDO, dia 01, Sobreaviso" deixa
+                            de identificar o evento — a mesma pessoa pode estar escalada em mais
+                            de um lugar (armadilha 23). Com uma unidade escolhida a linha seria
+                            ruído: o filtro no topo já diz onde você está.
+                          */}
+                          {!selectedUnidade && (
+                            <div className="text-[10px] text-zinc-400 mt-0.5 truncate max-w-[220px]"
+                                 title={`${ev.unidade_nome} / ${ev.setor_nome}`}>
+                              {ev.unidade_nome} <span className="text-zinc-300">/</span> {ev.setor_nome}
+                            </div>
+                          )}
                         </td>
                         <td className="p-4 font-mono font-bold text-zinc-700 dark:text-zinc-300">
                           {String(ev.dia).padStart(2, '0')}/{String(ev.mes).padStart(2, '0')}/{ev.ano}

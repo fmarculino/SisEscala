@@ -79,8 +79,77 @@ async function dataLocalISO(supabase: any): Promise<string> {
   return String(data)
 }
 
+/**
+ * 🚨 O POSTGREST CORTA EM 1000 EM SILÊNCIO, E A FILA NÃO PAGINAVA NADA (29/08/2026).
+ *
+ * `escala_diaria` era buscada com `.in('escala_mensal_id', ...)` e nenhum `Range`. Medido em
+ * produção no dia da correção:
+ *
+ *   08/2026  SMS 4.161 linhas · USF Laranjeiras 1.786 · USF Pedro Cavalcante 1.133
+ *   09/2026  HMI 5.079 linhas · SMS 1.259
+ *
+ * Ou seja: na SMS a fila lia **24%** do mês, e no HMI **20%** — e como a busca vem
+ * `.order('dia')`, o corte ficava com os primeiros dias e descartava o resto. Os cards, que
+ * somam sobre o que foi lido, exibiam números menores que a realidade sem nenhum aviso. É a
+ * armadilha 8 do CLAUDE.md, no módulo que decide falta de servidor público.
+ *
+ * `escala_mensal` (692 linhas em 08/2026, 743 em 09) ainda não estourava, mas está a um mês de
+ * estourar — e com "Todas as Unidades" ela deixa de ser por unidade. Pagina também.
+ */
+async function paginar<T = any>(query: any): Promise<{ data: T[]; error: any }> {
+  const out: T[] = []
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await query.range(from, from + 999)
+    if (error) return { data: [], error }
+    const pagina = data || []
+    out.push(...pagina)
+    if (pagina.length < 1000) break
+  }
+  return { data: out, error: null }
+}
+
+/**
+ * 🚨 E ANTES DO CORTE DE 1000 VEM O **HTTP 414** — a fila simplesmente NÃO CARREGAVA.
+ *
+ * `.in('escala_mensal_id', ids)` vira query string. Com uma unidade grande e "Todos os Setores",
+ * a lista de UUIDs estoura o limite de URI do servidor. Medido em produção em 29/08/2026:
+ *
+ *   SMS 08/2026   300 escala_mensal → URL de 11.224 chars → HTTP 414   (4.161 linhas,   271 eventos)
+ *   HMI 09/2026   442 escala_mensal → URL de 16.478 chars → HTTP 414   (5.079 linhas, 1.563 eventos)
+ *
+ * E o cliente só faz `console.error` — nenhuma mensagem na tela. O usuário via a fila vazia,
+ * sem erro, e só conseguia trabalhar escolhendo um setor de cada vez. Paginar não resolve isto:
+ * a requisição nem chega a ser feita. É preciso LOTEAR os ids.
+ *
+ * 120 ids ≈ 4,6 KB de URL, com folga confortável para o limite padrão de 8 KB.
+ */
+const IDS_POR_LOTE = 120
+
+async function buscarPorLotesDeIds<T = any>(
+  ids: string[],
+  montarQuery: (lote: string[]) => any
+): Promise<{ data: T[]; error: any }> {
+  const out: T[] = []
+  for (let i = 0; i < ids.length; i += IDS_POR_LOTE) {
+    const { data, error } = await paginar<T>(montarQuery(ids.slice(i, i + IDS_POR_LOTE)))
+    if (error) return { data: [], error }
+    out.push(...data)
+  }
+  return { data: out, error: null }
+}
+
+/** Resposta vazia com a forma completa — nenhum consumidor precisa tratar campo ausente. */
+function vazio(page = 1, perPage = 20) {
+  return {
+    total: 0, justificados: 0, pendentes: 0, cumpridos_sem_justificativa: 0,
+    resolvidos: 0, sugestoes: 0, em_avaliacao: 0, faltas: 0, filtrados: 0,
+    page, per_page: perPage, items: [] as any[],
+  }
+}
+
 export async function getEventosPendentes(params: {
-  unidadeId: string
+  /** Vazio/ausente = TODAS as unidades do escopo de quem chama. */
+  unidadeId?: string
   setorId?: string
   servidorId?: string
   mes?: number
@@ -130,7 +199,7 @@ export async function getEventosPendentes(params: {
       queryMensal = queryMensal.eq('ano', params.ano)
     }
 
-    const { data: escalasMensais, error: errMensal } = await queryMensal
+    const { data: escalasMensais, error: errMensal } = await paginar(queryMensal)
 
     if (errMensal) {
       console.error('Erro ao buscar escalas mensais:', errMensal)
@@ -138,19 +207,7 @@ export async function getEventosPendentes(params: {
     }
 
     if (!escalasMensais || escalasMensais.length === 0) {
-      return {
-        data: {
-          total: 0,
-          justificados: 0,
-          pendentes: 0,
-          cumpridos_sem_justificativa: 0,
-          resolvidos: 0,
-          sugestoes: 0,
-          page: params.page || 1,
-          per_page: params.perPage || 20,
-          items: []
-        }
-      }
+      return { data: vazio(params.page || 1, params.perPage || 20) }
     }
 
     const escalaMensalIds = escalasMensais.map(em => em.id)
@@ -163,15 +220,23 @@ export async function getEventosPendentes(params: {
     // "Justificar" no dia 08 da ANDRESA não tinha como saber, ali, que não existia registro
     // nenhum — e agora essa é a decisão que a tela pede. Decidir no escuro seria pior do que
     // não decidir.
-    const { data: diarias, error: errDiarias } = await supabase
-      .from('escala_diaria')
-      .select(`
-        id, dia, categoria, escala_mensal_id, dicionario_turnos_id,
-        presenca_entrada_em, presenca_saida_em,
-        dicionario_turnos(codigo)
-      `)
-      .in('escala_mensal_id', escalaMensalIds)
-      .order('dia', { ascending: true })
+    // ⚠️ LOTEADO **E** PAGINADO — ver `buscarPorLotesDeIds()`. Era aqui que a SMS e o HMI
+    // devolviam HTTP 414 (fila sem carregar, sem erro na tela) e que Laranjeiras, Pedro
+    // Cavalcante e a SMS de 09/2026 perdiam eventos no corte de 1000. A ordenação por `dia`
+    // é o que tornava o corte coerente e portanto invisível: a fila mostrava os primeiros
+    // dias, completos, e simplesmente não tinha o resto do mês.
+    const { data: diarias, error: errDiarias } = await buscarPorLotesDeIds<any>(
+      escalaMensalIds,
+      lote => supabase
+        .from('escala_diaria')
+        .select(`
+          id, dia, categoria, escala_mensal_id, dicionario_turnos_id,
+          presenca_entrada_em, presenca_saida_em,
+          dicionario_turnos(codigo)
+        `)
+        .in('escala_mensal_id', lote)
+        .order('dia', { ascending: true })
+    )
 
     if (errDiarias) {
       console.error('Erro ao buscar escala diaria:', errDiarias)
@@ -188,14 +253,25 @@ export async function getEventosPendentes(params: {
     const desfechoPorLinha = new Map<string, { estado: string; motivo: string | null }>()
     try {
       const hojeLocal = await dataLocalISO(supabase)
-      for (let i = 0; i < escalaMensalIds.length; i += 100) {
-        const { data: desfechos } = await supabase.rpc('fn_desfecho_eventos_escalas', {
-          p_escala_mensal_ids: escalaMensalIds.slice(i, i + 100),
-          p_hoje: hojeLocal,
-        })
-        ;(desfechos || []).forEach((d: any) => {
-          desfechoPorLinha.set(d.escala_diaria_id, { estado: d.estado, motivo: d.motivo })
-        })
+      // ⚠️ O CORTE DE 1000 VALE PARA RPC TAMBÉM, e o lote de 100 escalas estourava sozinho:
+      // são ~16,6 linhas de `escala_diaria` por `escala_mensal` (11.472 / 692 em 08/2026), ou
+      // seja ~1.660 por lote. O estado dos eventos excedentes vinha vazio, e evento sem estado
+      // é tratado como "não sei" — o modal deixa de oferecer a decisão. O sintoma era mudo:
+      // dias que simplesmente não pediam validação. Lote menor E paginação, porque a densidade
+      // por escala varia muito entre unidades.
+      for (let i = 0; i < escalaMensalIds.length; i += 50) {
+        const lote = escalaMensalIds.slice(i, i + 50)
+        for (let from = 0; ; from += 1000) {
+          const { data: desfechos, error: errRpc } = await supabase
+            .rpc('fn_desfecho_eventos_escalas', { p_escala_mensal_ids: lote, p_hoje: hojeLocal })
+            .range(from, from + 999)
+          if (errRpc) throw errRpc
+          const pagina = desfechos || []
+          pagina.forEach((d: any) => {
+            desfechoPorLinha.set(d.escala_diaria_id, { estado: d.estado, motivo: d.motivo })
+          })
+          if (pagina.length < 1000) break
+        }
       }
     } catch (err) {
       // A fila continua útil sem o estado (era assim até 24/08/2026); o que ela não pode é
@@ -219,15 +295,40 @@ export async function getEventosPendentes(params: {
     })
 
     // 3. Fetch existing justificativas_eventos for unit, month, year
+    //
+    // ⚠️ Sem unidade escolhida ("Todas as Unidades"), o recorte passa a ser o conjunto de
+    // unidades das escalas que o escopo do usuário já devolveu — nunca "a tabela inteira".
+    // Filtrar por `unidadeId` fixo aqui era o que tornava a visão global impossível.
     let queryJust = supabase
       .from('justificativas_eventos')
       .select('*')
-      .eq('unidade_id', params.unidadeId)
+
+    if (params.unidadeId) {
+      queryJust = queryJust.eq('unidade_id', params.unidadeId)
+    } else {
+      const unidadesNoEscopo = Array.from(
+        new Set(escalasMensais.map(em => em.unidade_id).filter(Boolean))
+      )
+      if (unidadesNoEscopo.length === 0) return { data: vazio() }
+      queryJust = queryJust.in('unidade_id', unidadesNoEscopo)
+    }
 
     if (params.mes) queryJust = queryJust.eq('mes', params.mes)
     if (params.ano) queryJust = queryJust.eq('ano', params.ano)
 
-    const { data: justificativas } = await queryJust
+    // ⚠️ Paginado: com "Todas as Unidades" isto passa de 1000 linhas, e o PostgREST corta em
+    // silêncio (armadilha 8). Cortado, o `justMap` perderia justificativas e a fila mostraria
+    // como pendente evento que já tem texto — exatamente o defeito que acabamos de corrigir.
+    const justificativas: any[] = []
+    for (let from = 0; ; from += 1000) {
+      const { data: pagina, error: errJust } = await queryJust.range(from, from + 999)
+      if (errJust) {
+        console.error('Erro ao buscar justificativas:', errJust)
+        return { error: errJust.message }
+      }
+      justificativas.push(...(pagina || []))
+      if ((pagina?.length || 0) < 1000) break
+    }
 
     const justMap = new Map()
     justificativas?.forEach(j => {
@@ -404,6 +505,10 @@ export async function getEventosPendentes(params: {
         em_avaliacao: emAvaliacao,
         faltas,
         page,
+        // Quantos casam com o filtro de Status — diferente de `total`, que é o mês inteiro.
+        // Sem isto a tela não tinha como dizer "0 de 21": os cards mediam tudo, a lista media o
+        // filtro, e o contador da aba media só a PÁGINA. Três números, nenhum comparável.
+        filtrados: finalItems.length,
         per_page: perPage,
         items: paginatedItems
       }

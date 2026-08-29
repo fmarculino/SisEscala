@@ -87,18 +87,44 @@ export function alcancaEvento(ator: AtorJustificativa, evento: EscopoEvento): bo
   }
 
   if (ator.role === 'admin' || ator.role === 'coordenador' || ator.role === 'ass_adm') {
-    if (ator.acesso_todas_unidades || ator.acesso_todos_setores) return true
-    if (
-      evento.unidade_id &&
-      ator.permitted_unidades.includes(evento.unidade_id) &&
-      ator.acesso_todos_setores
-    ) {
-      return true
-    }
+    // 🚨 `acesso_todos_setores` SOZINHO NÃO É ALCANCE GLOBAL — corrigido em 29/08/2026.
+    //
+    // Isto começava com `if (acesso_todas_unidades || acesso_todos_setores) return true`. Mas
+    // a flag significa "todos os setores DAS UNIDADES a que estou vinculado", nunca "de toda a
+    // rede" — é assim que `applyAccessFilters` sempre a tratou (só `acesso_todas_unidades`
+    // libera tudo lá). O OR fazia a LISTAGEM esconder as outras unidades e a GRAVAÇÃO aceitá-las:
+    // um Coordenador podia justificar, ou registrar FALTA, para servidor de qualquer unidade
+    // chamando a server action direto. Armadilha 12 do CLAUDE.md.
+    //
+    // Medido em produção em 29/08/2026: **24 contas** nessa condição (19 coordenador, 4 ass_adm,
+    // 1 admin) — inclusive um `ass_adm` sem unidade nenhuma vinculada, que não enxergava um
+    // único evento na tela e alcançava a rede inteira por aqui. ✅ E **nunca foi exercido**:
+    // das 314 linhas de `justificativas_eventos`, ZERO foram gravadas fora do escopo do autor.
+    // Por isso a correção só reduz privilégio — nenhum fluxo real depende do que ela fecha.
+    //
+    // ⚠️ ESPELHO EXATO de `applyAccessFilters` (`src/utils/permissions.ts`), caso a caso. As
+    // duas precisam concordar: divergir foi o defeito. E `fn_pode_gerir_justificativa`
+    // (`20260829100000`) tem o mesmo corpo em SQL — ao mexer aqui, mexa lá.
+    const naUnidade = !!evento.unidade_id && ator.permitted_unidades.includes(evento.unidade_id)
     // O ramo que funciona sem a flag: setor vinculado diretamente. É por ele que passa o
     // coordenador cujo acesso vem inteiramente de `profile_setores`, sem a unidade-pai
     // vinculada (o caso do piloto da TI — ver `fn_unidade_alcancavel_por_setor`).
-    return !!evento.setor_id && ator.permitted_setores.includes(evento.setor_id)
+    const noSetor = !!evento.setor_id && ator.permitted_setores.includes(evento.setor_id)
+
+    // Caso 1 de applyAccessFilters: acesso a todas as unidades.
+    if (ator.acesso_todas_unidades) {
+      if (ator.acesso_todos_setores) return true
+      if (ator.permitted_setores.length > 0) return noSetor
+      return true
+    }
+
+    // Caso 2: unidades específicas. A flag herda os setores DELAS, não os da rede.
+    if (ator.permitted_unidades.length > 0) {
+      return ator.acesso_todos_setores ? (naUnidade || noSetor) : noSetor
+    }
+
+    // Caso 3: só setores vinculados.
+    return noSetor
   }
 
   return false
