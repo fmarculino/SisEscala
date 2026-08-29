@@ -2578,6 +2578,21 @@ linha em `dispositivos_rep_setores`), mas salvar sem setor nenhum agora é **rec
 
 ⚠️ Durante a busca o ramo fica **sempre aberto** — recolher esconderia justamente o que casou.
 
+A tela **/setores** ganhou o mesmo tratamento (expandir/recolher tudo por unidade, e o card da
+unidade inteiro recolhível — são 33 unidades na página). O estado guardado ali é o **recolhido**,
+nunca o aberto: o padrão continua tudo aberto e unidade nova não nasce escondida.
+
+⚠️ **A busca daquela tela mostrava o subsetor SOLTO na raiz da unidade.** O filtro derrubava o pai
+que não casava com o termo, e o laço da árvore promove a raiz todo setor cujo pai não está na
+lista — a busca respondia "onde está" tirando a resposta. Os **ancestrais de quem casou** entram
+na lista mesmo sem casar; ao mexer nesse filtro, não recorte o ramo pelo meio.
+
+ℹ️ **`/relatorios/carga-consolidada`: "onde estão as horas" é link para a grade** desde
+`20260829130000` (`fn_carga_mensal_servidor` já devolvia `unidade_id`/`setor_id`; só o
+`jsonb_build_object` do relatório não repassava). O destino é
+`/escalas/unidade/{unidade_id}?setor={setor_id}&mes={mes}&ano={ano}`, mesmo padrão de Home,
+Auditoria e ficha do servidor. Sem os ids a linha renderiza **sem** link, de propósito.
+
 ### 30. `ultimo_ip_origem` é o IP PÚBLICO da unidade, não o da máquina (29/08/2026)
 
 ⚠️ **Medido em 29/08/2026: os 23 dispositivos têm `45.173.x`/`177.55.x` em `ultimo_ip_origem`, e

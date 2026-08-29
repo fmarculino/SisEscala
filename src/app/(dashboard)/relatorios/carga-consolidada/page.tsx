@@ -1,5 +1,5 @@
 import { createClient } from '@/utils/supabase/server'
-import { AlertTriangle, ArrowLeft, Layers, ShieldCheck } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, ExternalLink, Layers, ShieldCheck } from 'lucide-react'
 import Link from 'next/link'
 import { AcessoNegado } from '@/components/AcessoNegado'
 import { ReportActions } from '@/app/(dashboard)/relatorios/_components/ReportActions'
@@ -26,6 +26,10 @@ interface Props {
 
 interface EscalaDaCarga {
   escala_mensal_id: string
+  // Ids para o link da grade. Opcionais de propósito: até a 20260829130000 ser aplicada a RPC não
+  // os devolve, e a linha continua renderizando — só sem virar link.
+  unidade_id?: string | null
+  setor_id?: string | null
   unidade_nome: string
   setor_caminho: string
   status: string
@@ -180,19 +184,44 @@ export default async function CargaConsolidadaPage({ searchParams }: Props) {
                       </td>
                       <td className="px-4 py-4">
                         <ul className="space-y-1">
-                          {(l.escalas || []).map(e => (
-                            <li key={e.escala_mensal_id} className="text-[11px] text-zinc-600 dark:text-zinc-300 leading-snug">
-                              <span className="font-bold text-zinc-900 dark:text-white">
-                                {formatarHoras(e.horas)}h
-                                {Number(e.sobreavisos) > 0 && <> · {e.sobreavisos} un</>}
-                              </span>
-                              {' — '}
-                              {e.unidade_nome} / {e.setor_caminho}
-                              {e.status === 'Fechada' && (
-                                <span className="ml-1 text-[10px] font-black uppercase text-zinc-400">Fechada</span>
-                              )}
-                            </li>
-                          ))}
+                          {(l.escalas || []).map(e => {
+                            // Quem aparece nesta lista está acima do teto, ou seja: alguém precisa
+                            // ABRIR a escala para reduzir. Levar direto para a grade daquela
+                            // competência poupa decorar unidade + setor e procurar em /escalas.
+                            const conteudo = (
+                              <>
+                                <span className="font-bold text-zinc-900 dark:text-white">
+                                  {formatarHoras(e.horas)}h
+                                  {Number(e.sobreavisos) > 0 && <> · {e.sobreavisos} un</>}
+                                </span>
+                                {' — '}
+                                {e.unidade_nome} / {e.setor_caminho}
+                                {e.status === 'Fechada' && (
+                                  <span className="ml-1 text-[10px] font-black uppercase text-zinc-400">Fechada</span>
+                                )}
+                              </>
+                            )
+                            const destino = e.unidade_id && e.setor_id
+                              ? `/escalas/unidade/${e.unidade_id}?setor=${e.setor_id}&mes=${mes}&ano=${ano}`
+                              : null
+
+                            return (
+                              <li key={e.escala_mensal_id} className="text-[11px] text-zinc-600 dark:text-zinc-300 leading-snug">
+                                {destino ? (
+                                  <Link
+                                    href={destino}
+                                    title={`Abrir a escala de ${e.setor_caminho} em ${mes}/${ano}`}
+                                    className="group inline-flex items-start gap-1 rounded hover:text-blue-600 dark:hover:text-blue-400 transition-colors print:no-underline"
+                                  >
+                                    <span className="underline decoration-dotted underline-offset-2 decoration-zinc-300 group-hover:decoration-blue-500 print:no-underline">
+                                      {conteudo}
+                                    </span>
+                                    <ExternalLink className="h-3 w-3 shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity print:hidden" />
+                                  </Link>
+                                ) : conteudo}
+                              </li>
+                            )
+                          })}
                         </ul>
                       </td>
                       <td className="px-4 py-4 text-right whitespace-nowrap">

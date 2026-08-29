@@ -154,6 +154,56 @@ desmarcar o último setor voltava para "toda a unidade" e a árvore sumia da tel
 guardando as duas coisas do mesmo jeito (nenhuma linha em `dispositivos_rep_setores`), mas agora
 salvar sem setor nenhum é **recusado** com mensagem, em vez de virar "toda a unidade" em silêncio.
 
+### A tela /setores ganhou o mesmo tratamento
+
+Os nós de setor já expandiam um a um, mas com **40 setores principais** só no HMM e **33 unidades
+na página**, faltava o que o modal recebeu:
+
+- **"Expandir tudo" / "Recolher tudo"** por unidade (alcança só os nós que têm subsetor);
+- **card de unidade recolhível** — o cabeçalho inteiro virou o botão, com chevron —, mais
+  "Recolher todas as unidades" / "Expandir todas" na barra de filtros e o contador
+  "N de M unidades abertas". O estado guardado é o **recolhido**, não o aberto: assim o padrão
+  continua sendo tudo aberto (como a tela sempre foi) e unidade nova não nasce escondida.
+
+⚠️ **A busca estava respondendo "onde está" tirando justamente a resposta.** O filtro derrubava o
+pai que não casava com o termo, e o laço que monta a árvore promove a raiz todo setor cujo pai não
+está na lista — então procurar por um subsetor o mostrava **solto** na raiz da unidade, sem o ramo
+a que pertence. Agora os **ancestrais de quem casou entram junto**, e ramo e unidade ficam abertos
+enquanto houver busca (recolhidos, esconderiam o resultado que a busca trouxe).
+
+---
+
+## 3b. "Onde estão as horas" virou link para a escala
+
+No relatório **Carga Consolidada do Mês**, a coluna que diz onde a pessoa está escalada
+("289h — HMI / SHL \ ACOLHIMENTO") era texto puro: para chegar na grade era preciso decorar
+unidade e setor, voltar em Escalas e procurar. Quem aparece nessa lista está **acima do teto**,
+ou seja, alguém precisa abrir aquela escala para reduzir.
+
+`fn_carga_mensal_servidor` já devolvia `unidade_id` e `setor_id`; era o `jsonb_build_object` de
+`fn_carga_mensal_consolidada` que não os repassava. `20260829130000` acrescenta as duas chaves —
+**`CREATE OR REPLACE` puro, sem o `DROP`** da versão anterior (a lista de colunas do
+`RETURNS TABLE` não muda, porque as chaves entram dentro do jsonb; derrubar a função deixaria o
+relatório quebrado para quem estivesse consultando durante a aplicação). Gerada por
+`scratchpad/gen_carga_link.js`, cópia mecânica com conferência estrutural — o `diff` contra a
+migration vigente são exatamente três linhas.
+
+⚠️ **A primeira versão mexeu SÓ no jsonb e morreu ao aplicar**, com
+`42703: column c.unidade_id does not exist`: a CTE `carga` projeta uma **lista explícita** do
+retorno de `fn_carga_mensal_servidor`, e a coluna precisa entrar lá também. Não apareceu em
+`tsc`, `lint`, `build` nem na conferência estrutural do gerador — SQL não resolve nome de coluna
+no `CREATE` (armadilha 1). O gerador passou a **abortar** se qualquer uma das duas âncoras não
+aparecer exatamente uma vez, e o `diff` contra a vigente agora são cinco linhas: o
+`CREATE OR REPLACE`, duas na CTE e duas no jsonb.
+
+Conferido em produção depois: `fn_carga_mensal_servidor` devolve mesmo
+`servidor_id, escala_mensal_id, unidade_id, setor_id, unidade_nome, setor_caminho, status, horas,
+sobreavisos`.
+
+A tela monta `/escalas/unidade/{unidade_id}?setor={setor_id}&mes={mes}&ano={ano}`, o mesmo padrão
+que Home, Auditoria e a ficha do servidor já usam. **Sem os ids, a linha continua renderizando sem
+link** — é o que segura a tela enquanto a migration não é aplicada.
+
 ---
 
 ## 4. O hostname da máquina do coletor não leva ninguém até ela
