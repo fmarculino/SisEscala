@@ -6,8 +6,11 @@ import { UserProfile, applyAccessFilters } from '@/utils/permissions'
 import {
   AtorJustificativa,
   Desfecho,
+  PAPEIS_REVERTEM_DESFECHO,
+  classificarEvento,
   podeAbrirJustificativas,
   podeGerirJustificativa,
+  resolverDesfecho,
   validarGravacaoDesfecho,
 } from '@/utils/gestaoJustificativas'
 
@@ -76,8 +79,77 @@ async function dataLocalISO(supabase: any): Promise<string> {
   return String(data)
 }
 
+/**
+ * 🚨 O POSTGREST CORTA EM 1000 EM SILÊNCIO, E A FILA NÃO PAGINAVA NADA (29/08/2026).
+ *
+ * `escala_diaria` era buscada com `.in('escala_mensal_id', ...)` e nenhum `Range`. Medido em
+ * produção no dia da correção:
+ *
+ *   08/2026  SMS 4.161 linhas · USF Laranjeiras 1.786 · USF Pedro Cavalcante 1.133
+ *   09/2026  HMI 5.079 linhas · SMS 1.259
+ *
+ * Ou seja: na SMS a fila lia **24%** do mês, e no HMI **20%** — e como a busca vem
+ * `.order('dia')`, o corte ficava com os primeiros dias e descartava o resto. Os cards, que
+ * somam sobre o que foi lido, exibiam números menores que a realidade sem nenhum aviso. É a
+ * armadilha 8 do CLAUDE.md, no módulo que decide falta de servidor público.
+ *
+ * `escala_mensal` (692 linhas em 08/2026, 743 em 09) ainda não estourava, mas está a um mês de
+ * estourar — e com "Todas as Unidades" ela deixa de ser por unidade. Pagina também.
+ */
+async function paginar<T = any>(query: any): Promise<{ data: T[]; error: any }> {
+  const out: T[] = []
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await query.range(from, from + 999)
+    if (error) return { data: [], error }
+    const pagina = data || []
+    out.push(...pagina)
+    if (pagina.length < 1000) break
+  }
+  return { data: out, error: null }
+}
+
+/**
+ * 🚨 E ANTES DO CORTE DE 1000 VEM O **HTTP 414** — a fila simplesmente NÃO CARREGAVA.
+ *
+ * `.in('escala_mensal_id', ids)` vira query string. Com uma unidade grande e "Todos os Setores",
+ * a lista de UUIDs estoura o limite de URI do servidor. Medido em produção em 29/08/2026:
+ *
+ *   SMS 08/2026   300 escala_mensal → URL de 11.224 chars → HTTP 414   (4.161 linhas,   271 eventos)
+ *   HMI 09/2026   442 escala_mensal → URL de 16.478 chars → HTTP 414   (5.079 linhas, 1.563 eventos)
+ *
+ * E o cliente só faz `console.error` — nenhuma mensagem na tela. O usuário via a fila vazia,
+ * sem erro, e só conseguia trabalhar escolhendo um setor de cada vez. Paginar não resolve isto:
+ * a requisição nem chega a ser feita. É preciso LOTEAR os ids.
+ *
+ * 120 ids ≈ 4,6 KB de URL, com folga confortável para o limite padrão de 8 KB.
+ */
+const IDS_POR_LOTE = 120
+
+async function buscarPorLotesDeIds<T = any>(
+  ids: string[],
+  montarQuery: (lote: string[]) => any
+): Promise<{ data: T[]; error: any }> {
+  const out: T[] = []
+  for (let i = 0; i < ids.length; i += IDS_POR_LOTE) {
+    const { data, error } = await paginar<T>(montarQuery(ids.slice(i, i + IDS_POR_LOTE)))
+    if (error) return { data: [], error }
+    out.push(...data)
+  }
+  return { data: out, error: null }
+}
+
+/** Resposta vazia com a forma completa — nenhum consumidor precisa tratar campo ausente. */
+function vazio(page = 1, perPage = 20) {
+  return {
+    total: 0, justificados: 0, pendentes: 0, cumpridos_sem_justificativa: 0,
+    resolvidos: 0, sugestoes: 0, em_avaliacao: 0, faltas: 0, filtrados: 0,
+    page, per_page: perPage, items: [] as any[],
+  }
+}
+
 export async function getEventosPendentes(params: {
-  unidadeId: string
+  /** Vazio/ausente = TODAS as unidades do escopo de quem chama. */
+  unidadeId?: string
   setorId?: string
   servidorId?: string
   mes?: number
@@ -127,7 +199,7 @@ export async function getEventosPendentes(params: {
       queryMensal = queryMensal.eq('ano', params.ano)
     }
 
-    const { data: escalasMensais, error: errMensal } = await queryMensal
+    const { data: escalasMensais, error: errMensal } = await paginar(queryMensal)
 
     if (errMensal) {
       console.error('Erro ao buscar escalas mensais:', errMensal)
@@ -135,17 +207,7 @@ export async function getEventosPendentes(params: {
     }
 
     if (!escalasMensais || escalasMensais.length === 0) {
-      return {
-        data: {
-          total: 0,
-          justificados: 0,
-          pendentes: 0,
-          sugestoes: 0,
-          page: params.page || 1,
-          per_page: params.perPage || 20,
-          items: []
-        }
-      }
+      return { data: vazio(params.page || 1, params.perPage || 20) }
     }
 
     const escalaMensalIds = escalasMensais.map(em => em.id)
@@ -158,15 +220,23 @@ export async function getEventosPendentes(params: {
     // "Justificar" no dia 08 da ANDRESA não tinha como saber, ali, que não existia registro
     // nenhum — e agora essa é a decisão que a tela pede. Decidir no escuro seria pior do que
     // não decidir.
-    const { data: diarias, error: errDiarias } = await supabase
-      .from('escala_diaria')
-      .select(`
-        id, dia, categoria, escala_mensal_id, dicionario_turnos_id,
-        presenca_entrada_em, presenca_saida_em,
-        dicionario_turnos(codigo)
-      `)
-      .in('escala_mensal_id', escalaMensalIds)
-      .order('dia', { ascending: true })
+    // ⚠️ LOTEADO **E** PAGINADO — ver `buscarPorLotesDeIds()`. Era aqui que a SMS e o HMI
+    // devolviam HTTP 414 (fila sem carregar, sem erro na tela) e que Laranjeiras, Pedro
+    // Cavalcante e a SMS de 09/2026 perdiam eventos no corte de 1000. A ordenação por `dia`
+    // é o que tornava o corte coerente e portanto invisível: a fila mostrava os primeiros
+    // dias, completos, e simplesmente não tinha o resto do mês.
+    const { data: diarias, error: errDiarias } = await buscarPorLotesDeIds<any>(
+      escalaMensalIds,
+      lote => supabase
+        .from('escala_diaria')
+        .select(`
+          id, dia, categoria, escala_mensal_id, dicionario_turnos_id,
+          presenca_entrada_em, presenca_saida_em,
+          dicionario_turnos(codigo)
+        `)
+        .in('escala_mensal_id', lote)
+        .order('dia', { ascending: true })
+    )
 
     if (errDiarias) {
       console.error('Erro ao buscar escala diaria:', errDiarias)
@@ -183,14 +253,25 @@ export async function getEventosPendentes(params: {
     const desfechoPorLinha = new Map<string, { estado: string; motivo: string | null }>()
     try {
       const hojeLocal = await dataLocalISO(supabase)
-      for (let i = 0; i < escalaMensalIds.length; i += 100) {
-        const { data: desfechos } = await supabase.rpc('fn_desfecho_eventos_escalas', {
-          p_escala_mensal_ids: escalaMensalIds.slice(i, i + 100),
-          p_hoje: hojeLocal,
-        })
-        ;(desfechos || []).forEach((d: any) => {
-          desfechoPorLinha.set(d.escala_diaria_id, { estado: d.estado, motivo: d.motivo })
-        })
+      // ⚠️ O CORTE DE 1000 VALE PARA RPC TAMBÉM, e o lote de 100 escalas estourava sozinho:
+      // são ~16,6 linhas de `escala_diaria` por `escala_mensal` (11.472 / 692 em 08/2026), ou
+      // seja ~1.660 por lote. O estado dos eventos excedentes vinha vazio, e evento sem estado
+      // é tratado como "não sei" — o modal deixa de oferecer a decisão. O sintoma era mudo:
+      // dias que simplesmente não pediam validação. Lote menor E paginação, porque a densidade
+      // por escala varia muito entre unidades.
+      for (let i = 0; i < escalaMensalIds.length; i += 50) {
+        const lote = escalaMensalIds.slice(i, i + 50)
+        for (let from = 0; ; from += 1000) {
+          const { data: desfechos, error: errRpc } = await supabase
+            .rpc('fn_desfecho_eventos_escalas', { p_escala_mensal_ids: lote, p_hoje: hojeLocal })
+            .range(from, from + 999)
+          if (errRpc) throw errRpc
+          const pagina = desfechos || []
+          pagina.forEach((d: any) => {
+            desfechoPorLinha.set(d.escala_diaria_id, { estado: d.estado, motivo: d.motivo })
+          })
+          if (pagina.length < 1000) break
+        }
       }
     } catch (err) {
       // A fila continua útil sem o estado (era assim até 24/08/2026); o que ela não pode é
@@ -214,15 +295,40 @@ export async function getEventosPendentes(params: {
     })
 
     // 3. Fetch existing justificativas_eventos for unit, month, year
+    //
+    // ⚠️ Sem unidade escolhida ("Todas as Unidades"), o recorte passa a ser o conjunto de
+    // unidades das escalas que o escopo do usuário já devolveu — nunca "a tabela inteira".
+    // Filtrar por `unidadeId` fixo aqui era o que tornava a visão global impossível.
     let queryJust = supabase
       .from('justificativas_eventos')
       .select('*')
-      .eq('unidade_id', params.unidadeId)
+
+    if (params.unidadeId) {
+      queryJust = queryJust.eq('unidade_id', params.unidadeId)
+    } else {
+      const unidadesNoEscopo = Array.from(
+        new Set(escalasMensais.map(em => em.unidade_id).filter(Boolean))
+      )
+      if (unidadesNoEscopo.length === 0) return { data: vazio() }
+      queryJust = queryJust.in('unidade_id', unidadesNoEscopo)
+    }
 
     if (params.mes) queryJust = queryJust.eq('mes', params.mes)
     if (params.ano) queryJust = queryJust.eq('ano', params.ano)
 
-    const { data: justificativas } = await queryJust
+    // ⚠️ Paginado: com "Todas as Unidades" isto passa de 1000 linhas, e o PostgREST corta em
+    // silêncio (armadilha 8). Cortado, o `justMap` perderia justificativas e a fila mostraria
+    // como pendente evento que já tem texto — exatamente o defeito que acabamos de corrigir.
+    const justificativas: any[] = []
+    for (let from = 0; ; from += 1000) {
+      const { data: pagina, error: errJust } = await queryJust.range(from, from + 999)
+      if (errJust) {
+        console.error('Erro ao buscar justificativas:', errJust)
+        return { error: errJust.message }
+      }
+      justificativas.push(...(pagina || []))
+      if ((pagina?.length || 0) < 1000) break
+    }
 
     const justMap = new Map()
     justificativas?.forEach(j => {
@@ -253,12 +359,28 @@ export async function getEventosPendentes(params: {
       //
       // ⚠️ Vale só para Sobreaviso. Plantão e Extra continuam exigindo a justificativa
       // motivacional de sempre, que é outra coisa: o porquê do serviço extraordinário.
-      const resolvidoSozinho =
-        catLower.includes('sobreaviso') && desfechoDaLinha?.estado === 'validado'
-
-      const status = resolvidoSozinho
-        ? 'auto_validado'
-        : just ? just.status : 'pendente'
+      //
+      // 🚨 SÃO DOIS EIXOS, E FUNDI-LOS APAGAVA O QUE FOI GRAVADO (28/08/2026).
+      // Até aqui isto era `status = resolvidoSozinho ? 'auto_validado' : (just ? ... )` — a
+      // auto-classificação decidia ANTES de olhar se existia justificativa. Como todo
+      // sobreaviso sem acionamento cai em `estado = 'validado'` (o caso dominante: 72 dos 79
+      // de 08/2026), o registro real NUNCA era lido. Consequências, todas medidas na tela:
+      //   · salvar justificativa em Sobreaviso não mudava nada — selo continuava "Cumprido" e
+      //     o botão continuava "Justificar", então parecia que não tinha gravado;
+      //   · o card PENDENTES contava 0 com sobreaviso sem justificativa nenhuma na lista;
+      //   · o filtro "Pendentes de Justificativa" devolvia vazio, e não havia como selecionar
+      //     em lote justamente o grupo que falta.
+      //
+      // Agora os dois eixos andam separados, e nenhum apaga o outro:
+      //   `justificativa_status`  — o que está GRAVADO em justificativas_eventos, ou 'pendente'
+      //   `sem_acao_necessaria`   — sobreaviso cumprido: ninguém precisa escrever nada
+      // A decisão de 23/08/2026 continua valendo inteira: `sem_acao_necessaria` é o que tira
+      // esses eventos da conta de pendência e da barra de progresso.
+      const { status, semAcaoNecessaria } = classificarEvento({
+        categoria: catStr,
+        estado: desfechoDaLinha?.estado,
+        statusGravado: just?.status,
+      })
 
       const dictSetor = (em?.setores as any)?.dicionario_setores
       const setorNome = Array.isArray(dictSetor)
@@ -287,6 +409,10 @@ export async function getEventosPendentes(params: {
         texto_justificativa: just?.texto_justificativa || null,
         justificativa_origem: just?.origem || null,
         justificativa_status: status,
+        // Eixo do desfecho, nunca do texto: "não há o que cobrar de ninguém aqui". A tela usa
+        // para não pintar um CTA de pendência em cima de evento resolvido, e a fila usa para
+        // oferecer esse grupo em lote a quem QUER escrever a motivação mesmo assim.
+        sem_acao_necessaria: semAcaoNecessaria,
         registrado_por_nome: just?.registrado_por_nome || null,
         justificativa_created_at: just?.created_at || null,
 
@@ -303,13 +429,31 @@ export async function getEventosPendentes(params: {
 
     // Aggregated KPI counts
     const total = allCombinedItems.length
-    // `auto_validado` conta como resolvido: e sobreaviso cumprido, nao ha nada a fazer com ele.
-    // Sem isto o "Progresso (%)" nunca chegaria a 100% num setor de sobreaviso, e a barra
-    // passaria a medir burocracia em vez de pendencia.
-    const justificados = allCombinedItems.filter(
-      i => i.justificativa_status === 'aprovada' || i.justificativa_status === 'auto_validado'
+
+    // "Justificados" volta a significar UMA coisa: existe texto gravado. Antes somava também o
+    // sobreaviso auto-validado, e era isso que fazia o numero do card nao ter relacao com o que
+    // a coluna Justificativa mostra na linha.
+    const justificados = allCombinedItems.filter(i => i.justificativa_status === 'aprovada').length
+
+    // Pendencia e AUSENCIA DE TEXTO ONDE ELE E COBRADO. Sobreaviso cumprido sai da conta —
+    // decisao de 23/08/2026, preservada — mas agora sai por `sem_acao_necessaria`, e nao por
+    // ter tido o status de justificativa sobrescrito.
+    const pendentes = allCombinedItems.filter(
+      i => i.justificativa_status === 'pendente' && !i.sem_acao_necessaria
     ).length
-    const pendentes = allCombinedItems.filter(i => i.justificativa_status === 'pendente').length
+
+    // O grupo que nao tinha nome e por isso nao tinha filtro: cumprido, ninguem precisa
+    // escrever nada, e ainda assim ninguem escreveu. Nao entra em `pendentes` (nao e cobranca),
+    // mas precisa ser selecionavel em lote por quem QUER registrar a motivacao.
+    const cumpridosSemJustificativa = allCombinedItems.filter(
+      i => i.justificativa_status === 'pendente' && i.sem_acao_necessaria
+    ).length
+
+    // O que a barra de progresso mede: nada pendente de acao. E o papel que `justificados`
+    // acumulava antes — separado para os dois numeros pararem de se contradizer.
+    const resolvidos = allCombinedItems.filter(
+      i => i.justificativa_status === 'aprovada' || i.sem_acao_necessaria
+    ).length
     const sugestoes = allCombinedItems.filter(i => i.justificativa_status === 'sugestao_pendente').length
     const emAvaliacao = allCombinedItems.filter(i => i.estado === 'em_avaliacao').length
     const faltas = allCombinedItems.filter(i => i.resultado === 'falta').length
@@ -317,11 +461,18 @@ export async function getEventosPendentes(params: {
     // Filter by tab status if selected
     let finalItems = allCombinedItems
     if (params.status === 'pendentes') {
-      finalItems = allCombinedItems.filter(i => i.justificativa_status === 'pendente')
-    } else if (params.status === 'preenchidas') {
       finalItems = allCombinedItems.filter(
-        i => i.justificativa_status === 'aprovada' || i.justificativa_status === 'auto_validado'
+        i => i.justificativa_status === 'pendente' && !i.sem_acao_necessaria
       )
+    } else if (params.status === 'cumpridos_sem_justificativa') {
+      // O grupo que a Validação em Massa existia para atender e nunca conseguia alcançar: o
+      // botão "Justificar N selecionados" estava lá, e não havia recorte que devolvesse só
+      // estes. Selecionar um a um numa fila de 40 é o que fazia ninguém usar.
+      finalItems = allCombinedItems.filter(
+        i => i.justificativa_status === 'pendente' && i.sem_acao_necessaria
+      )
+    } else if (params.status === 'preenchidas') {
+      finalItems = allCombinedItems.filter(i => i.justificativa_status === 'aprovada')
     } else if (params.status === 'sugestoes') {
       finalItems = allCombinedItems.filter(i => i.justificativa_status === 'sugestao_pendente')
     } else if (params.status === 'em_avaliacao') {
@@ -348,10 +499,16 @@ export async function getEventosPendentes(params: {
         total,
         justificados,
         pendentes,
+        cumpridos_sem_justificativa: cumpridosSemJustificativa,
+        resolvidos,
         sugestoes,
         em_avaliacao: emAvaliacao,
         faltas,
         page,
+        // Quantos casam com o filtro de Status — diferente de `total`, que é o mês inteiro.
+        // Sem isto a tela não tinha como dizer "0 de 21": os cards mediam tudo, a lista media o
+        // filtro, e o contador da aba media só a PÁGINA. Três números, nenhum comparável.
+        filtrados: finalItems.length,
         per_page: perPage,
         items: paginatedItems
       }
@@ -410,17 +567,35 @@ export async function salvarJustificativa(dados: {
     // só mandando `resultado: 'validado'` no POST.
     const { data: atual } = await supabase
       .from('justificativas_eventos')
-      .select('resultado')
+      .select('resultado, resultado_origem, resultado_definido_por_id, resultado_definido_por_nome, resultado_definido_em')
       .eq('servidor_id', dados.servidorId)
       .eq('dia', dados.dia).eq('mes', dados.mes).eq('ano', dados.ano)
       .eq('categoria', dados.categoria)
       .maybeSingle()
 
-    const desfechoNovo: Desfecho = dados.resultado ?? null
+    const desfechoAtual: Desfecho = (atual?.resultado as Desfecho) ?? null
+
+    // 🚨 `undefined` (NÃO OPINEI) E `null` (LIMPAR) SÃO COISAS DIFERENTES — 28/08/2026.
+    // Isto era `dados.resultado ?? null`, que fundia as duas numa só, e o modal manda
+    // `undefined` sempre que não pede a decisão. Duas consequências, ambas reais:
+    //   · coordenador não conseguia EDITAR O TEXTO de evento já decidido: o modal não oferece
+    //     a decisão para quem não pode reverter (`pedeDecisao = false`), mandava `undefined`,
+    //     isto virava `null`, e `validarGravacaoDesfecho` lia como reversão → recusa com
+    //     "Apenas o RH pode revertê-lo". Ele não estava revertendo nada, só corrigindo texto;
+    //   · para quem PODE reverter, a mesma linha APAGAVA o desfecho em silêncio sempre que o
+    //     `resultado` da tela estivesse defasado (aba aberta antes de outra pessoa decidir).
+    // Não opinar agora preserva o que está gravado — inclusive a autoria e a origem, que é o
+    // que distingue `decurso_de_prazo` de decisão de pessoa.
+    const { desfechoNovo, mudou: mudouDesfecho } = resolverDesfecho({
+      opinou: dados.resultado !== undefined,
+      desfechoInformado: dados.resultado ?? null,
+      desfechoAtual,
+    })
+
     const validacao = validarGravacaoDesfecho({
       ator: atorDe(profile),
       evento: { unidade_id: mensal?.unidade_id, setor_id: mensal?.setor_id },
-      desfechoAtual: (atual?.resultado as Desfecho) ?? null,
+      desfechoAtual,
       desfechoNovo,
       texto: dados.texto,
     })
@@ -447,14 +622,23 @@ export async function salvarJustificativa(dados: {
       data_validacao: new Date().toISOString(),
       updated_at: new Date().toISOString(),
 
-      // O desfecho. `null` não é "limpar por acidente": o modal só manda `resultado` para
-      // evento em avaliação, e para os demais o campo continua nulo — que é o estado correto
-      // de um plantão cujo cumprimento quem provou foi o relógio, não uma pessoa.
+      // O desfecho. Quando ninguém opinou, `desfechoNovo` já é o que estava gravado — e a
+      // AUTORIA vai junto, verbatim. Restampar aqui trocaria `decurso_de_prazo` por
+      // 'coordenador' e poria o nome de quem só corrigiu uma vírgula no texto como autor da
+      // decisão sobre a conduta de um servidor.
       resultado: desfechoNovo,
-      resultado_origem: desfechoNovo ? 'coordenador' : null,
-      resultado_definido_por_id: desfechoNovo ? profile.id : null,
-      resultado_definido_por_nome: desfechoNovo ? userName : null,
-      resultado_definido_em: desfechoNovo ? new Date().toISOString() : null,
+      resultado_origem: mudouDesfecho
+        ? (desfechoNovo ? 'coordenador' : null)
+        : (atual?.resultado_origem ?? null),
+      resultado_definido_por_id: mudouDesfecho
+        ? (desfechoNovo ? profile.id : null)
+        : (atual?.resultado_definido_por_id ?? null),
+      resultado_definido_por_nome: mudouDesfecho
+        ? (desfechoNovo ? userName : null)
+        : (atual?.resultado_definido_por_nome ?? null),
+      resultado_definido_em: mudouDesfecho
+        ? (desfechoNovo ? new Date().toISOString() : null)
+        : (atual?.resultado_definido_em ?? null),
     }
 
     const { data, error } = await supabase
@@ -564,11 +748,70 @@ export async function salvarJustificativasBulk(eventos: Array<{
       return { error: 'A justificativa deve conter pelo menos 10 caracteres.' }
     }
 
+    // 🚨 O LOTE APAGAVA DESFECHO SEM CHECAR NADA — 28/08/2026.
+    // Ele gravava `resultado: valida ? 'validado' : null` sem NUNCA ler o que já estava no
+    // banco e sem passar por `validarGravacaoDesfecho` — ao contrário do caminho individual,
+    // que faz as duas coisas desde 24/08/2026. Incluir na seleção um evento já registrado como
+    // `falta` pelo RH zerava aquele desfecho, em silêncio, por qualquer papel que abrisse a
+    // tela. Com "selecionar todos" no cabeçalho e o botão "Justificar N selecionados", era um
+    // clique — e é exatamente a armadilha 12 do CLAUDE.md: a tela nunca foi a defesa.
+    //
+    // ⚠️ Paginado: `justificativas_eventos` de um mês inteiro de uma unidade grande passa de
+    // 1000 linhas, e o PostgREST corta em silêncio (armadilha 8).
+    const servidorIds = Array.from(new Set(eventos.map(e => e.servidor_id)))
+    const meses = Array.from(new Set(eventos.map(e => e.mes)))
+    const anos = Array.from(new Set(eventos.map(e => e.ano)))
+    const atuais: any[] = []
+    for (let from = 0; ; from += 1000) {
+      const { data: pagina, error: errAtuais } = await supabase
+        .from('justificativas_eventos')
+        .select('servidor_id, dia, mes, ano, categoria, resultado, resultado_origem, resultado_definido_por_id, resultado_definido_por_nome, resultado_definido_em')
+        .in('servidor_id', servidorIds)
+        .in('mes', meses)
+        .in('ano', anos)
+        .range(from, from + 999)
+      if (errAtuais) return { error: errAtuais.message }
+      atuais.push(...(pagina || []))
+      if ((pagina?.length || 0) < 1000) break
+    }
+
+    const chaveDe = (servidorId: string, dia: number, mes: number, ano: number, categoria: string) =>
+      `${servidorId}-${dia}-${mes}-${ano}-${String(categoria || '').toLowerCase()}`
+
+    const atualPorChave = new Map(
+      atuais.map(a => [chaveDe(a.servidor_id, a.dia, a.mes, a.ano, a.categoria), a])
+    )
+
+    const ehSuperAdminOuRh = PAPEIS_REVERTEM_DESFECHO.includes(profile.role)
+
     let validadosNoLote = 0
+    let preservados = 0
+    const recusas: string[] = []
+
     const payloads = eventos.map(e => {
       const m = mensalMap.get(e.escala_mensal_id)
+      const atual = atualPorChave.get(chaveDe(e.servidor_id, e.dia, e.mes, e.ano, e.categoria))
+      const desfechoAtual: Desfecho = (atual?.resultado as Desfecho) ?? null
+
+      // O lote só VALIDA o que está em avaliação — nunca marca falta, e agora nunca LIMPA.
+      // Onde já existe decisão, ela é preservada com autoria e origem: o lote é sobre o texto
+      // motivacional, não sobre rever o veredito de ninguém.
       const valida = desfechoDoEvento.get(e.escala_diaria_id) === 'em_avaliacao'
-      if (valida) validadosNoLote++
+      const { desfechoNovo, mudou: mudouDesfecho } = resolverDesfecho({
+        opinou: valida,
+        desfechoInformado: 'validado',
+        desfechoAtual,
+      })
+
+      if (valida && mudouDesfecho) validadosNoLote++
+      if (!mudouDesfecho && desfechoAtual !== null) preservados++
+
+      // Mesma régua do caminho individual. Na prática só barra o caso em que o lote validaria
+      // por cima de uma `falta` já registrada, e quem clicou não pode revertê-la.
+      if (mudouDesfecho && desfechoAtual !== null && !ehSuperAdminOuRh) {
+        recusas.push(`${e.dia}/${e.mes} (${e.categoria})`)
+      }
+
       return {
         escala_diaria_id: e.escala_diaria_id,
         servidor_id: e.servidor_id,
@@ -589,13 +832,29 @@ export async function salvarJustificativasBulk(eventos: Array<{
         validado_por_nome: userName,
         data_validacao: nowIso,
         updated_at: nowIso,
-        resultado: valida ? 'validado' : null,
-        resultado_origem: valida ? 'coordenador' : null,
-        resultado_definido_por_id: valida ? profile.id : null,
-        resultado_definido_por_nome: valida ? userName : null,
-        resultado_definido_em: valida ? nowIso : null,
+        resultado: desfechoNovo,
+        resultado_origem: mudouDesfecho
+          ? (desfechoNovo ? 'coordenador' : null)
+          : (atual?.resultado_origem ?? null),
+        resultado_definido_por_id: mudouDesfecho
+          ? (desfechoNovo ? profile.id : null)
+          : (atual?.resultado_definido_por_id ?? null),
+        resultado_definido_por_nome: mudouDesfecho
+          ? (desfechoNovo ? userName : null)
+          : (atual?.resultado_definido_por_nome ?? null),
+        resultado_definido_em: mudouDesfecho
+          ? (desfechoNovo ? nowIso : null)
+          : (atual?.resultado_definido_em ?? null),
       }
     })
+
+    // Recusa o LOTE INTEIRO, mesma disciplina do escopo acima: quem clicou selecionou aquele
+    // conjunto, e um lote parcialmente aplicado é pior de auditar do que um lote recusado.
+    if (recusas.length > 0) {
+      return {
+        error: `A seleção inclui ${recusas.length} evento(s) com desfecho já registrado que só o RH pode reverter (${recusas.slice(0, 5).join(', ')}${recusas.length > 5 ? '…' : ''}). Nenhuma justificativa foi gravada.`,
+      }
+    }
 
     const { data, error } = await supabase
       .from('justificativas_eventos')
@@ -614,6 +873,7 @@ export async function salvarJustificativasBulk(eventos: Array<{
         detalhes: {
           total: eventos.length,
           plantoes_validados: validadosNoLote,
+          desfechos_preservados: preservados,
           registrado_por: userName
         }
       })
@@ -622,7 +882,7 @@ export async function salvarJustificativasBulk(eventos: Array<{
     }
 
     revalidatePath('/justificativas')
-    return { success: true, data, validados: validadosNoLote }
+    return { success: true, data, validados: validadosNoLote, preservados }
   } catch (err: any) {
     return { error: err.message }
   }

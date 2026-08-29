@@ -41,7 +41,11 @@ export function JustificativasClient({
   // Filters with sessionStorage persistence
   const [selectedUnidade, setSelectedUnidade] = useState(() => {
     if (typeof window !== 'undefined') {
-      return sessionStorage.getItem('justificativa_filtro_unidade') || (unidades[0]?.id || '')
+      // `?? ` e não `|| `: string vazia agora é uma escolha legítima ("Todas as Unidades"), e
+      // com `||` ela caía de volta para a primeira unidade a cada recarga — a opção existiria
+      // na tela e não sobreviveria a um F5.
+      const salvo = sessionStorage.getItem('justificativa_filtro_unidade')
+      if (salvo !== null) return salvo
     }
     return unidades[0]?.id || ''
   })
@@ -115,11 +119,23 @@ export function JustificativasClient({
     total: number
     justificados: number
     pendentes: number
+    /** Sobreaviso cumprido que ninguém justificou. Não é cobrança — é o grupo do lote. */
+    cumpridos_sem_justificativa?: number
+    /** Nada pendente de ação: justificado OU cumprido. É o que a barra de progresso mede. */
+    resolvidos?: number
+    /** Quantos casam com o filtro de Status. `total` é o mês inteiro; este é o recorte. */
+    filtrados?: number
     sugestoes: number
     em_avaliacao?: number
     faltas?: number
     items: any[]
-  }>({ total: 0, justificados: 0, pendentes: 0, sugestoes: 0, em_avaliacao: 0, faltas: 0, items: [] })
+  }>({
+    total: 0, justificados: 0, pendentes: 0, cumpridos_sem_justificativa: 0,
+    resolvidos: 0, sugestoes: 0, em_avaliacao: 0, faltas: 0, items: []
+  })
+
+  /** Erro da última carga da fila. `null` = carregou. Ver o tratamento em `fetchEventos`. */
+  const [erroCarga, setErroCarga] = useState<string | null>(null)
 
   const [templates, setTemplates] = useState<any[]>([])
   const [selectedEventoIds, setSelectedEventoIds] = useState<Set<string>>(new Set())
@@ -161,10 +177,11 @@ export function JustificativasClient({
 
   // Load events via Server Action
   const fetchEventos = useCallback(async () => {
-    if (!selectedUnidade) return
+    // Sem unidade escolhida a busca ACONTECE — é o modo "Todas as Unidades". O `return` que
+    // existia aqui era metade do motivo de a visão global não existir.
     setLoading(true)
     const res = await getEventosPendentes({
-      unidadeId: selectedUnidade,
+      unidadeId: selectedUnidade || undefined,
       setorId: selectedSetor || undefined,
       servidorId: selectedServidor || undefined,
       mes,
@@ -176,17 +193,30 @@ export function JustificativasClient({
     })
 
     if (res.data) {
+      setErroCarga(null)
       setEventosData({
         total: res.data.total || 0,
         justificados: res.data.justificados || 0,
         pendentes: res.data.pendentes || 0,
+        cumpridos_sem_justificativa: res.data.cumpridos_sem_justificativa || 0,
+        resolvidos: res.data.resolvidos || 0,
+        filtrados: res.data.filtrados ?? (res.data.items || []).length,
         sugestoes: res.data.sugestoes || 0,
         em_avaliacao: res.data.em_avaliacao || 0,
         faltas: res.data.faltas || 0,
         items: res.data.items || []
       })
     } else if (res.error) {
+      // 🚨 ISTO ERA SÓ UM console.error — a falha não chegava a lugar nenhum.
+      // Quando a busca morria em HTTP 414 (SMS e HMI com "Todos os Setores", medido em
+      // 29/08/2026), a tela ficava com os dados ANTERIORES ou com zeros, sem uma palavra de
+      // erro. Fila vazia é indistinguível de fila que não carregou — e num módulo que decide
+      // falta de servidor público, "não apareceu nada" tem de ser distinguível de "não há nada".
       console.error('Erro ao carregar eventos:', res.error)
+      setErroCarga(res.error)
+      setEventosData(prev => ({ ...prev, total: 0, justificados: 0, pendentes: 0,
+        cumpridos_sem_justificativa: 0, resolvidos: 0, filtrados: 0, sugestoes: 0,
+        em_avaliacao: 0, faltas: 0, items: [] }))
     }
     setLoading(false)
   }, [selectedUnidade, selectedSetor, selectedServidor, mes, ano, filterCategoria, filterStatus, currentPage])
@@ -289,8 +319,14 @@ export function JustificativasClient({
     await fetchTemplates()
   }
 
+  // A barra mede NADA PENDENTE DE AÇÃO, não "quantos textos foram escritos" — sobreaviso
+  // cumprido entra como resolvido (decisão de 23/08/2026), senão a barra passaria a medir
+  // burocracia em vez de pendência num setor de sobreaviso. É por isso que `resolvidos` existe
+  // separado de `justificados`: antes os dois eram o mesmo número, e o card dizia 100% com
+  // linha sem justificativa nenhuma na lista logo abaixo.
+  const resolvidos = eventosData.resolvidos ?? eventosData.justificados
   const percentJustificado = eventosData.total > 0
-    ? Math.round((eventosData.justificados / eventosData.total) * 100)
+    ? Math.round((resolvidos / eventosData.total) * 100)
     : 100
 
   const categoriaBadgeColors: Record<string, string> = {
@@ -325,6 +361,18 @@ export function JustificativasClient({
               onChange={(e) => { setSelectedUnidade(e.target.value); setSelectedSetor(''); setSelectedServidor(''); setCurrentPage(1) }}
               className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2.5 text-xs font-bold text-zinc-800 dark:text-zinc-200 focus:ring-2 focus:ring-indigo-500 outline-none"
             >
+              {/*
+                "TODAS AS UNIDADES" — 29/08/2026.
+                A tela abria na PRIMEIRA unidade em ordem alfabética e não tinha opção de sair
+                dela: `fetchEventos` nem buscava sem unidade, e a action filtrava duro por
+                `unidade_id`. Com 33 unidades cadastradas (11 com escala em 08/2026), um
+                Administrador Geral — que por definição enxerga tudo — só conseguia ver a rede
+                visitando unidade por unidade. O escopo por papel sempre esteve certo; o que
+                faltava era a tela permitir exercê-lo.
+                Quem é escopado não ganha nada indevido: `applyAccessFilters` continua sendo
+                quem recorta, e "todas" significa "todas as que já são minhas".
+              */}
+              <option value="">Todas as Unidades</option>
               {unidades.map(u => (
                 <option key={u.id} value={u.id}>{u.nome}</option>
               ))}
@@ -501,6 +549,15 @@ export function JustificativasClient({
               <option value="todos">Todos os Status</option>
               <option value="pendentes">Pendentes de Justificativa</option>
               {/*
+                O RECORTE QUE A VALIDAÇÃO EM MASSA NUNCA TEVE.
+                O botão "Justificar N selecionados" existe desde sempre, mas não havia filtro que
+                devolvesse um grupo homogêneo para selecionar — e para Sobreaviso cumprido a
+                opção "Pendentes" devolvia VAZIO, porque a classificação automática sobrescrevia
+                o status da justificativa (corrigido em 28/08/2026). Na prática, escrever a
+                motivação de um mês de prontidão exigia abrir linha por linha.
+              */}
+              <option value="cumpridos_sem_justificativa">Cumpridos sem justificativa (opcional)</option>
+              {/*
                 "Pendente de justificativa" e "em avaliação" NÃO são a mesma coisa, e é por isso
                 que este filtro existe: um evento pode já ter texto escrito (status `aprovada`) e
                 mesmo assim continuar sem desfecho — em 08/2026 são 6 casos, justificativas
@@ -516,6 +573,22 @@ export function JustificativasClient({
           </div>
         </div>
       </div>
+
+      {/* A falha de carga precisa ser VISÍVEL: fila vazia não pode parecer "não há nada". */}
+      {erroCarga && (
+        <div className="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 p-4 rounded-2xl flex items-start gap-3">
+          <AlertCircle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-black text-red-700 dark:text-red-300 uppercase tracking-wide">
+              Não foi possível carregar a fila
+            </p>
+            <p className="text-xs text-red-600 dark:text-red-400 mt-1 leading-relaxed">
+              Os números abaixo estão zerados por falha de carga, não por ausência de eventos.
+              Detalhe técnico: {erroCarga}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* CARDS DE MÉTRICAS RÁPIDAS */}
       <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-6">
@@ -535,6 +608,23 @@ export function JustificativasClient({
           </div>
           <p className="text-3xl font-black text-amber-600 dark:text-amber-400 tracking-tight">{eventosData.pendentes}</p>
           <p className="text-[11px] text-zinc-400">Aguardando justificativa do coordenador</p>
+
+          {/*
+            O NÚMERO QUE FALTAVA NA TELA.
+            "Pendentes" conta só o que é COBRADO de alguém — sobreaviso cumprido não é (decisão
+            de 23/08/2026). Mas ele existe, aparece na fila com o botão "Justificar", e antes
+            não tinha número nenhum aqui: o card dizia 0 com linha "Nenhuma justificativa" logo
+            abaixo, e não havia como selecionar esse grupo em lote. Clicar filtra por ele.
+          */}
+          {(eventosData.cumpridos_sem_justificativa ?? 0) > 0 && (
+            <button
+              type="button"
+              onClick={() => { setFilterStatus('cumpridos_sem_justificativa'); setCurrentPage(1) }}
+              className="text-[11px] text-emerald-700 dark:text-emerald-400 font-bold hover:underline text-left"
+            >
+              + {eventosData.cumpridos_sem_justificativa} cumprido(s) sem justificativa — opcional
+            </button>
+          )}
         </div>
 
         {/*
@@ -572,7 +662,7 @@ export function JustificativasClient({
           </div>
           <div className="flex items-baseline justify-between">
             <span className="text-3xl font-black text-green-600 dark:text-green-400 tracking-tight">{percentJustificado}%</span>
-            <span className="text-xs font-bold text-zinc-400">{eventosData.justificados}/{eventosData.total}</span>
+            <span className="text-xs font-bold text-zinc-400">{resolvidos}/{eventosData.total}</span>
           </div>
           <div className="w-full bg-zinc-100 dark:bg-zinc-800 h-2.5 rounded-full overflow-hidden">
             <div className="bg-green-500 h-full transition-all duration-500" style={{ width: `${percentJustificado}%` }} />
@@ -592,7 +682,12 @@ export function JustificativasClient({
           }`}
         >
           <ClipboardCheck className="h-4 w-4" />
-          Fila de Justificativas ({eventosData.items.length})
+          {/*
+            Era `items.length` — os itens da PÁGINA, no máximo 20. Com 40 eventos a aba dizia
+            "(20)" e o card dizia 40, sem nada explicando a diferença. Agora conta o que casa
+            com o filtro, que é o que a aba de fato lista.
+          */}
+          Fila de Justificativas ({eventosData.filtrados ?? eventosData.items.length})
         </button>
 
         <button
@@ -648,6 +743,28 @@ export function JustificativasClient({
             <div>
               <h3 className="font-black text-zinc-900 dark:text-white uppercase tracking-tight text-base">Fila Operacional de Eventos</h3>
               <p className="text-xs text-zinc-500">Selecione eventos individuais ou em lote para aplicar justificativas motivacionais.</p>
+
+              {/*
+                OS CARDS MEDEM O MÊS; A LISTA MEDE O FILTRO — e nada dizia isso.
+                Com o Status em qualquer recorte, "PENDENTES 21" convivia com "Nenhum evento
+                encontrado" logo abaixo, e a leitura natural era que a tela tinha parado de
+                mostrar os eventos. Pior: o filtro é sticky em sessionStorage, então seguia o
+                usuário ao trocar de unidade, setor e mês. A frase abaixo é o que faltava para
+                os dois números serem comparáveis.
+              */}
+              {filterStatus !== 'todos' && (
+                <p className="text-xs font-bold text-indigo-600 dark:text-indigo-400 mt-1">
+                  Exibindo {eventosData.filtrados ?? 0} de {eventosData.total} evento(s) do mês —
+                  filtro de status ativo.{' '}
+                  <button
+                    type="button"
+                    onClick={() => { setFilterStatus('todos'); setCurrentPage(1) }}
+                    className="underline hover:no-underline"
+                  >
+                    Limpar filtro
+                  </button>
+                </p>
+              )}
             </div>
 
             {selectedEventoIds.size > 0 && (
@@ -701,8 +818,15 @@ export function JustificativasClient({
                 <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
                   {eventosData.items.map((ev) => {
                     const isSelected = selectedEventoIds.has(ev.escala_diaria_id)
+                    // `isJustificado` = EXISTE TEXTO GRAVADO, e nada mais. Antes o status era
+                    // sobrescrito por `auto_validado` em todo sobreaviso cumprido, então isto
+                    // dava `false` mesmo com a justificativa salva — o botão continuava
+                    // "Justificar" em azul e o coordenador concluía que não tinha gravado.
                     const isJustificado = ev.justificativa_status === 'aprovada'
                     const isSugestao = ev.justificativa_status === 'sugestao_pendente'
+                    // Eixo do desfecho: cumprido, não se cobra texto de ninguém. Convive com
+                    // `isJustificado` em vez de apagá-lo.
+                    const semAcaoNecessaria = !!ev.sem_acao_necessaria
 
                     return (
                       <tr 
@@ -720,6 +844,19 @@ export function JustificativasClient({
                         <td className="p-4">
                           <div className="font-bold text-zinc-900 dark:text-white">{ev.servidor_nome}</div>
                           <div className="text-[10px] text-zinc-400 font-mono">Mat: {ev.servidor_matricula || '—'}</div>
+                          {/*
+                            Só aparece quando a lista mistura unidades. Sem unidade escolhida,
+                            a fila junta a rede inteira e "FERNANDO, dia 01, Sobreaviso" deixa
+                            de identificar o evento — a mesma pessoa pode estar escalada em mais
+                            de um lugar (armadilha 23). Com uma unidade escolhida a linha seria
+                            ruído: o filtro no topo já diz onde você está.
+                          */}
+                          {!selectedUnidade && (
+                            <div className="text-[10px] text-zinc-400 mt-0.5 truncate max-w-[220px]"
+                                 title={`${ev.unidade_nome} / ${ev.setor_nome}`}>
+                              {ev.unidade_nome} <span className="text-zinc-300">/</span> {ev.setor_nome}
+                            </div>
+                          )}
                         </td>
                         <td className="p-4 font-mono font-bold text-zinc-700 dark:text-zinc-300">
                           {String(ev.dia).padStart(2, '0')}/{String(ev.mes).padStart(2, '0')}/{ev.ano}
@@ -779,15 +916,23 @@ export function JustificativasClient({
                             >
                               <AlertCircle className="h-3 w-3" /> Em avaliação
                             </span>
-                          ) : ev.justificativa_status === 'auto_validado' ? (
+                          ) : semAcaoNecessaria ? (
                             // Sobreaviso cumprido — sem acionamento, ou acionado e atendido.
                             // Não pede nada de ninguém: cobrar justificativa de quem ficou de
                             // prontidão e não foi chamado é pedir texto sobre um não-evento.
+                            //
+                            // O selo continua sendo o do DESFECHO (é ele que diz o que acontece
+                            // com as horas no anexo), mas agora informa também se há texto
+                            // gravado — era a ausência disso que fazia salvar não mudar nada na
+                            // linha. A prova de que gravou não pode ficar só na outra coluna.
                             <span
                               className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-bold text-[10px] border border-emerald-200"
-                              title="Prontidão cumprida — validado automaticamente, sem ação necessária"
+                              title={isJustificado
+                                ? 'Prontidão cumprida — validado automaticamente. Justificativa registrada.'
+                                : 'Prontidão cumprida — validado automaticamente, sem ação necessária'}
                             >
-                              <CheckCircle2 className="h-3 w-3" /> Cumprido
+                              <CheckCircle2 className="h-3 w-3" />
+                              {isJustificado ? 'Cumprido · justificado' : 'Cumprido'}
                             </span>
                           ) : isJustificado ? (
                             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-100 dark:bg-green-950/40 text-green-700 dark:text-green-300 font-bold text-[10px] border border-green-200">
@@ -825,9 +970,19 @@ export function JustificativasClient({
                             <button
                               type="button"
                               onClick={() => setSingleModalEvento(ev)}
+                              title={semAcaoNecessaria && !isJustificado
+                                ? 'Opcional: este evento já está cumprido e não cobra justificativa'
+                                : undefined}
+                              /*
+                                O AZUL É CTA DE PENDÊNCIA, E SÓ PENDÊNCIA DEVE USÁ-LO.
+                                Antes todo sobreaviso cumprido saía em azul chamando "Justificar"
+                                enquanto o card dizia PENDENTES = 0 — a tela se contradizia, e a
+                                leitura natural era que o card estava errado. Justificar aqui é
+                                opcional, então o botão é secundário.
+                              */
                               className={`px-3 py-1.5 rounded-lg font-bold text-[11px] shadow-sm transition-all ${
-                                isJustificado 
-                                  ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200' 
+                                isJustificado || semAcaoNecessaria
+                                  ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200'
                                   : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/20'
                               }`}
                             >

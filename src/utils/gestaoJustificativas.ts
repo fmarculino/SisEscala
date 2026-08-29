@@ -87,18 +87,44 @@ export function alcancaEvento(ator: AtorJustificativa, evento: EscopoEvento): bo
   }
 
   if (ator.role === 'admin' || ator.role === 'coordenador' || ator.role === 'ass_adm') {
-    if (ator.acesso_todas_unidades || ator.acesso_todos_setores) return true
-    if (
-      evento.unidade_id &&
-      ator.permitted_unidades.includes(evento.unidade_id) &&
-      ator.acesso_todos_setores
-    ) {
-      return true
-    }
+    // 🚨 `acesso_todos_setores` SOZINHO NÃO É ALCANCE GLOBAL — corrigido em 29/08/2026.
+    //
+    // Isto começava com `if (acesso_todas_unidades || acesso_todos_setores) return true`. Mas
+    // a flag significa "todos os setores DAS UNIDADES a que estou vinculado", nunca "de toda a
+    // rede" — é assim que `applyAccessFilters` sempre a tratou (só `acesso_todas_unidades`
+    // libera tudo lá). O OR fazia a LISTAGEM esconder as outras unidades e a GRAVAÇÃO aceitá-las:
+    // um Coordenador podia justificar, ou registrar FALTA, para servidor de qualquer unidade
+    // chamando a server action direto. Armadilha 12 do CLAUDE.md.
+    //
+    // Medido em produção em 29/08/2026: **24 contas** nessa condição (19 coordenador, 4 ass_adm,
+    // 1 admin) — inclusive um `ass_adm` sem unidade nenhuma vinculada, que não enxergava um
+    // único evento na tela e alcançava a rede inteira por aqui. ✅ E **nunca foi exercido**:
+    // das 314 linhas de `justificativas_eventos`, ZERO foram gravadas fora do escopo do autor.
+    // Por isso a correção só reduz privilégio — nenhum fluxo real depende do que ela fecha.
+    //
+    // ⚠️ ESPELHO EXATO de `applyAccessFilters` (`src/utils/permissions.ts`), caso a caso. As
+    // duas precisam concordar: divergir foi o defeito. E `fn_pode_gerir_justificativa`
+    // (`20260829100000`) tem o mesmo corpo em SQL — ao mexer aqui, mexa lá.
+    const naUnidade = !!evento.unidade_id && ator.permitted_unidades.includes(evento.unidade_id)
     // O ramo que funciona sem a flag: setor vinculado diretamente. É por ele que passa o
     // coordenador cujo acesso vem inteiramente de `profile_setores`, sem a unidade-pai
     // vinculada (o caso do piloto da TI — ver `fn_unidade_alcancavel_por_setor`).
-    return !!evento.setor_id && ator.permitted_setores.includes(evento.setor_id)
+    const noSetor = !!evento.setor_id && ator.permitted_setores.includes(evento.setor_id)
+
+    // Caso 1 de applyAccessFilters: acesso a todas as unidades.
+    if (ator.acesso_todas_unidades) {
+      if (ator.acesso_todos_setores) return true
+      if (ator.permitted_setores.length > 0) return noSetor
+      return true
+    }
+
+    // Caso 2: unidades específicas. A flag herda os setores DELAS, não os da rede.
+    if (ator.permitted_unidades.length > 0) {
+      return ator.acesso_todos_setores ? (naUnidade || noSetor) : noSetor
+    }
+
+    // Caso 3: só setores vinculados.
+    return noSetor
   }
 
   return false
@@ -131,6 +157,80 @@ export function podeExcluirJustificativa(role: string | null | undefined): boole
  * sobre cumprimento (o caso do evento que o ponto já provou).
  */
 export type Desfecho = 'validado' | 'falta' | null
+
+/**
+ * OS DOIS EIXOS DE UM EVENTO NA FILA — FONTE ÚNICA (28/08/2026).
+ *
+ * 🚨 Eles estavam fundidos numa variável só em `getEventosPendentes`, e a auto-classificação
+ * decidia ANTES de olhar o registro gravado:
+ *
+ *     const status = resolvidoSozinho ? 'auto_validado' : (just ? just.status : 'pendente')
+ *
+ * Como todo Sobreaviso sem acionamento cai em `estado = 'validado'` (o caso dominante — 72 dos
+ * 79 de 08/2026), a justificativa gravada NUNCA era lida. Salvar não mudava o selo nem o botão,
+ * o card "Pendentes" contava 0 com linha sem justificativa na lista, e o filtro "Pendentes de
+ * Justificativa" devolvia vazio — deixando a Validação em Massa sem nenhum recorte para
+ * selecionar o grupo que faltava.
+ *
+ * `status` responde "alguém escreveu a motivação?"; `semAcaoNecessaria` responde "isso é
+ * cobrado de alguém?". São perguntas diferentes e nenhuma pode sobrescrever a outra.
+ *
+ * ⚠️ A decisão de 23/08/2026 continua inteira: sobreaviso cumprido não é pendência. Ela só
+ * passou a viver em `semAcaoNecessaria`, em vez de apagar o status da justificativa.
+ */
+export interface ClassificacaoEvento {
+  /** O que está gravado em `justificativas_eventos`, ou 'pendente' quando não há linha. */
+  status: string
+  /** Cumprido: ninguém precisa escrever nada. Não conta como pendência nem trava o progresso. */
+  semAcaoNecessaria: boolean
+}
+
+export function classificarEvento(params: {
+  categoria: string
+  /** Estado vindo de `fn_desfecho_evento_dia`. `null`/`undefined` = a RPC não respondeu. */
+  estado: string | null | undefined
+  /** Status da linha de `justificativas_eventos`, ou `null` se não existe linha. */
+  statusGravado: string | null | undefined
+}): ClassificacaoEvento {
+  const cat = String(params.categoria || '').toLowerCase()
+  return {
+    status: params.statusGravado || 'pendente',
+    semAcaoNecessaria: cat.includes('sobreaviso') && params.estado === 'validado',
+  }
+}
+
+/**
+ * `undefined` (NÃO OPINEI) e `null` (LIMPAR) são coisas diferentes — FONTE ÚNICA (28/08/2026).
+ *
+ * 🚨 As duas actions faziam `dados.resultado ?? null`, fundindo-as. O modal manda `undefined`
+ * sempre que não pede a decisão (evento que o ponto já provou, ou usuário que não pode
+ * reverter), e isso virava "apague o desfecho". Duas consequências reais:
+ *
+ *   · o coordenador não conseguia EDITAR O TEXTO de evento já decidido — `undefined` virava
+ *     `null`, `validarGravacaoDesfecho` lia como reversão e recusava com "Apenas o RH pode
+ *     revertê-lo". Ele não estava revertendo nada;
+ *   · para quem PODE reverter, o desfecho era apagado em silêncio sempre que o `resultado` da
+ *     tela estivesse defasado (aba aberta antes de outra pessoa decidir).
+ *
+ * E o LOTE era pior: gravava `resultado: valida ? 'validado' : null` sem ler o banco e sem
+ * passar por `validarGravacaoDesfecho` — incluir na seleção um evento já registrado como
+ * `falta` pelo RH zerava aquele desfecho, por qualquer papel, em um clique.
+ *
+ * Não opinar preserva o que está gravado. `mudou` é o que decide se a AUTORIA se renova: sem
+ * isso, corrigir uma vírgula no texto trocaria `decurso_de_prazo` por 'coordenador' e poria o
+ * nome de quem editou como autor da decisão sobre a conduta de um servidor.
+ */
+export function resolverDesfecho(params: {
+  /** `false` quando o chamador não mandou opinião nenhuma (o `undefined` do modal). */
+  opinou: boolean
+  /** A opinião, quando houve. `null` é limpar de propósito. */
+  desfechoInformado: Desfecho
+  /** O que ESTÁ no banco — nunca o que o cliente afirma. */
+  desfechoAtual: Desfecho
+}): { desfechoNovo: Desfecho; mudou: boolean } {
+  const desfechoNovo: Desfecho = params.opinou ? params.desfechoInformado : params.desfechoAtual
+  return { desfechoNovo, mudou: desfechoNovo !== params.desfechoAtual }
+}
 
 /**
  * Regra única de gravação, aplicada na página, no client e na action.
