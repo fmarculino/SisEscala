@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -20,7 +21,7 @@ import (
 	"github.com/sms-maraba/sisescala-coletor-rep/sisescala"
 )
 
-const Versao = "0.12.0"
+const Versao = "0.13.0"
 
 // LimiteCadastrosPorCiclo e' o teto do ciclo AUTOMATICO. O clique manual no menu passa 0 (sem
 // teto, envia todos).
@@ -35,6 +36,50 @@ func Hostname() string {
 		return "desconhecido"
 	}
 	return h
+}
+
+// IPLocal e' o endereco DESTA maquina na rede pela qual ela alcanca o relogio.
+//
+// Existe porque o hostname sozinho nao chega em ninguem: nao ha DNS interno cobrindo as unidades,
+// e o que o servidor enxerga (ultimo_ip_origem) e o IP PUBLICO da unidade - o mesmo para as cinco
+// maquinas do HMI, por exemplo. Quem precisa abrir sessao remota no computador do comunicador
+// precisa do IP interno, e so' a propria maquina sabe qual e'.
+//
+// O Dial UDP NAO envia pacote nenhum: ele so' faz o sistema escolher a rota ate o alvo e revelar
+// qual interface seria usada. E' o unico jeito confiavel numa maquina com varias placas (cabo +
+// wifi + adaptador virtual), onde "a primeira IPv4 nao-loopback" acerta por sorte. O alvo e' o
+// proprio relogio: a interface que fala com ele e a mesma pela qual o suporte vai chegar aqui.
+func IPLocal(alvoRelogio string) string {
+	if alvoRelogio != "" {
+		if conn, err := net.Dial("udp", net.JoinHostPort(alvoRelogio, "9")); err == nil {
+			defer conn.Close()
+			if addr, ok := conn.LocalAddr().(*net.UDPAddr); ok && addr.IP != nil && !addr.IP.IsLoopback() {
+				return addr.IP.String()
+			}
+		}
+	}
+
+	// Sem relogio alcancavel (equipamento desligado, rota ausente), cai para a primeira IPv4
+	// nao-loopback. Menos preciso, mas melhor que devolver vazio para quem so quer saber onde o
+	// coletor esta instalado.
+	enderecos, err := net.InterfaceAddrs()
+	if err != nil {
+		return ""
+	}
+	// ⚠️ Link-local (169.254.x) fica de fora: medido nesta maquina em 29/08/2026, e' o que a
+	// varredura devolve primeiro, vindo de um adaptador virtual sem rota para lugar nenhum -
+	// exatamente o endereco que nao serve para alcancar o computador.
+	for _, e := range enderecos {
+		rede, ok := e.(*net.IPNet)
+		if !ok || rede.IP.To4() == nil {
+			continue
+		}
+		if rede.IP.IsLoopback() || rede.IP.IsLinkLocalUnicast() {
+			continue
+		}
+		return rede.IP.String()
+	}
+	return ""
 }
 
 // loteIDDeterministico gera um identificador em formato UUID (8-4-4-4-12 hex) a partir do
@@ -239,7 +284,7 @@ func HeartbeatComEstado(cfg *config.Config, d *config.DispositivoRepConfig) (Res
 	if err != nil {
 		log.Printf("aviso: nao foi possivel ler o relogio do REP (%v); heartbeat sem deriva", err)
 		estado.ErroRelogio = err
-		return estado, sc.Heartbeat(nil, Versao, Hostname())
+		return estado, sc.Heartbeat(nil, Versao, Hostname(), IPLocal(d.Endereco))
 	}
 	estado.RelogioOK = true
 	estado.RelogioDevice = relogioDevice
@@ -247,7 +292,7 @@ func HeartbeatComEstado(cfg *config.Config, d *config.DispositivoRepConfig) (Res
 
 	sincronizarRelogioDispositivo(rc, d, &estado)
 
-	return estado, sc.Heartbeat(&relogioDevice, Versao, Hostname())
+	return estado, sc.Heartbeat(&relogioDevice, Versao, Hostname(), IPLocal(d.Endereco))
 }
 
 // horaConfiavel e' a hora local CORRIGIDA pelo desvio aprendido do SisEscala (header Date das

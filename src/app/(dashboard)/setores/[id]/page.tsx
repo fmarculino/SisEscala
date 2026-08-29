@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { applyAccessFilters } from '@/utils/permissions'
 import EditSetorForm from './EditSetorForm'
 import { ExcluirSetorButton } from './ExcluirSetorButton'
+import { formatSectorPaths } from '@/utils/sectors'
 
 export default async function EditSetorPage({
   params,
@@ -82,6 +83,34 @@ export default async function EditSetorPage({
   if (!setor) {
     return <div>Setor não encontrado</div>
   }
+
+  // Candidatos a receber os vínculos quando este setor for excluído: ativos, da MESMA unidade, e
+  // nem ele nem os subsetores dele. O destino subsetor é recusado no banco (viraria pai de si
+  // mesmo) — tirá-lo daqui evita oferecer o que a RPC vai negar. O caminho completo evita o
+  // clássico "dois BLOCO A" em ramos diferentes (src/utils/sectors.ts).
+  const descendentesDoSetor = (() => {
+    const filhosDe = new Map<string, string[]>()
+    for (const s of setoresPai) {
+      if (!s.parent_id) continue
+      const lista = filhosDe.get(s.parent_id)
+      if (lista) lista.push(s.id)
+      else filhosDe.set(s.parent_id, [s.id])
+    }
+    const fora = new Set<string>([id])
+    const fila = [id]
+    while (fila.length) {
+      for (const filho of filhosDe.get(fila.shift()!) || []) {
+        if (fora.has(filho)) continue     // defesa contra ciclo em parent_id
+        fora.add(filho)
+        fila.push(filho)
+      }
+    }
+    return fora
+  })()
+
+  const destinosDaExclusao = formatSectorPaths(
+    setoresPai.filter(s => s.unidade_id === setor.unidade_id && !descendentesDoSetor.has(s.id))
+  ).map(s => ({ id: s.id, nome: s.nome }))
   
   const isAtivo = setor.ativo !== false
 
@@ -105,7 +134,7 @@ export default async function EditSetorPage({
           {/* Excluir é exclusivo do Administrador Geral e só alcança setor sem vínculo nenhum —
               a recusa e a lista de vínculos vêm de fn_excluir_setor, no banco. */}
           {profile?.role === 'super_admin' && (
-            <ExcluirSetorButton setorId={id} setorNome={setor.nome} />
+            <ExcluirSetorButton setorId={id} setorNome={setor.nome} destinos={destinosDaExclusao} />
           )}
 
           <StatusToggleButton 

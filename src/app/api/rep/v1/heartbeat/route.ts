@@ -44,6 +44,14 @@ export async function POST(request: Request) {
     if (typeof coletorHost === 'string' && coletorHost.trim()) {
       atualizacao.coletor_host = coletorHost.trim().slice(0, 128)
     }
+    // IP da máquina do coletor NA REDE DA UNIDADE — não confundir com ultimo_ip_origem, que é
+    // o IP público por onde a requisição chegou (o mesmo para todas as máquinas de uma unidade,
+    // e inútil para alcançar o computador certo). Coletor anterior à v0.13.0 não manda: o campo
+    // fica como está, nunca preenchido com um palpite daqui.
+    const coletorIp: string | undefined = body?.coletor_ip
+    if (typeof coletorIp === 'string' && coletorIp.trim()) {
+      atualizacao.coletor_ip = coletorIp.trim().slice(0, 64)
+    }
   }
 
   if (Object.keys(atualizacao).length > 0) {

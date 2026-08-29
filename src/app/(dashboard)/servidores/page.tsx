@@ -57,13 +57,13 @@ export default async function ServidoresPage() {
   }) || []
 
   // Fetch units and sectors for filters - Filtered
-  let unitsQuery = supabase.from('unidades').select('id, nome').order('nome')
+  let unitsQuery = supabase.from('unidades').select('id, nome, ativo').order('nome')
   unitsQuery = applyAccessFilters(unitsQuery, userProfile, { unidadeField: 'id' })
   const { data: unidades } = await unitsQuery
 
   let sectorsQuery = supabase
     .from('setores')
-    .select('id, unidade_id, parent_id, dicionario_setores(nome)')
+    .select('id, unidade_id, parent_id, ativo, dicionario_setores(nome)')
 
   sectorsQuery = applyAccessFilters(sectorsQuery, userProfile, { setorField: 'id' })
   const { data: sectorsRaw } = await sectorsQuery

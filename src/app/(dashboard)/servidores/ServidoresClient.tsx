@@ -6,6 +6,7 @@ import { Users, Plus, UserCircle, Building2, Search, Filter, Layers, UserX, User
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useDialog } from '@/components/ui/DialogProvider'
+import { rotularInativo } from '@/utils/opcoesAtivas'
 
 interface Servidor {
   id: string
@@ -381,7 +382,7 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
         >
           <option value="">Todas as Unidades</option>
           {unidades.map(u => (
-            <option key={u.id} value={u.id}>{u.nome}</option>
+            <option key={u.id} value={u.id}>{rotularInativo(u as any, ' (inativa)')}</option>
           ))}
         </select>
 
@@ -392,7 +393,7 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
         >
           <option value="">Todos os Setores</option>
           {filteredSetoresOptions.map(s => (
-            <option key={s.id} value={s.id}>{s.nome}</option>
+            <option key={s.id} value={s.id}>{rotularInativo(s as any)}</option>
           ))}
         </select>
 

@@ -6,10 +6,12 @@ import { Loader2, KeyRound, Download } from 'lucide-react'
 import { criarTerminalLocal, atualizarTerminalLocal, gerarTokenTerminalLocal } from './actions'
 import { TokenRevealBox } from './TokenRevealBox'
 import { baixarAplicativoColetorRep } from './baixarAplicativo'
+import { formatSectorsHierarchy } from '@/utils/sectors'
+import { opcoesParaEscolha, rotularInativo } from '@/utils/opcoesAtivas'
 
 interface Opcoes {
-  unidades: { id: string; nome: string }[]
-  setores: { id: string; unidade_id: string | null; nome: string }[]
+  unidades: { id: string; nome: string; ativo?: boolean | null }[]
+  setores: { id: string; unidade_id: string | null; parent_id?: string | null; nome: string; ativo?: boolean | null }[]
   coordenadores: { id: string; full_name: string; role: string }[]
 }
 
@@ -48,7 +50,12 @@ export function TerminalLocalModal({
   const [terminalId, setTerminalId] = useState<string | null>(terminal?.id || null)
   const [baixando, setBaixando] = useState(false)
 
-  const setoresDaUnidade = opcoes.setores.filter((s) => s.unidade_id === unidadeId)
+  // Unidade/setor inativo sai da escolha, menos o que este terminal ja usa (opcoesAtivas.ts).
+  // O recuo de hierarquia entra aqui porque listarOpcoesFormulario passou a devolver o nome cru.
+  const unidadesParaEscolha = opcoesParaEscolha(opcoes.unidades, unidadeId)
+  const setoresDaUnidade = formatSectorsHierarchy(
+    opcoesParaEscolha(opcoes.setores.filter((s) => s.unidade_id === unidadeId), setorId)
+  )
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -135,7 +142,7 @@ export function TerminalLocalModal({
                 className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm"
               >
                 <option value="">Selecione…</option>
-                {opcoes.unidades.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
+                {unidadesParaEscolha.map((u) => <option key={u.id} value={u.id}>{rotularInativo(u, ' (inativa)')}</option>)}
               </select>
             </div>
             <div>
@@ -149,7 +156,7 @@ export function TerminalLocalModal({
                 className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm disabled:opacity-50"
               >
                 <option value="">Qualquer setor da unidade</option>
-                {setoresDaUnidade.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                {setoresDaUnidade.map((s) => <option key={s.id} value={s.id}>{rotularInativo(s)}</option>)}
               </select>
             </div>
           </div>

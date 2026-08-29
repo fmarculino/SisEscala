@@ -6,10 +6,12 @@ import { Loader2, KeyRound, Download, Users } from 'lucide-react'
 import { criarDispositivoRep, atualizarDispositivoRep, gerarTokenDispositivoRep, enfileirarCadastrosRep, gerarTokensUnidadeRep } from './actions'
 import { TokenRevealBox } from './TokenRevealBox'
 import { baixarAplicativoColetorRep, baixarAplicativoUnidadeRep } from './baixarAplicativo'
+import { SeletorSetoresArvore } from '@/components/setores/SeletorSetoresArvore'
+import { opcoesParaEscolha, rotularInativo } from '@/utils/opcoesAtivas'
 
 interface Opcoes {
-  unidades: { id: string; nome: string }[]
-  setores: { id: string; unidade_id: string | null; nome: string }[]
+  unidades: { id: string; nome: string; ativo?: boolean | null }[]
+  setores: { id: string; unidade_id: string | null; parent_id?: string | null; nome: string; ativo?: boolean | null }[]
 }
 
 interface DispositivoRep {
@@ -55,6 +57,14 @@ export function DispositivoRepModal({
   const [setorIds, setSetorIds] = useState<string[]>(
     (dispositivo?.dispositivos_rep_setores || []).map((x) => x.setor_id)
   )
+  // "Toda a unidade" e um MODO, nao "a lista esta vazia". Enquanto a caixa era derivada de
+  // setorIds.length === 0, o botao "Limpar" da arvore trocava o significado do formulario sem
+  // ninguem pedir: desmarcar o ultimo setor voltava para "toda a unidade" e a arvore sumia da
+  // tela. Sao decisoes diferentes -- o banco continua guardando as duas do mesmo jeito (nenhuma
+  // linha em dispositivos_rep_setores = toda a unidade).
+  const [todaUnidade, setTodaUnidade] = useState(
+    (dispositivo?.dispositivos_rep_setores || []).length === 0
+  )
   const [numeroSerie, setNumeroSerie] = useState(dispositivo?.numero_serie || '')
   const [enderecoIp, setEnderecoIp] = useState(dispositivo?.endereco_ip || '')
   const [modoOperacao, setModoOperacao] = useState(dispositivo?.modo_operacao || 'pull')
@@ -85,6 +95,10 @@ export function DispositivoRepModal({
   const [resultadoCadastros, setResultadoCadastros] = useState<{ enfileirados: number; sem_cpf: number; ja_vinculados: number; ja_no_relogio: number } | null>(null)
 
   const setoresDaUnidade = opcoes.setores.filter((s) => s.unidade_id === unidadeId)
+
+  // Unidade inativa não é oferecida, mas a do dispositivo que já está gravado continua na lista —
+  // ver src/utils/opcoesAtivas.ts.
+  const unidadesParaEscolha = opcoesParaEscolha(opcoes.unidades, unidadeId)
 
   // Relógios ATIVOS desta unidade, o próprio incluído (outrosDispositivos é a lista completa).
   // Só existe para oferecer o pacote de instalação da unidade inteira quando há mais de um —
@@ -127,7 +141,12 @@ export function DispositivoRepModal({
     const formData = new FormData()
     formData.set('nome', nome)
     formData.set('unidade_id', unidadeId)
-    formData.set('setor_ids', JSON.stringify(setorIds))
+    if (!todaUnidade && setorIds.length === 0) {
+      setErro('Escolha pelo menos um setor, ou marque "Toda a unidade".')
+      setSalvando(false)
+      return
+    }
+    formData.set('setor_ids', JSON.stringify(todaUnidade ? [] : setorIds))
     formData.set('numero_serie', numeroSerie)
     formData.set('endereco_ip', enderecoIp)
     formData.set('modo_operacao', modoOperacao)
@@ -244,12 +263,15 @@ export function DispositivoRepModal({
             <label className="block text-xs font-semibold text-zinc-600 dark:text-zinc-400 mb-1">Unidade</label>
             <select
               value={unidadeId}
-              onChange={(e) => { setUnidadeId(e.target.value); setSetorIds([]) }}
+              // Trocar a unidade zera a selecao E volta ao modo "toda a unidade": os setores
+              // escolhidos eram de outra unidade, e deixar a arvore aberta e vazia induziria a
+              // salvar um relogio sem setor nenhum.
+              onChange={(e) => { setUnidadeId(e.target.value); setSetorIds([]); setTodaUnidade(true) }}
               required
               className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm"
             >
               <option value="">Selecione…</option>
-              {opcoes.unidades.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
+              {unidadesParaEscolha.map((u) => <option key={u.id} value={u.id}>{rotularInativo(u, ' (inativa)')}</option>)}
             </select>
           </div>
 
@@ -271,42 +293,33 @@ export function DispositivoRepModal({
                 <label className="flex items-center gap-2 text-sm mb-2">
                   <input
                     type="checkbox"
-                    checked={setorIds.length === 0}
-                    onChange={(e) => setSetorIds(e.target.checked ? [] : setoresDaUnidade.map((s) => s.id))}
+                    checked={todaUnidade}
+                    // Ao sair de "toda a unidade" começa com os setores ATIVOS marcados — setor
+                    // desativado não entra em vínculo novo (src/utils/opcoesAtivas.ts).
+                    onChange={(e) => {
+                      setTodaUnidade(e.target.checked)
+                      if (!e.target.checked && setorIds.length === 0) {
+                        setSetorIds(setoresDaUnidade.filter((s) => s.ativo !== false).map((s) => s.id))
+                      }
+                    }}
                   />
                   Toda a unidade
                 </label>
-                {setorIds.length === 0 ? (
+                {todaUnidade ? (
                   <p className="text-[11px] text-zinc-400">
                     Qualquer servidor escalado nesta unidade é candidato a usar este relógio.
                     Desmarque acima para escolher setores específicos (ex.: quando vários setores
                     dividem o mesmo relógio, mas nem todos da unidade).
                   </p>
                 ) : (
-                  <div className="max-h-40 overflow-y-auto rounded-lg border border-zinc-300 dark:border-zinc-700 p-2 space-y-1">
-                    {setoresDaUnidade.map((s) => {
-                      const outrosComEsteSetor = setoresUsadosPorOutros.get(s.id)
-                      return (
-                      <label key={s.id} className="flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={setorIds.includes(s.id)}
-                          onChange={(e) => {
-                            setSetorIds((prev) =>
-                              e.target.checked ? [...prev, s.id] : prev.filter((id) => id !== s.id)
-                            )
-                          }}
-                        />
-                        {s.nome}
-                        {outrosComEsteSetor && (
-                          <span className="text-[10px] text-amber-600 dark:text-amber-400">
-                            já em {outrosComEsteSetor.join(', ')}
-                          </span>
-                        )}
-                      </label>
-                      )
-                    })}
-                  </div>
+                  // Árvore com marcação em cascata: clicar num setor pai marca (ou desmarca) todos
+                  // os subsetores dele de uma vez. Ver SeletorSetoresArvore.
+                  <SeletorSetoresArvore
+                    setores={setoresDaUnidade}
+                    selecionados={setorIds}
+                    onChange={setSetorIds}
+                    avisoPorSetor={setoresUsadosPorOutros}
+                  />
                 )}
               </>
             )}

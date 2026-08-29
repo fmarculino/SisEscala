@@ -6,6 +6,7 @@ import { createUser, updateUser, resetPassword, deleteUser, toggleUserStatus } f
 import { useRouter } from 'next/navigation'
 import { Modal } from '@/components/ui/Modal'
 import { ROLE_LABELS, getRoleLabel } from '@/utils/roles'
+import { opcoesParaEscolha, rotularInativo } from '@/utils/opcoesAtivas'
 import { PAPEIS_ATRIBUIVEIS, type PapelGestor } from '@/utils/gestaoUsuarios'
 
 interface UserManagementClientProps {
@@ -390,7 +391,12 @@ export default function UserManagementClient({
     const tree: Record<string, any[]> = {}
     
     unidades.forEach(u => {
-      const unitSetores = setores.filter(s => s.unidade_id === u.id)
+      // Setor inativo nao e oferecido como escopo novo; o que ja esta vinculado a esta conta
+      // continua visivel (senao salvar desvincularia em silencio) — src/utils/opcoesAtivas.ts.
+      const unitSetores = opcoesParaEscolha(
+        setores.filter((s: any) => s.unidade_id === u.id) as any[],
+        selectedSetores,
+      )
       const sectorMap: Record<string, any> = {}
       const rootSectors: any[] = []
       
@@ -830,7 +836,7 @@ export default function UserManagementClient({
                 
                 {!acessoTodasUnidades && (
                   <div className="mt-1 max-h-32 overflow-y-auto p-2 border border-zinc-300 dark:border-zinc-700 rounded-md bg-zinc-50 dark:bg-zinc-800/50 space-y-1">
-                    {unidades?.map(u => (
+                    {opcoesParaEscolha(unidades as any[], selectedUnidades).map((u: any) => (
                       <label key={u.id} className="flex items-center p-1 hover:bg-zinc-100 dark:hover:bg-zinc-700 rounded cursor-pointer text-xs">
                         <input 
                           type="checkbox"
@@ -841,7 +847,7 @@ export default function UserManagementClient({
                             else setSelectedUnidades(selectedUnidades.filter(id => id !== u.id))
                           }}
                         />
-                        {u.nome}
+                        {rotularInativo(u, ' (inativa)')}
                       </label>
                     ))}
                   </div>
@@ -983,8 +989,10 @@ export default function UserManagementClient({
                 className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
               >
                 <option value="">Todas as Unidades</option>
-                {unidades.map(u => (
-                  <option key={u.id} value={u.id}>{u.nome}</option>
+                {/* Filtro, nao atribuicao: unidade inativa continua listada (rotulada) — sem ela,
+                    as contas vinculadas a ela ficariam inalcancaveis pela tela. */}
+                {unidades.map((u: any) => (
+                  <option key={u.id} value={u.id}>{rotularInativo(u, ' (inativa)')}</option>
                 ))}
               </select>
 
@@ -996,13 +1004,13 @@ export default function UserManagementClient({
                 >
                   <option value="">Todos os Setores</option>
                   {filterUnidade
-                    ? filteredSetoresOptions.map(s => (
-                        <option key={s.id} value={s.id}>{s.nome}</option>
+                    ? filteredSetoresOptions.map((s: any) => (
+                        <option key={s.id} value={s.id}>{rotularInativo(s)}</option>
                       ))
                     : setoresPorUnidade.map(([unidadeNome, lista]) => (
                         <optgroup key={unidadeNome} label={unidadeNome}>
                           {lista.map((s: any) => (
-                            <option key={s.id} value={s.id}>{s.nome}</option>
+                            <option key={s.id} value={s.id}>{rotularInativo(s)}</option>
                           ))}
                         </optgroup>
                       ))}

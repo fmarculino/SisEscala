@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { formatarData } from '@/utils/horario'
 import { ArrowRightLeft, Info, CheckCircle2, XCircle, Loader2, User, Calendar, MapPin } from 'lucide-react'
 import { avaliarSolicitacaoTransferencia } from '../actions'
+import { opcoesParaEscolha, rotularInativo } from '@/utils/opcoesAtivas'
 
 interface SolicitacaoTransferencia {
   id: string
@@ -38,7 +39,7 @@ interface SolicitacoesTransferenciaSectionProps {
   erro: string | null
   /** O papel de quem olha avalia transferência (super_admin, RH Geral ou RH da Unidade). */
   avaliador: boolean
-  unidades: { id: string; nome: string }[]
+  unidades: { id: string; nome: string; ativo?: boolean | null }[]
   setores: { id: string; unidade_id: string | null; nome: string; ativo?: boolean }[]
 }
 
@@ -103,7 +104,7 @@ function LinhaSolicitacao({
 }: {
   solicitacao: SolicitacaoTransferencia
   avaliador: boolean
-  unidades: { id: string; nome: string }[]
+  unidades: { id: string; nome: string; ativo?: boolean | null }[]
   setores: { id: string; unidade_id: string | null; nome: string; ativo?: boolean }[]
   onResolvida: () => void
 }) {
@@ -241,8 +242,10 @@ function LinhaSolicitacao({
                 className="mt-1 block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-900 dark:text-white"
               >
                 <option value="">Selecione a Unidade...</option>
-                {unidades.map(u => (
-                  <option key={u.id} value={u.id}>{u.nome}</option>
+                {/* Unidade inativa nao e destino de transferencia; a do proprio pedido
+                      continua na lista para nao trocar o valor sozinho (opcoesAtivas.ts). */}
+                {opcoesParaEscolha(unidades, selectedUnidade).map(u => (
+                  <option key={u.id} value={u.id}>{rotularInativo(u, ' (inativa)')}</option>
                 ))}
               </select>
             </div>

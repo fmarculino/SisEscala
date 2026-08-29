@@ -74,13 +74,17 @@ export default async function UsuariosPage() {
   // 5. Unidades e setores oferecidos no formulário. O RH da Unidade só enxerga os dele — e o mapa
   // setor→unidade sai daqui, então setor de fora fica desconhecido e é tratado como fora de
   // escopo (a dúvida fecha, não abre).
-  let unidadesQuery = supabase.from('unidades').select('id, nome').order('nome')
+  // ⚠️ `ativo` vem junto, mas NAO se filtra aqui: o mapa setor->unidade abaixo alimenta a
+  // checagem de escopo, e setor desconhecido e tratado como FORA do escopo — filtrar o inativo
+  // faria o RH da Unidade perder de vista a conta vinculada a um setor desativado. Quem esconde
+  // o inativo e a tela, so na hora de OFERECER (src/utils/opcoesAtivas.ts).
+  let unidadesQuery = supabase.from('unidades').select('id, nome, ativo').order('nome')
   if (escopadoPorUnidade) unidadesQuery = unidadesQuery.in('id', unidadesDoGestor)
   const { data: unidades } = await unidadesQuery
 
   let setoresQuery = supabase
     .from('setores')
-    .select('id, unidade_id, parent_id, dicionario_setores(nome)')
+    .select('id, unidade_id, parent_id, ativo, dicionario_setores(nome)')
   if (escopadoPorUnidade) setoresQuery = setoresQuery.in('unidade_id', unidadesDoGestor)
   const { data: sectorsRaw } = await setoresQuery
 

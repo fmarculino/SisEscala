@@ -20,6 +20,7 @@ import { RelatorioEventoPrintView } from '@/components/reports/RelatorioEventoPr
 import { formatSectorsHierarchy } from '@/utils/sectors'
 import { formatarHora } from '@/utils/horario'
 import { PAPEIS_REVERTEM_DESFECHO, type Desfecho } from '@/utils/gestaoJustificativas'
+import { rotularInativo } from '@/utils/opcoesAtivas'
 
 interface JustificativasClientProps {
   unidades: any[]
@@ -374,7 +375,7 @@ export function JustificativasClient({
               */}
               <option value="">Todas as Unidades</option>
               {unidades.map(u => (
-                <option key={u.id} value={u.id}>{u.nome}</option>
+                <option key={u.id} value={u.id}>{rotularInativo(u as any, ' (inativa)')}</option>
               ))}
             </select>
           </div>
@@ -389,7 +390,7 @@ export function JustificativasClient({
             >
               <option value="">Todos os Setores</option>
               {filteredSetores.map(s => (
-                <option key={s.id} value={s.id}>{s.nome}</option>
+                <option key={s.id} value={s.id}>{rotularInativo(s as any)}</option>
               ))}
             </select>
           </div>

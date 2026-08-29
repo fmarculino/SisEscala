@@ -335,6 +335,9 @@ export function MarcacoesClient({ isAdmin, podeAutorizar, opcoes }: { isAdmin: b
                     <p className="text-[11px] text-zinc-400">
                       NSR: {d.ultimo_nsr} · Último contato: {d.ultimo_contato_em ? formatarDataHoraComSegundos(d.ultimo_contato_em) : 'nunca'}
                       {d.coletor_host && ` · máquina: ${d.coletor_host}`}
+                      {/* IP da máquina do coletor na rede da unidade — é por ele que se acessa
+                          o computador do comunicador; o do relógio já aparece na linha de cima. */}
+                      {d.coletor_ip && ` (${d.coletor_ip})`}
                       {typeof d.deriva_segundos === 'number' && Math.abs(d.deriva_segundos) > 60 && (
                         <span className="text-amber-600 font-bold"> · deriva de relógio: {d.deriva_segundos}s</span>
                       )}

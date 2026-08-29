@@ -437,7 +437,7 @@ func (c *Client) ConfirmarRemocao(filaID string, sucesso bool, mensagemErro stri
 // vale para atualizar ultimo_contato_em, só não atualiza deriva_segundos.
 // A versão vai por aqui (e não só no lote de AFD) porque o sync é incremental desde a v0.5.0:
 // relógio sem batida nova não manda lote nenhum, e ficaria com a versão congelada na tela.
-func (c *Client) Heartbeat(relogioDevice *time.Time, coletorVersao, coletorHost string) error {
+func (c *Client) Heartbeat(relogioDevice *time.Time, coletorVersao, coletorHost, coletorIP string) error {
 	payload := map[string]interface{}{}
 	if relogioDevice != nil {
 		payload["relogio_device"] = relogioDevice.Format(time.RFC3339)
@@ -445,6 +445,12 @@ func (c *Client) Heartbeat(relogioDevice *time.Time, coletorVersao, coletorHost 
 	if coletorVersao != "" {
 		payload["coletor_versao"] = coletorVersao
 		payload["coletor_host"] = coletorHost
+		// IP desta maquina na rede da unidade - e o que permite alcancar o computador do
+		// comunicador. Vazio nao e enviado: servidor antigo ignora o campo, e campo vazio na
+		// tela seria pior que campo ausente.
+		if coletorIP != "" {
+			payload["coletor_ip"] = coletorIP
+		}
 	}
 	corpo, err := json.Marshal(payload)
 	if err != nil {

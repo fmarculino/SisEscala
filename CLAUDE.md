@@ -2499,6 +2499,107 @@ Portão: `node scratchpad/sim_limite_carga.js` (45 casos). Transpile antes com
 `npx tsc src/utils/limiteCargaMensal.ts --outDir scratchpad/_sim --module commonjs --target es2020`.
 Medição em produção: `node scratchpad/an_limite_horas.mjs`.
 
+### 27. Excluir setor com vínculo é FUSÃO, e cascata está descartada (29/08/2026)
+
+⚠️ **`fn_excluir_setor` (`20260827010000`) só alcança setor sem vínculo nenhum, e isso é quase
+nada.** Medido em produção em 29/08/2026 chamando `fn_dependencias_setor` para os **646** setores:
+apenas **200** eram excluíveis, e dos **16 já inativos** — os que alguém quer justamente tirar do
+cadastro — **7 estavam presos**. A recusa listava os vínculos e não oferecia ação nenhuma.
+
+**`fn_fundir_setor(origem, destino)` (`20260829110000`)** move TODO vínculo para outro setor da
+mesma unidade e só então apaga. Varredura dinâmica de `pg_constraint` (14 colunas de FK com uso
+real hoje), pelo mesmo motivo de `fn_dependencias_setor`: as tabelas base não estão versionadas.
+
+🚨 **Cascata foi considerada e descartada, e não deve voltar.** As três maiores tabelas presas ao
+setor são `marcacoes_ponto` (26.834 linhas), `escala_mensal` (1.658) e `servidores` (1.396) —
+apagar em cascata é destruir registro de ponto, que é prova legal (Portaria 671/2021), para
+resolver problema de cadastro.
+
+⚠️ **A fusão RECUSA em bloco em vez de "dar um jeito"** (`fn_impedimentos_fusao_setor`, consultada
+pela tela a cada troca do `<select>`): destino em outra unidade (mover servidor/escala de unidade
+é **transferência**, tem tela e regra próprias), destino que é **subsetor** da origem (viraria pai
+de si mesmo — ciclo em `parent_id` trava toda montagem de árvore), o mesmo servidor com escala nos
+**dois** setores na mesma competência (unique de `escala_mensal`; juntar contaria as horas duas
+vezes na folha, armadilha 23) e qualquer outra colisão de unicidade. As **duas** exceções em que a
+colisão é descartada são `profile_setores` e `dispositivos_rep_setores`: a linha não tem dado
+próprio, ela **é** o par.
+
+🚨 **A migration abre a PRIMEIRA exceção no trigger de imutabilidade da marcação, e ela é estreita
+de propósito.** Sem isso, os **107 setores** que já tiveram batida seriam infundíveis (a FK barra o
+DELETE). O ramo novo de `fn_bloquear_alteracao_marcacao` exige o GUC `sisescala.fundir_setor`
+(local à transação, como o `sisescala.reparse_afd`) **e** que o UPDATE altere exclusivamente
+`setor_id` — a comparação é `to_jsonb(NEW) - 'setor_id' = to_jsonb(OLD) - 'setor_id'`, estrutural,
+não uma lista de campos que envelhece: horário, servidor, origem, dispositivo e NSR continuam
+impossíveis de alterar aí **mesmo depois de a tabela ganhar coluna nova**. Ao recriar essa função,
+**os dois ramos precisam continuar** (reparse de AFD e fusão) — armadilha 1.
+
+ℹ️ Conferido antes: `trg_enfileirar_aviso_ponto` e `trg_reconciliar_apos_marcacao` são **AFTER
+INSERT**, então a fusão não dispara aviso nem reconciliação para as 26.834 marcações.
+
+### 28. Inativo tem que sair da ESCOLHA e ficar no FILTRO (29/08/2026)
+
+⚠️ **Desativar unidade ou setor não alcançava os formulários.** O `<select>` de unidade do modal do
+Dispositivo REP listava as 33 unidades sempre, a inativa junto — escolher uma cria vínculo novo com
+cadastro que alguém já aposentou, sem a tela dizer nada.
+
+Fonte única: **`src/utils/opcoesAtivas.ts`** (`opcoesParaEscolha`, `rotularInativo`).
+
+| onde | regra |
+|---|---|
+| escolher **onde algo vai ficar** (relógio, terminal, escopo de usuário, transferência, lotação) | inativo **não é oferecido** |
+| filtro de listagem e relatório | inativo **continua listado**, rotulado `(inativo)` |
+
+⚠️ **Filtrar na CONSULTA é o erro oposto, e era o que o modal do REP já fazia com setores:** o
+relógio que atende um setor depois desativado continua atendendo, com a caixa **invisível** na
+única tela que gerencia aquilo. Por isso `listarOpcoesFormulario` devolve tudo com a flag `ativo`
+e quem esconde é a tela — que conhece a seleção atual.
+
+⚠️ **O já selecionado NUNCA some**, mesmo inativo: tirá-lo faz o `<select>` exibir vazio para um
+registro que aponta para ele, e o próximo "Salvar" grava a troca que ninguém pediu.
+
+⚠️ **Em `usuarios/page.tsx` a consulta não pode filtrar por `ativo`** por um motivo a mais: o mapa
+setor→unidade dali alimenta a checagem de escopo, e setor desconhecido é tratado como FORA do
+escopo — o RH da Unidade perderia de vista a conta vinculada a um setor desativado.
+
+Medido em 29/08/2026: **1 unidade inativa** de 33, **16 setores inativos** de 646, nenhum setor
+ativo pendurado em unidade inativa ou em pai inativo.
+
+### 29. Seleção de setor em árvore, e "toda a unidade" como MODO (29/08/2026)
+
+**`src/components/setores/SeletorSetoresArvore.tsx`** — marcar um pai marca todos os descendentes,
+estado parcial no pai, expandir/recolher, marcar todos/limpar e filtro por nome. O HMM tem **196
+setores em 40 raízes e 3 níveis**; a lista plana anterior mostrava a hierarquia só como recuo no
+texto e obrigava a marcar dezenas de caixas uma a uma.
+
+⚠️ **"Toda a unidade" deixou de ser `setorIds.length === 0`.** Derivado da lista vazia, o botão
+"Limpar" da árvore trocava o significado do formulário sozinho: desmarcar o último setor voltava
+para "toda a unidade" e a árvore sumia. O banco continua guardando as duas coisas igual (nenhuma
+linha em `dispositivos_rep_setores`), mas salvar sem setor nenhum agora é **recusado**.
+
+⚠️ Durante a busca o ramo fica **sempre aberto** — recolher esconderia justamente o que casou.
+
+### 30. `ultimo_ip_origem` é o IP PÚBLICO da unidade, não o da máquina (29/08/2026)
+
+⚠️ **Medido em 29/08/2026: os 23 dispositivos têm `45.173.x`/`177.55.x` em `ultimo_ip_origem`, e
+as CINCO máquinas do HMI aparecem com o mesmo `45.173.175.9`.** Nem ele nem `endereco_ip` (que é o
+**relógio**) levam ninguém até o computador do coletor, e o hostname sozinho também não — não há
+DNS interno cobrindo as unidades.
+
+**`dispositivos_rep.coletor_ip`** (`20260829120000`) guarda o IP da máquina na rede da unidade,
+reportado no heartbeat pelo coletor **v0.13.0** (`ciclo.IPLocal`).
+
+⚠️ **O IP vem de `net.Dial("udp", <relógio>)`, que não envia pacote nenhum** — só faz o sistema
+escolher a rota e revelar a interface. Numa máquina com várias placas, "a primeira IPv4
+não-loopback" acerta por sorte: medido na máquina de dev, a varredura devolvia primeiro um
+`169.254.87.133` (link-local de adaptador virtual) enquanto o Dial devolveu o `10.110.2.111`
+correto. O fallback por varredura ficou, pulando loopback **e** link-local.
+
+Coletor anterior à v0.13.0 não manda o campo: a coluna fica `NULL` e a tela não mostra nada —
+nunca um valor inventado pelo servidor.
+
+Diário das armadilhas 27 a 30 em
+[`docs/evolucao/2026-08-29-excluir-setor-com-vinculos-e-inativos-fora-da-escolha.md`](docs/evolucao/2026-08-29-excluir-setor-com-vinculos-e-inativos-fora-da-escolha.md).
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.
