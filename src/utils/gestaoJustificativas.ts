@@ -133,6 +133,80 @@ export function podeExcluirJustificativa(role: string | null | undefined): boole
 export type Desfecho = 'validado' | 'falta' | null
 
 /**
+ * OS DOIS EIXOS DE UM EVENTO NA FILA — FONTE ÚNICA (28/08/2026).
+ *
+ * 🚨 Eles estavam fundidos numa variável só em `getEventosPendentes`, e a auto-classificação
+ * decidia ANTES de olhar o registro gravado:
+ *
+ *     const status = resolvidoSozinho ? 'auto_validado' : (just ? just.status : 'pendente')
+ *
+ * Como todo Sobreaviso sem acionamento cai em `estado = 'validado'` (o caso dominante — 72 dos
+ * 79 de 08/2026), a justificativa gravada NUNCA era lida. Salvar não mudava o selo nem o botão,
+ * o card "Pendentes" contava 0 com linha sem justificativa na lista, e o filtro "Pendentes de
+ * Justificativa" devolvia vazio — deixando a Validação em Massa sem nenhum recorte para
+ * selecionar o grupo que faltava.
+ *
+ * `status` responde "alguém escreveu a motivação?"; `semAcaoNecessaria` responde "isso é
+ * cobrado de alguém?". São perguntas diferentes e nenhuma pode sobrescrever a outra.
+ *
+ * ⚠️ A decisão de 23/08/2026 continua inteira: sobreaviso cumprido não é pendência. Ela só
+ * passou a viver em `semAcaoNecessaria`, em vez de apagar o status da justificativa.
+ */
+export interface ClassificacaoEvento {
+  /** O que está gravado em `justificativas_eventos`, ou 'pendente' quando não há linha. */
+  status: string
+  /** Cumprido: ninguém precisa escrever nada. Não conta como pendência nem trava o progresso. */
+  semAcaoNecessaria: boolean
+}
+
+export function classificarEvento(params: {
+  categoria: string
+  /** Estado vindo de `fn_desfecho_evento_dia`. `null`/`undefined` = a RPC não respondeu. */
+  estado: string | null | undefined
+  /** Status da linha de `justificativas_eventos`, ou `null` se não existe linha. */
+  statusGravado: string | null | undefined
+}): ClassificacaoEvento {
+  const cat = String(params.categoria || '').toLowerCase()
+  return {
+    status: params.statusGravado || 'pendente',
+    semAcaoNecessaria: cat.includes('sobreaviso') && params.estado === 'validado',
+  }
+}
+
+/**
+ * `undefined` (NÃO OPINEI) e `null` (LIMPAR) são coisas diferentes — FONTE ÚNICA (28/08/2026).
+ *
+ * 🚨 As duas actions faziam `dados.resultado ?? null`, fundindo-as. O modal manda `undefined`
+ * sempre que não pede a decisão (evento que o ponto já provou, ou usuário que não pode
+ * reverter), e isso virava "apague o desfecho". Duas consequências reais:
+ *
+ *   · o coordenador não conseguia EDITAR O TEXTO de evento já decidido — `undefined` virava
+ *     `null`, `validarGravacaoDesfecho` lia como reversão e recusava com "Apenas o RH pode
+ *     revertê-lo". Ele não estava revertendo nada;
+ *   · para quem PODE reverter, o desfecho era apagado em silêncio sempre que o `resultado` da
+ *     tela estivesse defasado (aba aberta antes de outra pessoa decidir).
+ *
+ * E o LOTE era pior: gravava `resultado: valida ? 'validado' : null` sem ler o banco e sem
+ * passar por `validarGravacaoDesfecho` — incluir na seleção um evento já registrado como
+ * `falta` pelo RH zerava aquele desfecho, por qualquer papel, em um clique.
+ *
+ * Não opinar preserva o que está gravado. `mudou` é o que decide se a AUTORIA se renova: sem
+ * isso, corrigir uma vírgula no texto trocaria `decurso_de_prazo` por 'coordenador' e poria o
+ * nome de quem editou como autor da decisão sobre a conduta de um servidor.
+ */
+export function resolverDesfecho(params: {
+  /** `false` quando o chamador não mandou opinião nenhuma (o `undefined` do modal). */
+  opinou: boolean
+  /** A opinião, quando houve. `null` é limpar de propósito. */
+  desfechoInformado: Desfecho
+  /** O que ESTÁ no banco — nunca o que o cliente afirma. */
+  desfechoAtual: Desfecho
+}): { desfechoNovo: Desfecho; mudou: boolean } {
+  const desfechoNovo: Desfecho = params.opinou ? params.desfechoInformado : params.desfechoAtual
+  return { desfechoNovo, mudou: desfechoNovo !== params.desfechoAtual }
+}
+
+/**
  * Regra única de gravação, aplicada na página, no client e na action.
  *
  * `desfechoAtual` é o que já está no banco — é ele, e não o novo valor, que decide se a

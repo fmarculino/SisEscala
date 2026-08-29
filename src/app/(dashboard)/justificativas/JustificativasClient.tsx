@@ -115,11 +115,18 @@ export function JustificativasClient({
     total: number
     justificados: number
     pendentes: number
+    /** Sobreaviso cumprido que ninguém justificou. Não é cobrança — é o grupo do lote. */
+    cumpridos_sem_justificativa?: number
+    /** Nada pendente de ação: justificado OU cumprido. É o que a barra de progresso mede. */
+    resolvidos?: number
     sugestoes: number
     em_avaliacao?: number
     faltas?: number
     items: any[]
-  }>({ total: 0, justificados: 0, pendentes: 0, sugestoes: 0, em_avaliacao: 0, faltas: 0, items: [] })
+  }>({
+    total: 0, justificados: 0, pendentes: 0, cumpridos_sem_justificativa: 0,
+    resolvidos: 0, sugestoes: 0, em_avaliacao: 0, faltas: 0, items: []
+  })
 
   const [templates, setTemplates] = useState<any[]>([])
   const [selectedEventoIds, setSelectedEventoIds] = useState<Set<string>>(new Set())
@@ -180,6 +187,8 @@ export function JustificativasClient({
         total: res.data.total || 0,
         justificados: res.data.justificados || 0,
         pendentes: res.data.pendentes || 0,
+        cumpridos_sem_justificativa: res.data.cumpridos_sem_justificativa || 0,
+        resolvidos: res.data.resolvidos || 0,
         sugestoes: res.data.sugestoes || 0,
         em_avaliacao: res.data.em_avaliacao || 0,
         faltas: res.data.faltas || 0,
@@ -289,8 +298,14 @@ export function JustificativasClient({
     await fetchTemplates()
   }
 
+  // A barra mede NADA PENDENTE DE AÇÃO, não "quantos textos foram escritos" — sobreaviso
+  // cumprido entra como resolvido (decisão de 23/08/2026), senão a barra passaria a medir
+  // burocracia em vez de pendência num setor de sobreaviso. É por isso que `resolvidos` existe
+  // separado de `justificados`: antes os dois eram o mesmo número, e o card dizia 100% com
+  // linha sem justificativa nenhuma na lista logo abaixo.
+  const resolvidos = eventosData.resolvidos ?? eventosData.justificados
   const percentJustificado = eventosData.total > 0
-    ? Math.round((eventosData.justificados / eventosData.total) * 100)
+    ? Math.round((resolvidos / eventosData.total) * 100)
     : 100
 
   const categoriaBadgeColors: Record<string, string> = {
@@ -501,6 +516,15 @@ export function JustificativasClient({
               <option value="todos">Todos os Status</option>
               <option value="pendentes">Pendentes de Justificativa</option>
               {/*
+                O RECORTE QUE A VALIDAÇÃO EM MASSA NUNCA TEVE.
+                O botão "Justificar N selecionados" existe desde sempre, mas não havia filtro que
+                devolvesse um grupo homogêneo para selecionar — e para Sobreaviso cumprido a
+                opção "Pendentes" devolvia VAZIO, porque a classificação automática sobrescrevia
+                o status da justificativa (corrigido em 28/08/2026). Na prática, escrever a
+                motivação de um mês de prontidão exigia abrir linha por linha.
+              */}
+              <option value="cumpridos_sem_justificativa">Cumpridos sem justificativa (opcional)</option>
+              {/*
                 "Pendente de justificativa" e "em avaliação" NÃO são a mesma coisa, e é por isso
                 que este filtro existe: um evento pode já ter texto escrito (status `aprovada`) e
                 mesmo assim continuar sem desfecho — em 08/2026 são 6 casos, justificativas
@@ -535,6 +559,23 @@ export function JustificativasClient({
           </div>
           <p className="text-3xl font-black text-amber-600 dark:text-amber-400 tracking-tight">{eventosData.pendentes}</p>
           <p className="text-[11px] text-zinc-400">Aguardando justificativa do coordenador</p>
+
+          {/*
+            O NÚMERO QUE FALTAVA NA TELA.
+            "Pendentes" conta só o que é COBRADO de alguém — sobreaviso cumprido não é (decisão
+            de 23/08/2026). Mas ele existe, aparece na fila com o botão "Justificar", e antes
+            não tinha número nenhum aqui: o card dizia 0 com linha "Nenhuma justificativa" logo
+            abaixo, e não havia como selecionar esse grupo em lote. Clicar filtra por ele.
+          */}
+          {(eventosData.cumpridos_sem_justificativa ?? 0) > 0 && (
+            <button
+              type="button"
+              onClick={() => { setFilterStatus('cumpridos_sem_justificativa'); setCurrentPage(1) }}
+              className="text-[11px] text-emerald-700 dark:text-emerald-400 font-bold hover:underline text-left"
+            >
+              + {eventosData.cumpridos_sem_justificativa} cumprido(s) sem justificativa — opcional
+            </button>
+          )}
         </div>
 
         {/*
@@ -572,7 +613,7 @@ export function JustificativasClient({
           </div>
           <div className="flex items-baseline justify-between">
             <span className="text-3xl font-black text-green-600 dark:text-green-400 tracking-tight">{percentJustificado}%</span>
-            <span className="text-xs font-bold text-zinc-400">{eventosData.justificados}/{eventosData.total}</span>
+            <span className="text-xs font-bold text-zinc-400">{resolvidos}/{eventosData.total}</span>
           </div>
           <div className="w-full bg-zinc-100 dark:bg-zinc-800 h-2.5 rounded-full overflow-hidden">
             <div className="bg-green-500 h-full transition-all duration-500" style={{ width: `${percentJustificado}%` }} />
@@ -701,8 +742,15 @@ export function JustificativasClient({
                 <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
                   {eventosData.items.map((ev) => {
                     const isSelected = selectedEventoIds.has(ev.escala_diaria_id)
+                    // `isJustificado` = EXISTE TEXTO GRAVADO, e nada mais. Antes o status era
+                    // sobrescrito por `auto_validado` em todo sobreaviso cumprido, então isto
+                    // dava `false` mesmo com a justificativa salva — o botão continuava
+                    // "Justificar" em azul e o coordenador concluía que não tinha gravado.
                     const isJustificado = ev.justificativa_status === 'aprovada'
                     const isSugestao = ev.justificativa_status === 'sugestao_pendente'
+                    // Eixo do desfecho: cumprido, não se cobra texto de ninguém. Convive com
+                    // `isJustificado` em vez de apagá-lo.
+                    const semAcaoNecessaria = !!ev.sem_acao_necessaria
 
                     return (
                       <tr 
@@ -779,15 +827,23 @@ export function JustificativasClient({
                             >
                               <AlertCircle className="h-3 w-3" /> Em avaliação
                             </span>
-                          ) : ev.justificativa_status === 'auto_validado' ? (
+                          ) : semAcaoNecessaria ? (
                             // Sobreaviso cumprido — sem acionamento, ou acionado e atendido.
                             // Não pede nada de ninguém: cobrar justificativa de quem ficou de
                             // prontidão e não foi chamado é pedir texto sobre um não-evento.
+                            //
+                            // O selo continua sendo o do DESFECHO (é ele que diz o que acontece
+                            // com as horas no anexo), mas agora informa também se há texto
+                            // gravado — era a ausência disso que fazia salvar não mudar nada na
+                            // linha. A prova de que gravou não pode ficar só na outra coluna.
                             <span
                               className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-bold text-[10px] border border-emerald-200"
-                              title="Prontidão cumprida — validado automaticamente, sem ação necessária"
+                              title={isJustificado
+                                ? 'Prontidão cumprida — validado automaticamente. Justificativa registrada.'
+                                : 'Prontidão cumprida — validado automaticamente, sem ação necessária'}
                             >
-                              <CheckCircle2 className="h-3 w-3" /> Cumprido
+                              <CheckCircle2 className="h-3 w-3" />
+                              {isJustificado ? 'Cumprido · justificado' : 'Cumprido'}
                             </span>
                           ) : isJustificado ? (
                             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-100 dark:bg-green-950/40 text-green-700 dark:text-green-300 font-bold text-[10px] border border-green-200">
@@ -825,9 +881,19 @@ export function JustificativasClient({
                             <button
                               type="button"
                               onClick={() => setSingleModalEvento(ev)}
+                              title={semAcaoNecessaria && !isJustificado
+                                ? 'Opcional: este evento já está cumprido e não cobra justificativa'
+                                : undefined}
+                              /*
+                                O AZUL É CTA DE PENDÊNCIA, E SÓ PENDÊNCIA DEVE USÁ-LO.
+                                Antes todo sobreaviso cumprido saía em azul chamando "Justificar"
+                                enquanto o card dizia PENDENTES = 0 — a tela se contradizia, e a
+                                leitura natural era que o card estava errado. Justificar aqui é
+                                opcional, então o botão é secundário.
+                              */
                               className={`px-3 py-1.5 rounded-lg font-bold text-[11px] shadow-sm transition-all ${
-                                isJustificado 
-                                  ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200' 
+                                isJustificado || semAcaoNecessaria
+                                  ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200'
                                   : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/20'
                               }`}
                             >
