@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { formatarData, formatarHora, formatarHoraComSegundos } from '@/utils/horario'
+import { formatarData, formatarDataHora, formatarHora, formatarHoraComSegundos } from '@/utils/horario'
 import { createClient } from '@/utils/supabase/client'
 import { useRouter } from 'next/navigation'
 import { 
@@ -565,6 +565,71 @@ export function ScaleGrid({
     escalaMensalId: string
     turnoId: string
   } | null>(null)
+
+  /**
+   * Janela do plantão de sobreaviso aberto no modal de histórico.
+   *
+   * ⚠️ Vem de `fn_janela_sobreaviso_dia`, a MESMA função que `fn_acionar_sobreaviso` consulta
+   * para autorizar a gravação — nunca de heurística por prefixo de código. É essa igualdade que
+   * faz o botão prometer exatamente o que o banco aceita; duas contas para a mesma pergunta já
+   * divergiram uma vez neste projeto (Fase 8 do plano de sobreaviso).
+   *
+   * `dentro` nulo = ainda carregando. Enquanto não se sabe, o acionamento não é oferecido.
+   */
+  const [janelaSobreaviso, setJanelaSobreaviso] = useState<{
+    carregando: boolean
+    inicio: string | null
+    fim: string | null
+    dentro: boolean | null
+  }>({ carregando: false, inicio: null, fim: null, dentro: null })
+
+  useEffect(() => {
+    if (!sobreavisoHistoryModal) {
+      setJanelaSobreaviso({ carregando: false, inicio: null, fim: null, dentro: null })
+      return
+    }
+
+    let cancelado = false
+    setJanelaSobreaviso({ carregando: true, inicio: null, fim: null, dentro: null })
+
+    ;(async () => {
+      // fn_janela_sobreaviso_dia recebe a LINHA de escala_diaria, não (escala_mensal, dia) — a
+      // janela depende do turno lançado naquele dia, e é ele que a linha carrega.
+      const { data: linha } = await supabase
+        .from('escala_diaria')
+        .select('id')
+        .eq('escala_mensal_id', sobreavisoHistoryModal.escalaMensalId)
+        .eq('dia', sobreavisoHistoryModal.dia)
+        .eq('categoria', 'Sobreaviso')
+        .maybeSingle()
+
+      if (cancelado) return
+      if (!linha?.id) {
+        setJanelaSobreaviso({ carregando: false, inicio: null, fim: null, dentro: false })
+        return
+      }
+
+      const { data: janela } = await supabase.rpc('fn_janela_sobreaviso_dia', { p_escala_diaria_id: linha.id })
+      if (cancelado) return
+
+      const j = Array.isArray(janela) ? janela[0] : janela
+      if (!j?.inicio || !j?.fim) {
+        // Sem janela conhecida o acionamento seria recusado no banco de qualquer forma.
+        setJanelaSobreaviso({ carregando: false, inicio: null, fim: null, dentro: false })
+        return
+      }
+
+      const agora = Date.now()
+      setJanelaSobreaviso({
+        carregando: false,
+        inicio: j.inicio,
+        fim: j.fim,
+        dentro: agora >= Date.parse(j.inicio) && agora < Date.parse(j.fim),
+      })
+    })()
+
+    return () => { cancelado = true }
+  }, [sobreavisoHistoryModal, supabase])
 
   const [externalOccupancy, setExternalOccupancy] = useState<any[]>([])
 
@@ -5533,6 +5598,11 @@ export function ScaleGrid({
                         {(log.status === 'Aguardando' || log.status === 'Aceito') && (
                           <button
                             type="button"
+                            // Este botão reabre o modal de ACIONAMENTO (gera chamado novo com o
+                            // mesmo motivo), não é um reenvio passivo — por isso respeita a mesma
+                            // janela do botão de baixo.
+                            disabled={janelaSobreaviso.dentro !== true}
+                            title={janelaSobreaviso.dentro !== true ? 'Fora da janela deste plantão de sobreaviso.' : undefined}
                             onClick={() => {
                               setSobreavisoHistoryModal(null)
                               setMotivo(log.motivo_acionamento || '')
@@ -5553,7 +5623,7 @@ export function ScaleGrid({
                                 dia: sobreavisoHistoryModal.dia
                               })
                             }}
-                            className={`flex-1 py-1.5 px-3 font-bold text-[10px] uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1 ${
+                            className={`flex-1 py-1.5 px-3 font-bold text-[10px] uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed ${
                               log.status === 'Aceito'
                                 ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
                                 : 'bg-amber-500 hover:bg-amber-600 text-white'
@@ -5597,6 +5667,26 @@ export function ScaleGrid({
               const latestLog = dayLogs[dayLogs.length - 1]
               const isInTransitOrWaiting = latestLog?.status === 'Aceito' || latestLog?.status === 'Aguardando'
 
+              // ⚠️ FORA DA JANELA NÃO SE ACIONA, e a tela não pode mais oferecer.
+              //
+              // Até 29/08/2026 o botão ficava habilitado sempre, de propósito: a heurística de
+              // janela do frontend divergia da do banco, e preferiu-se deixar a RPC recusar com o
+              // horário exato ("melhor um erro preciso do que um botão cinza sem explicação").
+              // O problema é que, num plantão de semanas atrás, o botão CONVIDA a acionar algo
+              // impossível — quem clica só descobre depois de escrever o motivo.
+              //
+              // Agora o botão é desabilitado pela janela que vem de fn_janela_sobreaviso_dia, a
+              // mesma que fn_acionar_sobreaviso usa para autorizar — então continua não havendo
+              // duas contas — e o motivo aparece com a janela exata, não como cinza sem
+              // explicação. A recusa no banco continua lá: é ela que protege quem chama a RPC
+              // direto (armadilha 12).
+              const foraDaJanela = janelaSobreaviso.dentro === false
+              const janelaCarregando = janelaSobreaviso.carregando
+              const janelaTexto = janelaSobreaviso.inicio && janelaSobreaviso.fim
+                ? `${formatarDataHora(janelaSobreaviso.inicio)} até ${formatarDataHora(janelaSobreaviso.fim)}`
+                : null
+              const acionamentoBloqueado = isInTransitOrWaiting || foraDaJanela || janelaCarregando
+
               // A heuristica de janela que existia aqui foi removida na Fase 8 do plano
               // docs/planos/2026-08-08-acionamento-de-sobreaviso-com-destino.md
               //
@@ -5617,17 +5707,37 @@ export function ScaleGrid({
                     </div>
                   )}
 
-                  {!isInTransitOrWaiting && (
+                  {!isInTransitOrWaiting && janelaCarregando && (
                     <div className="p-3 bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl text-xs text-zinc-600 dark:text-zinc-400 font-medium flex items-center gap-2">
                       <Info className="h-4 w-4 text-zinc-500 flex-shrink-0" />
-                      <span>Fora da janela do plantão, o acionamento é recusado com o horário exato em que ele vale.</span>
+                      <span>Conferindo a janela deste plantão…</span>
+                    </div>
+                  )}
+
+                  {!isInTransitOrWaiting && !janelaCarregando && foraDaJanela && (
+                    <div className="p-3 bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl text-xs text-zinc-600 dark:text-zinc-400 font-medium flex items-start gap-2">
+                      <Info className="h-4 w-4 text-zinc-500 flex-shrink-0 mt-0.5" />
+                      <span>
+                        {janelaTexto
+                          ? <>Este plantão valia de <strong>{janelaTexto}</strong>. Fora dessa janela o acionamento não é permitido — este histórico é apenas para consulta.</>
+                          : <>Não há janela de plantão vigente para este dia, então o acionamento não é permitido — este histórico é apenas para consulta.</>}
+                        {' '}Para registrar um atendimento que aconteceu, use <strong>Validar Este Chamado (Manual)</strong> no chamado correspondente.
+                      </span>
+                    </div>
+                  )}
+
+                  {!isInTransitOrWaiting && !janelaCarregando && !foraDaJanela && janelaTexto && (
+                    <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs text-emerald-800 dark:text-emerald-300 font-medium flex items-center gap-2">
+                      <Info className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+                      <span>Plantão em andamento ({janelaTexto}) — o acionamento está liberado.</span>
                     </div>
                   )}
 
                   <div className="flex items-center justify-between gap-3">
                     <button
                       type="button"
-                      disabled={isInTransitOrWaiting}
+                      disabled={acionamentoBloqueado}
+                      title={foraDaJanela ? 'Fora da janela deste plantão de sobreaviso.' : undefined}
                       onClick={() => {
                         const s = sobreavisoHistoryModal
                         setSobreavisoHistoryModal(null)

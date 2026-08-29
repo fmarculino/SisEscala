@@ -8,6 +8,7 @@ import {
 import { promoverPendenciaRh, buscarConflitoPendencia, atualizarCadastroViaPendenciaRh, buscarPendenciaRhPorTermo } from '../actions'
 import { CampoDocumento } from '@/components/CampoDocumento'
 import { formatarDoc } from '@/utils/documentos'
+import { opcoesParaEscolha, rotularInativo } from '@/utils/opcoesAtivas'
 
 interface ConflitoPendencia {
   servidor_id: string
@@ -516,7 +517,7 @@ function LinhaPendente({ pendente, aberta, onToggle, onPromovido, unidades, seto
                     className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-white"
                   >
                     <option value="">Selecione...</option>
-                    {unidades.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
+                    {opcoesParaEscolha(unidades, unidadeId).map(u => <option key={u.id} value={u.id}>{rotularInativo(u, ' (inativa)')}</option>)}
                   </select>
                   {!pendente.unidade_id && (
                     <p className="mt-1 text-[10px] text-zinc-400">

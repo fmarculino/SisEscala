@@ -2,10 +2,11 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { formatarDataHoraComSegundos } from '@/utils/horario'
-import { Users, Plus, UserCircle, Building2, Search, Filter, Layers, UserX, UserCheck, FileDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ShieldAlert, Clock } from 'lucide-react'
+import { Users, Plus, UserCircle, Building2, Search, Filter, Layers, UserX, UserCheck, FileDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ShieldAlert, Clock, Sparkles } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useDialog } from '@/components/ui/DialogProvider'
+import { rotularInativo } from '@/utils/opcoesAtivas'
 
 interface Servidor {
   id: string
@@ -17,6 +18,7 @@ interface Servidor {
   setor_id: string
   status: 'Ativo' | 'Afastado' | 'Inativo'
   cpf?: string
+  ignora_janela_presenca?: boolean
   unidades?: { nome: string }
   setores?: { nome: string }
 }
@@ -47,6 +49,7 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
   const [selectedVinculo, setSelectedVinculo] = useState('')
   const [selectedCargo, setSelectedCargo] = useState('')
   const [selectedStatus, setSelectedStatus] = useState<string>('Ativo')
+  const [selectedHorarioLivre, setSelectedHorarioLivre] = useState<string>('')
 
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
@@ -57,7 +60,7 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
   useEffect(() => {
     setPage(1)
     setSelectedIds(new Set())
-  }, [searchTerm, selectedUnidade, selectedSetor, selectedCargo, selectedVinculo, selectedStatus])
+  }, [searchTerm, selectedUnidade, selectedSetor, selectedCargo, selectedVinculo, selectedStatus, selectedHorarioLivre])
 
   // Filter sectors based on selected unit
   const filteredSetoresOptions = useMemo(() => {
@@ -95,10 +98,13 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
       const matchesCargo = !selectedCargo || s.cargo === selectedCargo
       const matchesVinculo = !selectedVinculo || s.vinculo === selectedVinculo
       const matchesStatus = !selectedStatus || s.status === selectedStatus
+      const matchesHorarioLivre = 
+        !selectedHorarioLivre || 
+        (selectedHorarioLivre === 'sim' ? !!s.ignora_janela_presenca : !s.ignora_janela_presenca)
 
-      return matchesSearch && matchesUnidade && matchesSetor && matchesCargo && matchesVinculo && matchesStatus
+      return matchesSearch && matchesUnidade && matchesSetor && matchesCargo && matchesVinculo && matchesStatus && matchesHorarioLivre
     })
-  }, [initialServidores, searchTerm, selectedUnidade, selectedSetor, selectedCargo, selectedVinculo, selectedStatus])
+  }, [initialServidores, searchTerm, selectedUnidade, selectedSetor, selectedCargo, selectedVinculo, selectedStatus, selectedHorarioLivre])
 
   // Paginated servers local calculation
   const totalCount = filteredServidores.length
@@ -165,12 +171,16 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
       const cargoName = selectedCargo || 'Todos'
       const vinculoName = selectedVinculo || 'Todos'
       const statusName = selectedStatus || 'Todos'
+      const horarioEspecialName = selectedHorarioLivre === 'sim' ? 'Apenas Horário Livre' : selectedHorarioLivre === 'nao' ? 'Apenas Horário Padrão' : 'Todos'
       const searchDescription = searchTerm ? `"${searchTerm}"` : 'Nenhum'
 
       const tableRows = serversToPrint.map((servidor) => `
         <tr class="border-b border-zinc-200">
           <td class="py-3 px-3 text-[10px] font-bold text-zinc-950 uppercase">
-            ${servidor.nome}
+            <div class="flex items-center gap-1">
+              <span>${servidor.nome}</span>
+              ${servidor.ignora_janela_presenca ? '<span class="text-[8px] font-bold text-amber-700 bg-amber-100 px-1 py-0.2 rounded border border-amber-300 ml-1">HORÁRIO LIVRE</span>' : ''}
+            </div>
             <div class="text-[8px] text-zinc-500 font-normal mt-0.5">Matrícula: ${servidor.matricula || '---'}</div>
           </td>
           <td class="py-3 px-3 text-[10px] text-zinc-800">${servidor.cargo || '---'}</td>
@@ -239,7 +249,7 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
                 </div>
               </div>
 
-              <div class="grid grid-cols-5 gap-4 mb-6 bg-zinc-50 p-4 rounded-xl border border-zinc-100 text-xs">
+              <div class="grid grid-cols-6 gap-3 mb-6 bg-zinc-50 p-4 rounded-xl border border-zinc-100 text-xs">
                 <div>
                   <p class="text-[9px] font-black text-zinc-400 uppercase">Unidade / Setor</p>
                   <p class="font-bold text-zinc-800">${unidadeName} / ${setorName}</p>
@@ -255,6 +265,10 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
                 <div>
                   <p class="text-[9px] font-black text-zinc-400 uppercase">Status</p>
                   <p class="font-bold text-zinc-800">${statusName}</p>
+                </div>
+                <div>
+                  <p class="text-[9px] font-black text-zinc-400 uppercase">Horário</p>
+                  <p class="font-bold text-zinc-800">${horarioEspecialName}</p>
                 </div>
                 <div>
                   <p class="text-[9px] font-black text-zinc-400 uppercase">Busca</p>
@@ -346,7 +360,7 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
       </div>
 
       {/* Filters Bar */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4 bg-zinc-50 dark:bg-zinc-800/40 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8 gap-4 bg-zinc-50 dark:bg-zinc-800/40 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
           <input
@@ -368,7 +382,7 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
         >
           <option value="">Todas as Unidades</option>
           {unidades.map(u => (
-            <option key={u.id} value={u.id}>{u.nome}</option>
+            <option key={u.id} value={u.id}>{rotularInativo(u as any, ' (inativa)')}</option>
           ))}
         </select>
 
@@ -379,7 +393,7 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
         >
           <option value="">Todos os Setores</option>
           {filteredSetoresOptions.map(s => (
-            <option key={s.id} value={s.id}>{s.nome}</option>
+            <option key={s.id} value={s.id}>{rotularInativo(s as any)}</option>
           ))}
         </select>
 
@@ -416,6 +430,16 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
           <option value="">Todos os Status</option>
         </select>
 
+        <select
+          value={selectedHorarioLivre}
+          onChange={(e) => setSelectedHorarioLivre(e.target.value)}
+          className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg text-sm font-medium focus:ring-2 focus:ring-amber-500 outline-none text-zinc-800 dark:text-zinc-200"
+        >
+          <option value="">Horário: Todos</option>
+          <option value="sim">⭐ Horário Livre (Especial)</option>
+          <option value="nao">Horário Padrão</option>
+        </select>
+
         <button 
           onClick={() => {
             setSearchTerm('')
@@ -424,6 +448,7 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
             setSelectedCargo('')
             setSelectedVinculo('')
             setSelectedStatus('Ativo')
+            setSelectedHorarioLivre('')
             setSelectedIds(new Set())
           }}
           className="flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors"
@@ -480,8 +505,19 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
                         <UserCircle className="h-7 w-7" />
                       </div>
                       <div className="ml-4">
-                        <div className={`text-sm font-bold ${servidor.status === 'Inativo' ? 'text-zinc-500 line-through' : servidor.status === 'Afastado' ? 'text-zinc-500' : 'text-zinc-900 dark:text-white'}`}>
-                          {servidor.nome}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <div className={`text-sm font-bold ${servidor.status === 'Inativo' ? 'text-zinc-500 line-through' : servidor.status === 'Afastado' ? 'text-zinc-500' : 'text-zinc-900 dark:text-white'}`}>
+                            {servidor.nome}
+                          </div>
+                          {servidor.ignora_janela_presenca && (
+                            <span
+                              className="inline-flex items-center gap-1 rounded-md bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 px-2 py-0.5 text-[10px] font-bold shadow-2xs"
+                              title="Condição Especial: Horário Livre (ignora restrições da janela de presença padrão)"
+                            >
+                              <Clock className="h-3 w-3 text-amber-600 dark:text-amber-400" />
+                              Horário Livre
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -565,6 +601,7 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
                 setSelectedCargo('')
                 setSelectedVinculo('')
                 setSelectedStatus('Ativo')
+                setSelectedHorarioLivre('')
                 setSelectedIds(new Set())
               }}
               className="mt-2 text-blue-600 hover:underline text-sm font-bold"
@@ -640,3 +677,4 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
     </div>
   )
 }
+

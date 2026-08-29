@@ -39,9 +39,14 @@ export async function listarOpcoesFormulario() {
   await exigirAdmin()
   const supabase = await createAdminClient()
 
+  // ⚠️ Unidade e setor INATIVOS vem na lista, com a flag `ativo` — e quem escolhe e' a tela.
+  // Filtrar no servidor parecia mais simples e escondia um vinculo ja gravado: o relogio que
+  // atende um setor desativado continuaria atendendo, com a caixa invisivel no modal. A regra
+  // e' "nao oferecer para escolha nova, mas mostrar o que ja esta escolhido" (SeletorSetoresArvore
+  // e o <select> de unidade fazem isso), e ela so pode ser aplicada por quem conhece a selecao.
   const [{ data: unidades }, { data: setores }, { data: coordenadores }] = await Promise.all([
-    supabase.from('unidades').select('id, nome').order('nome'),
-    supabase.from('setores').select('id, unidade_id, parent_id, dicionario_setores(nome)').eq('ativo', true),
+    supabase.from('unidades').select('id, nome, ativo').order('nome'),
+    supabase.from('setores').select('id, unidade_id, parent_id, ativo, dicionario_setores(nome)'),
     supabase
       .from('profiles')
       .select('id, full_name, role')
@@ -51,15 +56,16 @@ export async function listarOpcoesFormulario() {
 
   return {
     unidades: unidades || [],
-    // Nomes ja saem com recuo/marcador de hierarquia (mesmo criterio de formatSectorsHierarchy
-    // usado em servidores/novo) — quem consome so filtra por unidade_id e mapeia `nome` direto
-    // pro <option>, sem precisar saber que existe arvore por baixo.
-    setores: formatSectorsHierarchy((setores || []).map((s: any) => ({
+    // Cru, com `parent_id` e `ativo`: a arvore de setores do modal do relogio precisa da relacao
+    // pai/filho de verdade (marcar um pai marca os descendentes), nao do recuo dentro do texto.
+    // Quem usa <select> aplica formatSectorsHierarchy na hora.
+    setores: (setores || []).map((s: any) => ({
       id: s.id,
       unidade_id: s.unidade_id,
       parent_id: s.parent_id,
+      ativo: s.ativo,
       nome: s.dicionario_setores?.nome || '(sem nome)',
-    }))),
+    })),
     coordenadores: coordenadores || [],
   }
 }
@@ -169,7 +175,7 @@ export async function listarDispositivosRep() {
       'id, nome, unidade_id, numero_serie, endereco_ip, modo_operacao, ativo, ponto_valido_desde, '
       + 'usuario_rep, porta, usa_https, '
       + 'ultimo_nsr, ultimo_contato_em, deriva_segundos, created_at, unidades(nome), '
-      + 'coletor_versao, coletor_host, coletor_versao_em, '
+      + 'coletor_versao, coletor_host, coletor_ip, coletor_versao_em, '
       // Lista de setores atendidos (0 linhas = "toda a unidade" - mesma semantica do antigo
       // setor_id IS NULL, ver docs/planos/2026-08-13-relogio-rep-compartilhado-por-multiplos-setores.md).
       + 'dispositivos_rep_setores(setor_id, setores(dicionario_setores(nome)))'

@@ -363,3 +363,83 @@ export async function excluirSetor(id: string) {
   revalidatePath('/setores')
   return { success: true }
 }
+
+/**
+ * O que ainda segura este setor, por (tabela, coluna) — a mesma lista que a recusa da exclusão
+ * traz, só que ANTES de tentar, para a tela poder oferecer a saída (transferir para outro setor)
+ * em vez de só informar o bloqueio.
+ */
+export async function listarDependenciasSetor(id: string) {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Sessão expirada. Entre novamente.' }
+
+  const { data: perfil } = await supabase
+    .from('profiles').select('role').eq('id', user.id).single()
+  if (perfil?.role !== 'super_admin') {
+    return { error: 'Apenas o Administrador Geral pode excluir setores.' }
+  }
+
+  const { data, error } = await supabase.rpc('fn_dependencias_setor', { p_setor_id: id })
+  if (error) return { error: translateError(error.message) }
+
+  return { dependencias: (data || []) as { tabela: string; coluna: string; qtd: number; truncado: boolean }[] }
+}
+
+/**
+ * O que impede fundir este setor no destino escolhido. Consultado a cada troca do <select> para
+ * o Administrador ver o problema enquanto ainda pode trocar o destino — a mesma checagem roda de
+ * novo dentro de fn_fundir_setor, que é quem de fato decide.
+ */
+export async function verificarFusaoSetor(id: string, destinoId: string) {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Sessão expirada. Entre novamente.' }
+
+  const { data, error } = await supabase.rpc('fn_impedimentos_fusao_setor', {
+    p_origem: id,
+    p_destino: destinoId,
+  })
+  if (error) return { error: translateError(error.message) }
+
+  return { impedimentos: (data || []) as { motivo: string; detalhe: string }[] }
+}
+
+/**
+ * Transfere TODO vínculo do setor para outro setor da mesma unidade e então exclui o setor.
+ *
+ * ⚠️ Não é exclusão em cascata, e a diferença é o ponto: as FKs que apontam para setores são
+ * metade CASCADE e metade SET NULL, então apagar direto apagaria escala e marcação de ponto —
+ * prova legal (Portaria 671/2021) — sem avisar. Aqui nada é apagado: o dono muda.
+ *
+ * A regra inteira mora em fn_fundir_setor (migration 20260829110000). A checagem de papel é
+ * repetida aqui porque server action é um POST cujo id sai no bundle (armadilha 12).
+ */
+export async function fundirEExcluirSetor(id: string, destinoId: string) {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Sessão expirada. Entre novamente.' }
+
+  const { data: perfil } = await supabase
+    .from('profiles').select('role').eq('id', user.id).single()
+  if (perfil?.role !== 'super_admin') {
+    return { error: 'Apenas o Administrador Geral pode excluir setores.' }
+  }
+
+  if (!destinoId || destinoId === id) {
+    return { error: 'Escolha um setor de destino diferente para receber os vínculos.' }
+  }
+
+  const { data, error } = await supabase.rpc('fn_fundir_setor', {
+    p_origem: id,
+    p_destino: destinoId,
+  })
+
+  if (error) return { error: translateError(error.message) }
+
+  revalidatePath('/setores')
+  return { success: true, resultado: data }
+}

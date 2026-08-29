@@ -18,6 +18,10 @@ export default function SetoresClient({ userProfile }: SetoresClientProps) {
   const [searchTerm, setSearchTerm] = useState('')
   const [filterUnidade, setFilterUnidade] = useState('todas')
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({})
+  // Unidades recolhidas (o card fecha e a lista de setores some). Guarda o RECOLHIDO, não o
+  // aberto: assim o padrão continua sendo tudo aberto, como a tela sempre foi, e unidade nova
+  // não nasce escondida.
+  const [unidadesRecolhidas, setUnidadesRecolhidas] = useState<Record<string, boolean>>({})
 
   const [viewMode, setViewMode] = useState<'unidade' | 'dicionario'>('unidade')
   const [dicionario, setDicionario] = useState<any[]>([])
@@ -77,16 +81,39 @@ export default function SetoresClient({ userProfile }: SetoresClientProps) {
 
   // Organizar setores em estrutura de árvore por unidade
   const setoresTree = useMemo(() => {
-    const filtered = setores.filter(s => {
-      const searchTermLower = searchTerm.toLowerCase()
-      const sectorName = (s.nome || '').toLowerCase()
-      const unitName = (s.unidades?.nome || '').toLowerCase()
-      
-      const matchesSearch = sectorName.includes(searchTermLower) || unitName.includes(searchTermLower)
+    const searchTermLower = searchTerm.trim().toLowerCase()
+
+    const passaNosFiltros = (s: any) => {
       const matchesUnidade = filterUnidade === 'todas' || s.unidade_id === filterUnidade
       const matchesAtivo = showInactive ? true : s.ativo !== false
-      return matchesSearch && matchesUnidade && matchesAtivo
+      return matchesUnidade && matchesAtivo
+    }
+
+    const casaComBusca = (s: any) => {
+      if (!searchTermLower) return true
+      const sectorName = (s.nome || '').toLowerCase()
+      const unitName = (s.unidades?.nome || '').toLowerCase()
+      return sectorName.includes(searchTermLower) || unitName.includes(searchTermLower)
+    }
+
+    const porId = new Map<string, any>(setores.map(s => [s.id, s]))
+
+    // ⚠️ O ANCESTRAL de quem casou entra na lista mesmo sem casar. Sem isso, procurar por um
+    // subsetor devolvia ele SOLTO na raiz da unidade (o laço abaixo promove a raiz todo setor
+    // cujo pai não está na lista) — a busca respondia "onde está" tirando justamente a resposta.
+    const visiveis = new Set<string>()
+    setores.filter(s => passaNosFiltros(s) && casaComBusca(s)).forEach(s => {
+      visiveis.add(s.id)
+      let paiId = s.parent_id
+      while (paiId && !visiveis.has(paiId)) {
+        const pai = porId.get(paiId)
+        if (!pai || !passaNosFiltros(pai)) break   // pai fora do filtro: o ramo para aqui
+        visiveis.add(pai.id)
+        paiId = pai.parent_id
+      }
     })
+
+    const filtered = setores.filter(s => visiveis.has(s.id))
 
     const tree: Record<string, { unidade: any, rootSectors: any[] }> = {}
 
@@ -120,6 +147,44 @@ export default function SetoresClient({ userProfile }: SetoresClientProps) {
 
     return tree
   }, [setores, searchTerm, filterUnidade, showInactive])
+
+  // Ids que têm subsetor, por unidade — é o que "Expandir tudo" e "Recolher tudo" alcançam.
+  const nosComFilhos = useMemo(() => {
+    const porUnidade: Record<string, string[]> = {}
+    const visitar = (unidadeId: string, no: any) => {
+      if (no.children?.length) {
+        (porUnidade[unidadeId] ||= []).push(no.id)
+        no.children.forEach((f: any) => visitar(unidadeId, f))
+      }
+    }
+    Object.entries(setoresTree).forEach(([unidadeId, data]: any) =>
+      data.rootSectors.forEach((s: any) => visitar(unidadeId, s))
+    )
+    return porUnidade
+  }, [setoresTree])
+
+  // Durante a busca o ramo fica aberto sozinho: recolhido, ele esconderia o resultado que a
+  // própria busca trouxe. Mesmo critério do seletor de setores do modal do relógio REP.
+  const buscaAtiva = searchTerm.trim().length > 0
+
+  const definirExpansao = (ids: string[], aberto: boolean) =>
+    setExpandedNodes(prev => {
+      const proximo = { ...prev }
+      ids.forEach(id => { proximo[id] = aberto })
+      return proximo
+    })
+
+  const alternarUnidade = (unidadeId: string) =>
+    setUnidadesRecolhidas(prev => ({ ...prev, [unidadeId]: !prev[unidadeId] }))
+
+  const definirUnidades = (recolher: boolean) =>
+    setUnidadesRecolhidas(
+      recolher
+        ? Object.fromEntries(Object.keys(setoresTree).map(id => [id, true]))
+        : {}
+    )
+
+  const unidadesAbertas = Object.keys(setoresTree).filter(id => !unidadesRecolhidas[id]).length
 
   const unidadesParaFiltro = useMemo(() => {
     const map = new Map()
@@ -223,19 +288,51 @@ export default function SetoresClient({ userProfile }: SetoresClientProps) {
             {showInactive ? 'Ocultando Inativos' : 'Exibir Inativos'}
           </button>
         </div>
+
+        {viewMode === 'unidade' && Object.keys(setoresTree).length > 1 && (
+          <div className="lg:col-span-12 flex items-center gap-2">
+            <button
+              onClick={() => definirUnidades(true)}
+              className="inline-flex items-center gap-2 rounded-2xl border-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-5 py-3 text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-blue-600 hover:border-blue-500/50 transition-all"
+            >
+              <ChevronRight className="h-4 w-4" />
+              Recolher todas as unidades
+            </button>
+            <button
+              onClick={() => definirUnidades(false)}
+              className="inline-flex items-center gap-2 rounded-2xl border-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-5 py-3 text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-blue-600 hover:border-blue-500/50 transition-all"
+            >
+              <ChevronDown className="h-4 w-4" />
+              Expandir todas
+            </button>
+            <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">
+              {unidadesAbertas} de {Object.keys(setoresTree).length} unidades abertas
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Tree Content / Dictionary Content */}
       <div className="space-y-6">
         {viewMode === 'unidade' ? (
           <>
-            {Object.entries(setoresTree).map(([unidadeId, data]) => (
+            {Object.entries(setoresTree).map(([unidadeId, data]) => {
+              // Busca ativa abre a unidade: recolhida, ela esconderia o resultado que a busca
+              // acabou de trazer — mesmo critério dos ramos de setor.
+              const unidadeRecolhida = !!unidadesRecolhidas[unidadeId] && !buscaAtiva
+              return (
               <div key={unidadeId} className="group overflow-hidden rounded-[2.5rem] border-2 border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50 shadow-sm hover:shadow-xl hover:border-blue-500/30 transition-all">
                 {/* Unidade Header */}
-                <div className="bg-white dark:bg-zinc-900 px-8 py-6 border-b-2 border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
-                  <div className="flex items-center gap-4">
+                <div className={`bg-white dark:bg-zinc-900 px-8 py-6 flex items-center justify-between ${unidadeRecolhida ? '' : 'border-b-2 border-zinc-100 dark:border-zinc-800'}`}>
+                  <button
+                    type="button"
+                    onClick={() => alternarUnidade(unidadeId)}
+                    className="flex items-center gap-4 flex-1 text-left"
+                    aria-expanded={!unidadeRecolhida}
+                    title={unidadeRecolhida ? 'Expandir unidade' : 'Recolher unidade'}
+                  >
                     <div className="h-12 w-12 rounded-2xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-zinc-500 dark:text-zinc-400">
-                      <Building2 className="h-6 w-6" />
+                      <ChevronRight className={`h-6 w-6 transition-transform ${unidadeRecolhida ? '' : 'rotate-90'}`} />
                     </div>
                     <div>
                       <h3 className="text-xl font-black uppercase tracking-tighter text-zinc-900 dark:text-white">
@@ -247,18 +344,39 @@ export default function SetoresClient({ userProfile }: SetoresClientProps) {
                         </span>
                       </div>
                     </div>
-                  </div>
-                  <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Link 
-                      href={`/unidades/${unidadeId}`}
-                      className="text-[10px] font-black uppercase tracking-widest text-blue-600 hover:underline"
-                    >
-                      Ver Unidade
-                    </Link>
+                  </button>
+                  <div className="flex items-center gap-4">
+                    {(nosComFilhos[unidadeId]?.length || 0) > 0 && (
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => definirExpansao(nosComFilhos[unidadeId], true)}
+                          className="inline-flex items-center gap-1 rounded-xl border-2 border-zinc-200 dark:border-zinc-700 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-blue-600 hover:border-blue-500/50 transition-all"
+                        >
+                          <ChevronDown className="h-3.5 w-3.5" />
+                          Expandir tudo
+                        </button>
+                        <button
+                          onClick={() => definirExpansao(nosComFilhos[unidadeId], false)}
+                          className="inline-flex items-center gap-1 rounded-xl border-2 border-zinc-200 dark:border-zinc-700 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-blue-600 hover:border-blue-500/50 transition-all"
+                        >
+                          <ChevronRight className="h-3.5 w-3.5" />
+                          Recolher tudo
+                        </button>
+                      </div>
+                    )}
+                    <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Link 
+                        href={`/unidades/${unidadeId}`}
+                        className="text-[10px] font-black uppercase tracking-widest text-blue-600 hover:underline"
+                      >
+                        Ver Unidade
+                      </Link>
+                    </div>
                   </div>
                 </div>
 
                 {/* Tree Nodes */}
+                {!unidadeRecolhida && (
                 <div className="p-4 space-y-2">
                   {data.rootSectors.map((sector: any) => (
                     <SectorNode 
@@ -267,11 +385,14 @@ export default function SetoresClient({ userProfile }: SetoresClientProps) {
                       level={0} 
                       expandedNodes={expandedNodes} 
                       toggleNode={toggleNode} 
+                      buscaAtiva={buscaAtiva}
                     />
                   ))}
                 </div>
+                )}
               </div>
-            ))}
+              )
+            })}
 
             {Object.keys(setoresTree).length === 0 && (
               <div className="flex flex-col items-center justify-center p-32 text-zinc-500 dark:text-zinc-400 bg-white dark:bg-zinc-900 rounded-[3rem] border-2 border-dashed border-zinc-200 dark:border-zinc-800">
@@ -340,8 +461,9 @@ export default function SetoresClient({ userProfile }: SetoresClientProps) {
   )
 }
 
-function SectorNode({ sector, level, expandedNodes, toggleNode }: any) {
-  const isExpanded = expandedNodes[sector.id]
+function SectorNode({ sector, level, expandedNodes, toggleNode, buscaAtiva }: any) {
+  // Com busca ativa o ramo abre sozinho — ver definirExpansao/buscaAtiva no componente pai.
+  const isExpanded = expandedNodes[sector.id] || buscaAtiva
   const hasChildren = sector.children && sector.children.length > 0
   const isAtivo = sector.ativo !== false
 
@@ -418,6 +540,7 @@ function SectorNode({ sector, level, expandedNodes, toggleNode }: any) {
                 level={level + 1} 
                 expandedNodes={expandedNodes} 
                 toggleNode={toggleNode} 
+                buscaAtiva={buscaAtiva}
               />
             ))}
           </div>

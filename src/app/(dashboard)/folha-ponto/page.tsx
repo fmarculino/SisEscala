@@ -11,6 +11,7 @@ import { getServidoresFolhaPonto, gerarFolhaPonto, gerarFolhasEmLote, getFolhasP
 import { Modal } from '@/components/ui/Modal'
 import { formatSectorsHierarchy } from '@/utils/sectors'
 import { ocorrenciasDoMes } from '@/utils/folha/ocorrencias'
+import { rotularInativo } from '@/utils/opcoesAtivas'
 
 export default function FolhaPontoPage() {
   const supabase = createClient()
@@ -180,12 +181,12 @@ export default function FolhaPontoPage() {
             setIsUnrestricted(isAccessUnrestricted(userProfile))
 
             // Fetch units & sectors
-            let unitsQuery = supabase.from('unidades').select('id, nome').order('nome')
+            let unitsQuery = supabase.from('unidades').select('id, nome, ativo').order('nome')
             unitsQuery = applyAccessFilters(unitsQuery, userProfile, { unidadeField: 'id' })
             const { data: uData } = await unitsQuery
             setUnidades(uData || [])
 
-            let sectorsQuery = supabase.from('setores').select('id, unidade_id, parent_id, dicionario_setores(nome)')
+            let sectorsQuery = supabase.from('setores').select('id, unidade_id, parent_id, ativo, dicionario_setores(nome)')
             sectorsQuery = applyAccessFilters(sectorsQuery, userProfile, { setorField: 'id' })
             const { data: sRaw } = await sectorsQuery
             
@@ -838,7 +839,7 @@ export default function FolhaPontoPage() {
             >
               <option value="">Selecione a Unidade...</option>
               {unidades.map(u => (
-                <option key={u.id} value={u.id}>{u.nome}</option>
+                <option key={u.id} value={u.id}>{rotularInativo(u as any, ' (inativa)')}</option>
               ))}
             </select>
           </div>
@@ -856,7 +857,7 @@ export default function FolhaPontoPage() {
             >
               <option value="">Selecione o Setor...</option>
               {filteredSetores.map(s => (
-                <option key={s.id} value={s.id}>{s.nome}</option>
+                <option key={s.id} value={s.id}>{rotularInativo(s as any)}</option>
               ))}
             </select>
           </div>

@@ -1,4 +1,4 @@
-# SisEscala 📅[![Version](https://img.shields.io/badge/version-2.22.0-green.svg)](https://github.com/fmarculino/SisEscala)
+# SisEscala 📅[![Version](https://img.shields.io/badge/version-2.23.0-green.svg)](https://github.com/fmarculino/SisEscala)
 [![Next.js](https://img.shields.io/badge/framework-Next.js%2015-black.svg)](https://nextjs.org/)
 [![Supabase](https://img.shields.io/badge/backend-Supabase-green.svg)](https://supabase.com/)
 [![Tailwind CSS](https://img.shields.io/badge/styling-Tailwind%20CSS-38B2AC.svg)](https://tailwindcss.com/)
@@ -10,6 +10,33 @@ O sistema foca em **governança, segurança jurídica e eficiência operacional*
 ---
 
 ## 🚀 Principais Funcionalidades
+
+### 🗂️ Excluir Setor Transferindo os Vínculos (v2.23.0)
+- **Setor cadastrado errado agora tem saída, mesmo com gente dentro.** A exclusão que existia só alcançava setor sem vínculo nenhum — na prática, **200 dos 646 setores**. Entre os já **inativos**, que são justamente os que se quer tirar do cadastro, **7 estavam presos para sempre**: o sistema listava os vínculos e não oferecia nada a fazer com aquela informação.
+- **Agora o Administrador Geral escolhe um setor de destino** e todo o vínculo passa para ele — servidores lotados, escalas, acessos, relógios, terminais, subsetores, marcações de ponto e histórico — e só então o setor é apagado.
+- ⚠️ **Não existe "excluir em cascata", e a ausência é deliberada.** As maiores tabelas presas a um setor são marcações de ponto, escalas e servidores: apagar em cascata seria destruir registro de ponto, que é prova legal (Portaria 671/2021), para resolver um problema de cadastro. Transferir muda o dono e não perde nada.
+- **A transferência é recusada em bloco** quando não é segura: destino em outra unidade (isso é transferência de servidor, tem tela própria), destino que é subsetor do próprio setor, ou o mesmo servidor com escala nos dois setores na mesma competência — que juntaria as horas duas vezes na folha. O motivo aparece na tela **antes** de confirmar, enquanto ainda dá para trocar o destino.
+
+### 🌳 Seleção de Setores em Árvore (v2.23.0)
+- No cadastro do relógio de ponto, **clicar num setor pai marca ou desmarca todos os subsetores dele**. O pai mostra estado parcial e o contador de quantos filhos estão marcados.
+- Expandir e recolher por ramo, "Marcar todos", "Limpar" e busca por nome. O maior hospital tem **196 setores em 40 raízes e 3 níveis** — a lista plana anterior obrigava a marcar dezenas de caixas uma a uma.
+- A tela **Organização (Setores)** ganhou o mesmo tratamento: expandir/recolher tudo por unidade e o **card da unidade inteiro recolhível**, com contador de unidades abertas.
+
+### 🚫 Inativo Sai da Escolha e Fica no Filtro (v2.23.0)
+- **Desativar uma unidade ou um setor passou a alcançar os formulários.** Antes, a unidade desativada continuava aparecendo no cadastro do relógio como se nada fosse — dava para vincular um equipamento a um cadastro já aposentado.
+- **Onde se escolhe onde algo vai ficar** (relógio, terminal, escopo de usuário, transferência, lotação), o inativo não é mais oferecido. **Nos filtros de listagem e relatório ele continua**, marcado como `(inativo)`: escala, folha e ponto registrados naquele setor não deixaram de existir, e sem a opção no filtro ficariam inalcançáveis.
+- ⚠️ **O que já está selecionado nunca some**, mesmo inativo — senão o próximo "Salvar" gravaria uma troca que ninguém pediu.
+
+### 🖥️ IP da Máquina do Coletor (v2.23.0)
+- A tela de Marcações já mostrava o **nome** do computador onde o coletor está instalado, e o nome não leva ninguém até ele: não há DNS interno cobrindo as unidades. O IP que aparecia é o **público da unidade** — as cinco máquinas de um mesmo hospital apareciam todas com o mesmo endereço.
+- Agora o coletor (**v0.13.0**) reporta o **IP dele na rede da unidade**, que é por onde o suporte alcança a máquina.
+
+### 🔗 "Onde Estão as Horas" Leva à Escala (v2.23.0)
+- No relatório de Carga Consolidada, cada linha da composição virou link direto para a grade daquele setor e competência. Quem aparece ali está **acima do teto** — alguém precisa abrir a escala para reduzir, e o caminho era decorar unidade e setor e procurar.
+
+### ⚡ Sobreaviso Vencido Não Aciona Mais (v2.23.0)
+- O histórico de acionamentos de um plantão que já passou é **só para consulta**: o botão de novo acionamento fica desabilitado fora da janela do plantão, dizendo qual era a janela e apontando a **Validação Manual** como caminho para registrar atendimento passado.
+- O acionamento nunca chegava a ser gravado (o banco já recusava), mas a tela convidava a tentar — e o usuário só descobria depois de escrever o motivo do chamado.
 
 ### ⏱️ Teto de Horas Consolidado Entre Escalas (v2.22.0)
 - **Correção crítica**: o teto de 300h/mês por servidor (Configurações → Regras) sempre foi um limite **da pessoa**, mas a única conta que o defendia era a da **grade aberta**. Servidor escalado em dois setores tinha duas contas dentro do teto e uma soma fora dele — caso real: 289h no `SHL \ ACOLHIMENTO` mais 120h na `SHL \ LAVANDERIA` do HMI, **409h**, com as duas telas mostrando um número válido.

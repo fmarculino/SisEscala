@@ -151,13 +151,13 @@ export default async function PendenciasCadastroPage() {
       // "direcionar pra onde é mais prático"). Vale igual pro destino da transferência: o RH da
       // Unidade só aprova destino dentro do escopo dele, então oferecer outro seria armadilha.
       profile?.acesso_todas_unidades
-        ? supabase.from('unidades').select('id, nome').order('nome')
-        : supabase.from('unidades').select('id, nome').in('id', permittedUnidades.length ? permittedUnidades : ['00000000-0000-0000-0000-000000000000']).order('nome'),
+        ? supabase.from('unidades').select('id, nome, ativo').order('nome')
+        : supabase.from('unidades').select('id, nome, ativo').in('id', permittedUnidades.length ? permittedUnidades : ['00000000-0000-0000-0000-000000000000']).order('nome'),
       // Lista COMPLETA, só pra resolver NOME de unidade na linha da transferência: o destino de
       // um pedido pode estar fora do escopo de quem avalia, e mostrar "—" ali esconderia
       // justamente a informação que explica por que aquele pedido não tem botão. `unidades` é
       // legível por qualquer autenticado (policy "Authenticated users can view units").
-      supabase.from('unidades').select('id, nome').order('nome'),
+      supabase.from('unidades').select('id, nome, ativo').order('nome'),
       supabase.from('setores').select('id, unidade_id, parent_id, ativo, dicionario_setores(nome)').order('id'),
       supabase.from('cargos').select('id, nome').eq('ativo', true).order('nome'),
       buscarSolicitacoesEscopadas(),
@@ -258,7 +258,7 @@ export default async function PendenciasCadastroPage() {
     supabase.from('servidores').select('id', { count: 'exact', head: true }),
     supabase.from('servidores').select('id', { count: 'exact', head: true }).is('pis_pasep', null),
     buscarPendentesRh(),
-    supabase.from('unidades').select('id, nome').order('nome'),
+    supabase.from('unidades').select('id, nome, ativo').order('nome'),
     supabase.from('setores').select('id, unidade_id, parent_id, ativo, dicionario_setores(nome)').order('id'),
     supabase.from('cargos').select('id, nome').eq('ativo', true).order('nome'),
     // servidores(nome, matricula) é FK simples (sem ambiguidade); unidade/setor de
