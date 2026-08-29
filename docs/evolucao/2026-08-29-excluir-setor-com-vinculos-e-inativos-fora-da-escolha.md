@@ -206,6 +206,48 @@ link** — é o que segura a tela enquanto a migration não é aplicada.
 
 ---
 
+## 3c. O histórico de sobreaviso oferecia acionar um plantão que já passou
+
+Clicar no ícone roxo de um dia com vários chamados abre o **Histórico de Acionamentos**. Ele é
+para consulta — mas trazia "Novo Acionamento neste Dia" **sempre habilitado**, inclusive num
+plantão de semanas atrás.
+
+Isso era deliberado e está registrado no próprio código: na Fase 8 do plano de sobreaviso a
+heurística de janela do frontend foi **removida** porque divergia da do banco, e preferiu-se
+"deixar a RPC recusar com o horário exato — melhor um erro preciso do que um botão cinza sem
+explicação". A premissa que caiu é a outra metade da frase: num dia passado o botão **convida** a
+fazer algo impossível, e quem clica só descobre depois de escrever o motivo do chamado.
+
+✅ **Nada era gravado.** `fn_acionar_sobreaviso` já recusa (`v_agora < v_jan_inicio OR v_agora >=
+v_jan_fim`) com "Fora da janela do plantao. Este sobreaviso vale das X as Y". O defeito era de
+oferta, não de dado.
+
+A correção **não** reintroduz heurística: o modal consulta `fn_janela_sobreaviso_dia` — a **mesma**
+função que `fn_acionar_sobreaviso` usa para autorizar — pela linha de `escala_diaria` daquele dia,
+e desabilita o acionamento quando `agora` está fora do intervalo. O botão cinza vem **com** a
+explicação: "Este plantão valia de 02/08/2026 07:00 até 03/08/2026 07:00. Fora dessa janela o
+acionamento não é permitido — este histórico é apenas para consulta", apontando o caminho que
+continua valendo (**Validar Este Chamado (Manual)**, que é como se registra atendimento passado).
+
+Medido em produção no caso do print (FERNANDO MARCULINO, 08/2026, SMS \ TI):
+
+| dia | janela real | acionável agora? |
+|---|---|---|
+| 2 | 02/08 07:00 → 03/08 07:00 | não (passou) |
+| 29 (hoje) | 29/08 19:00 → 30/08 07:00 | não (ainda não começou; libera sozinho às 19h) |
+
+⚠️ **"Reenviar Notificação / Link" carrega a mesma trava**, e não é firula: aquele botão **reabre o
+modal de acionamento** com o motivo preenchido, ou seja, gera chamado novo — não é um reenvio
+passivo do link antigo.
+
+⚠️ **Pendência conhecida:** o botão de raio da própria célula da grade (`isTriggerAllowed`) ainda
+decide por **heurística de prefixo de código** (`code.startsWith('N')` → 19h–07h, etc.), que é
+justamente o que a Fase 8 tirou do modal. Nos casos medidos ela coincide com a janela real, mas é
+uma segunda conta para a mesma pergunta — e neste projeto duas contas já divergiram. Alinhá-la
+exige carregar a janela do mês inteiro, não de um dia.
+
+---
+
 ## 4. O hostname da máquina do coletor não leva ninguém até ela
 
 A tela já mostrava `máquina: HMM-CCE-NI`, e quem precisa acessar aquele computador não tem como

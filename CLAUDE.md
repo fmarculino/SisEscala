@@ -2587,6 +2587,28 @@ que não casava com o termo, e o laço da árvore promove a raiz todo setor cujo
 lista — a busca respondia "onde está" tirando a resposta. Os **ancestrais de quem casou** entram
 na lista mesmo sem casar; ao mexer nesse filtro, não recorte o ramo pelo meio.
 
+### 31. O histórico de sobreaviso oferecia acionar plantão vencido (29/08/2026)
+
+⚠️ **O modal "Histórico de Acionamentos" trazia "Novo Acionamento neste Dia" sempre habilitado**,
+inclusive em plantão de semanas atrás. Era decisão consciente da Fase 8 (a heurística de janela do
+frontend divergia da do banco, então tirou-se a heurística e deixou-se a RPC recusar "com o
+horário exato"). A metade que não se sustentou: num dia passado o botão **convida** a fazer algo
+impossível, e quem clica só descobre depois de escrever o motivo.
+
+✅ Nada era gravado — `fn_acionar_sobreaviso` já recusa fora da janela. O defeito era de oferta.
+
+**A correção não reintroduz heurística:** o modal consulta `fn_janela_sobreaviso_dia` (a MESMA que
+autoriza a gravação) pela linha de `escala_diaria` do dia e desabilita o botão fora do intervalo,
+**com** a janela exata escrita ao lado — botão cinza sem explicação continua proibido. O caminho
+para registrar atendimento passado segue sendo **Validar Este Chamado (Manual)**.
+
+⚠️ **"Reenviar Notificação / Link" leva a mesma trava**: ele REABRE o modal de acionamento com o
+motivo preenchido (gera chamado novo), não é reenvio passivo.
+
+⚠️ **Ainda por alinhar:** o raio da célula da grade (`isTriggerAllowed`, `ScaleGrid.tsx`) decide
+por **prefixo do código** (`N` → 19h–07h…), a mesma heurística que a Fase 8 tirou do modal. Coincidiu
+nos casos medidos, mas é segunda conta para a mesma pergunta; alinhar exige a janela do mês inteiro.
+
 ℹ️ **`/relatorios/carga-consolidada`: "onde estão as horas" é link para a grade** desde
 `20260829130000` (`fn_carga_mensal_servidor` já devolvia `unidade_id`/`setor_id`; só o
 `jsonb_build_object` do relatório não repassava). O destino é
