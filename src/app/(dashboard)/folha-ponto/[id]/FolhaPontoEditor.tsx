@@ -1582,7 +1582,22 @@ export function FolhaPontoEditor({
                 Cancelar
               </button>
               <button
-                onClick={confirmModal.onConfirm}
+                /*
+                  🚨 FECHAR E RESPONSABILIDADE DO BOTAO, NUNCA DO CALLBACK (28/08/2026).
+                  O botao chamava o callback direto, e quem fechava era cada callback, um
+                  por um — em ScaleGrid dois dos oito esqueceram, e o modal de confirmacao ficava na
+                  tela por cima do que o proprio clique acabou de abrir. Fechar aqui e o unico lugar
+                  que nao da para esquecer ao acrescentar um fluxo novo.
+                
+                  ⚠️ A ORDEM IMPORTA: fecha ANTES de executar. React agrupa os setState do mesmo
+                  handler e o ultimo vence, entao um callback que ENCADEIA outra confirmacao continua
+                  funcionando (null -> novo = novo). Invertido, o encadeado seria apagado.
+                */
+                onClick={() => {
+                  const acao = confirmModal.onConfirm
+                  setConfirmModal(null)
+                  acao?.()
+                }}
                 className={`flex-1 px-4 py-2 rounded-xl text-white font-bold text-[10px] uppercase tracking-widest ${
                   confirmModal.type === 'danger' ? 'bg-red-600 hover:bg-red-700' : 
                   confirmModal.type === 'warning' ? 'bg-amber-600 hover:bg-amber-700' : 

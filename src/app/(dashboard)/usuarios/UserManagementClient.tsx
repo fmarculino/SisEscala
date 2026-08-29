@@ -220,7 +220,6 @@ export default function UserManagementClient({
     try {
       const result = await deleteUser(userId)
       if (result.success) {
-        setConfirmModal(null)
         router.refresh()
       } else {
         setAlertModal({
@@ -239,6 +238,12 @@ export default function UserManagementClient({
       })
     } finally {
       setIsLoading(false)
+      // ⚠️ O FECHAMENTO NÃO PODE VIVER SÓ NO CAMINHO FELIZ (28/08/2026).
+      // Estava dentro do `if (result.success)`: quando a exclusão FALHAVA, o modal de erro
+      // abria com o de confirmação ainda na tela, um por cima do outro. Aqui ele fecha nos
+      // três desfechos — o modal de confirmação já cumpriu o papel dele no instante em que o
+      // usuário clicou, e o resultado é assunto do alerta.
+      setConfirmModal(null)
     }
   }
 

@@ -139,7 +139,13 @@ export function AutorizacaoExcecaoModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+    // z-[100] é a camada dos modais desta aplicação (`src/components/ui/Modal.tsx`); o
+    // DialogProvider fica acima, em z-[200]. Este modal estava em `z-50` e é aberto A PARTIR do
+    // modal de confirmação do Teto Mensal — então nascia ATRÁS de quem o abriu, e era isso que
+    // o usuário via como "abriu por trás". O fechamento do modal anterior já foi corrigido no
+    // botão (ScaleGrid), mas empilhar camadas diferentes para diálogos irmãos é a armadilha em
+    // si: qualquer sobreposição futura voltaria a inverter.
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header Modal */}
         <div className="p-6 border-b border-zinc-100 dark:border-zinc-800 bg-amber-500/5 flex items-center justify-between">

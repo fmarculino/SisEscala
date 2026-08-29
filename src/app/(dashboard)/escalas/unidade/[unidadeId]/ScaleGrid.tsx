@@ -6656,7 +6656,25 @@ export function ScaleGrid({
                 Cancelar
               </button>
               <button
-                onClick={confirmModal.onConfirm}
+                /*
+                  🚨 FECHAR É RESPONSABILIDADE DO BOTÃO, NUNCA DO CALLBACK (28/08/2026).
+                  Isto era `onClick={confirmModal.onConfirm}`: quem fechava era cada callback,
+                  um por um, e dois dos oito esqueceram — os dois de "Teto Mensal Excedido",
+                  que abrem o modal de Autorização Extraordinária. O de confirmação ficava na
+                  tela por cima do que acabou de abrir (`AutorizacaoExcecaoModal` é `z-50`, o
+                  `Modal` compartilhado é `z-[100]`), e o usuário via a tela nova "por trás".
+                  Fechar aqui é o único lugar que não dá para esquecer ao acrescentar um fluxo.
+
+                  ⚠️ A ORDEM IMPORTA: fecha ANTES de executar. React agrupa os setState do
+                  mesmo handler e o último vence — então um callback que ENCADEIA outra
+                  confirmação continua funcionando (null → novo = novo). Invertido, o encadeado
+                  seria apagado pelo próprio fechamento.
+                */
+                onClick={() => {
+                  const acao = confirmModal.onConfirm
+                  setConfirmModal(null)
+                  acao?.()
+                }}
                 className={`flex-1 px-4 py-2 rounded-xl text-white font-bold ${
                   confirmModal.type === 'danger' ? 'bg-red-600 hover:bg-red-700' : 
                   confirmModal.type === 'warning' ? 'bg-amber-600 hover:bg-amber-700' : 

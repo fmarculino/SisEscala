@@ -108,7 +108,8 @@ export function AlterarJornadaModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    // Mesma camada dos demais modais da grade (z-[100]); ver AutorizacaoExcecaoModal.
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
       <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-lg bg-white dark:bg-zinc-900 shadow-xl">
         <div className="flex items-start gap-3 border-b border-zinc-200 dark:border-zinc-700 p-4">
           <Clock className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
