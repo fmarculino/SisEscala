@@ -71,3 +71,8 @@ scratchpad/backup_reconciliacao_*.json
 scratchpad/reconciliar_agosto.json
 
 scratchpad/backup_folhas_*.json
+
+# Relatorio de auditoria de seguranca: documenta vulnerabilidades REAIS ainda abertas
+# (localizacao de segredos, rotas sem protecao, IDORs). O repositorio e PUBLICO (armadilha 18) -
+# publicar isso e entregar o mapa de ataque pronto. Nao commitar sem revisao manual.
+docs/security-audit/
