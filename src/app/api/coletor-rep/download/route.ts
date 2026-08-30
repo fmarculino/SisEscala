@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { urlPublicaDeRequest } from '@/utils/urlPublica'
 import { readFile } from 'fs/promises'
 import path from 'path'
 import { createClient } from '@/utils/supabase/server'
@@ -136,17 +137,10 @@ export async function POST(request: Request) {
  * padrão de quem está atrás de um reverse proxy (Traefik envia esse header por padrão).
  */
 function resolverUrlPublica(request: Request): string | null {
-  if (process.env.NEXT_PUBLIC_SITE_URL) {
-    return process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '')
-  }
-
-  const forwardedHost = request.headers.get('x-forwarded-host')
-  if (forwardedHost) {
-    const forwardedProto = request.headers.get('x-forwarded-proto') || 'https'
-    return `${forwardedProto}://${forwardedHost}`
-  }
-
-  return null
+  // Delegado a src/utils/urlPublica.ts em 30/08/2026: o link magico de sobreaviso precisou da
+  // MESMA resposta, e o comentario acima ja dizia que as duas eram a mesma necessidade. Duas
+  // copias divergiriam — foi por isso que a extracao aconteceu.
+  return urlPublicaDeRequest(request)
 }
 
 function montarConfigTerminal(origem: string, id: string, token: string): string {

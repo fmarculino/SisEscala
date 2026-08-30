@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient, createAdminClient } from '@/utils/supabase/server'
+import { urlPublicaDeHeaders } from '@/utils/urlPublica'
 import { enviarWhatsAppInterno } from '@/utils/comunicacao/enviar'
 import { revalidatePath } from 'next/cache'
 import { formatSectorsHierarchy } from '@/utils/sectors'
@@ -163,7 +164,9 @@ export async function acionarSobreavisoAction(params: {
     return { success: false, error: data?.error || 'Falha ao acionar sobreaviso.' }
   }
 
-  const base = process.env.NEXT_PUBLIC_SITE_URL || ''
+  // Mesma fonte única do envio por WhatsApp (src/utils/urlPublica.ts). Sem ela, este `link`
+  // voltava vazio e a tela mostrava um campo em branco sem dizer por quê.
+  const base = await urlPublicaDeHeaders()
   revalidatePath('/home')
 
   return {
@@ -207,15 +210,21 @@ export async function enviarAcionamentoWhatsAppAction(params: {
   //
   // A origem do link e' propriedade da INSTALACAO, nao da aba que clicou. `params.origin`
   // continua na assinatura para nao quebrar o chamador, mas e' ignorado.
-  const base = process.env.NEXT_PUBLIC_SITE_URL
+  // Fonte unica: src/utils/urlPublica.ts. NUNCA o `origin` mandado pelo navegador (achado 12) —
+  // este link vai por WhatsApp carregando o TOKEN do chamado na URL, e quem passasse `origin`
+  // proprio fazia o SisEscala enviar, em nome da Secretaria, um link para o host dele.
+  //
+  // ⚠️ Sem `NEXT_PUBLIC_SITE_URL`, cai para X-Forwarded-Host (posto pelo Traefik do Coolify), que
+  // e um degrau ABAIXO em confianca: quem controla o `Host` influencia o resultado. Configure a
+  // variavel para eliminar esse degrau. O fallback existe para a ausencia dela nao derrubar o
+  // acionamento inteiro — e ainda assim e melhor que o `origin` do cliente, que nao tinha proxy
+  // nenhum no caminho.
+  const base = await urlPublicaDeHeaders()
   if (!base) {
-    // Falha EXPLICITA, nunca link quebrado. Antes havia `|| ''`, o que produzia um link
-    // relativo (`/sobreaviso/<token>`) dentro de uma mensagem de WhatsApp — inutil, e sem nada
-    // no log dizendo por que. Mesmo padrao de TERMINAL_LOCAL_SESSION_SECRET e CRON_SECRET.
-    console.error('NEXT_PUBLIC_SITE_URL nao configurado — o link de sobreaviso nao pode ser montado.')
+    console.error('Nem NEXT_PUBLIC_SITE_URL nem X-Forwarded-Host disponiveis — link de sobreaviso nao montado.')
     return {
       success: false,
-      error: 'NEXT_PUBLIC_SITE_URL não está configurado no ambiente. Avise o administrador do sistema.',
+      error: 'Não foi possível montar o link do chamado (URL pública do sistema não resolvida). Avise o administrador.',
     }
   }
   const link = `${base}/sobreaviso/${contato.token}`
