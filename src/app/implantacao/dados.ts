@@ -115,7 +115,62 @@ function janela(mes: number, ano: number) {
   }
 }
 
-export async function obterPainel(): Promise<PainelImplantacao> {
+/**
+ * Painel completo. Devolve `null` quando o banco não responde — **e quem chama tem que tratar**.
+ *
+ * ⚠️ POR QUE `null` E NÃO ZEROS (corrigido em 30/08/2026)
+ * Esta página tem `revalidate = 300`, o que faz o Next **PRÉ-RENDERIZÁ-LA NO BUILD**. No CI não
+ * existe banco: as variáveis são `http://localhost:54321` e uma chave falsa. O fetch pendurava,
+ * o Next tentava 3× com 60s cada e **o build inteiro morria**:
+ *
+ *     Failed to build /implantacao/page after 3 attempts.
+ *     ⨯ Next.js build worker exited with code: 1
+ *
+ * 🚨 Isso deixou o CI VERMELHO por uma semana — do dia em que esta página entrou (23/08/2026,
+ * `3c848e5`) até 30/08. 58 execuções seguidas falhando, e ninguém viu, porque o `tsc` e o
+ * `build` locais passavam: a máquina de desenvolvimento tem `.env.production` e o build
+ * **alcançava o banco de produção de verdade**. CI vermelho constante é CI mudo — durante toda
+ * a auditoria de segurança ele não teria acusado regressão nenhuma.
+ *
+ * ⚠️ **`null`, nunca um objeto de zeros.** Um painel público mostrando "0 unidades operando"
+ * é um NÚMERO, e quem lê acredita nele — é a armadilha 22 do CLAUDE.md (relatar o que se
+ * calculou como se fosse o que aconteceu), na forma mais cara: um painel de acompanhamento para
+ * a diretoria afirmando que a implantação não saiu do lugar. A página distingue "não sei" de
+ * "zero" e diz qual dos dois é.
+ */
+/**
+ * Teto de tempo da consulta.
+ *
+ * ⚠️ `try/catch` SOZINHO NÃO RESOLVE, e essa foi a parte que quase escapou: o que derrubava o
+ * build não era uma exceção, era **pendurar** — e `catch` não pega o que nunca rejeita. O Next
+ * desiste sozinho aos 60s e mata o worker; o teto precisa vir **antes** disso.
+ *
+ * 15s é folgado para um banco que responde em milissegundos e curto o bastante para o build
+ * seguir em frente. Ao mexer aqui, mantenha bem abaixo dos 60s do Next.
+ */
+const TIMEOUT_MS = 15_000
+
+export async function obterPainel(): Promise<PainelImplantacao | null> {
+  let expirar: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      consultarPainel(),
+      new Promise<never>((_, rej) => {
+        expirar = setTimeout(() => rej(new Error(`consulta excedeu ${TIMEOUT_MS}ms`)), TIMEOUT_MS)
+      }),
+    ])
+  } catch (err) {
+    // Log com contexto: no build do CI isto é esperado; em runtime é incidente de verdade.
+    console.error('[implantacao] painel indisponivel (banco nao respondeu):', err)
+    return null
+  } finally {
+    // Sem isto o timer segura o processo vivo depois de a consulta ter vencido a corrida —
+    // num build, é o comando que não termina.
+    if (expirar) clearTimeout(expirar)
+  }
+}
+
+async function consultarPainel(): Promise<PainelImplantacao> {
   const supabase = await createAdminClient()
 
   const [{ data: unidades }, { data: setores }, { data: servidores }, { data: disp }] = await Promise.all([

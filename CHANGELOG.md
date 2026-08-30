@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.27.1] - 2026-08-30
+
+### Fixed
+- 🚨 **O CI estava vermelho havia uma semana, e ninguém tinha visto.** Último build verde: run **#78, em 23/08**. Desde então, **58 execuções seguidas falhando** — o job do Coletor REP (Go) passava, e só o `Frontend & Core` quebrava.
+  - **A causa é o painel público `/implantacao`**, que entrou no repositório em `3c848e5` **no mesmo dia 23/08**. Ele tem `export const revalidate = 300`, então o Next tenta gerá-lo durante o `build` — e ele consulta o Supabase. No CI não existe banco (as variáveis são `http://localhost:54321` e uma chave falsa): a consulta pendurava, o Next tentava 3× com 60s cada e **o build inteiro morria** com `Next.js build worker exited with code: 1`.
+  - **Por que passou despercebido:** `tsc` e `build` locais passavam. A máquina de desenvolvimento tem `.env.production`, então **o build alcançava o banco de produção de verdade** e a página renderizava. O sintoma só existia onde não há credencial — que é exatamente o CI.
+  - ⚠️ **`try/catch` sozinho NÃO resolveria**: o que derrubava o build era **pendurar**, não lançar, e `catch` não pega o que nunca rejeita. `obterPainel()` ganhou um teto de tempo de **15s** (bem abaixo dos 60s em que o Next desiste), com `clearTimeout` no `finally` — senão o timer segura o processo vivo depois de a consulta vencer a corrida, e num build isso é o comando que não termina.
+  - ⚠️ **O ramo de falha devolve `null` e a página diz "dados indisponíveis" — nunca um painel zerado.** "0 unidades operando" é um **número**, e quem lê acredita nele: seria este painel, que existe para a diretoria acompanhar o avanço, afirmando que a implantação não saiu do lugar. É a armadilha 22 (relatar o calculado como se fosse o acontecido) na forma mais cara. A página tenta de novo em 1 minuto e se recupera sozinha.
+  - ✅ **Sem mudança de comportamento**: conferido construindo a versão original e a corrigida — as duas produzem `/implantacao` como rota **dinâmica**, com zero rotas pré-renderizadas. A correção só faz o build parar de depender do banco.
+  - ⚠️ **A lição maior é o CI mudo.** Durante toda a auditoria de segurança das versões 2.24.0 a 2.27.0, `tsc` e `build` foram verificados **só na máquina de desenvolvimento** — o CI, que existe justamente para pegar o que passa despercebido, não teria acusado regressão nenhuma. **CI vermelho constante é CI que não serve para nada**; tratar como ruído é o mesmo que desligá-lo.
+
 ## [2.27.0] - 2026-08-30
 
 ### Fixed

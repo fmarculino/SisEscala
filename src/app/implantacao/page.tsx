@@ -93,6 +93,45 @@ function Cartao({ u }: { u: UnidadeStatus }) {
 
 export default async function PainelImplantacao() {
   const p = await obterPainel()
+
+  // ⚠️ SEM DADO, DIZ QUE NÃO SABE — nunca renderiza zeros.
+  //
+  // `obterPainel` devolve `null` quando o banco não responde. Isso acontece de propósito no
+  // BUILD do CI, onde não existe banco: sem este ramo, a pré-renderização (`revalidate = 300`)
+  // pendurava e derrubava o build inteiro — o CI ficou vermelho por uma semana por causa disso
+  // (ver o comentário em ./dados.ts).
+  //
+  // 🚨 O ramo devolve uma MENSAGEM, não um painel zerado. "0 unidades operando" é um número, e
+  // quem lê acredita nele: seria este painel — que existe para a diretoria acompanhar o avanço —
+  // afirmando que a implantação não saiu do lugar. Armadilha 22: nunca relatar o que se calculou
+  // como se fosse o que aconteceu. A página se recupera sozinha na revalidação seguinte.
+  if (!p) {
+    return (
+      <>
+        <meta httpEquiv="refresh" content="60" />
+        <div style={{
+          minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: '#09090b', color: '#a1a1aa', fontFamily: 'system-ui, sans-serif',
+          padding: '2rem', textAlign: 'center',
+        }}>
+          <div>
+            <p style={{ fontSize: '0.7rem', fontWeight: 800, letterSpacing: '0.15em', textTransform: 'uppercase', color: '#52525b' }}>
+              Secretaria Municipal de Saúde · Marabá / PA
+            </p>
+            <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#e4e4e7', margin: '0.75rem 0' }}>
+              Painel de Implantação
+            </h1>
+            <p style={{ maxWidth: '32rem', lineHeight: 1.6 }}>
+              Os dados não puderam ser carregados agora. Esta página tenta de novo automaticamente
+              em um minuto — <strong style={{ color: '#e4e4e7' }}>nenhum número é exibido enquanto
+              isso</strong>, para que nada aqui seja lido como resultado real.
+            </p>
+          </div>
+        </div>
+      </>
+    )
+  }
+
   const t = p.totais
   const avanco = pct(t.operando, t.unidades)
   const primeiraAtivacao = p.ativacoes[0]?.data
