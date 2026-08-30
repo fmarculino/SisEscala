@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.27.2] - 2026-08-30
+
+### Fixed
+- **O painel `/implantacao` ficava com a tela em branco por ~4 segundos, e isso é indistinguível de página travada.** A página é renderizada no **servidor** e consulta o banco antes de responder — medido contra produção: **4,2 s**, dos quais **3,6 s** são as contagens de `marcacoes_ponto` dos três meses (29.294 registros só em agosto). Até o HTML chegar, o navegador não mostra nada — e quem acha que quebrou fecha a aba ou recarrega, o que só faz o servidor refazer as mesmas consultas.
+  - `src/app/implantacao/loading.tsx`: o Next transmite essa tela **imediatamente** e a troca pelo conteúdo quando ele fica pronto. Mantém o fundo e os gradientes do painel, para a transição não parecer troca de página.
+  - ⚠️ **A barra é INDETERMINADA de propósito.** Barra que enche até uma porcentagem afirma saber quanto falta, e aqui não se sabe: depende do banco. Fingir progresso é a mesma família de erro da armadilha 22 — mostrar número que não corresponde a nada medido. Esta apenas indica atividade.
+  - ⚠️ **Nenhum esqueleto imita número.** Os blocos têm a **forma** dos cartões e nenhum dígito: um `0` ou `--` no lugar de "12 unidades operando" seria lido como resultado. Mesma regra do estado de falha da 2.27.1.
+  - Respeita `prefers-reduced-motion`: sem animação, o texto continua dizendo o que está acontecendo.
+
 ## [2.27.1] - 2026-08-30
 
 ### Fixed
