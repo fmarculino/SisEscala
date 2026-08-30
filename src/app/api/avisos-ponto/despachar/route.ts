@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { conferirSegredoCron } from '@/utils/segredoCron'
 import { createAdminClient } from '@/utils/supabase/server'
 import { enviarWhatsAppInterno } from '@/utils/comunicacao/enviar'
 import { resolverCanalAvisoPonto } from '@/utils/avisoPontoCanal'
@@ -27,24 +28,13 @@ const LOTE_PADRAO = 20
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
-    const secret = searchParams.get('secret')
-    const authHeader = request.headers.get('authorization')
 
-    // Sem fallback. O valor que ficava aqui estava embutido no código de um repositório PÚBLICO —
-    // quem lesse o repo disparava o despacho de avisos sem credencial nenhuma.
-    // Mesmo padrão de TERMINAL_LOCAL_SESSION_SECRET: falha explícita, nunca um segredo embutido.
-    const expectedSecret = process.env.CRON_SECRET
-    if (!expectedSecret) {
-      return NextResponse.json(
-        { error: 'CRON_SECRET não configurado no ambiente (Coolify em produção).' },
-        { status: 500 }
-      )
-    }
-
-    const providedSecret = secret || (authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null)
-
-    if (providedSecret !== expectedSecret) {
-      return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
+    // Fonte unica: src/utils/segredoCron.ts. O segredo deixou de ser aceito por QUERY STRING em
+    // 30/08/2026 (achado 15) - `?secret=` vaza para log de proxy, historico de terminal e
+    // Referer -, e a comparacao passou a ser em tempo constante.
+    const auth = conferirSegredoCron(request)
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.erro }, { status: auth.status })
     }
 
     const limite = Math.min(Math.max(parseInt(searchParams.get('limite') || '', 10) || LOTE_PADRAO, 1), 50)

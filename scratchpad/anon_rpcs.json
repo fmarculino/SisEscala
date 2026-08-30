@@ -1,0 +1,1533 @@
+{
+  "publica": [
+    {
+      "fn": "accept_sobreaviso_call",
+      "cs": [
+        {
+          "p": "src/app/sobreaviso/[token]/page.tsx",
+          "cliente": "sessao",
+          "publica": true
+        }
+      ]
+    },
+    {
+      "fn": "decline_sobreaviso_call",
+      "cs": [
+        {
+          "p": "src/app/sobreaviso/[token]/page.tsx",
+          "cliente": "sessao",
+          "publica": true
+        }
+      ]
+    },
+    {
+      "fn": "fn_aviso_ponto_habilitado",
+      "cs": [
+        {
+          "p": "src/app/consultar-escala/actions.ts",
+          "cliente": "service_role",
+          "publica": true
+        }
+      ]
+    },
+    {
+      "fn": "get_sobreaviso_details",
+      "cs": [
+        {
+          "p": "src/app/sobreaviso/[token]/page.tsx",
+          "cliente": "sessao",
+          "publica": true
+        }
+      ]
+    },
+    {
+      "fn": "mark_sobreaviso_timeout",
+      "cs": [
+        {
+          "p": "src/app/sobreaviso/[token]/page.tsx",
+          "cliente": "indefinido",
+          "publica": true
+        },
+        {
+          "p": "src/app/sobreaviso/[token]/page.tsx",
+          "cliente": "sessao",
+          "publica": true
+        }
+      ]
+    },
+    {
+      "fn": "register_sobreaviso_arrival",
+      "cs": [
+        {
+          "p": "src/app/sobreaviso/[token]/page.tsx",
+          "cliente": "sessao",
+          "publica": true
+        }
+      ]
+    }
+  ],
+  "sessao": [
+    {
+      "fn": "fn_atualizar_cadastro_via_pendencia_rh",
+      "cs": [
+        {
+          "p": "src/app/(dashboard)/servidores/actions.ts",
+          "cliente": "sessao",
+          "publica": false
+        }
+      ]
+    },
+    {
+      "fn": "fn_buscar_pendencia_rh_por_termo",
+      "cs": [
+        {
+          "p": "src/app/(dashboard)/servidores/actions.ts",
+          "cliente": "sessao",
+          "publica": false
+        }
+      ]
+    },
+    {
+      "fn": "fn_cobertura_ponto_dispositivo",
+      "cs": [
+        {
+          "p": "src/app/(dashboard)/marcacoes/actions.ts",
+          "cliente": "sessao",
+          "publica": false
+        }
+      ]
+    },
+    {
+      "fn": "fn_cobertura_ponto_resumo",
+      "cs": [
+        {
+          "p": "src/app/(dashboard)/marcacoes/actions.ts",
+          "cliente": "sessao",
+          "publica": false
+        }
+      ]
+    },
+    {
+      "fn": "fn_contato_acionamento_sobreaviso",
+      "cs": [
+        {
+          "p": "src/app/actions/sobreaviso.ts",
+          "cliente": "sessao",
+          "publica": false
+        }
+      ]
+    },
+    {
+      "fn": "fn_cpf_ja_cadastrado",
+      "cs": [
+        {
+          "p": "src/app/(dashboard)/servidores/actions.ts",
+          "cliente": "indefinido",
+          "publica": false
+        },
+        {
+          "p": "src/app/(dashboard)/servidores/actions.ts",
+          "cliente": "sessao",
+          "publica": false
+        }
+      ]
+    },
+    {
+      "fn": "fn_enfileirar_cadastros_rep",
+      "cs": [
+        {
+          "p": "src/app/(dashboard)/marcacoes/actions.ts",
+          "cliente": "sessao",
+          "publica": false
+        },
+        {
+          "p": "src/app/(dashboard)/marcacoes/actions.ts",
+          "cliente": "sessao",
+          "publica": false
+        }
+      ]
+    },
+    {
+      "fn": "fn_enfileirar_remocao_usuarios_dispositivo",
+      "cs": [
+        {
+          "p": "src/app/(dashboard)/marcacoes/actions.ts",
+          "cliente": "sessao",
+          "publica": false
+        }
+      ]
+    },
+    {
+      "fn": "fn_gerar_token_dispositivo_rep",
+      "cs": [
+        {
+          "p": "src/app/(dashboard)/marcacoes/actions.ts",
+          "cliente": "sessao",
+          "publica": false
+        },
+        {
+          "p": "src/app/(dashboard)/marcacoes/actions.ts",
+          "cliente": "service_role",
+          "publica": false
+        }
+      ]
+    },
+    {
+      "fn": "fn_gerar_token_terminal_local",
+      "cs": [
+        {
+          "p": "src/app/(dashboard)/marcacoes/actions.ts",
+          "cliente": "sessao",
+          "publica": false
+        }
+      ]
+    },
+    {
+      "fn": "fn_higiene_usuarios_dispositivo",
+      "cs": [
+        {
+          "p": "src/app/(dashboard)/marcacoes/actions.ts",
+          "cliente": "sessao",
+          "publica": false
+        }
+      ]
+    },
+    {
+      "fn": "fn_painel_sobreaviso_dia",
+      "cs": [
+        {
+          "p": "src/app/actions/sobreaviso.ts",
+          "cliente": "sessao",
+          "publica": false
+        }
+      ]
+    },
+    {
+      "fn": "fn_pendencia_rh_por_cpf",
+      "cs": [
+        {
+          "p": "src/app/(dashboard)/servidores/actions.ts",
+          "cliente": "sessao",
+          "publica": false
+        }
+      ]
+    },
+    {
+      "fn": "fn_pendencias_biometria",
+      "cs": [
+        {
+          "p": "src/app/(dashboard)/marcacoes/actions.ts",
+          "cliente": "sessao",
+          "publica": false
+        }
+      ]
+    },
+    {
+      "fn": "fn_promover_pendencia_rh",
+      "cs": [
+        {
+          "p": "src/app/(dashboard)/servidores/actions.ts",
+          "cliente": "sessao",
+          "publica": false
+        }
+      ]
+    },
+    {
+      "fn": "fn_tentativas_negadas_diagnostico",
+      "cs": [
+        {
+          "p": "src/app/(dashboard)/auditoria/TentativasNegadasDiagnostico.tsx",
+          "cliente": "sessao",
+          "publica": false
+        }
+      ]
+    },
+    {
+      "fn": "fn_tentativas_negadas_resumo",
+      "cs": [
+        {
+          "p": "src/app/(dashboard)/auditoria/TentativasNegadasDiagnostico.tsx",
+          "cliente": "sessao",
+          "publica": false
+        }
+      ]
+    }
+  ],
+  "service_role": [
+    {
+      "fn": "fn_blocos_previstos_dia",
+      "cs": [
+        {
+          "p": "src/app/(dashboard)/marcacoes/actions.ts",
+          "cliente": "service_role",
+          "publica": false
+        }
+      ]
+    }
+  ],
+  "sem_chamador": [
+    {
+      "fn": "_postgis_deprecate",
+      "cs": []
+    },
+    {
+      "fn": "_postgis_index_extent",
+      "cs": []
+    },
+    {
+      "fn": "_postgis_pgsql_version",
+      "cs": []
+    },
+    {
+      "fn": "_postgis_scripts_pgsql_version",
+      "cs": []
+    },
+    {
+      "fn": "_postgis_selectivity",
+      "cs": []
+    },
+    {
+      "fn": "_postgis_stats",
+      "cs": []
+    },
+    {
+      "fn": "_st_3ddfullywithin",
+      "cs": []
+    },
+    {
+      "fn": "_st_3ddwithin",
+      "cs": []
+    },
+    {
+      "fn": "_st_3dintersects",
+      "cs": []
+    },
+    {
+      "fn": "_st_contains",
+      "cs": []
+    },
+    {
+      "fn": "_st_containsproperly",
+      "cs": []
+    },
+    {
+      "fn": "_st_coveredby",
+      "cs": []
+    },
+    {
+      "fn": "_st_covers",
+      "cs": []
+    },
+    {
+      "fn": "_st_crosses",
+      "cs": []
+    },
+    {
+      "fn": "_st_dfullywithin",
+      "cs": []
+    },
+    {
+      "fn": "_st_dwithin",
+      "cs": []
+    },
+    {
+      "fn": "_st_equals",
+      "cs": []
+    },
+    {
+      "fn": "_st_intersects",
+      "cs": []
+    },
+    {
+      "fn": "_st_linecrossingdirection",
+      "cs": []
+    },
+    {
+      "fn": "_st_longestline",
+      "cs": []
+    },
+    {
+      "fn": "_st_maxdistance",
+      "cs": []
+    },
+    {
+      "fn": "_st_orderingequals",
+      "cs": []
+    },
+    {
+      "fn": "_st_overlaps",
+      "cs": []
+    },
+    {
+      "fn": "_st_sortablehash",
+      "cs": []
+    },
+    {
+      "fn": "_st_touches",
+      "cs": []
+    },
+    {
+      "fn": "_st_voronoi",
+      "cs": []
+    },
+    {
+      "fn": "_st_within",
+      "cs": []
+    },
+    {
+      "fn": "addauth",
+      "cs": []
+    },
+    {
+      "fn": "addgeometrycolumn",
+      "cs": []
+    },
+    {
+      "fn": "disablelongtransactions",
+      "cs": []
+    },
+    {
+      "fn": "dropgeometrycolumn",
+      "cs": []
+    },
+    {
+      "fn": "dropgeometrytable",
+      "cs": []
+    },
+    {
+      "fn": "enablelongtransactions",
+      "cs": []
+    },
+    {
+      "fn": "equals",
+      "cs": []
+    },
+    {
+      "fn": "fn_acionamento_sobreaviso_real",
+      "cs": []
+    },
+    {
+      "fn": "fn_ajuste_intervalo_flexivel",
+      "cs": []
+    },
+    {
+      "fn": "fn_aviso_ponto_efetivo",
+      "cs": []
+    },
+    {
+      "fn": "fn_batidas_reais_recusadas",
+      "cs": []
+    },
+    {
+      "fn": "fn_classificar_tentativa_negada",
+      "cs": []
+    },
+    {
+      "fn": "fn_cnpj_digito_valido",
+      "cs": []
+    },
+    {
+      "fn": "fn_competencia_encerrada",
+      "cs": []
+    },
+    {
+      "fn": "fn_conferir_reconciliacao",
+      "cs": []
+    },
+    {
+      "fn": "fn_config_int",
+      "cs": []
+    },
+    {
+      "fn": "fn_cpf_digito_valido",
+      "cs": []
+    },
+    {
+      "fn": "fn_cpf_normalizado",
+      "cs": []
+    },
+    {
+      "fn": "fn_desfecho_evento_dia",
+      "cs": []
+    },
+    {
+      "fn": "fn_desvio_tentativa_minutos",
+      "cs": []
+    },
+    {
+      "fn": "fn_hora_inicio_sobreaviso_codigo",
+      "cs": []
+    },
+    {
+      "fn": "fn_intervalo_minimo_legal",
+      "cs": []
+    },
+    {
+      "fn": "fn_intervalo_previsto_minutos",
+      "cs": []
+    },
+    {
+      "fn": "fn_jornada_tem_intervalo",
+      "cs": []
+    },
+    {
+      "fn": "fn_listar_eventos_pendentes_justificativa",
+      "cs": []
+    },
+    {
+      "fn": "fn_obter_horario_regular_dia",
+      "cs": []
+    },
+    {
+      "fn": "fn_parse_linha_afd",
+      "cs": []
+    },
+    {
+      "fn": "fn_pis_digito_valido",
+      "cs": []
+    },
+    {
+      "fn": "fn_pode_acionar_sobreaviso",
+      "cs": []
+    },
+    {
+      "fn": "fn_pode_reverter_desfecho",
+      "cs": []
+    },
+    {
+      "fn": "fn_precedencia_origem",
+      "cs": []
+    },
+    {
+      "fn": "fn_salvar_justificativas_bulk",
+      "cs": []
+    },
+    {
+      "fn": "fn_setores_no_escopo",
+      "cs": []
+    },
+    {
+      "fn": "fn_status_acionamento_sobreaviso",
+      "cs": []
+    },
+    {
+      "fn": "fn_tentativa_recusada_elegivel",
+      "cs": []
+    },
+    {
+      "fn": "fn_terminal_classico_habilitado",
+      "cs": []
+    },
+    {
+      "fn": "fn_trilha_auditoria",
+      "cs": []
+    },
+    {
+      "fn": "fn_unidade_alcancavel_por_setor",
+      "cs": []
+    },
+    {
+      "fn": "fn_unidade_no_escopo",
+      "cs": []
+    },
+    {
+      "fn": "fn_vinculos_sugeridos_afd",
+      "cs": []
+    },
+    {
+      "fn": "geography",
+      "cs": []
+    },
+    {
+      "fn": "geometry",
+      "cs": []
+    },
+    {
+      "fn": "geometry_above",
+      "cs": []
+    },
+    {
+      "fn": "geometry_below",
+      "cs": []
+    },
+    {
+      "fn": "geometry_cmp",
+      "cs": []
+    },
+    {
+      "fn": "geometry_contained_3d",
+      "cs": []
+    },
+    {
+      "fn": "geometry_contains",
+      "cs": []
+    },
+    {
+      "fn": "geometry_contains_3d",
+      "cs": []
+    },
+    {
+      "fn": "geometry_distance_box",
+      "cs": []
+    },
+    {
+      "fn": "geometry_distance_centroid",
+      "cs": []
+    },
+    {
+      "fn": "geometry_eq",
+      "cs": []
+    },
+    {
+      "fn": "geometry_ge",
+      "cs": []
+    },
+    {
+      "fn": "geometry_gist_same_2d",
+      "cs": []
+    },
+    {
+      "fn": "geometry_gt",
+      "cs": []
+    },
+    {
+      "fn": "geometry_le",
+      "cs": []
+    },
+    {
+      "fn": "geometry_left",
+      "cs": []
+    },
+    {
+      "fn": "geometry_lt",
+      "cs": []
+    },
+    {
+      "fn": "geometry_overabove",
+      "cs": []
+    },
+    {
+      "fn": "geometry_overbelow",
+      "cs": []
+    },
+    {
+      "fn": "geometry_overlaps",
+      "cs": []
+    },
+    {
+      "fn": "geometry_overlaps_3d",
+      "cs": []
+    },
+    {
+      "fn": "geometry_overleft",
+      "cs": []
+    },
+    {
+      "fn": "geometry_overright",
+      "cs": []
+    },
+    {
+      "fn": "geometry_right",
+      "cs": []
+    },
+    {
+      "fn": "geometry_same",
+      "cs": []
+    },
+    {
+      "fn": "geometry_same_3d",
+      "cs": []
+    },
+    {
+      "fn": "geometry_within",
+      "cs": []
+    },
+    {
+      "fn": "geomfromewkb",
+      "cs": []
+    },
+    {
+      "fn": "geomfromewkt",
+      "cs": []
+    },
+    {
+      "fn": "get_my_role",
+      "cs": []
+    },
+    {
+      "fn": "gettransactionid",
+      "cs": []
+    },
+    {
+      "fn": "longtransactionsenabled",
+      "cs": []
+    },
+    {
+      "fn": "obter_jornada_servidor_data",
+      "cs": []
+    },
+    {
+      "fn": "populate_geometry_columns",
+      "cs": []
+    },
+    {
+      "fn": "postgis_constraint_dims",
+      "cs": []
+    },
+    {
+      "fn": "postgis_constraint_srid",
+      "cs": []
+    },
+    {
+      "fn": "postgis_constraint_type",
+      "cs": []
+    },
+    {
+      "fn": "postgis_extensions_upgrade",
+      "cs": []
+    },
+    {
+      "fn": "postgis_full_version",
+      "cs": []
+    },
+    {
+      "fn": "postgis_geos_version",
+      "cs": []
+    },
+    {
+      "fn": "postgis_lib_build_date",
+      "cs": []
+    },
+    {
+      "fn": "postgis_lib_revision",
+      "cs": []
+    },
+    {
+      "fn": "postgis_lib_version",
+      "cs": []
+    },
+    {
+      "fn": "postgis_libjson_version",
+      "cs": []
+    },
+    {
+      "fn": "postgis_liblwgeom_version",
+      "cs": []
+    },
+    {
+      "fn": "postgis_libprotobuf_version",
+      "cs": []
+    },
+    {
+      "fn": "postgis_libxml_version",
+      "cs": []
+    },
+    {
+      "fn": "postgis_proj_version",
+      "cs": []
+    },
+    {
+      "fn": "postgis_scripts_build_date",
+      "cs": []
+    },
+    {
+      "fn": "postgis_scripts_installed",
+      "cs": []
+    },
+    {
+      "fn": "postgis_scripts_released",
+      "cs": []
+    },
+    {
+      "fn": "postgis_svn_version",
+      "cs": []
+    },
+    {
+      "fn": "postgis_transform_geometry",
+      "cs": []
+    },
+    {
+      "fn": "postgis_type_name",
+      "cs": []
+    },
+    {
+      "fn": "postgis_version",
+      "cs": []
+    },
+    {
+      "fn": "postgis_wagyu_version",
+      "cs": []
+    },
+    {
+      "fn": "st_3dclosestpoint",
+      "cs": []
+    },
+    {
+      "fn": "st_3ddfullywithin",
+      "cs": []
+    },
+    {
+      "fn": "st_3ddistance",
+      "cs": []
+    },
+    {
+      "fn": "st_3ddwithin",
+      "cs": []
+    },
+    {
+      "fn": "st_3dintersects",
+      "cs": []
+    },
+    {
+      "fn": "st_3dlongestline",
+      "cs": []
+    },
+    {
+      "fn": "st_3dmakebox",
+      "cs": []
+    },
+    {
+      "fn": "st_3dmaxdistance",
+      "cs": []
+    },
+    {
+      "fn": "st_3dshortestline",
+      "cs": []
+    },
+    {
+      "fn": "st_addpoint",
+      "cs": []
+    },
+    {
+      "fn": "st_angle",
+      "cs": []
+    },
+    {
+      "fn": "st_area",
+      "cs": []
+    },
+    {
+      "fn": "st_asencodedpolyline",
+      "cs": []
+    },
+    {
+      "fn": "st_asewkt",
+      "cs": []
+    },
+    {
+      "fn": "st_asgeojson",
+      "cs": []
+    },
+    {
+      "fn": "st_asgml",
+      "cs": []
+    },
+    {
+      "fn": "st_askml",
+      "cs": []
+    },
+    {
+      "fn": "st_aslatlontext",
+      "cs": []
+    },
+    {
+      "fn": "st_asmarc21",
+      "cs": []
+    },
+    {
+      "fn": "st_asmvtgeom",
+      "cs": []
+    },
+    {
+      "fn": "st_assvg",
+      "cs": []
+    },
+    {
+      "fn": "st_astext",
+      "cs": []
+    },
+    {
+      "fn": "st_astwkb",
+      "cs": []
+    },
+    {
+      "fn": "st_asx3d",
+      "cs": []
+    },
+    {
+      "fn": "st_azimuth",
+      "cs": []
+    },
+    {
+      "fn": "st_boundingdiagonal",
+      "cs": []
+    },
+    {
+      "fn": "st_buffer",
+      "cs": []
+    },
+    {
+      "fn": "st_centroid",
+      "cs": []
+    },
+    {
+      "fn": "st_clipbybox2d",
+      "cs": []
+    },
+    {
+      "fn": "st_closestpoint",
+      "cs": []
+    },
+    {
+      "fn": "st_collect",
+      "cs": []
+    },
+    {
+      "fn": "st_concavehull",
+      "cs": []
+    },
+    {
+      "fn": "st_contains",
+      "cs": []
+    },
+    {
+      "fn": "st_containsproperly",
+      "cs": []
+    },
+    {
+      "fn": "st_coorddim",
+      "cs": []
+    },
+    {
+      "fn": "st_coveredby",
+      "cs": []
+    },
+    {
+      "fn": "st_covers",
+      "cs": []
+    },
+    {
+      "fn": "st_crosses",
+      "cs": []
+    },
+    {
+      "fn": "st_curvetoline",
+      "cs": []
+    },
+    {
+      "fn": "st_delaunaytriangles",
+      "cs": []
+    },
+    {
+      "fn": "st_dfullywithin",
+      "cs": []
+    },
+    {
+      "fn": "st_difference",
+      "cs": []
+    },
+    {
+      "fn": "st_disjoint",
+      "cs": []
+    },
+    {
+      "fn": "st_distance",
+      "cs": []
+    },
+    {
+      "fn": "st_distancesphere",
+      "cs": []
+    },
+    {
+      "fn": "st_distancespheroid",
+      "cs": []
+    },
+    {
+      "fn": "st_dwithin",
+      "cs": []
+    },
+    {
+      "fn": "st_equals",
+      "cs": []
+    },
+    {
+      "fn": "st_expand",
+      "cs": []
+    },
+    {
+      "fn": "st_force3d",
+      "cs": []
+    },
+    {
+      "fn": "st_force3dm",
+      "cs": []
+    },
+    {
+      "fn": "st_force3dz",
+      "cs": []
+    },
+    {
+      "fn": "st_force4d",
+      "cs": []
+    },
+    {
+      "fn": "st_forcesfs",
+      "cs": []
+    },
+    {
+      "fn": "st_frechetdistance",
+      "cs": []
+    },
+    {
+      "fn": "st_generatepoints",
+      "cs": []
+    },
+    {
+      "fn": "st_geogfromtext",
+      "cs": []
+    },
+    {
+      "fn": "st_geogfromwkb",
+      "cs": []
+    },
+    {
+      "fn": "st_geographyfromtext",
+      "cs": []
+    },
+    {
+      "fn": "st_geohash",
+      "cs": []
+    },
+    {
+      "fn": "st_geomcollfromtext",
+      "cs": []
+    },
+    {
+      "fn": "st_geomcollfromwkb",
+      "cs": []
+    },
+    {
+      "fn": "st_geometricmedian",
+      "cs": []
+    },
+    {
+      "fn": "st_geometryfromtext",
+      "cs": []
+    },
+    {
+      "fn": "st_geomfromewkb",
+      "cs": []
+    },
+    {
+      "fn": "st_geomfromewkt",
+      "cs": []
+    },
+    {
+      "fn": "st_geomfromgeojson",
+      "cs": []
+    },
+    {
+      "fn": "st_geomfromgml",
+      "cs": []
+    },
+    {
+      "fn": "st_geomfromkml",
+      "cs": []
+    },
+    {
+      "fn": "st_geomfrommarc21",
+      "cs": []
+    },
+    {
+      "fn": "st_geomfromtext",
+      "cs": []
+    },
+    {
+      "fn": "st_geomfromtwkb",
+      "cs": []
+    },
+    {
+      "fn": "st_geomfromwkb",
+      "cs": []
+    },
+    {
+      "fn": "st_gmltosql",
+      "cs": []
+    },
+    {
+      "fn": "st_hasarc",
+      "cs": []
+    },
+    {
+      "fn": "st_hausdorffdistance",
+      "cs": []
+    },
+    {
+      "fn": "st_hexagon",
+      "cs": []
+    },
+    {
+      "fn": "st_hexagongrid",
+      "cs": []
+    },
+    {
+      "fn": "st_interpolatepoint",
+      "cs": []
+    },
+    {
+      "fn": "st_intersection",
+      "cs": []
+    },
+    {
+      "fn": "st_intersects",
+      "cs": []
+    },
+    {
+      "fn": "st_isvaliddetail",
+      "cs": []
+    },
+    {
+      "fn": "st_length",
+      "cs": []
+    },
+    {
+      "fn": "st_letters",
+      "cs": []
+    },
+    {
+      "fn": "st_linecrossingdirection",
+      "cs": []
+    },
+    {
+      "fn": "st_linefromencodedpolyline",
+      "cs": []
+    },
+    {
+      "fn": "st_linefromtext",
+      "cs": []
+    },
+    {
+      "fn": "st_linefromwkb",
+      "cs": []
+    },
+    {
+      "fn": "st_lineinterpolatepoints",
+      "cs": []
+    },
+    {
+      "fn": "st_linelocatepoint",
+      "cs": []
+    },
+    {
+      "fn": "st_linestringfromwkb",
+      "cs": []
+    },
+    {
+      "fn": "st_linetocurve",
+      "cs": []
+    },
+    {
+      "fn": "st_locatealong",
+      "cs": []
+    },
+    {
+      "fn": "st_locatebetween",
+      "cs": []
+    },
+    {
+      "fn": "st_locatebetweenelevations",
+      "cs": []
+    },
+    {
+      "fn": "st_longestline",
+      "cs": []
+    },
+    {
+      "fn": "st_makebox2d",
+      "cs": []
+    },
+    {
+      "fn": "st_makeline",
+      "cs": []
+    },
+    {
+      "fn": "st_makevalid",
+      "cs": []
+    },
+    {
+      "fn": "st_maxdistance",
+      "cs": []
+    },
+    {
+      "fn": "st_maximuminscribedcircle",
+      "cs": []
+    },
+    {
+      "fn": "st_minimumboundingcircle",
+      "cs": []
+    },
+    {
+      "fn": "st_minimumboundingradius",
+      "cs": []
+    },
+    {
+      "fn": "st_mlinefromtext",
+      "cs": []
+    },
+    {
+      "fn": "st_mlinefromwkb",
+      "cs": []
+    },
+    {
+      "fn": "st_mpointfromtext",
+      "cs": []
+    },
+    {
+      "fn": "st_mpointfromwkb",
+      "cs": []
+    },
+    {
+      "fn": "st_mpolyfromtext",
+      "cs": []
+    },
+    {
+      "fn": "st_mpolyfromwkb",
+      "cs": []
+    },
+    {
+      "fn": "st_multilinefromwkb",
+      "cs": []
+    },
+    {
+      "fn": "st_multilinestringfromtext",
+      "cs": []
+    },
+    {
+      "fn": "st_multipointfromtext",
+      "cs": []
+    },
+    {
+      "fn": "st_multipointfromwkb",
+      "cs": []
+    },
+    {
+      "fn": "st_multipolyfromwkb",
+      "cs": []
+    },
+    {
+      "fn": "st_multipolygonfromtext",
+      "cs": []
+    },
+    {
+      "fn": "st_node",
+      "cs": []
+    },
+    {
+      "fn": "st_normalize",
+      "cs": []
+    },
+    {
+      "fn": "st_offsetcurve",
+      "cs": []
+    },
+    {
+      "fn": "st_orderingequals",
+      "cs": []
+    },
+    {
+      "fn": "st_overlaps",
+      "cs": []
+    },
+    {
+      "fn": "st_perimeter",
+      "cs": []
+    },
+    {
+      "fn": "st_point",
+      "cs": []
+    },
+    {
+      "fn": "st_pointfromtext",
+      "cs": []
+    },
+    {
+      "fn": "st_pointfromwkb",
+      "cs": []
+    },
+    {
+      "fn": "st_pointm",
+      "cs": []
+    },
+    {
+      "fn": "st_pointz",
+      "cs": []
+    },
+    {
+      "fn": "st_pointzm",
+      "cs": []
+    },
+    {
+      "fn": "st_polyfromtext",
+      "cs": []
+    },
+    {
+      "fn": "st_polyfromwkb",
+      "cs": []
+    },
+    {
+      "fn": "st_polygonfromtext",
+      "cs": []
+    },
+    {
+      "fn": "st_polygonfromwkb",
+      "cs": []
+    },
+    {
+      "fn": "st_project",
+      "cs": []
+    },
+    {
+      "fn": "st_quantizecoordinates",
+      "cs": []
+    },
+    {
+      "fn": "st_reduceprecision",
+      "cs": []
+    },
+    {
+      "fn": "st_relate",
+      "cs": []
+    },
+    {
+      "fn": "st_removerepeatedpoints",
+      "cs": []
+    },
+    {
+      "fn": "st_scale",
+      "cs": []
+    },
+    {
+      "fn": "st_segmentize",
+      "cs": []
+    },
+    {
+      "fn": "st_setsrid",
+      "cs": []
+    },
+    {
+      "fn": "st_sharedpaths",
+      "cs": []
+    },
+    {
+      "fn": "st_shortestline",
+      "cs": []
+    },
+    {
+      "fn": "st_simplifypolygonhull",
+      "cs": []
+    },
+    {
+      "fn": "st_snap",
+      "cs": []
+    },
+    {
+      "fn": "st_snaptogrid",
+      "cs": []
+    },
+    {
+      "fn": "st_split",
+      "cs": []
+    },
+    {
+      "fn": "st_square",
+      "cs": []
+    },
+    {
+      "fn": "st_squaregrid",
+      "cs": []
+    },
+    {
+      "fn": "st_srid",
+      "cs": []
+    },
+    {
+      "fn": "st_subdivide",
+      "cs": []
+    },
+    {
+      "fn": "st_swapordinates",
+      "cs": []
+    },
+    {
+      "fn": "st_symdifference",
+      "cs": []
+    },
+    {
+      "fn": "st_symmetricdifference",
+      "cs": []
+    },
+    {
+      "fn": "st_tileenvelope",
+      "cs": []
+    },
+    {
+      "fn": "st_touches",
+      "cs": []
+    },
+    {
+      "fn": "st_transform",
+      "cs": []
+    },
+    {
+      "fn": "st_triangulatepolygon",
+      "cs": []
+    },
+    {
+      "fn": "st_unaryunion",
+      "cs": []
+    },
+    {
+      "fn": "st_union",
+      "cs": []
+    },
+    {
+      "fn": "st_voronoilines",
+      "cs": []
+    },
+    {
+      "fn": "st_voronoipolygons",
+      "cs": []
+    },
+    {
+      "fn": "st_within",
+      "cs": []
+    },
+    {
+      "fn": "st_wkbtosql",
+      "cs": []
+    },
+    {
+      "fn": "st_wkttosql",
+      "cs": []
+    },
+    {
+      "fn": "st_wrapx",
+      "cs": []
+    },
+    {
+      "fn": "unlockrows",
+      "cs": []
+    },
+    {
+      "fn": "updategeometrysrid",
+      "cs": []
+    }
+  ],
+  "indefinido": [
+    {
+      "fn": "fn_blocos_previstos_mes",
+      "cs": [
+        {
+          "p": "src/app/(dashboard)/escalas/unidade/[unidadeId]/ScaleGrid.tsx",
+          "cliente": "indefinido",
+          "publica": false
+        }
+      ]
+    },
+    {
+      "fn": "fn_check_shift_conflicts",
+      "cs": [
+        {
+          "p": "src/app/(dashboard)/escalas/unidade/[unidadeId]/ScaleGrid.tsx",
+          "cliente": "indefinido",
+          "publica": false
+        }
+      ]
+    },
+    {
+      "fn": "fn_data_local",
+      "cs": [
+        {
+          "p": "src/app/(dashboard)/folha-ponto/actions.ts",
+          "cliente": "indefinido",
+          "publica": false
+        },
+        {
+          "p": "src/app/(dashboard)/folha-ponto/actions.ts",
+          "cliente": "indefinido",
+          "publica": false
+        },
+        {
+          "p": "src/app/(dashboard)/justificativas/actions.ts",
+          "cliente": "service_role",
+          "publica": false
+        },
+        {
+          "p": "src/app/(dashboard)/relatorios/plantao-sobreaviso/page.tsx",
+          "cliente": "indefinido",
+          "publica": false
+        },
+        {
+          "p": "src/utils/autoClose.ts",
+          "cliente": "service_role",
+          "publica": false
+        }
+      ]
+    },
+    {
+      "fn": "fn_documentos_invalidos",
+      "cs": [
+        {
+          "p": "src/app/(dashboard)/servidores/pendencias/page.tsx",
+          "cliente": "indefinido",
+          "publica": false
+        }
+      ]
+    },
+    {
+      "fn": "fn_get_monthly_occupancy",
+      "cs": [
+        {
+          "p": "src/app/(dashboard)/escalas/unidade/[unidadeId]/ScaleGrid.tsx",
+          "cliente": "indefinido",
+          "publica": false
+        },
+        {
+          "p": "src/app/(dashboard)/escalas/unidade/[unidadeId]/ScaleGrid.tsx",
+          "cliente": "indefinido",
+          "publica": false
+        }
+      ]
+    },
+    {
+      "fn": "fn_janela_sobreaviso_dia",
+      "cs": [
+        {
+          "p": "src/app/(dashboard)/escalas/unidade/[unidadeId]/ScaleGrid.tsx",
+          "cliente": "indefinido",
+          "publica": false
+        }
+      ]
+    },
+    {
+      "fn": "fn_tentativas_recusadas_mes",
+      "cs": [
+        {
+          "p": "src/app/(dashboard)/escalas/unidade/[unidadeId]/ScaleGrid.tsx",
+          "cliente": "indefinido",
+          "publica": false
+        }
+      ]
+    },
+    {
+      "fn": "get_external_servers_for_scale",
+      "cs": [
+        {
+          "p": "src/app/(dashboard)/escalas/unidade/[unidadeId]/ScaleGrid.tsx",
+          "cliente": "indefinido",
+          "publica": false
+        }
+      ]
+    }
+  ]
+}

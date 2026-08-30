@@ -9,6 +9,9 @@ export interface UserProfile {
   permitted_setores: string[]
 }
 
+/** Id impossível, usado para transformar uma query em "nenhuma linha" sem quebrar o encadeamento. */
+const NENHUMA_LINHA = '00000000-0000-0000-0000-000000000000'
+
 /**
  * Aplica filtros de segurança baseados no perfil do usuário a uma query do Supabase.
  * @param query A query do Supabase (ex: supabase.from('escalas').select('*'))
@@ -18,14 +21,26 @@ export interface UserProfile {
 export function applyAccessFilters(
   query: any,
   profile: UserProfile | null,
-  options: { 
-    unidadeField?: string, 
+  options: {
+    unidadeField?: string,
     setorField?: string | null,
-    bypassSuperAdmin?: boolean 
+    bypassSuperAdmin?: boolean
   } = {}
 ) {
-  if (!profile) return query
-  
+  // ⚠️ SEM PERFIL, NEGA (achado 20 da auditoria de 30/08/2026). Antes esta linha era
+  // `if (!profile) return query`, devolvendo a query SEM FILTRO NENHUM.
+  //
+  // Na maioria dos sítios isso era inofensivo, porque a query vinha de `createClient()` e a RLS
+  // ainda restringia por baixo. Mas em `justificativas/actions.ts:169-182` a função é aplicada
+  // sobre uma query de `createAdminClient()` — service_role, que tem BYPASSRLS. Ali, perfil
+  // nulo significava a tabela inteira.
+  //
+  // Hoje aquele sítio está protegido por `exigirAcessoAoModulo` antes da chamada, então o furo
+  // não era explorável. Mas a proteção depende de um guard EXTERNO, e o próximo sítio que
+  // combinar admin client + este helper não terá esse guard por acaso. O default certo para
+  // uma função de segurança é negar.
+  if (!profile) return query.eq('id', NENHUMA_LINHA)
+
   // Detectar o nome da tabela a partir da URL da query para mapear os campos automaticamente
   let tableName = ''
   if (query && query.url) {
@@ -64,7 +79,7 @@ export function applyAccessFilters(
     if (profile.permitted_unidades.length > 0) {
       return query.in(unidadeField, profile.permitted_unidades)
     }
-    return query.eq('id', '00000000-0000-0000-0000-000000000000')
+    return query.eq('id', NENHUMA_LINHA)
   }
 
   // 1. Caso: Acesso a todas as unidades (Admin/SuperAdmin/RH geralmente)
@@ -97,7 +112,7 @@ export function applyAccessFilters(
       
       // Se não tem setores vinculados, mas tem unidade:
       // Retorna vazio para escalas/setores, pois ele deve ser vinculado ao setor.
-      return query.eq('id', '00000000-0000-0000-0000-000000000000')
+      return query.eq('id', NENHUMA_LINHA)
     }
   }
 
@@ -107,7 +122,7 @@ export function applyAccessFilters(
   }
 
   // Se não tem acesso a nada, retorna um filtro que não trará nada (segurança máxima)
-  return query.eq('id', '00000000-0000-0000-0000-000000000000')
+  return query.eq('id', NENHUMA_LINHA)
 }
 
 /**

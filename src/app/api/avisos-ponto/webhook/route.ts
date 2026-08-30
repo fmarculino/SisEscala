@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { iguaisEmTempoConstante } from '@/utils/segredoCron'
 import { createAdminClient } from '@/utils/supabase/server'
 import { enviarWhatsAppInterno } from '@/utils/comunicacao/enviar'
 import { resolverCanalAvisoPonto } from '@/utils/avisoPontoCanal'
@@ -147,7 +148,11 @@ export async function POST(request: Request) {
       console.error('WHATSAPP_WEBHOOK_SECRET não configurado — webhook recusado.')
       return NextResponse.json({ error: 'Webhook não configurado.' }, { status: 503 })
     }
-    if (secret !== expected) {
+    // ⚠️ Comparacao em tempo constante (achado 15). A QUERY STRING continua aceita aqui, ao
+    // contrario das rotas de cron: quem chama este webhook e um provedor EXTERNO (AstraCall),
+    // e exigir cabecalho depende de ele permitir cabecalho customizado. Se confirmarem que
+    // permite, feche a query string aqui tambem — ela vaza para log de proxy e Referer.
+    if (!secret || !iguaisEmTempoConstante(secret, expected)) {
       return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
     }
 

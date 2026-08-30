@@ -200,7 +200,24 @@ export async function enviarAcionamentoWhatsAppAction(params: {
     .eq('chave', 'sobreaviso_tempo_aceite_minutos').maybeSingle()
   const tempoAceite = String((cfgRows as any)?.valor ?? '30').replace(/"/g, '')
 
-  const base = params.origin || process.env.NEXT_PUBLIC_SITE_URL || ''
+  // ⚠️ O `origin` NAO vem mais do cliente (achado 12 da auditoria de 30/08/2026). Ele montava
+  // o link magico que o servidor recebe por WhatsApp — e o link carrega o TOKEN do chamado na
+  // URL. Quem chamasse a action com `origin` proprio fazia o SisEscala enviar, em nome da
+  // Secretaria, um link apontando para o host dele, com o token junto.
+  //
+  // A origem do link e' propriedade da INSTALACAO, nao da aba que clicou. `params.origin`
+  // continua na assinatura para nao quebrar o chamador, mas e' ignorado.
+  const base = process.env.NEXT_PUBLIC_SITE_URL
+  if (!base) {
+    // Falha EXPLICITA, nunca link quebrado. Antes havia `|| ''`, o que produzia um link
+    // relativo (`/sobreaviso/<token>`) dentro de uma mensagem de WhatsApp — inutil, e sem nada
+    // no log dizendo por que. Mesmo padrao de TERMINAL_LOCAL_SESSION_SECRET e CRON_SECRET.
+    console.error('NEXT_PUBLIC_SITE_URL nao configurado — o link de sobreaviso nao pode ser montado.')
+    return {
+      success: false,
+      error: 'NEXT_PUBLIC_SITE_URL não está configurado no ambiente. Avise o administrador do sistema.',
+    }
+  }
   const link = `${base}/sobreaviso/${contato.token}`
 
   const destino = [contato.destino_unidade, contato.destino_setor, contato.destino_referencia]

@@ -2820,10 +2820,69 @@ GPS. `'unsafe-eval'` ficou de fora desde já (conferido: nada usa `eval`/`new Fu
 `<script>` inline essa sequência fecha a tag mesmo dentro de uma string. Uma linha em
 `layout.tsx`. Alcance real era admin→admin (só admin escreve `timezone`).
 
+### 39. "Aberta ao `anon`" não é vazamento; **não filtrar por escopo** é (30/08/2026)
+
+Sobravam **321** funções alcançáveis pelo papel `anon` depois das `20260827*`. Em vez de um REVOKE
+em massa, foram **medidas** com a chave anon — e quase todas recusam de verdade:
+
+| função | resposta ao anon |
+|---|---|
+| `get_my_role()` | `null` |
+| `fn_unidade_no_escopo()` | `false` |
+| `fn_setores_no_escopo()` · `fn_pendencias_biometria()` | array vazio |
+
+Isso **confirma a hipótese** da `20260827050000`. 🚨 **Mas uma vazava:**
+`fn_tentativas_negadas_diagnostico` devolvia **HTTP 200 com 684 linhas** contendo
+`servidor_nome`, `matricula`, `unidade_nome` e `setor_nome` — dado pessoal, sem login.
+`20260830120000` fecha essa e mais 16 funções de tela.
+
+🚨 **QUATRO funções não podem perder `authenticated`, nunca:** `get_my_role`,
+`fn_unidade_no_escopo`, `fn_unidade_alcancavel_por_setor`, `fn_setores_no_escopo`. Elas são
+chamadas **de dentro de policies de RLS** (`get_my_role` em **38 migrations**), e a policy é
+avaliada com os privilégios de **quem consulta** — revogar ali faz toda consulta daquele papel
+falhar. Não é degradação, é a aplicação parando. A migration **aborta** se detectar isso.
+
+⚠️ **As 252 do PostGIS dominam a contagem e devem ficar.** Geometria pura, sem acesso a dado — e
+pertencem à extensão, então **não somos o dono**: o `REVOKE` só emitiria `WARNING` e a migration
+"aplicaria com sucesso" sem mudar nada (armadilha 24).
+
+ℹ️ A migration resolve as funções **por nome via `pg_proc`**, não por assinatura fixa: assinatura
+envelhece a cada parâmetro novo, e sobrecarga esquecida deixa a porta aberta em silêncio.
+
+⚠️ **Item 18 foi decidido como NÃO-FAZER, e o motivo vale mais que a correção.**
+`servidores_jornadas_temporarias` e `excecoes_escala_servidor` têm `USING (true)`, mas são 6 e 2
+linhas de UUID/data — sem nome, sem CPF — e escopar a segunda **quebraria a armadilha 26**, que
+registra que o filtro por unidade foi removido de propósito (o teto de carga é consolidado entre
+escalas). Fechar ali é "revogar demais" por ganho nulo.
+
+### 40. Segredo em query string, e o `origin` que vinha do navegador (30/08/2026)
+
+**Fonte única: `src/utils/segredoCron.ts`.** `?secret=` deixou de ser aceito nas duas rotas de
+cron — query string vaza para log de proxy, histórico de terminal e `Referer`, e aquele segredo
+autoriza **fechar escalas e folhas**. Só `Authorization: Bearer`, com `timingSafeEqual`.
+
+⚠️ **O webhook do WhatsApp é a exceção deliberada.** Usa `WHATSAPP_WEBHOOK_SECRET` e **quem o
+chama é um provedor externo** (AstraCall): exigir cabeçalho depende de o provedor suportá-lo, e se
+não suportar a confirmação de aviso de ponto para de chegar **sem ninguém perceber**. Ganhou só a
+comparação em tempo constante. Confirmado que o provedor manda cabeçalho? Feche a query string lá.
+
+⚠️ **`enviarAcionamentoWhatsAppAction` montava o link mágico com `origin` do CLIENTE.** Esse link
+vai por WhatsApp e carrega o **token do chamado** na URL — quem passasse `origin` próprio fazia o
+SisEscala enviar, em nome da Secretaria, um link para o host dele com o token junto. A origem é
+propriedade da **instalação**: agora vem só de `NEXT_PUBLIC_SITE_URL`, e a **ausência** dela
+recusa com erro explícito em vez de montar link relativo dentro de uma mensagem.
+
+⚠️ **`applyAccessFilters` devolvia a query SEM filtro quando o perfil não carregava.** Inofensivo
+onde a query vem de `createClient()` (a RLS segura por baixo), **não** onde vem de
+`createAdminClient()` — e existe um sítio assim (`justificativas/actions.ts`). Estava protegido
+por um guard externo, mas o default de uma função de segurança é **negar**.
+
 Diário das armadilhas 32 a 36 em
 [`docs/evolucao/2026-08-30-fase1-auditoria-de-seguranca.md`](docs/evolucao/2026-08-30-fase1-auditoria-de-seguranca.md);
 das 37 e 38 em
-[`docs/evolucao/2026-08-30-fase2-xss-e-cabecalhos.md`](docs/evolucao/2026-08-30-fase2-xss-e-cabecalhos.md).
+[`docs/evolucao/2026-08-30-fase2-xss-e-cabecalhos.md`](docs/evolucao/2026-08-30-fase2-xss-e-cabecalhos.md);
+das 39 e 40 em
+[`docs/evolucao/2026-08-30-fase3-fechar-anon-e-defesa-em-profundidade.md`](docs/evolucao/2026-08-30-fase3-fechar-anon-e-defesa-em-profundidade.md).
 O plano completo da auditoria fica em `docs/security-audit/`, que **está no `.gitignore` de
 propósito** — o repositório é público (armadilha 18) e aquele diretório descreve vulnerabilidades
 ainda abertas.
