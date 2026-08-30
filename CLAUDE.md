@@ -2877,11 +2877,37 @@ onde a query vem de `createClient()` (a RLS segura por baixo), **não** onde vem
 `createAdminClient()` — e existe um sítio assim (`justificativas/actions.ts`). Estava protegido
 por um guard externo, mas o default de uma função de segurança é **negar**.
 
+### 41. Assinatura nova de função é objeto NOVO: `GRANT` não é herdado, e a ordem de deploy vira problema (30/08/2026)
+
+`/api/rep/v1/pendencias` e `/remocoes` autenticam o relógio por HMAC e **já tinham o
+`dispositivoId` em mãos** — mas repassavam o `fila_id` do corpo **cru** para a RPC, que também não
+conferia nada: ela lê o `dispositivo_id` **da linha da fila**. Um relógio legítimo confirmava item
+da fila de OUTRO, e o vínculo de servidor nascia no equipamento errado — batida atribuída a quem
+não bateu, meses depois, sem log. `20260830130000` põe o guard dentro das duas RPCs.
+
+🚨 **`CREATE OR REPLACE` com assinatura DIFERENTE cria um objeto NOVO — e objeto novo nasce com
+`EXECUTE` para PUBLIC** (armadilha 24). Os `REVOKE`/`GRANT` precisam ser **reescritos** na
+migration nova; sem eles, a função "só alterada" fica aberta a `anon`. E a assinatura antiga
+precisa de `DROP`: duas sobrecargas fazem o PostgREST devolver `PGRST203` (foi o que aconteceu com
+`fn_reparse_afd_dispositivo` em 22/08/2026).
+
+⚠️ **Parâmetro novo OBRIGATÓRIO quebra a ordem migration/deploy nos DOIS sentidos.** Aqui ele
+ganhou `DEFAULT NULL` de propósito, porque a janela custa caro — e isso foi medido: quando a
+confirmação de cadastro falha, **o usuário JÁ FOI CRIADO no relógio** (`ciclo.go:415` só registra
+um aviso), o item fica `pendente`, e no ciclo seguinte o coletor recria → o equipamento recusa por
+duplicidade → a RPC trata recusa como **definitiva** e o item vai para `falhou`, exigindo
+reenfileiramento manual.
+
+⚠️ **O preço do default é que a checagem só vale se quem chama PASSAR o parâmetro.** Por isso
+`scratchpad/sim_rep_fila_dono.js` reprova rota de `/api/rep/v1/` que consuma fila sem repassar o
+dispositivo autenticado. **Ao trocar um guard obrigatório por um opcional, escreva o portão
+junto** — senão o defeito volta na mesma forma silenciosa que tinha antes.
+
 Diário das armadilhas 32 a 36 em
 [`docs/evolucao/2026-08-30-fase1-auditoria-de-seguranca.md`](docs/evolucao/2026-08-30-fase1-auditoria-de-seguranca.md);
 das 37 e 38 em
 [`docs/evolucao/2026-08-30-fase2-xss-e-cabecalhos.md`](docs/evolucao/2026-08-30-fase2-xss-e-cabecalhos.md);
-das 39 e 40 em
+das 39 a 41 em
 [`docs/evolucao/2026-08-30-fase3-fechar-anon-e-defesa-em-profundidade.md`](docs/evolucao/2026-08-30-fase3-fechar-anon-e-defesa-em-profundidade.md).
 O plano completo da auditoria fica em `docs/security-audit/`, que **está no `.gitignore` de
 propósito** — o repositório é público (armadilha 18) e aquele diretório descreve vulnerabilidades

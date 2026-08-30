@@ -58,6 +58,11 @@ export async function POST(request: Request) {
     p_identificador_afd: body?.identificador_afd ?? null,
     // Falha de transporte volta para a fila com espera; recusa do equipamento é definitiva.
     p_transitorio: body?.transitorio === true,
+    // ⚠️ ITEM 10 DA AUDITORIA: o dispositivo que o HMAC AUTENTICOU. Até 30/08/2026 este valor
+    // existia aqui e não era usado — o `fila_id` do corpo era repassado cru, então um relógio
+    // legítimo confirmava item da fila de OUTRO e o vínculo de servidor nascia no equipamento
+    // errado. Vínculo errado = batida atribuída a quem não bateu, meses depois, sem log.
+    p_dispositivo_id: auth.dispositivoId,
   })
   if (error) {
     console.error('Falha ao confirmar cadastro REP:', error.message)

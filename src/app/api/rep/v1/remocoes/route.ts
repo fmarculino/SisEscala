@@ -50,6 +50,8 @@ export async function POST(request: Request) {
     p_fila_id: filaId,
     p_sucesso: sucesso,
     p_erro: body?.erro ?? null,
+    // ⚠️ ITEM 10 DA AUDITORIA — ver o comentário em pendencias/route.ts.
+    p_dispositivo_id: auth.dispositivoId,
   })
   if (error) {
     console.error('Falha ao confirmar remoção REP:', error.message)

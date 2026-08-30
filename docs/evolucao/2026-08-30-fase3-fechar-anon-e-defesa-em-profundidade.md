@@ -151,11 +151,55 @@ registrado como **decisão**, não como pendência esquecida.
 
 ---
 
+## 7. Item 10 — a fila do REP não conferia de quem era o `fila_id`
+
+`/api/rep/v1/pendencias` e `/api/rep/v1/remocoes` autenticam o relógio por HMAC e **já tinham o
+`dispositivoId` em mãos** — mas nunca o usavam. O `fila_id` vinha do corpo e era repassado cru
+para a RPC, que também não conferia nada: ela lê o `dispositivo_id` **da linha da fila** e
+trabalha com ele.
+
+Um relógio legítimo (ou quem tivesse o token de um) confirmava item da fila de **outro**
+equipamento. No caminho do cadastro isso cria `rep_vinculos_servidor` no dispositivo errado — e
+vínculo errado é batida atribuída a quem não bateu, meses depois, sem nada no log.
+
+`20260830130000` põe o guard **dentro** das duas RPCs.
+
+### ⚠️ O parâmetro novo tem `DEFAULT NULL`, e isso é deliberado
+
+Sem default, a assinatura muda e a ordem migration/deploy passa a quebrar **nos dois sentidos**.
+E medi que essa janela custa caro:
+
+> Quando a confirmação de cadastro falha, **o usuário já foi criado no relógio** —
+> `ciclo.go:415` só registra um aviso. O item fica `pendente`, e no ciclo seguinte o coletor
+> tenta criar de novo → o equipamento recusa por duplicidade (`PIS já cadastrado`) →
+> `fn_confirmar_cadastro_rep` trata recusa como **definitiva** e o item vai para `falhou`,
+> exigindo reenfileiramento manual.
+
+Com `DEFAULT NULL` as duas ordens funcionam: chamador antigo segue sem checagem, chamador novo
+passa o dispositivo e a divergência é recusada.
+
+⚠️ **O preço é que a checagem só vale se quem chama PASSAR o parâmetro** — por isso existe
+`scratchpad/sim_rep_fila_dono.js`, que reprova rota de `/api/rep/v1/` que consuma fila sem
+repassar o dispositivo autenticado. **Validado com regressão injetada.** Sem esse portão, a
+próxima rota esquece e o defeito volta na mesma forma silenciosa.
+
+🚨 **E `GRANT` não é herdado**: assinatura diferente é objeto novo, e objeto novo nasce com
+`EXECUTE` para PUBLIC (armadilha 24). Sem os `REVOKE`/`GRANT` no fim da migration, estas duas
+funções — que escrevem vínculo de servidor e apagam cadastro de relógio — ficariam chamáveis por
+`anon`. A verificação da migration aborta se isso acontecer.
+
+ℹ️ As duas funções foram regeneradas por **cópia mecânica** (`scratchpad/gen_fila_dono.js`), que
+aborta se o corpo divergir do original em qualquer coisa que não seja o guard.
+
+---
+
 ## O que continua aberto
 
 | item | o que falta |
 |---|---|
-| **10** | `/api/rep/v1/pendencias` e `/remocoes` não conferem `fila_id` contra o dispositivo autenticado. Melhor resolver **dentro** da RPC (`fn_confirmar_cadastro_rep` recebendo `p_dispositivo_id`), para que uma rota nova não precise lembrar. Exige token de dispositivo válido — não é alcançável de fora. |
-| **11** | O pacote do coletor sempre gera `cert_fingerprint` vazio, então o pinning nunca está ativo e todo coletor roda com `InsecureSkipVerify`. Exige ler o certificado do relógio, o que só uma máquina na rede da unidade consegue — provavelmente um comando novo na CLI. |
+| **11** | O pacote do coletor sempre gera `cert_fingerprint` vazio, então o pinning **nunca** está ativo e todo coletor roda com `InsecureSkipVerify`. Fechar isso exige ler o certificado do relógio — o que só uma máquina **na rede da unidade** consegue —, guardar a impressão em `dispositivos_rep` e o `.zip` passar a embuti-la. Provavelmente um comando novo na CLI (`coletor-rep-cli fingerprint`). |
 
-Os dois tocam o coletor REP e precisam de hardware/rede da unidade para serem testados de verdade.
+⚠️ **O item 11 não é fechável desta cadeira.** Ele precisa de acesso ao equipamento para capturar
+a impressão e para validar que o pinning não derruba a coleta — e o modo de falha de errar é o
+coletor parar de falar com o relógio, numa unidade onde ninguém está olhando. Merece uma sessão
+com hardware à mão.
