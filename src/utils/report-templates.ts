@@ -1,4 +1,6 @@
 
+import { h, raw, HtmlSeguro } from '@/utils/htmlSeguro'
+
 export interface ReportConfig {
   title: string;
   subtitle?: string;
@@ -8,7 +10,7 @@ export interface ReportConfig {
   draft?: boolean;
 }
 
-export const getReportBaseHtml = (config: ReportConfig, content: string) => `
+export const getReportBaseHtml = (config: ReportConfig, content: HtmlSeguro | string) => h`
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -45,13 +47,13 @@ export const getReportBaseHtml = (config: ReportConfig, content: string) => `
   </style>
 </head>
 <body class="p-8 relative">
-  ${config.draft ? '<div class="watermark no-print" style="opacity: 0.035;">PREVISÃO</div><div class="watermark hidden print:block">PREVISÃO</div>' : ''}
+  ${config.draft ? raw('<div class="watermark no-print" style="opacity: 0.035;">PREVISÃO</div><div class="watermark hidden print:block">PREVISÃO</div>') : ''}
   <div class="max-w-6xl mx-auto bg-white shadow-2xl rounded-2xl overflow-hidden border border-zinc-200 container relative z-10">
     <div class="bg-zinc-900 p-8 text-white flex justify-between items-center no-print">
       <div>
         <h1 class="text-2xl font-black tracking-tight flex items-center gap-2">
           SIS ESCALA
-          ${config.draft ? '<span class="text-[9px] font-black uppercase tracking-wider bg-amber-500 text-zinc-950 px-2 py-0.5 rounded">Previsão</span>' : ''}
+          ${config.draft ? raw('<span class="text-[9px] font-black uppercase tracking-wider bg-amber-500 text-zinc-950 px-2 py-0.5 rounded">Previsão</span>') : ''}
         </h1>
         <p class="text-zinc-400 text-sm uppercase font-bold tracking-widest">Relatório Consolidado</p>
       </div>
@@ -62,12 +64,12 @@ export const getReportBaseHtml = (config: ReportConfig, content: string) => `
     </div>
 
     <div class="p-8">
-      ${config.draft ? `
+      ${config.draft ? h`
         <div class="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 font-bold text-xs flex items-center gap-3">
           <span>⚠️ <strong>DOCUMENTO PRELIMINAR:</strong> Este relatório contém dados de escalas abertas/previstas e está sujeito a alterações até homologação final.</span>
         </div>
       ` : ''}
-      ${config.instituicaoCabecalhoUrl ? `
+      ${config.instituicaoCabecalhoUrl ? h`
         <div class="flex justify-center mb-8 border-b border-zinc-200 pb-6">
           <img src="${config.instituicaoCabecalhoUrl}" alt="Cabeçalho da Instituição" class="max-h-24 object-contain" />
         </div>
@@ -84,12 +86,12 @@ export const getReportBaseHtml = (config: ReportConfig, content: string) => `
       </div>
 
       <div class="grid grid-cols-4 gap-6 mb-8 bg-zinc-50 p-6 rounded-2xl border border-zinc-100">
-        ${Object.entries(config.filters).map(([key, value]) => `
+        ${Object.entries(config.filters).map(([key, value]) => h`
           <div>
             <p class="text-[10px] font-black text-zinc-400 uppercase">${key}</p>
             <p class="font-bold text-zinc-800">${value || '---'}</p>
           </div>
-        `).join('')}
+        `)}
       </div>
 
       ${content}
@@ -104,7 +106,7 @@ export const getReportBaseHtml = (config: ReportConfig, content: string) => `
 `;
 
 export const templates = {
-  consolidado: (data: any[]) => `
+  consolidado: (data: any[]) => h`
     <table class="w-full text-left text-xs">
       <thead>
         <tr class="bg-zinc-100 border-y-2 border-zinc-900">
@@ -118,7 +120,7 @@ export const templates = {
         </tr>
       </thead>
       <tbody class="divide-y divide-zinc-200">
-        ${data.map(item => `
+        ${data.map(item => h`
           <tr>
             <td class="px-4 py-3">
               <div class="font-bold text-zinc-900 uppercase">${item.servidor}</div>
@@ -134,7 +136,7 @@ export const templates = {
             <td class="px-4 py-3 text-center">${item.sobreaviso}h</td>
             <td class="px-4 py-3 text-center font-bold">${item.totalGeral}h</td>
           </tr>
-        `).join('')}
+        `)}
       </tbody>
       <tfoot>
         <tr class="bg-zinc-50 border-t-2 border-zinc-900 font-bold">
@@ -148,7 +150,7 @@ export const templates = {
       </tfoot>
     </table>
   `,
-  rh: (data: any[]) => `
+  rh: (data: any[]) => h`
     <table class="w-full text-left text-xs">
       <thead>
         <tr class="bg-zinc-100 border-y-2 border-zinc-900">
@@ -160,7 +162,7 @@ export const templates = {
         </tr>
       </thead>
       <tbody>
-        ${data.map(item => `
+        ${data.map(item => h`
           <tr>
             <td class="px-4 py-3 font-bold uppercase">${item.servidor}</td>
             <td class="px-4 py-3">${item.unidade}</td>
@@ -168,11 +170,11 @@ export const templates = {
             <td class="px-4 py-3 text-right font-bold">${item.chTotal}h</td>
             <td class="px-4 py-3 text-right font-bold">${item.sobCount}</td>
           </tr>
-        `).join('')}
+        `)}
       </tbody>
     </table>
   `,
-  frequencia: (data: any, config: any) => `
+  frequencia: (data: any, config: any) => h`
     <div class="space-y-6">
       <div class="grid grid-cols-2 gap-8 mb-8 border p-6 rounded-xl">
         <div>
@@ -197,7 +199,7 @@ export const templates = {
           </tr>
         </thead>
         <tbody>
-          ${data.rows.map((row: any) => `
+          ${data.rows.map((row: any) => h`
             <tr class="h-8 ${row.isWeekend ? 'bg-zinc-50' : ''}">
               <td class="px-2 py-1 border-r text-center font-bold">${row.day}</td>
               <td class="px-2 py-1 border-r">${row.programacao}</td>
@@ -205,7 +207,7 @@ export const templates = {
               <td class="px-2 py-1 border-r"></td>
               <td class="px-2 py-1 border-r"></td>
             </tr>
-          `).join('')}
+          `)}
         </tbody>
       </table>
 
@@ -221,27 +223,27 @@ export const templates = {
       </div>
     </div>
   `,
-  distribuicao: (data: any) => `
+  distribuicao: (data: any) => h`
     <table class="w-full text-center border-collapse text-[8px]">
       <thead>
         <tr class="bg-zinc-100 border-y-2 border-zinc-900">
           <th class="px-2 py-2 text-left font-black uppercase w-20">Turno</th>
-          ${Array.from({ length: data.daysInMonth }, (_, i) => `
+          ${Array.from({ length: data.daysInMonth }, (_, i) => h`
             <th class="px-1 py-2 font-black border-x">${i + 1}</th>
-          `).join('')}
+          `)}
         </tr>
       </thead>
       <tbody>
-        ${data.sortedTurnos.map((turno: any) => `
+        ${data.sortedTurnos.map((turno: any) => h`
           <tr class="border-b">
             <td class="px-2 py-2 text-left font-bold uppercase border-r">${turno}</td>
             ${Array.from({ length: data.daysInMonth }, (_, i) => {
               const count = data.coverageMap[i+1]?.[turno] || 0;
               let bg = count === 0 ? '' : count === 1 ? 'bg-blue-100' : 'bg-indigo-600 text-white';
-              return `<td class="px-1 py-2 border-x ${bg}">${count || ''}</td>`;
-            }).join('')}
+              return h`<td class="px-1 py-2 border-x ${bg}">${count || ''}</td>`;
+            })}
           </tr>
-        `).join('')}
+        `)}
       </tbody>
     </table>
   `

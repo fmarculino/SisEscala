@@ -12,6 +12,7 @@ import { Modal } from '@/components/ui/Modal'
 import { formatSectorsHierarchy } from '@/utils/sectors'
 import { ocorrenciasDoMes } from '@/utils/folha/ocorrencias'
 import { rotularInativo } from '@/utils/opcoesAtivas'
+import { h, raw } from '@/utils/htmlSeguro'
 
 export default function FolhaPontoPage() {
   const supabase = createClient()
@@ -146,9 +147,12 @@ export default function FolhaPontoPage() {
 
   // Helper for batch printing minutes formatting
   const formatMinutesToTimeStr = (totalMinutes: number): string => {
-    const h = Math.floor(totalMinutes / 60)
+    // ⚠️ `horas`, nao `h`: desde 30/08/2026 este arquivo importa `h` (a tag de HTML seguro) no
+    // escopo do modulo. Um `const h` local o sombreia, e quem escrevesse um literal ``h`...` ``
+    // aqui dentro receberia "h is not a function" em tempo de execucao — sem erro de compilacao.
+    const horas = Math.floor(totalMinutes / 60)
     const m = totalMinutes % 60
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+    return `${String(horas).padStart(2, '0')}:${String(m).padStart(2, '0')}`
   }
 
   // Modal
@@ -445,7 +449,7 @@ export default function FolhaPontoPage() {
           const isOffDay = r.feriado || r.afastamento || !isWorkDay
           const isWeekend = r.dia_semana === 'Sáb' || r.dia_semana === 'Dom'
           
-          return `
+          return h`
             <tr class="${isOffDay ? 'bg-zinc-50/50' : ''} ${isWeekend && !isOffDay ? 'bg-zinc-50/30' : ''}">
               <td class="px-3 py-1.5 border-r border-zinc-300 text-center font-black text-zinc-950">${String(r.dia).padStart(2, '0')}</td>
               <td class="px-2 py-1.5 border-r border-zinc-300 text-center font-bold text-zinc-500">${r.dia_semana || ''}</td>
@@ -458,19 +462,19 @@ export default function FolhaPontoPage() {
               <td class="px-2 py-1.5 text-center"></td>
             </tr>
           `
-        }).join('')
+        })
 
-        return `
+        return h`
           <div class="print-page bg-white p-8 max-w-5xl mx-auto my-8 border border-zinc-200 rounded-3xl shadow-lg">
             <!-- Document Header -->
             <div class="flex justify-between items-start border-b border-zinc-300 pb-4 mb-6">
               <div class="flex items-center gap-4">
-                ${res.logoUrl ? `
+                ${res.logoUrl ? h`
                   <div class="h-14 w-28 border border-zinc-200 rounded-lg p-1 bg-white flex items-center justify-center">
                     <img src="${res.logoUrl}" alt="Logo" class="max-h-full max-w-full object-contain" />
                   </div>
                 ` : ''}
-                ${setor?.logo_url || unidade?.logo_url ? `
+                ${setor?.logo_url || unidade?.logo_url ? h`
                   <div class="h-14 w-28 border border-zinc-200 rounded-lg p-1 bg-white flex items-center justify-center">
                     <img src="${setor?.logo_url || unidade?.logo_url}" alt="Logo" class="max-h-full max-w-full object-contain" />
                   </div>
@@ -577,7 +581,7 @@ export default function FolhaPontoPage() {
           <div class="print-page bg-white p-8 max-w-5xl mx-auto my-8 border border-zinc-200 rounded-3xl shadow-lg">
             <div class="flex justify-between items-start border-b border-zinc-300 pb-4 mb-6">
               <div class="flex items-center gap-4">
-                ${res.logoUrl ? `
+                ${res.logoUrl ? h`
                   <div class="h-14 w-28 border border-zinc-200 rounded-lg p-1 bg-white flex items-center justify-center">
                     <img src="${res.logoUrl}" alt="Logo" class="max-h-full max-w-full object-contain" />
                   </div>
@@ -645,7 +649,7 @@ export default function FolhaPontoPage() {
                         const motivo = r.justificativa
                         const origem = r.origem
 
-                        return `
+                        return h`
                           <tr>
                             <td class="px-3 py-1.5 border-r border-zinc-300 text-center font-bold">${String(r.dia).padStart(2, '0')}</td>
                             <td class="px-2 py-1.5 border-r border-zinc-300 text-center font-bold text-zinc-500">${r.dia_semana || ''}</td>
@@ -655,8 +659,8 @@ export default function FolhaPontoPage() {
                             <td class="px-3 py-1.5 text-zinc-500 italic">${origem}</td>
                           </tr>
                         `
-                      }).join('')
-                  ) : `
+                      })
+                  ) : h`
                     <tr>
                       <td colspan="6" class="px-4 py-4 text-center text-zinc-400 italic">Nenhuma ocorrência extraordinária ou ajuste manual registrado no período.</td>
                     </tr>
@@ -691,9 +695,9 @@ export default function FolhaPontoPage() {
             </div>
           </div>
         `
-      }).join('')
+      })
 
-      const printHTML = `
+      const printHTML = h`
         <!DOCTYPE html>
         <html lang="pt-BR">
         <head>
@@ -742,7 +746,7 @@ export default function FolhaPontoPage() {
         </html>
       `
 
-      win.document.write(printHTML)
+      win.document.write(String(printHTML))
       win.document.close()
     } catch (err: any) {
       console.error(err)

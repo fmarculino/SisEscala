@@ -2753,8 +2753,77 @@ após uma correção é sinal de detector desatualizado antes de ser sinal de c�
 ⚠️ **E um portão que nunca falha não vale nada**: `sim_portal_sessao.js` foi validado injetando
 uma regressão de propósito (ação voltando a aceitar `servidorId`) — reprova e sai com código 1.
 
+### 37. Os 5 relatórios escreviam HTML sem escape, e `about:blank` herda a origem (30/08/2026)
+
+🚨 As cinco telas que geram relatório montam HTML por template string e chamam
+`win.document.write(...)` — e **não existia função de escape no projeto** (zero ocorrências de
+`escapeHtml`, nenhuma biblioteca de sanitização no `package.json`).
+
+⚠️ **`window.open('')` abre `about:blank`, que HERDA a origem da aplicação.** Script injetado ali
+roda **como o SisEscala**, com a sessão de quem imprimiu — não numa página neutra.
+
+🚨 **O caminho mais curto começa fora da aplicação:** `fn_log_tentativa_negada` grava **cru** o que
+foi digitado no terminal de ponto (`matricula_digitada`, `mensagem_erro`), e `/auditoria` imprime
+os dois. Quem tem acesso físico ao terminal digita HTML, a batida falha, e o script executa quando
+um coordenador imprime. É escalada de quem está no corredor para a sessão de quem administra.
+
+**Fonte única: `src/utils/htmlSeguro.ts`** — tag `h` que escapa toda interpolação, `raw()` como
+única saída explícita. **42 literais** marcados, **3** `raw()`.
+
+⚠️ **O ganho não é o escape, é a INVERSÃO DO MODO DE FALHA.** Chamar `escapar(...)` em cada um dos
+116 sítios significa que esquecer **um** reabre o buraco em silêncio. Com a tag: esquecer de
+marcar um fragmento HTML faz a tag aparecer como **texto** na tela — feio, visível, e consertado
+no mesmo dia. Esquecer de escapar virou impossível.
+
+⚠️ **Regex não acha template literal.** Eles aninham (`` `${ x ? `y` : '' }` ``) e regex não conta
+profundidade. `scratchpad/gen_html_seguro.js` tem um scanner que rastreia aspas, comentários e a
+profundidade de `${}`. Use-o como modelo.
+
+⚠️ **`.join('')` DESFAZ a marcação, e o compilador quase não avisa.** `map(i => h\`…\`)` devolve
+`HtmlSeguro[]`; `.join('')` vira string comum e o literal externo **escapa** aquelas linhas. `h`
+já concatena array — os 13 `.join('')` saíram. Só 1 dos 13 foi pego pelo `tsc`.
+
+⚠️ **Cuidado com variável local chamada `h`.** `folha-ponto/page.tsx` tinha `const h` (horas)
+sombreando a tag importada — renomeado para `horas`. Não quebrava nada até alguém escrever um
+literal marcado dentro daquela função: `h is not a function` em runtime, **sem erro de compilação**.
+
+ℹ️ Conferido que o escape não danifica o que funcionava: **nenhum** bloco `<style>` interpola valor
+(escapar `>` quebraria seletor CSS), e as 3 interpolações em `src="…"` são URLs, onde escapar
+aspas é o que impede quebra de atributo.
+
+⚠️ **Ao escrever portão de XSS, não confunda "a palavra aparece" com "a palavra executa".** Minha
+primeira asserção procurava `onerror=` no HTML e falhava — a palavra **aparece** dentro do texto
+escapado (`&lt;img src=x onerror=&quot;…`), onde é inerte. A asserção certa é que **toda**
+ocorrência esteja em texto escapado.
+
+### 38. CSP tem que nascer em Report-Only neste projeto (30/08/2026)
+
+`next.config.js` não tinha `headers()` nenhum. Ganhou cinco: `X-Frame-Options: DENY`,
+`X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy` e
+**`Content-Security-Policy-Report-Only`**.
+
+🚨 **Trocar o nome do cabeçalho para `Content-Security-Policy` sem antes ler os relatos quebra
+quatro coisas de uma vez:**
+
+1. os 5 relatórios carregam Tailwind de `cdn.tailwindcss.com`, e **`about:blank` herda a CSP**
+   de quem abriu;
+2. Tailwind por CDN gera CSS em runtime → exige `'unsafe-inline'` em `style-src`;
+3. o Next injeta script inline de hidratação, e o layout raiz publica `window.__SISESCALA_TZ__`
+   inline;
+4. **o terminal de ponto fica aberto por DIAS e não recarrega sozinho** — CSP que o quebre não
+   aparece para ninguém até alguém ir até o equipamento.
+
+⚠️ **`Permissions-Policy` leva `geolocation=(self)`, não vazio** — a chegada do sobreaviso confere
+GPS. `'unsafe-eval'` ficou de fora desde já (conferido: nada usa `eval`/`new Function`).
+
+ℹ️ Achado 17, na mesma passada: `JSON.stringify` **não** escapa `</script>`, e dentro de um
+`<script>` inline essa sequência fecha a tag mesmo dentro de uma string. Uma linha em
+`layout.tsx`. Alcance real era admin→admin (só admin escreve `timezone`).
+
 Diário das armadilhas 32 a 36 em
-[`docs/evolucao/2026-08-30-fase1-auditoria-de-seguranca.md`](docs/evolucao/2026-08-30-fase1-auditoria-de-seguranca.md).
+[`docs/evolucao/2026-08-30-fase1-auditoria-de-seguranca.md`](docs/evolucao/2026-08-30-fase1-auditoria-de-seguranca.md);
+das 37 e 38 em
+[`docs/evolucao/2026-08-30-fase2-xss-e-cabecalhos.md`](docs/evolucao/2026-08-30-fase2-xss-e-cabecalhos.md).
 O plano completo da auditoria fica em `docs/security-audit/`, que **está no `.gitignore` de
 propósito** — o repositório é público (armadilha 18) e aquele diretório descreve vulnerabilidades
 ainda abertas.

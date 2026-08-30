@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { formatarDataHoraComSegundos } from '@/utils/horario'
 import { Printer, FileSpreadsheet } from 'lucide-react'
 import { getReportBaseHtml, templates, ReportConfig } from '@/utils/report-templates'
+import { HtmlSeguro } from '@/utils/htmlSeguro'
 import { createClient } from '@/utils/supabase/client'
 
 interface Props {
@@ -52,7 +53,7 @@ export function ReportActions({ onExport, showExport = true, reportData, reportT
       draft: isDraft,
     };
 
-    let content = '';
+    let content: HtmlSeguro | string = '';
     if (reportType === 'consolidado') content = templates.consolidado(reportData);
     if (reportType === 'rh') content = templates.rh(reportData);
     if (reportType === 'frequencia') content = templates.frequencia(reportData, config);
@@ -61,7 +62,7 @@ export function ReportActions({ onExport, showExport = true, reportData, reportT
     const html = getReportBaseHtml(config, content);
     const win = window.open('', '_blank');
     if (win) {
-      win.document.write(html);
+      win.document.write(String(html));
       win.document.close();
     }
   };

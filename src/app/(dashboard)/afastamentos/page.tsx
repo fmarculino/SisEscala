@@ -12,6 +12,7 @@ import { Modal } from '@/components/ui/Modal'
 import { applyAccessFilters, hasSectorAccess } from '@/utils/permissions'
 import { formatSectorsHierarchy } from '@/utils/sectors'
 import { useDialog } from '@/components/ui/DialogProvider'
+import { h, raw } from '@/utils/htmlSeguro'
 
 interface Servidor {
   id: string
@@ -1114,7 +1115,7 @@ export default function AfastamentosPage() {
         const dateInicio = formatarData(a.data_inicio)
         const dateFim = formatarData(a.data_fim)
         
-        return `
+        return h`
           <tr class="border-b border-zinc-200">
             <td class="py-3 px-3 text-[10px] font-bold text-zinc-950 uppercase">
               ${a.servidores?.nome || '---'}
@@ -1131,16 +1132,16 @@ export default function AfastamentosPage() {
               <div class="text-[8px] text-zinc-500 font-normal mt-0.5">${periodSlots}</div>
             </td>
             <td class="py-3 px-3 text-[10px] text-zinc-800 font-bold whitespace-nowrap">
-              ${isHoras ? dateInicio : `De: ${dateInicio}<br/>Até: ${dateFim}`}
+              ${isHoras ? dateInicio : h`De: ${dateInicio}<br/>Até: ${dateFim}`}
             </td>
             <td class="py-3 px-3 text-[9px] text-zinc-500 italic max-w-[200px] break-words">
               ${a.observacao || 'Sem observações'}
             </td>
           </tr>
         `
-      }).join('')
+      })
 
-      const reportHtml = `
+      const reportHtml = h`
         <!DOCTYPE html>
         <html lang="pt-BR">
         <head>
@@ -1237,7 +1238,7 @@ export default function AfastamentosPage() {
 
       const win = window.open('', '_blank')
       if (win) {
-        win.document.write(reportHtml)
+        win.document.write(String(reportHtml))
         win.document.close()
       }
     } catch (error) {

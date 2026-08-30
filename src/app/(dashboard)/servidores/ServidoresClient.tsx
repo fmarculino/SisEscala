@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useDialog } from '@/components/ui/DialogProvider'
 import { rotularInativo } from '@/utils/opcoesAtivas'
+import { h, raw } from '@/utils/htmlSeguro'
 
 interface Servidor {
   id: string
@@ -174,12 +175,12 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
       const horarioEspecialName = selectedHorarioLivre === 'sim' ? 'Apenas Horário Livre' : selectedHorarioLivre === 'nao' ? 'Apenas Horário Padrão' : 'Todos'
       const searchDescription = searchTerm ? `"${searchTerm}"` : 'Nenhum'
 
-      const tableRows = serversToPrint.map((servidor) => `
+      const tableRows = serversToPrint.map((servidor) => h`
         <tr class="border-b border-zinc-200">
           <td class="py-3 px-3 text-[10px] font-bold text-zinc-950 uppercase">
             <div class="flex items-center gap-1">
               <span>${servidor.nome}</span>
-              ${servidor.ignora_janela_presenca ? '<span class="text-[8px] font-bold text-amber-700 bg-amber-100 px-1 py-0.2 rounded border border-amber-300 ml-1">HORÁRIO LIVRE</span>' : ''}
+              ${servidor.ignora_janela_presenca ? raw('<span class="text-[8px] font-bold text-amber-700 bg-amber-100 px-1 py-0.2 rounded border border-amber-300 ml-1">HORÁRIO LIVRE</span>') : ''}
             </div>
             <div class="text-[8px] text-zinc-500 font-normal mt-0.5">Matrícula: ${servidor.matricula || '---'}</div>
           </td>
@@ -199,9 +200,9 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
             </span>
           </td>
         </tr>
-      `).join('')
+      `)
 
-      const reportHtml = `
+      const reportHtml = h`
         <!DOCTYPE html>
         <html lang="pt-BR">
         <head>
@@ -306,7 +307,7 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
 
       const win = window.open('', '_blank')
       if (win) {
-        win.document.write(reportHtml)
+        win.document.write(String(reportHtml))
         win.document.close()
       }
     } catch (e) {

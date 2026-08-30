@@ -59,11 +59,22 @@ export default async function RootLayout({
       <head>
         {/*
           Precisa rodar ANTES de qualquer componente formatar hora, por isso vai no <head> e não
-          num efeito. JSON.stringify escapa o valor — ele vem do banco.
+          num efeito. O valor vem do banco (`configuracoes_globais.timezone`).
+
+          ⚠️ `JSON.stringify` NÃO basta sozinho (achado 17 da auditoria de 30/08/2026): ele
+          escapa aspas e barras, mas deixa `<` e `>` intactos. Dentro de um `<script>` inline, a
+          sequência `</script>` FECHA a tag onde quer que apareça — inclusive dentro de uma
+          string —, então um valor contendo `</script><script>…` escaparia do literal.
+
+          Só `admin`/`super_admin` escrevem essa chave, então o alcance real é admin→admin. Mas
+          a correção é uma linha e a regra vale para QUALQUER script inline: troque o caractere
+          "menor que" pelo seu escape unicode (ver o `.replace` abaixo). O JavaScript volta a
+          lê-lo como "menor que" ao montar a string; o parser de HTML, que roda ANTES do
+          JavaScript, não enxerga tag nenhuma para fechar.
         */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `window.__SISESCALA_TZ__=${JSON.stringify(timezone)};`,
+            __html: `window.__SISESCALA_TZ__=${JSON.stringify(timezone).replace(/</g, '\\u003c')};`,
           }}
         />
       </head>

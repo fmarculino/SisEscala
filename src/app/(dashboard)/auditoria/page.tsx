@@ -9,6 +9,7 @@ import { TentativasNegadasDiagnostico } from './TentativasNegadasDiagnostico'
 import { AvisosPontoAuditoria } from './AvisosPontoAuditoria'
 import { ShieldCheck, Zap, Clock, MapPin, UserCheck, AlertCircle, Building2, Filter, FileDown, RotateCcw, ChevronLeft, ChevronRight, Search, LayoutList, CheckCircle2, XCircle, Calendar, ExternalLink, Loader2, MessageSquare } from 'lucide-react'
 import { applyAccessFilters, type UserProfile } from '@/utils/permissions'
+import { h, raw } from '@/utils/htmlSeguro'
 
 interface LogSobreaviso {
   id: string;
@@ -278,11 +279,13 @@ export default function AuditoriaPage() {
       const setorFiltro = filtros.setorId ? setores.find(s => s.id === filtros.setorId)?.nome : 'Todos'
       const periodoFiltro = filtros.dataInicio ? `${formatarData(filtros.dataInicio)} até ${filtros.dataFim ? formatarData(filtros.dataFim) : 'Hoje'}` : 'Todo o período'
       
-      let tableRows = ''
-      tableRows = (data as any[]).map((item) => {
+      // Array de HtmlSeguro, nao string: `h` concatena arrays por conta propria. Juntar aqui com
+      // `.join('')` produziria uma string comum, e o literal externo ESCAPARIA estas linhas —
+      // o relatorio sairia com as tags visiveis. Ver src/utils/htmlSeguro.ts.
+      const tableRows = (data as any[]).map((item) => {
         if (activeTab === 'sistema') {
           const log = item as LogSistema;
-          return `
+          return h`
             <tr class="border-b border-zinc-100">
               <td class="py-3 px-2 text-[10px] font-bold text-zinc-700">${log.acao}</td>
               <td class="py-3 px-2 text-[10px] font-medium">${log.profiles?.full_name || 'Sistema'}</td>
@@ -293,7 +296,7 @@ export default function AuditoriaPage() {
           `;
         } else if (activeTab === 'negadas') {
           const log = item as LogTentativaNegada;
-          return `
+          return h`
             <tr class="border-b border-zinc-100">
               <td class="py-3 px-2 text-[10px] font-medium">
                 <div class="font-bold text-red-700">${log.nome_servidor_detectado || 'Desconhecido'}</div>
@@ -318,7 +321,7 @@ export default function AuditoriaPage() {
           const isRegular = log.categoria && log.categoria !== 'Sobreaviso';
           
           if (isRegular) {
-            return `
+            return h`
               <tr class="border-b border-zinc-100">
                 <td class="py-3 px-2 text-[10px] font-medium">
                   <div class="font-bold">${log.servidores?.nome || 'N/A'}</div>
@@ -342,7 +345,7 @@ export default function AuditoriaPage() {
             `;
           }
           
-          return `
+          return h`
             <tr class="border-b border-zinc-100">
               <td class="py-3 px-2 text-[10px] font-medium">
                 <div class="font-bold">${log.servidores?.nome || 'N/A'}</div>
@@ -365,9 +368,9 @@ export default function AuditoriaPage() {
             </tr>
           `;
         }
-      }).join('')
+      })
 
-      const reportHtml = `
+      const reportHtml = h`
         <!DOCTYPE html>
         <html lang="pt-BR">
         <head>
@@ -433,21 +436,21 @@ export default function AuditoriaPage() {
               <table class="w-full text-left">
                 <thead>
                   <tr class="bg-zinc-100 border-y-2 border-zinc-900">
-                    ${(activeTab === 'sobreaviso' || activeTab === 'presenca') ? `
+                    ${(activeTab === 'sobreaviso' || activeTab === 'presenca') ? h`
                       <th class="py-3 px-2 text-[10px] font-black uppercase">Servidor</th>
                       <th class="py-3 px-2 text-[10px] font-black uppercase">Unidade</th>
                       <th class="py-3 px-2 text-[10px] font-black uppercase">${activeTab === 'presenca' ? 'Categoria / Dia' : 'Acionamento'}</th>
                       <th class="py-3 px-2 text-[10px] font-black uppercase">${activeTab === 'presenca' ? 'Validador / Detalhes' : 'Aceite'}</th>
                       <th class="py-3 px-2 text-[10px] font-black uppercase">${activeTab === 'presenca' ? '-' : 'Chegada'}</th>
                       <th class="py-3 px-2 text-[10px] font-black uppercase">Status</th>
-                    ` : activeTab === 'negadas' ? `
+                    ` : activeTab === 'negadas' ? h`
                       <th class="py-3 px-2 text-[10px] font-black uppercase">Servidor / Matrícula</th>
                       <th class="py-3 px-2 text-[10px] font-black uppercase">Unidade / Setor</th>
                       <th class="py-3 px-2 text-[10px] font-black uppercase">Tentativa</th>
                       <th class="py-3 px-2 text-[10px] font-black uppercase">Escala / Coordenador</th>
                       <th class="py-3 px-2 text-[10px] font-black uppercase">Erro Retornado</th>
                       <th class="py-3 px-2 text-[10px] font-black uppercase">Status</th>
-                    ` : `
+                    ` : h`
                       <th class="py-3 px-2 text-[10px] font-black uppercase">Ação</th>
                       <th class="py-3 px-2 text-[10px] font-black uppercase">Usuário</th>
                       <th class="py-3 px-2 text-[10px] font-black uppercase">Unidade/Setor</th>
@@ -476,7 +479,7 @@ export default function AuditoriaPage() {
 
       const win = window.open('', '_blank')
       if (win) {
-        win.document.write(reportHtml)
+        win.document.write(String(reportHtml))
         win.document.close()
       }
       setIsGeneratingPDF(false)
