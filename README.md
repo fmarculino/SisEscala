@@ -1,4 +1,4 @@
-# SisEscala 📅[![Version](https://img.shields.io/badge/version-2.23.0-green.svg)](https://github.com/fmarculino/SisEscala)
+# SisEscala 📅[![Version](https://img.shields.io/badge/version-2.27.0-green.svg)](https://github.com/fmarculino/SisEscala)
 [![Next.js](https://img.shields.io/badge/framework-Next.js%2015-black.svg)](https://nextjs.org/)
 [![Supabase](https://img.shields.io/badge/backend-Supabase-green.svg)](https://supabase.com/)
 [![Tailwind CSS](https://img.shields.io/badge/styling-Tailwind%20CSS-38B2AC.svg)](https://tailwindcss.com/)
@@ -10,6 +10,21 @@ O sistema foca em **governança, segurança jurídica e eficiência operacional*
 ---
 
 ## 🚀 Principais Funcionalidades
+
+### 🔐 Endurecimento de Segurança (v2.24.0 → v2.27.0)
+Uma auditoria de segurança sobre todo o código foi verificada achado a achado contra o sistema real e executada em quatro entregas. As correções tocam **quem consegue entrar, quem consegue ver e quem consegue agir em nome de outra pessoa** — nenhuma delas altera o cálculo de ponto, de escala ou de folha, e essa fronteira foi mantida de propósito para que a correção fosse reversível.
+
+- **Portal do Servidor com sessão assinada.** A sessão passou a ser um cookie assinado por HMAC, e **toda** ação do portal deriva a identidade dele — em vez de recebê-la do navegador. A busca por matrícula deixou de devolver o identificador interno, e a validação de PIN passou a receber a matrícula.
+  - ⚠️ A decisão que importa é **derivar em vez de comparar**: comparar funciona, mas exige que cada ação nova lembre de fazê-lo. Derivar torna o erro impossível de cometer.
+- **Envio de WhatsApp e e-mail exige sessão.** O motor de envio saiu do arquivo de Server Actions e virou código de servidor comum, alcançável só por quem o importa — o cron de avisos e o webhook continuam funcionando. A opção de sobrescrever configuração na hora ficou restrita ao caminho de **teste**, que exige administrador. A validação de certificado TLS do SMTP foi ligada.
+- **Segredo deixou de ser legível por qualquer conta logada.** A senha do SMTP e a chave de API de WhatsApp passaram a exigir papel administrativo. ⚠️ A parte não óbvia: **19 das chaves sensíveis são blobs JSON com a credencial aninhada dentro do valor** — uma regra por nome de chave não as alcançaria.
+- **Bloqueio de PIN mudou para o banco.** A regra de 5 tentativas / 15 minutos vivia na aplicação e era contornável; agora a decisão inteira acontece numa transação só. Equivalência com a regra anterior provada em **352 estados**, com zero divergências.
+- **Relatórios deixaram de imprimir texto do banco sem escape.** Os cinco geradores passaram a usar uma montagem de HTML que **escapa por omissão** — esquecer de marcar um fragmento faz a tag aparecer como texto na tela, em vez de executar.
+- **Cabeçalhos de segurança** (`X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`) e **CSP em modo Report-Only** — que relata sem bloquear, porque uma política em modo bloqueio quebraria os relatórios e, pior, o terminal de ponto, que fica aberto por dias sem recarregar.
+- **Acesso anônimo às funções de tela fechado.** ⚠️ Cada função foi **medida** antes de qualquer alteração, e a maioria já recusava sozinha — o que vazava era a que não filtrava por escopo. Quatro funções usadas dentro das regras de acesso do banco ficaram intocadas de propósito: revogá-las derrubaria a aplicação inteira, não a degradaria.
+- **A fila do relógio de ponto confere de quem é o item confirmado**, para que um equipamento não confirme cadastro pendente de outro.
+
+Cada correção veio com um **portão** que reprova a regressão correspondente, e todos foram validados quebrando o código de propósito para confirmar que falham. Conferência em um comando: `node scratchpad/conferir_seguranca.mjs`.
 
 ### 🗂️ Excluir Setor Transferindo os Vínculos (v2.23.0)
 - **Setor cadastrado errado agora tem saída, mesmo com gente dentro.** A exclusão que existia só alcançava setor sem vínculo nenhum — na prática, **200 dos 646 setores**. Entre os já **inativos**, que são justamente os que se quer tirar do cadastro, **7 estavam presos para sempre**: o sistema listava os vínculos e não oferecia nada a fazer com aquela informação.

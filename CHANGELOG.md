@@ -2,6 +2,81 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.27.0] - 2026-08-30
+
+### Fixed
+- **A fila do relógio de ponto não conferia de quem era o item confirmado** (`20260830130000`). As rotas `/api/rep/v1/pendencias` e `/remocoes` autenticam o equipamento por HMAC e **já tinham o `dispositivoId` em mãos** — mas repassavam o `fila_id` do corpo **cru** para a RPC, que também não conferia nada: ela lê o `dispositivo_id` **da linha da fila** e trabalha com ele. Um relógio legítimo confirmava item da fila de **outro** equipamento, e o vínculo de servidor nascia no dispositivo errado — batida atribuída a quem não bateu, meses depois, sem nada no log. Não é alcançável de fora (exige token de dispositivo válido).
+  - ⚠️ **O parâmetro novo tem `DEFAULT NULL`, e isso é deliberado.** Sem default, a assinatura muda e a ordem migration/deploy quebra **nos dois sentidos** — e essa janela custa caro, medido: quando a confirmação de cadastro falha, **o usuário já foi criado no relógio** (`ciclo.go:415` só registra um aviso), o item fica `pendente`, e no ciclo seguinte o coletor recria → o equipamento recusa por duplicidade → a RPC trata recusa como **definitiva** e o item vai para `falhou`, exigindo reenfileiramento manual. Com o default, as duas ordens funcionam.
+  - ⚠️ **O preço do default é que a checagem só vale se quem chama passar o parâmetro** — daí o portão `scratchpad/sim_rep_fila_dono.js`, que reprova rota de `/api/rep/v1/` que consuma fila sem repassar o dispositivo autenticado, validado com regressão injetada. Ao trocar um guard obrigatório por um opcional, escreva o portão junto.
+  - 🚨 **`CREATE OR REPLACE` com assinatura DIFERENTE cria um objeto NOVO, e objeto novo nasce com `EXECUTE` para `PUBLIC`** (armadilha 24). Os `REVOKE`/`GRANT` da migration não são decorativos: sem eles, duas funções que escrevem vínculo de servidor e apagam cadastro de relógio ficariam chamáveis por `anon`. A assinatura antiga leva `DROP` — duas sobrecargas fazem o PostgREST devolver `PGRST203`.
+  - As duas funções foram regeneradas por **cópia mecânica** (`scratchpad/gen_fila_dono.js`), que aborta se o corpo divergir do original em qualquer coisa que não seja o guard.
+
+## [2.26.1] - 2026-08-30
+
+### Fixed
+- **O link do chamado de sobreaviso parou de ser montado** depois da 2.26.0. A correção daquela versão fez o link deixar de usar o `origin` mandado pelo navegador — correto, porque ele carrega o token do chamado na URL —, mas passou a exigir `NEXT_PUBLIC_SITE_URL`, e **essa variável não existia no ambiente**. O acionamento por WhatsApp passou a recusar com erro explícito (falha alta, não silenciosa) e `acionarSobreavisoAction` devolvia link vazio.
+  - A resposta já estava no projeto: `/api/coletor-rep/download` tinha `resolverUrlPublica` desde sempre, com fallback para `X-Forwarded-Host`, e funcionando em produção — o comentário dela **já dizia** que `NEXT_PUBLIC_SITE_URL` era "a mesma variável que o link de sobreaviso usa". As duas eram a mesma necessidade e viviam separadas.
+  - Fonte única em `src/utils/urlPublica.ts`, com a ordem de confiança documentada: **`NEXT_PUBLIC_SITE_URL`** (propriedade da instalação, que ninguém influencia) → **`X-Forwarded-Host`** (um degrau abaixo: quem controla o `Host` influencia) → `null`, e quem chama falha explicitamente.
+  - ⚠️ **O fallback não desfaz a correção da 2.26.0**: o `origin` do navegador não tinha proxy nenhum no caminho; `X-Forwarded-Host` passa pelo Traefik. Ainda assim, **configurar a variável elimina esse degrau** — e ela foi configurada em 30/08/2026.
+
+## [2.26.0] - 2026-08-30
+
+### Changed
+- **Fechamento do acesso anônimo às funções de tela** (`20260830120000`). Sobravam **321** funções alcançáveis pelo papel `anon` — a chave que vai no bundle do navegador. Em vez de um `REVOKE` em massa, **cada uma foi medida** com essa chave, e quase todas recusam de verdade: `get_my_role()` devolve `null`, `fn_unidade_no_escopo()` devolve `false`, os escopos vêm vazios. Estar "aberta ao `anon`" não é, por si só, vazamento — o que vaza é a função que **não filtra por escopo**.
+  - 🚨 **Uma vazava dado pessoal**: uma função de diagnóstico de tentativas negadas devolvia **684 linhas** com nome, matrícula, unidade e setor de servidor público, **sem login**. Fechada, junto de mais 16 funções de tela (`REVOKE` de `PUBLIC`/`anon`, reafirmando `authenticated`).
+  - ⚠️ **Quatro funções ficaram intocadas de propósito, e mexer nelas derrubaria a aplicação**: `get_my_role`, `fn_unidade_no_escopo`, `fn_unidade_alcancavel_por_setor` e `fn_setores_no_escopo` são chamadas **de dentro de policies de RLS** (`get_my_role` aparece em **38 migrations**). A policy é avaliada com os privilégios de **quem consulta** — tirar `EXECUTE` de `authenticated` ali faz **toda** consulta daquele papel falhar. A migration **aborta** se detectar isso.
+  - ⚠️ **As 252 funções do PostGIS também ficaram**: dominam a contagem (252 de 321), são geometria pura sem acesso a dado, e pertencem à extensão — **não somos o dono**, então o `REVOKE` só emitiria `WARNING` e a migration "aplicaria com sucesso" sem mudar nada.
+  - A migration resolve as funções **por nome via `pg_proc`**, não por assinatura fixa: assinatura envelhece a cada parâmetro novo, e uma sobrecarga esquecida deixaria a porta aberta em silêncio. Contagem final: **304** RPCs visíveis a `anon`.
+
+### Fixed
+- **`applyAccessFilters` devolvia a query SEM filtro quando o perfil não carregava.** Inofensivo onde a query vem da sessão do usuário (a RLS segura por baixo), **não** onde vem do cliente administrativo — e existe um sítio assim. Estava protegido por um guard externo, mas o default de uma função de segurança é **negar**.
+- **Segredo das rotas de máquina deixou de ser aceito por query string** (fonte única em `src/utils/segredoCron.ts`). `?secret=` vaza para log de proxy, histórico de terminal e cabeçalho `Referer`, e aquele segredo autoriza **fechar escalas e folhas**. Só `Authorization: Bearer`, com comparação em tempo constante.
+  - ⚠️ **O webhook do WhatsApp é exceção deliberada**: quem o chama é um provedor **externo**, e exigir cabeçalho depende de ele suportar — se não suportar, a confirmação de aviso de ponto para de chegar **sem ninguém perceber**. Ganhou só a comparação em tempo constante.
+- **O link mágico de sobreaviso era montado com o `origin` do cliente.** Esse link vai por WhatsApp e carrega o **token do chamado** na URL: quem passasse `origin` próprio fazia o sistema enviar, em nome da Secretaria, um link apontando para o host dele. A origem passou a ser propriedade da instalação.
+- **Chaves de serviço em texto plano em 9 scripts auxiliares** passaram a ser lidas do ambiente, recusando rodar sem elas.
+  - ℹ️ Contexto medido, e ele muda a urgência: `/scratch/` está no `.gitignore` e `git log --all -S<chave>` não retorna nada — **essas chaves nunca foram commitadas**. Existe **1 único JWT em todo o histórico dos 558 commits**, e é o de homologação. Era higiene da máquina de desenvolvimento, não vazamento público.
+
+### Known
+- ⚠️ **Decidido NÃO fazer, e o motivo vale mais que a correção:** duas tabelas apontadas por terem `USING (true)` **não foram escopadas**. São 6 e 2 linhas em produção, só UUID e datas — sem nome, sem CPF — e visíveis apenas a quem já está logado; e escopar `excecoes_escala_servidor` **quebraria** a correção de 2.22.0, que registra que o filtro por unidade foi removido de propósito (o teto de carga é consolidado **entre** escalas). Fechar ali seria "revogar demais" por ganho nulo.
+
+## [2.25.0] - 2026-08-30
+
+### Fixed
+- **Os cinco geradores de relatório montavam HTML sem escape nenhum.** Não existia função de escape no projeto — zero ocorrências de `escapeHtml` — e não há biblioteca de sanitização no `package.json`. E `window.open('')` abre `about:blank`, que **herda a origem da aplicação**: script injetado ali não roda numa página neutra, roda **como o SisEscala**, com a sessão de quem imprimiu.
+  - 🚨 **O caminho mais curto começava fora da aplicação:** `fn_log_tentativa_negada` grava **cru** o que é digitado no terminal de ponto (`matricula_digitada`, `mensagem_erro`), e a tela de Auditoria imprime os dois. Quem tem acesso físico ao terminal escalava para a sessão de quem administra.
+  - **Fonte única: `src/utils/htmlSeguro.ts`** — uma tag de template literal que **escapa toda interpolação**, com `raw()` como única saída explícita. **42 literais** marcados, **3** usos de `raw()`.
+  - ⚠️ **O ganho não é o escape, é a INVERSÃO DO MODO DE FALHA.** O inventário deu **116 interpolações**: chamar `escapar(...)` em cada uma significa que esquecer **uma** reabre o buraco em silêncio. Com a tag, esquecer de marcar um fragmento HTML faz a tag aparecer como **texto** na tela — feio, visível, inofensivo. Esquecer de escapar virou impossível.
+  - ⚠️ **Regex não acha template literal** (eles aninham, e regex não conta profundidade): o gerador tem um scanner que rastreia aspas, comentários e a profundidade de `${}`. E **`.join('')` desfaz a marcação** sem o compilador avisar — dos 13 removidos, só 1 o `tsc` pegou.
+- **Nenhum cabeçalho de segurança estava configurado.** `next.config.js` não tinha `headers()`. Ganhou `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy` e **CSP**.
+  - 🚨 **A CSP vai em `Report-Only` de propósito**, e trocar o nome do cabeçalho sem antes ler os relatos quebra quatro coisas ao mesmo tempo: os relatórios carregam Tailwind de CDN (e `about:blank` **herda** a CSP), o Tailwind por CDN gera CSS em runtime, o Next injeta script inline de hidratação, e **o terminal de ponto fica aberto por dias sem recarregar** — uma CSP que o quebre não aparece para ninguém até alguém ir até o equipamento.
+  - ⚠️ **`Permissions-Policy` leva `geolocation=(self)`, não vazio**: a chegada do sobreaviso confere GPS.
+- **`JSON.stringify` não escapa `</script>`** no script inline do layout raiz — essa sequência fecha a tag mesmo dentro de uma string. Alcance real era admin→admin (só admin escreve a chave), e a correção é uma linha.
+
+## [2.24.0] - 2026-08-30
+
+### Fixed
+- **A sessão do Portal do Servidor era o identificador do servidor em texto puro num cookie, sem assinatura.** `httpOnly` impede o JavaScript de **ler** o cookie; não impede — e nunca impediu — que alguém **monte** a requisição com o cookie que quiser. E o identificador necessário era entregue pela própria aplicação, por uma Server Action **sem autenticação nenhuma**, numa rota isenta de login.
+  - **Fonte única: `src/utils/portalSession.ts`** — HMAC-SHA256 com comparação em tempo constante e separação de domínio, espelhando `terminalLocalSession.ts`, que já rodava desde 11/08/2026.
+  - 🚨 **12 das 30 ações do Portal nem liam o cookie**: recebiam o identificador do cliente, com o cliente administrativo (que ignora RLS). **Quatro delas escreviam** — abrir e cancelar pedido de férias, aceitar contraproposta em nome de outra pessoa.
+  - ⚠️ **A decisão que importa é DERIVAR em vez de COMPARAR.** Seis ações já comparavam, corretamente. Mas comparar exige que **cada ação nova lembre**, e 12 não lembraram. Derivar do cookie torna o erro impossível de cometer. Portão: `scratchpad/sim_portal_sessao.js`, validado com regressão injetada.
+  - Duas mudanças de contrato: a busca por matrícula **não devolve mais o identificador** (só o nome), e a validação de PIN passou a receber a **matrícula**. Cookie ganhou `sameSite: 'lax'`.
+  - Corrigido junto: a sugestão de justificativa gravava o autor do registro com **texto livre vindo do navegador**.
+- **O envio de WhatsApp e e-mail eram Server Actions sem autenticação, com o `overrideConfigs` do cliente vencendo o config do banco.** Sem login: sobrescrever **só** a URL do provedor mandava a chave de API **real** ao servidor do atacante; sobrescrever **só** o host SMTP entregava usuário e senha como AUTH; mais SSRF a partir da VPS e relay aberto saindo do e-mail oficial da Secretaria.
+  - ⚠️ **Não dava para só acrescentar o guard**: o cron de avisos de ponto e o webhook chamam o envio **sem sessão de usuário**. O motor foi movido **verbatim, por script** para `src/utils/comunicacao/enviar.ts` — arquivo que **não** é `'use server'` e por isso só alcança quem o importa. As ações viraram envelopes que exigem sessão, e `overrideConfigs` ficou só no caminho de **teste**, que exige admin.
+  - A validação de certificado TLS do SMTP foi ligada, depois de conferir que o host em produção tem certificado público válido — a "flexibilidade para certificado autoassinado" do comentário não era usada por ninguém.
+- **`configuracoes_globais` servia a senha do SMTP e a chave de API a qualquer conta logada** (`20260830100000`): a policy de leitura era `USING (true)` para `authenticated`, enquanto a de **escrita** já era restrita a administrador desde a mesma migration de 2026-05-23. Leitura e escrita tinham públicos diferentes, e ninguém notou.
+  - ⚠️ **A correção óbvia — denylist por nome de chave — NÃO funciona, e só medir mostra isso.** Das 59 chaves, **só 2** têm nome que denuncia segredo. As outras 19 são **blobs JSONB com a credencial aninhada dentro do valor**, e o nome delas não casa com padrão nenhum. Fonte única em `fn_config_e_sensivel(text)`, usada **pela policy e pela conferência da migration**. Medido: **21 chaves fecham, 38 continuam abertas**.
+- **A verificação de PIN estava executável pelo papel `anon` e o bloqueio de tentativas morava no TypeScript** (`20260830110000`). Criada em 2026-05-23 e **nunca revogada de `PUBLIC`** — as migrations de 27/08 fecharam o núcleo de presença e passaram por cima desta. A regra de 5 tentativas / 15 minutos vivia inteiramente na aplicação; a função SQL só compara o hash.
+  - Movida para `fn_validar_pin_portal`, com a decisão inteira **numa transação com `FOR UPDATE`**. ⚠️ **Contador fora do banco tem CORRIDA, não só bypass**: ler, decidir e só então gravar deixa N requisições simultâneas passarem juntas — e força bruta é, por definição, concorrente.
+  - ⚠️ Premissa **medida** antes de resolver o login por matrícula: **1385 servidores ativos, 1385 matrículas distintas, zero duplicadas**. Com duplicata, o `SELECT INTO` pegaria linha arbitrária e abriria a sessão da pessoa errada.
+  - Equivalência provada em **352 estados** entre a lógica antiga e a nova, com **zero divergências** (`scratchpad/sim_bloqueio_pin.mjs`).
+- **Uma ação de folha de ponto usava o cliente administrativo e recebia o servidor do cliente sem conferir sessão, papel nem escopo** — bastava chamar com o identificador de qualquer servidor da rede para receber plantões, sobreavisos, cargo, vínculo, unidade e setor dele.
+
+### Known
+- ⚠️ **`PORTAL_SESSION_SECRET` é variável nova.** Sem ela, a sessão do portal cai para `TERMINAL_LOCAL_SESSION_SECRET` **com separação de domínio no HMAC** — deliberado, para o deploy não derrubar o portal de ~500 servidores. **Não há valor embutido em lugar nenhum**; sem nenhuma das duas, lança. Configurada em 30/08/2026.
+- ⚠️ **Ao reauditar, o detector precisa conhecer os guards novos.** Medido: depois desta versão, uma varredura de "Server Action sem checagem" saltou de 15 para **29** achados — **todos falso-positivo**, porque ela procurava uma string que a correção eliminou. Resultado **pior** logo após uma correção é sinal de detector desatualizado antes de ser sinal de código quebrado. A lista dos padrões novos está em `docs/security-audit/PLANO-DE-CORRECAO.md`.
+- ⚠️ Conferência de tudo isso em um comando: `node scratchpad/conferir_seguranca.mjs` (portões locais) ou `--producao` (inclui sondas de leitura contra o ambiente).
+
 ## [2.23.0] - 2026-08-29
 
 ### Added
