@@ -1,4 +1,4 @@
-// Confere, contra PRODUCAO, se `verify_pin` esta mesmo exposta ao papel `anon`.
+// Confere, contra o banco indicado (default .env.production; passe .env.local para homologacao), se `verify_pin` esta mesmo exposta ao papel `anon`.
 //
 // A chave anon vai no bundle do navegador — qualquer pessoa a tem. Se a funcao aparecer no
 // OpenAPI do PostgREST com essa chave, ela e' chamavel direto, fora da aplicacao, sem passar
@@ -9,7 +9,7 @@
 import fs from 'node:fs'
 
 const env = Object.fromEntries(
-  fs.readFileSync('.env.production', 'utf8').split(/\r?\n/)
+  fs.readFileSync(process.argv[2] || '.env.production', 'utf8').split(/\r?\n/)
     .filter(l => l.includes('=') && !l.trim().startsWith('#'))
     .map(l => { const i = l.indexOf('='); return [l.slice(0, i).trim(), l.slice(i + 1).trim().replace(/^["']|["']$/g, '')] })
 )
