@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/utils/supabase/server'
-import { sendWhatsAppMessageAction } from '@/app/actions/communication'
+import { enviarWhatsAppInterno } from '@/utils/comunicacao/enviar'
 import { resolverCanalAvisoPonto } from '@/utils/avisoPontoCanal'
 
 /**
@@ -106,7 +106,7 @@ export async function GET(request: Request) {
       let motivo: string | null = null
 
       try {
-        const res = await sendWhatsAppMessageAction({
+        const res = await enviarWhatsAppInterno({
           phone: aviso.telefone,
           message: aviso.mensagem,
           // Resolve o canal próprio da unidade e cai no global quando não houver.

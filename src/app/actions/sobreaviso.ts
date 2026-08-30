@@ -1,7 +1,7 @@
 'use server'
 
 import { createClient, createAdminClient } from '@/utils/supabase/server'
-import { sendWhatsAppMessageAction } from './communication'
+import { enviarWhatsAppInterno } from '@/utils/comunicacao/enviar'
 import { revalidatePath } from 'next/cache'
 import { formatSectorsHierarchy } from '@/utils/sectors'
 
@@ -225,7 +225,7 @@ export async function enviarAcionamentoWhatsAppAction(params: {
 
   // O provedor de comunicação segue o da unidade de ORIGEM do plantão: é a que já tem canal
   // configurado para aquela equipe. O destino pode ser qualquer lugar da rede.
-  const res = await sendWhatsAppMessageAction({
+  const res = await enviarWhatsAppInterno({
     phone,
     message: mensagem,
     unidadeId: contato.unidade_origem_id

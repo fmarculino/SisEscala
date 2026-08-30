@@ -4,6 +4,7 @@ import { createClient, createAdminClient } from '@/utils/supabase/server'
 import { lerLimitesTolerancia, minutosEntre, toleranciaAbsorve } from '@/utils/folha/toleranciaExtra'
 import { definirTimezone, formatarHora } from '@/utils/horario'
 import { cookies } from 'next/headers'
+import { PORTAL_COOKIE, PORTAL_COOKIE_LEGADO, criarSessaoPortal, validarSessaoPortal, opcoesCookiePortal } from '@/utils/portalSession'
 import { unstable_cache, revalidatePath } from 'next/cache'
 import { autoCloseExpiredScalesAndTimesheets, isCompetencyClosed } from '@/utils/autoClose'
 import { resolverMarcacaoDoDia, turnosDaFolha, COLUNAS_PRESENCA_FOLHA } from '@/utils/folha/origemMarcacao'
@@ -17,12 +18,40 @@ import { autorizacaoDoDia, aplicarObservacaoAutorizacao } from '@/utils/folha/au
 import { afastamentosDoDia, descreverAfastamentos, isShiftOverlappingAfastamento } from '@/utils/folha/afastamentosDia'
 
 
+/**
+ * Identidade do servidor logado no Portal — FONTE UNICA.
+ *
+ * ⚠️ Toda Server Action do portal DERIVA a identidade daqui. Nenhuma pode receber
+ * `servidorId` do cliente: ate 30/08/2026, 12 delas recebiam, com `createAdminClient()`
+ * (que ignora RLS) e sem consultar o cookie — bastava passar o UUID de outra pessoa.
+ * Quatro dessas 12 ESCREVIAM (ferias, contraproposta), ou seja, agiam em nome de outro
+ * servidor sem nunca ter tido a credencial dele.
+ *
+ * Devolve `null` quando nao ha sessao valida; quem chama responde "Sessao expirada".
+ * Portao: scratchpad/sim_portal_sessao.js.
+ */
+async function servidorDaSessao(): Promise<string | null> {
+  const cookieStore = await cookies()
+  return validarSessaoPortal(cookieStore.get(PORTAL_COOKIE)?.value)
+}
+
+/**
+ * Confirma que a matricula existe e devolve APENAS o nome, para a tela perguntar "e voce?".
+ *
+ * ⚠️ NAO devolve o `id`. Ate 30/08/2026 devolvia — e como esta action nao tem autenticacao
+ * nenhuma (a rota /consultar-escala e isenta de login no middleware) e a sessao do portal era o
+ * UUID cru num cookie, ela entregava de graca exatamente a chave necessaria para forjar a sessao
+ * de qualquer servidor da rede municipal. Matricula e numerica e curta: enumerar era trivial.
+ *
+ * Devolver o nome continua sendo necessario (a tela confirma a pessoa antes de pedir o PIN) e e
+ * inofensivo: nome de servidor publico e dado publico, e nao abre sessao nenhuma.
+ */
 export async function findServidorByMatricula(matricula: string) {
   const supabase = await createAdminClient()
 
   const { data, error } = await supabase
     .from('servidores')
-    .select('id, nome')
+    .select('nome')
     .eq('matricula', matricula)
     .eq('status', 'Ativo')
     .single()
@@ -31,98 +60,99 @@ export async function findServidorByMatricula(matricula: string) {
     return { error: 'Servidor não encontrado com esta matrícula.' }
   }
 
-  return { servidor: data }
+  return { servidor: { nome: data.nome } }
 }
 
-export async function validatePin(servidorId: string, pin: string) {
+/**
+ * Valida o PIN e abre a sessao do portal.
+ *
+ * ⚠️ Recebe a MATRICULA, nao o `servidorId`. O identificador interno nunca transita pelo cliente:
+ * quem prova quem e' o par (matricula, PIN), e o `id` e resolvido aqui dentro.
+ */
+/**
+ * Login do Portal: valida (matricula, PIN) e abre a sessao assinada.
+ *
+ * ⚠️ A decisao inteira — resolver a matricula, aplicar o bloqueio de 5 tentativas / 15 minutos e
+ * conferir o PIN — mora em `fn_validar_pin_portal`, no BANCO, numa transacao so.
+ *
+ * Antes de 30/08/2026 essa logica vivia aqui, e tinha dois furos:
+ *   1. era CONTORNAVEL: `verify_pin` estava aberta ao papel `anon` (medido em producao: HTTP
+ *      200 com a chave do bundle), entao qualquer um chamava a verificacao direto pelo
+ *      PostgREST sem passar por este contador. Com PIN de 4 digitos sao 9.000 tentativas.
+ *   2. tinha CORRIDA: ler `pin_failed_attempts`, decidir e so entao gravar deixa N requisicoes
+ *      simultaneas lerem 0 e passarem juntas — e forca bruta e, por definicao, concorrente.
+ *
+ * As mensagens em portugues continuam AQUI de proposito: a funcao devolve codigo e numeros, para
+ * nao existirem dois lugares escrevendo o texto que o servidor le.
+ */
+export async function validatePin(matricula: string, pin: string) {
   const supabase = await createAdminClient()
 
-  const { data: servidor, error } = await supabase
-    .from('servidores')
-    .select('id, nome, pin_acesso, pin_failed_attempts, last_pin_attempt')
-    .eq('id', servidorId)
-    .single()
-
-  if (error || !servidor) {
-    return { error: 'Servidor não encontrado.' }
-  }
-
-  // Verificar bloqueio por tentativas (15 minutos de cooldown após 5 erros)
-  const MAX_ATTEMPTS = 5
-  const COOLDOWN_MINUTES = 15
-
-  if (servidor.last_pin_attempt) {
-    const lastAttempt = new Date(servidor.last_pin_attempt)
-    const now = new Date()
-    const diffMinutes = (now.getTime() - lastAttempt.getTime()) / (1000 * 60)
-
-    if (diffMinutes >= COOLDOWN_MINUTES) {
-      // Cooldown expirado: resetar contador para dar nova chance
-      await supabase
-        .from('servidores')
-        .update({ pin_failed_attempts: 0 })
-        .eq('id', servidorId)
-      servidor.pin_failed_attempts = 0
-    } else if (servidor.pin_failed_attempts >= MAX_ATTEMPTS) {
-      // Bloqueado
-      return {
-        error: `Muitas tentativas incorretas. Sua conta está bloqueada por mais ${Math.ceil(COOLDOWN_MINUTES - diffMinutes)} minutos.`
-      }
-    }
-  }
-
-  if (!servidor.pin_acesso) {
-    return { error: 'Você ainda não possui um PIN cadastrado. Solicite ao seu coordenador.' }
-  }
-
-  // Validar o PIN de forma segura usando bcrypt no PostgreSQL
-  const { data: isPinValid, error: rpcError } = await supabase.rpc('verify_pin', {
-    p_servidor_id: servidorId,
-    p_pin: pin
+  const { data, error } = await supabase.rpc('fn_validar_pin_portal', {
+    p_matricula: matricula,
+    p_pin: pin,
   })
 
-  if (rpcError || !isPinValid) {
-    const newAttempts = (servidor.pin_failed_attempts || 0) + 1
+  if (error) {
+    console.error('Erro ao validar PIN do portal:', error.message)
+    return { error: 'Não foi possível validar o PIN agora. Tente novamente.' }
+  }
 
-    // Incrementar tentativas falhas
-    await supabase
-      .from('servidores')
-      .update({
-        pin_failed_attempts: newAttempts,
-        last_pin_attempt: new Date().toISOString()
-      })
-      .eq('id', servidorId)
+  const r = data as {
+    resultado: 'ok' | 'bloqueado' | 'sem_pin' | 'nao_encontrado' | 'pin_invalido'
+    servidor_id?: string
+    nome?: string
+    minutos_restantes?: number
+    tentativas_restantes?: number
+  }
 
-    const attemptsLeft = MAX_ATTEMPTS - newAttempts
-    if (attemptsLeft > 0) {
-      return { error: `PIN incorreto. Você tem mais ${attemptsLeft} tentativa(s) antes do bloqueio.` }
-    } else {
+  switch (r?.resultado) {
+    case 'nao_encontrado':
+      return { error: 'Servidor não encontrado.' }
+
+    case 'bloqueado':
+      return {
+        error: `Muitas tentativas incorretas. Sua conta está bloqueada por mais ${r.minutos_restantes} minutos.`
+      }
+
+    case 'sem_pin':
+      return { error: 'Você ainda não possui um PIN cadastrado. Solicite ao seu coordenador.' }
+
+    case 'pin_invalido': {
+      const restantes = r.tentativas_restantes ?? 0
+      if (restantes > 0) {
+        return { error: `PIN incorreto. Você tem mais ${restantes} tentativa(s) antes do bloqueio.` }
+      }
       return { error: `Muitas tentativas incorretas. Sua conta está bloqueada por 15 minutos.` }
     }
+
+    case 'ok':
+      break
+
+    default:
+      return { error: 'Não foi possível validar o PIN agora. Tente novamente.' }
   }
 
-  // Sucesso: Resetar tentativas falhas
-  await supabase
-    .from('servidores')
-    .update({
-      pin_failed_attempts: 0,
-      last_pin_attempt: new Date().toISOString()
-    })
-    .eq('id', servidorId)
+  if (!r.servidor_id) {
+    return { error: 'Não foi possível validar o PIN agora. Tente novamente.' }
+  }
 
-  // Create a temporary session cookie (valid for 4 hours)
+  // Sessao ASSINADA (HMAC) — nunca mais o UUID cru. Ver src/utils/portalSession.ts.
   const cookieStore = await cookies()
-  cookieStore.set('portal_servidor_id', servidor.id, {
-    maxAge: 60 * 60 * 4, // 4 hours
-    path: '/',
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-  })
+  const sessao = criarSessaoPortal(r.servidor_id)
+  cookieStore.set(PORTAL_COOKIE, sessao.value, opcoesCookiePortal(sessao.maxAge))
 
-  return { success: true, nome: servidor.nome }
+  // Apaga o cookie antigo, se o navegador ainda tiver um. Enquanto ele existir em circulacao,
+  // existe um cookie FORJAVEL no ambiente — e nada mais o le', entao mante-lo so cria confusao.
+  cookieStore.delete(PORTAL_COOKIE_LEGADO)
+
+  return { success: true, nome: r.nome }
 }
 
-export async function getServidorEscalas(servidorId: string) {
+export async function getServidorEscalas() {
+  const servidorId = await servidorDaSessao()
+  if (!servidorId) return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
+
   try {
     await autoCloseExpiredScalesAndTimesheets()
   } catch (err) {
@@ -170,8 +200,7 @@ export async function getServidorEscalas(servidorId: string) {
 
 export async function getEscalaDetails(escala: any) {
   const supabase = await createAdminClient()
-  const cookieStore = await cookies()
-  const portalServidorId = cookieStore.get('portal_servidor_id')?.value
+  const portalServidorId = await servidorDaSessao()
 
   if (!portalServidorId) {
     return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
@@ -288,7 +317,9 @@ export async function getEscalaDetails(escala: any) {
 
 export async function logoutPortal() {
   const cookieStore = await cookies()
-  cookieStore.delete('portal_servidor_id')
+  cookieStore.delete(PORTAL_COOKIE)
+  // O legado tambem sai: sair do portal tem que limpar TUDO que um dia serviu de sessao.
+  cookieStore.delete(PORTAL_COOKIE_LEGADO)
 }
 
 function getExtraHoursFromShift(extraShift: any): number {
@@ -318,8 +349,7 @@ export async function createSwapRequest(params: {
   destinatarioId?: string
 }) {
   const supabase = await createAdminClient()
-  const cookieStore = await cookies()
-  const portalServidorId = cookieStore.get('portal_servidor_id')?.value
+  const portalServidorId = await servidorDaSessao()
 
   if (!portalServidorId) {
     return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
@@ -399,10 +429,9 @@ export async function createSwapRequest(params: {
   return { success: true, solicitacao }
 }
 
-export async function getSwapRequests(servidorId?: string) {
+export async function getSwapRequests() {
   const supabase = await createAdminClient()
-  const cookieStore = await cookies()
-  const portalServidorId = servidorId || cookieStore.get('portal_servidor_id')?.value
+  const portalServidorId = await servidorDaSessao()
 
   if (!portalServidorId) {
     return { error: 'Sessão expirada.' }
@@ -430,8 +459,7 @@ export async function getSwapRequests(servidorId?: string) {
 
 export async function cancelSwapRequest(solicitacaoId: string) {
   const supabase = await createAdminClient()
-  const cookieStore = await cookies()
-  const portalServidorId = cookieStore.get('portal_servidor_id')?.value
+  const portalServidorId = await servidorDaSessao()
 
   if (!portalServidorId) {
     return { error: 'Sessão expirada.' }
@@ -462,18 +490,17 @@ export async function cancelSwapRequest(solicitacaoId: string) {
   return { success: true }
 }
 
-export async function getFolhaPontoServidor(servidorId: string, mes: number, ano: number, escalaMensalId?: string) {
+export async function getFolhaPontoServidor(mes: number, ano: number, escalaMensalId?: string) {
   const supabase = await createAdminClient()
-  const cookieStore = await cookies()
-  const portalServidorId = cookieStore.get('portal_servidor_id')?.value
+  const portalServidorId = await servidorDaSessao()
 
   if (!portalServidorId) {
     return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
   }
 
-  if (portalServidorId !== servidorId) {
-    return { error: 'Acesso negado.' }
-  }
+  // A identidade VEM da sessao. Antes vinha do cliente e era conferida com `!==` aqui — o que
+  // funcionava, mas dependia de cada acao nova lembrar de conferir, e 12 nao lembraram.
+  const servidorId = portalServidorId
 
   let query = supabase
     .from('folha_ponto')
@@ -657,8 +684,7 @@ export async function solicitarAjustePonto(
 ) {
   try {
     const supabase = await createAdminClient()
-    const cookieStore = await cookies()
-    const portalServidorId = cookieStore.get('portal_servidor_id')?.value
+    const portalServidorId = await servidorDaSessao()
 
     if (!portalServidorId) {
       return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
@@ -706,8 +732,7 @@ export async function solicitarAjustePonto(
 export async function salvarFolhaPontoServidor(folhaId: string, registros: any[]) {
   try {
     const supabase = await createAdminClient()
-    const cookieStore = await cookies()
-    const portalServidorId = cookieStore.get('portal_servidor_id')?.value
+    const portalServidorId = await servidorDaSessao()
 
     if (!portalServidorId) {
       return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
@@ -863,8 +888,7 @@ export async function salvarFolhaPontoServidor(folhaId: string, registros: any[]
 export async function verificarDivergenciaEscalaServidor(folhaId: string) {
   try {
     const supabase = await createAdminClient()
-    const cookieStore = await cookies()
-    const portalServidorId = cookieStore.get('portal_servidor_id')?.value
+    const portalServidorId = await servidorDaSessao()
 
     if (!portalServidorId) {
       return { divergent: false }
@@ -930,8 +954,7 @@ export async function verificarDivergenciaEscalaServidor(folhaId: string) {
 export async function sincronizarFolhaPontoServidor(folhaId: string) {
   try {
     const supabase = await createAdminClient()
-    const cookieStore = await cookies()
-    const portalServidorId = cookieStore.get('portal_servidor_id')?.value
+    const portalServidorId = await servidorDaSessao()
 
     if (!portalServidorId) {
       return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
@@ -1503,19 +1526,17 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
 }
 
 // Server Action: Generate or regenerate employee's timesheet from the portal
-export async function gerarFolhaPontoServidor(servidorId: string, mes: number, ano: number, forcarRascunho: boolean = false, escalaMensalId?: string) {
+export async function gerarFolhaPontoServidor(mes: number, ano: number, forcarRascunho: boolean = false, escalaMensalId?: string) {
   try {
     const supabase = await createAdminClient()
-    const cookieStore = await cookies()
-    const portalServidorId = cookieStore.get('portal_servidor_id')?.value
+    const portalServidorId = await servidorDaSessao()
 
     if (!portalServidorId) {
       return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
     }
 
-    if (servidorId !== portalServidorId) {
-      return { error: 'Acesso negado.' }
-    }
+    // A identidade VEM da sessao — ver o comentario em getFolhaPontoServidor.
+    const servidorId = portalServidorId
 
     // Check if the sheet already exists and is closed (Revisada)
     let existingQuery = supabase
@@ -2174,7 +2195,10 @@ function diffDays(d1: string, d2: string): number {
   return Math.ceil((b.getTime() - a.getTime()) / (1000 * 60 * 60 * 24))
 }
 
-export async function getSolicitacoesServidor(servidorId: string) {
+export async function getSolicitacoesServidor() {
+  const servidorId = await servidorDaSessao()
+  if (!servidorId) return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
+
   const supabase = await createAdminClient()
 
   const { data, error } = await supabase
@@ -2193,6 +2217,24 @@ export async function getSolicitacoesServidor(servidorId: string) {
 export async function getSolicitacaoHistorico(solicitacaoId: string) {
   const supabase = await createAdminClient()
 
+  const servidorId = await servidorDaSessao()
+  if (!servidorId) return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
+
+  // ⚠️ Esta e' a UNICA acao de ferias cuja consulta nao filtrava por servidor — as outras ja'
+  // faziam `.eq('servidor_id', ...)` e ganharam a verificacao de posse de graca ao passar a
+  // derivar a identidade da sessao. Aqui a posse precisa ser conferida explicitamente: o
+  // historico traz despacho, parecer e datas do pedido de outra pessoa.
+  const { data: dono } = await supabase
+    .from('solicitacoes_ferias_licencas')
+    .select('id')
+    .eq('id', solicitacaoId)
+    .eq('servidor_id', servidorId)
+    .maybeSingle()
+
+  if (!dono) {
+    return { error: 'Solicitação não encontrada.' }
+  }
+
   const { data, error } = await supabase
     .from('solicitacoes_ferias_licencas_historico')
     .select('*')
@@ -2206,7 +2248,10 @@ export async function getSolicitacaoHistorico(solicitacaoId: string) {
   return { historico: data || [] }
 }
 
-export async function verificarElegibilidadeServidorFerias(servidorId: string) {
+export async function verificarElegibilidadeServidorFerias() {
+  const servidorId = await servidorDaSessao()
+  if (!servidorId) return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
+
   const supabase = await createAdminClient()
 
   const { data: servidor, error: srvErr } = await supabase
@@ -2237,7 +2282,6 @@ export async function verificarElegibilidadeServidorFerias(servidorId: string) {
 }
 
 export async function criarSolicitacaoPrevisao(params: {
-  servidorId: string
   tipoBeneficio: 'ferias' | 'licenca_premio'
   exercicio: string
   modalidade: string
@@ -2247,13 +2291,20 @@ export async function criarSolicitacaoPrevisao(params: {
   adicionalTerco?: boolean
 }) {
   const supabase = await createAdminClient()
+
+  // ⚠️ `servidorId` saiu de `params`: esta acao ESCREVE (abre pedido de ferias/licenca) e ate
+  // 30/08/2026 aceitava o servidor do cliente sem consultar o cookie — dava para abrir pedido em
+  // nome de qualquer pessoa da rede municipal.
+  const servidorId = await servidorDaSessao()
+  if (!servidorId) return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
+
   const {
-    servidorId, tipoBeneficio, exercicio, modalidade,
+    tipoBeneficio, exercicio, modalidade,
     opcoesDatas, sugestaoFracionamento, observacao, adicionalTerco
   } = params
 
   // 1. Validate eligibility
-  const elegivel = await verificarElegibilidadeServidorFerias(servidorId)
+  const elegivel = await verificarElegibilidadeServidorFerias()
   if (elegivel.error) return { error: elegivel.error }
   if (!elegivel.apto) {
     return { error: elegivel.mensagem || 'Dados cadastrais incompletos. Procure o setor de RH.' }
@@ -2410,7 +2461,10 @@ export async function criarSolicitacaoPrevisao(params: {
   return { success: true, id: inserted?.id }
 }
 
-export async function cancelarSolicitacaoServidor(solicitacaoId: string, servidorId: string) {
+export async function cancelarSolicitacaoServidor(solicitacaoId: string) {
+  const servidorId = await servidorDaSessao()
+  if (!servidorId) return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
+
   const supabase = await createAdminClient()
 
   // Only allow cancellation of pending or contraproposta requests
@@ -2456,7 +2510,10 @@ export async function cancelarSolicitacaoServidor(solicitacaoId: string, servido
   return { success: true }
 }
 
-export async function aceitarContraproposta(solicitacaoId: string, servidorId: string) {
+export async function aceitarContraproposta(solicitacaoId: string) {
+  const servidorId = await servidorDaSessao()
+  if (!servidorId) return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
+
   const supabase = await createAdminClient()
 
   const { data: sol, error: fetchErr } = await supabase
@@ -2506,7 +2563,10 @@ export async function aceitarContraproposta(solicitacaoId: string, servidorId: s
   return { success: true }
 }
 
-export async function rejeitarContraproposta(solicitacaoId: string, servidorId: string) {
+export async function rejeitarContraproposta(solicitacaoId: string) {
+  const servidorId = await servidorDaSessao()
+  if (!servidorId) return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
+
   const supabase = await createAdminClient()
 
   const { data: sol, error: fetchErr } = await supabase
@@ -2551,7 +2611,10 @@ export async function rejeitarContraproposta(solicitacaoId: string, servidorId: 
   return { success: true }
 }
 
-export async function getDadosRequerimento(solicitacaoId: string, servidorId: string) {
+export async function getDadosRequerimento(solicitacaoId: string) {
+  const servidorId = await servidorDaSessao()
+  if (!servidorId) return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
+
   const supabase = await createAdminClient()
 
   const { data: sol, error: solErr } = await supabase
@@ -2613,7 +2676,10 @@ export async function checkJustificativasHabilitada() {
   }
 }
 
-export async function getJustificativasServidor(servidorId: string, mes: number, ano: number) {
+export async function getJustificativasServidor(mes: number, ano: number) {
+  const servidorId = await servidorDaSessao()
+  if (!servidorId) return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
+
   try {
     const supabase = await createAdminClient()
 
@@ -2686,7 +2752,6 @@ export async function getJustificativasServidor(servidorId: string, mes: number,
 }
 
 export async function sugerirJustificativaServidor(dados: {
-  servidorId: string
   escalaDiariaId: string
   escalaMensalId: string
   dia: number
@@ -2694,20 +2759,38 @@ export async function sugerirJustificativaServidor(dados: {
   ano: number
   categoria: string
   texto: string
-  servidorNome: string
 }) {
   try {
     const supabase = await createAdminClient()
 
+    // ⚠️ Identidade da SESSAO. `servidorId` e `servidorNome` vinham do cliente: o primeiro
+    // deixava sugerir justificativa em nome de outro servidor; o segundo era gravado direto em
+    // `registrado_por_nome`, ou seja, o autor do registro era texto livre do navegador.
+    const servidorId = await servidorDaSessao()
+    if (!servidorId) return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
+
+    const { data: servidorSessao } = await supabase
+      .from('servidores')
+      .select('nome')
+      .eq('id', servidorId)
+      .single()
+
+    // A escala tem que ser DO servidor da sessao. Sem isto, `escalaMensalId`/`escalaDiariaId`
+    // continuariam sendo ids arbitrarios vindos do cliente.
     const { data: mensal } = await supabase
       .from('escala_mensal')
       .select('unidade_id, setor_id')
       .eq('id', dados.escalaMensalId)
+      .eq('servidor_id', servidorId)
       .single()
+
+    if (!mensal) {
+      return { error: 'Escala não encontrada para este servidor.' }
+    }
 
     const payload = {
       escala_diaria_id: dados.escalaDiariaId,
-      servidor_id: dados.servidorId,
+      servidor_id: servidorId,
       escala_mensal_id: dados.escalaMensalId,
       unidade_id: mensal?.unidade_id || null,
       setor_id: mensal?.setor_id || null,
@@ -2718,7 +2801,7 @@ export async function sugerirJustificativaServidor(dados: {
       texto_justificativa: dados.texto,
       origem: 'servidor',
       status: 'sugestao_pendente',
-      registrado_por_nome: dados.servidorNome,
+      registrado_por_nome: servidorSessao?.nome || null,
       updated_at: new Date().toISOString()
     }
 
@@ -2749,8 +2832,7 @@ export async function sugerirJustificativaServidor(dados: {
  * Estado atual da preferência, para montar a tela.
  */
 export async function getPreferenciaAvisoPonto() {
-  const cookieStore = await cookies()
-  const portalServidorId = cookieStore.get('portal_servidor_id')?.value
+  const portalServidorId = await servidorDaSessao()
 
   if (!portalServidorId) {
     return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
@@ -2817,8 +2899,7 @@ export async function getPreferenciaAvisoPonto() {
  * tela usa para exibir. Aceitar o texto do cliente permitiria gravar "ciência" de qualquer coisa.
  */
 export async function definirPreferenciaAvisoPonto(ativar: boolean) {
-  const cookieStore = await cookies()
-  const portalServidorId = cookieStore.get('portal_servidor_id')?.value
+  const portalServidorId = await servidorDaSessao()
 
   if (!portalServidorId) {
     return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
@@ -2860,8 +2941,7 @@ export async function definirPreferenciaAvisoPonto(ativar: boolean) {
  * e uma nova confirmação por WhatsApp a cada troca. O consentimento já foi dado e continua valendo.
  */
 export async function definirModoAvisoPonto(modo: string) {
-  const cookieStore = await cookies()
-  const portalServidorId = cookieStore.get('portal_servidor_id')?.value
+  const portalServidorId = await servidorDaSessao()
 
   if (!portalServidorId) {
     return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }

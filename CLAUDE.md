@@ -2637,6 +2637,128 @@ nunca um valor inventado pelo servidor.
 Diário das armadilhas 27 a 30 em
 [`docs/evolucao/2026-08-29-excluir-setor-com-vinculos-e-inativos-fora-da-escolha.md`](docs/evolucao/2026-08-29-excluir-setor-com-vinculos-e-inativos-fora-da-escolha.md).
 
+### 32. Identidade que vem do cliente: COMPARAR não escala, DERIVAR sim (30/08/2026)
+
+🚨 **A sessão do Portal do Servidor era o UUID do servidor em texto puro num cookie**, e
+`findServidorByMatricula` — Server Action **sem autenticação**, numa rota isenta de login
+(`src/utils/supabase/middleware.ts:115`) — devolvia esse UUID a partir da matrícula. `httpOnly`
+impede o JS de **ler** o cookie; não impede ninguém de **montar** a requisição com ele.
+
+Pior que o cookie: **12 das 30 ações do portal nem o liam.** Recebiam `servidorId`/`solicitacaoId`
+do cliente, com `createAdminClient()` (que ignora RLS). Quatro delas **escreviam** — abrir e
+cancelar pedido de férias, aceitar contraproposta em nome de outra pessoa.
+
+**Fonte única desde então: `src/utils/portalSession.ts`** (HMAC, espelhando
+`terminalLocalSession.ts`, que já rodava desde 11/08/2026).
+
+⚠️ **A lição transferível não é "assine o cookie" — é DERIVAR em vez de COMPARAR.** Seis ações já
+faziam `if (portalServidorId !== servidorId) return erro`, corretamente. Comparar funciona, mas
+exige que **cada ação nova lembre**, e 12 não lembraram. Derivar do cookie torna o erro impossível
+de cometer: não existe mais um `servidorId` do cliente para confundir com o da sessão. Portão:
+`scratchpad/sim_portal_sessao.js` reprova qualquer ação do portal que volte a aceitá-lo.
+
+⚠️ **Quem entrega identidade antes da credencial entrega a chave junto.**
+`findServidorByMatricula` devolve só o **nome** agora; `validatePin` recebe **matrícula**, não
+UUID. O identificador interno não transita pelo cliente.
+
+⚠️ **Separação de domínio no HMAC permite reusar segredo entre contextos.**
+`PORTAL_SESSION_SECRET` cai para `TERMINAL_LOCAL_SESSION_SECRET` (já no Coolify) para o deploy não
+derrubar o portal — seguro porque `sisescala:portal-servidor:v1` entra na mensagem assinada, então
+cookie de um contexto nunca valida no outro. **Isso não é o `|| 'literal'` proibido pela armadilha
+18**: não há valor embutido, há uma segunda variável de ambiente. Sem nenhuma das duas, lança.
+
+### 33. Server Action em arquivo `'use server'` é endpoint público — inclusive o motor (30/08/2026)
+
+🚨 `sendWhatsAppMessageAction`/`sendEmailAction` (`src/app/actions/communication.ts`) eram Server
+Actions **sem autenticação nenhuma**, e faziam
+`{ ...dbConfigs, ...unidadeConfigs, ...(overrideConfigs || {}) }` — **o override do cliente
+vencia**. Sem login: sobrescrever só `whatsapp_astracall_url` mandava a `X-API-Key` **real** ao
+servidor do atacante; só `email_smtp_host` entregava usuário e senha do SMTP como AUTH; mais SSRF
+a partir da VPS e relay aberto saindo do e-mail oficial da Secretaria.
+
+⚠️ **Não dá para só acrescentar o guard**: `/api/avisos-ponto/despachar` (cron) e
+`/api/avisos-ponto/webhook` chamam o envio **sem sessão de usuário** — exigir sessão ali derruba o
+aviso de ponto. O motor foi para **`src/utils/comunicacao/enviar.ts`**, que **não** é `'use
+server'` e só alcança quem o importa; `communication.ts` ficou com envelopes que exigem sessão
+(`exigirSessao`) e, no caminho de teste, admin (`exigirAdminComunicacao`). Mesmo padrão de
+envelope da armadilha 1.
+
+⚠️ **Nunca reexportar `enviarWhatsAppInterno`/`enviarEmailInterno` de um arquivo `'use server'`** —
+isso as transforma em Server Action de novo e reabre tudo acima.
+
+ℹ️ `rejectUnauthorized: false` do SMTP saiu depois de medir: o host em produção é
+`smtp.gmail.com`, certificado público válido — a "flexibilidade para certificado autoassinado" do
+comentário não era usada por ninguém. Escotilha explícita: `email_smtp_tls_inseguro`.
+
+### 34. Segredo dentro de JSONB não tem nome — denylist por chave não o alcança (30/08/2026)
+
+🚨 `configuracoes_globais` tinha `FOR SELECT TO authenticated USING (true)`
+(`20260523000000`): **qualquer conta logada** lia a senha do SMTP e a chave de API pelo PostgREST.
+A policy de **escrita** já era admin-only desde a mesma migration — leitura e escrita tinham
+públicos diferentes e ninguém notou.
+
+⚠️ **A correção óbvia (denylist por nome de chave) NÃO funciona, e só medir mostra isso.** Das 59
+chaves de produção, **só 2** têm nome que denuncia segredo (`email_smtp_senha`,
+`whatsapp_astracall_key`). As outras 19 se chamam **`unidade_comunicacao_<uuid>`** e são **blobs
+JSONB com `email_smtp_senha` e `whatsapp_astracall_key` aninhados dentro do valor** — nome nenhum
+delas casa com `%_key`, `%senha%` ou coisa alguma. Duas têm chave preenchida hoje.
+
+Fonte única: **`fn_config_e_sensivel(text)`** (`20260830100000`), usada **pela policy e pela
+conferência da migration** — se as duas divergissem, a conferência não valeria nada. Combina o
+prefixo `unidade_comunicacao_%`, a lista explícita e os padrões genéricos; as três formas ficam.
+
+⚠️ **Ao esconder segredo, procure no VALOR, não só no nome.** Vale para log, export, relatório e
+para o próprio script de auditoria — o meu mascarava por nome de chave e imprimiu por extenso a
+chave de API que estava dentro de um desses blobs.
+
+### 35. `verify_pin` estava aberta a `anon`, e o bloqueio de tentativas morava no TypeScript (30/08/2026)
+
+🚨 Medido em produção: `POST /rest/v1/rpc/verify_pin` com a chave **anon** devolvia **HTTP 200**.
+Criada em `20260523000000`, **nunca revogada de PUBLIC** (armadilha 24) — as três migrations
+`20260827*` fecharam `fn_registrar_ponto`/`fn_confirmar_presenca` e passaram por cima desta.
+
+E o bloqueio de 5 tentativas / 15 minutos vivia **inteiramente em `validatePin`**, no TypeScript.
+A função SQL só compara o hash. Com PIN de **4 dígitos** (`Math.floor(1000 + Math.random()*9000)`
+na tela de cadastro) são **9.000 possibilidades**, percorríveis em segundos, sem passar por
+controle nenhum e sem deixar rastro em `pin_failed_attempts`.
+
+`20260830110000` revoga e move a regra para **`fn_validar_pin_portal`** (matrícula + PIN, decisão
+inteira numa transação com `FOR UPDATE`).
+
+⚠️ **Contador de tentativas fora do banco tem CORRIDA, não só bypass.** Ler
+`pin_failed_attempts`, decidir e só então gravar deixa N requisições simultâneas lerem 0 e passarem
+juntas — e força bruta é, por definição, concorrente.
+
+⚠️ **Antes de resolver login por matrícula, confira que ela é única.** Medido: **1385 ativos, 1385
+matrículas distintas, zero duplicadas**. `SELECT INTO` com duplicata pega linha **arbitrária** e
+abriria a sessão da pessoa errada — o código antigo usava `.single()`, que **errava** nesse caso.
+
+ℹ️ Decisão do usuário (30/08/2026): **PINs de 4 dígitos já emitidos não serão trocados**; serão
+substituídos naturalmente. Por isso fechar a força bruta importa mais, não menos.
+
+⚠️ **Revogar não quebra função `SECURITY DEFINER` que chama por dentro** — `fn_confirmar_presenca`
+e as demais executam com os privilégios do dono. Confira o chamador antes de temer a revogação.
+
+### 36. Detector que não conhece o guard novo transforma correção em regressão aparente (30/08/2026)
+
+⚠️ Depois de fechar o portal, a varredura de "Server Action com `createAdminClient` e sem checagem
+de identidade" saltou de 15 para **29** achados. Nenhum era real: ela procurava a string
+`portal_servidor_id`, que a correção **eliminou**. Ensinando-lhe `servidorDaSessao` /
+`exigirSessao` / `exigirAdminComunicacao`, caiu para **4**, todas justificadas (o próprio login e
+duas leituras de flag booleana).
+
+**Ao reauditar depois de uma correção, atualize o detector junto.** Resultado muito **pior** logo
+após uma correção é sinal de detector desatualizado antes de ser sinal de código quebrado.
+
+⚠️ **E um portão que nunca falha não vale nada**: `sim_portal_sessao.js` foi validado injetando
+uma regressão de propósito (ação voltando a aceitar `servidorId`) — reprova e sai com código 1.
+
+Diário das armadilhas 32 a 36 em
+[`docs/evolucao/2026-08-30-fase1-auditoria-de-seguranca.md`](docs/evolucao/2026-08-30-fase1-auditoria-de-seguranca.md).
+O plano completo da auditoria fica em `docs/security-audit/`, que **está no `.gitignore` de
+propósito** — o repositório é público (armadilha 18) e aquele diretório descreve vulnerabilidades
+ainda abertas.
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.

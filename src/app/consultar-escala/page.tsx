@@ -2,10 +2,13 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import ConsultarEscalaClient from './ConsultarEscalaClient'
 import { createClient, createAdminClient } from '@/utils/supabase/server'
+import { PORTAL_COOKIE, validarSessaoPortal } from '@/utils/portalSession'
 
 export default async function ConsultarEscalaPage() {
   const cookieStore = await cookies()
-  const servidorId = cookieStore.get('portal_servidor_id')?.value
+  // ⚠️ Sessao ASSINADA. Antes esta linha lia `portal_servidor_id`, um UUID cru — bastava mandar
+  // o cookie com o id de outra pessoa para a pagina renderizar o portal dela.
+  const servidorId = validarSessaoPortal(cookieStore.get(PORTAL_COOKIE)?.value)
 
   let servidorData = null
   if (servidorId) {

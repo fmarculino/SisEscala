@@ -82,7 +82,7 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
     setViewMode('justificativas')
     setLoadingJustificativas(true)
     try {
-      const res = await getJustificativasServidor(servidor.id, selectedEscala.mes, selectedEscala.ano)
+      const res = await getJustificativasServidor(selectedEscala.mes, selectedEscala.ano)
       if (res.items) setJustificativasList(res.items)
     } catch (err: any) {
       console.error('Erro ao carregar justificativas:', err)
@@ -95,7 +95,6 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
   async function handleSugerirJustificativa(texto: string) {
     if (!sugerirModalData || !servidor) return
     const res = await sugerirJustificativaServidor({
-      servidorId: servidor.id,
       escalaDiariaId: sugerirModalData.escala_diaria_id,
       escalaMensalId: sugerirModalData.escala_mensal_id,
       dia: sugerirModalData.dia,
@@ -103,7 +102,6 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
       ano: sugerirModalData.ano,
       categoria: sugerirModalData.categoria,
       texto,
-      servidorNome: servidor.nome
     })
     if (res.error) throw new Error(res.error)
     await handleViewJustificativas()
@@ -116,7 +114,7 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
     setLoadingFolha(true)
     setError(null)
     try {
-      const res = await getFolhaPontoServidor(servidor.id, selectedEscala.mes, selectedEscala.ano, selectedEscala.id)
+      const res = await getFolhaPontoServidor(selectedEscala.mes, selectedEscala.ano, selectedEscala.id)
       if (res.error) {
         setError(res.error)
       } else {
@@ -176,7 +174,7 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
       const scaleStatus = myEM?.status || 'Em Andamento'
       const forcarRascunho = scaleStatus === 'Em Andamento'
 
-      const res = await gerarFolhaPontoServidor(servidor.id, selectedEscala.mes, selectedEscala.ano, forcarRascunho, selectedEscala.id)
+      const res = await gerarFolhaPontoServidor(selectedEscala.mes, selectedEscala.ano, forcarRascunho, selectedEscala.id)
       if (res.error) {
         setError(res.error)
       } else {
@@ -231,7 +229,6 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
   // PIN Form states
   const [matricula, setMatricula] = useState('')
   const [isMatriculaValid, setIsMatriculaValid] = useState(false)
-  const [tempServidorId, setTempServidorId] = useState<string | null>(null)
   const [pin, setPin] = useState('')
   const [showPin, setShowPin] = useState(false)
   const [isPinValid, setIsPinValid] = useState(false)
@@ -247,20 +244,19 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
     if (result.error || !result.servidor) {
       setError(result.error || 'Servidor não encontrado')
       setIsMatriculaValid(false)
-      setTempServidorId(null)
     } else {
       setIsMatriculaValid(true)
-      setTempServidorId(result.servidor.id)
+      setServidorNome(result.servidor.nome || '')
     }
     setVerifying(false)
   }
 
   async function handleVerifyPin() {
-    if (!tempServidorId || !pin) return
+    if (!isMatriculaValid || !pin) return
     setVerifyingPin(true)
     setError(null)
     
-    const result = await validatePin(tempServidorId, pin)
+    const result = await validatePin(matricula, pin)
     if (result.error) {
       setError(result.error)
     } else {
@@ -277,7 +273,7 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
   async function loadEscalas() {
     if (!servidor) return
     setLoading(true)
-    const result = await getServidorEscalas(servidor.id)
+    const result = await getServidorEscalas()
     if (result.error) {
       setError(result.error)
     } else {
@@ -401,7 +397,6 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
                       onFocus={() => {
                         setMatricula('')
                         setIsMatriculaValid(false)
-                        setTempServidorId(null)
                         setPin('')
                         setIsPinValid(false)
                       }}
@@ -415,7 +410,6 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
                         setMatricula(e.target.value)
                         if (isMatriculaValid) {
                           setIsMatriculaValid(false)
-                          setTempServidorId(null)
                           setPin('')
                           setIsPinValid(false)
                         }
@@ -956,7 +950,14 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
                     saveAction={salvarFolhaPontoServidor}
                     verifyDivergenceAction={verificarDivergenciaEscalaServidor}
                     syncAction={sincronizarFolhaPontoServidor}
-                    regenerateAction={gerarFolhaPontoServidor}
+                    /*
+                      O 1º argumento do contrato do FolhaPontoEditor é o `servidorId`, porque a
+                      tela do coordenador regenera a folha DE OUTRA PESSOA. No portal isso não
+                      existe: quem regenera é sempre o dono da sessão, e a identidade vem do
+                      cookie assinado no servidor. Por isso o adaptador DESCARTA o id vindo do
+                      cliente — ele não é mais aceito pela action.
+                    */
+                    regenerateAction={(_servidorIdIgnorado, m, a, rasc) => gerarFolhaPontoServidor(m, a, rasc)}
                     onSolicitarAjuste={handleAbrirAjuste}
                   />
                 )}

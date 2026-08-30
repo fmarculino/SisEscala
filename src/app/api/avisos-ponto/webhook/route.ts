@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/utils/supabase/server'
-import { sendWhatsAppMessageAction } from '@/app/actions/communication'
+import { enviarWhatsAppInterno } from '@/utils/comunicacao/enviar'
 import { resolverCanalAvisoPonto } from '@/utils/avisoPontoCanal'
 
 /**
@@ -225,7 +225,7 @@ export async function POST(request: Request) {
       try {
         // Mesmo canal do aviso. Responder por outra caixa deixaria a conversa partida — o servidor
         // veria a confirmação vindo de um número diferente daquele que pediu o SIM.
-        await sendWhatsAppMessageAction({
+        await enviarWhatsAppInterno({
           phone: telefone,
           message: res.resposta,
           overrideConfigs: await resolverCanalAvisoPonto(),

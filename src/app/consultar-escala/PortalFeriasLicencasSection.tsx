@@ -123,7 +123,7 @@ export function PortalFeriasLicencasSection({ servidor }: PortalFeriasLicencasSe
     if (!servidor) return
     setCheckingAptidao(true)
     setError(null)
-    const res = await verificarElegibilidadeServidorFerias(servidor.id)
+    const res = await verificarElegibilidadeServidorFerias()
     setCheckingAptidao(false)
 
     if (res.error) {
@@ -148,7 +148,7 @@ export function PortalFeriasLicencasSection({ servidor }: PortalFeriasLicencasSe
   const loadData = useCallback(async () => {
     if (!servidor) return
     setLoading(true)
-    const res = await getSolicitacoesServidor(servidor.id)
+    const res = await getSolicitacoesServidor()
     if (res.error) {
       setError(res.error)
     } else {
@@ -225,7 +225,6 @@ export function PortalFeriasLicencasSection({ servidor }: PortalFeriasLicencasSe
     } : null
 
     const res = await criarSolicitacaoPrevisao({
-      servidorId: servidor.id,
       tipoBeneficio,
       exercicio,
       modalidade,
@@ -251,7 +250,7 @@ export function PortalFeriasLicencasSection({ servidor }: PortalFeriasLicencasSe
   // Handle Requerimento Print
   async function handlePrint(solId: string) {
     setLoadingPrint(true)
-    const res = await getDadosRequerimento(solId, servidor.id)
+    const res = await getDadosRequerimento(solId)
     if (res.error) {
       setError(res.error)
     } else {
@@ -264,7 +263,7 @@ export function PortalFeriasLicencasSection({ servidor }: PortalFeriasLicencasSe
   // Handle Cancel
   async function handleCancel(solId: string) {
     if (!(await dialog.confirm('Deseja realmente cancelar esta solicitação?'))) return
-    const res = await cancelarSolicitacaoServidor(solId, servidor.id)
+    const res = await cancelarSolicitacaoServidor(solId)
     if (res.error) {
       setError(res.error)
     } else {
@@ -275,7 +274,7 @@ export function PortalFeriasLicencasSection({ servidor }: PortalFeriasLicencasSe
 
   // Handle Aceitar Contraproposta
   async function handleAceitarContra(solId: string) {
-    const res = await aceitarContraproposta(solId, servidor.id)
+    const res = await aceitarContraproposta(solId)
     if (res.error) {
       setError(res.error)
     } else {
@@ -287,7 +286,7 @@ export function PortalFeriasLicencasSection({ servidor }: PortalFeriasLicencasSe
   // Handle Rejeitar Contraproposta
   async function handleRejeitarContra(solId: string) {
     if (!(await dialog.confirm('Deseja rejeitar esta contraproposta? A solicitação será cancelada.'))) return
-    const res = await rejeitarContraproposta(solId, servidor.id)
+    const res = await rejeitarContraproposta(solId)
     if (res.error) {
       setError(res.error)
     } else {
