@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.27.3] - 2026-08-30
+
+### Added
+- **Metadados de versão nos binários do coletor** (`coletor-rep` **v0.14.0**). O `.exe` passa a declarar empresa, produto, descrição, versão e copyright — e o app de bandeja passa a ter ícone próprio no Explorer e no Gerenciador de Tarefas.
+  - **Motivo:** o coletor estava sendo detectado como ameaça e **apagado após o reboot**, mesmo instalando com o antivírus pausado (pausar não cancela a varredura agendada nem a proteção em nuvem, e o autostart executa o arquivo no boot, que é o gatilho).
+  - **Medido no VirusTotal com o binário da v0.13.0: 4 de 71 motores**, e o número importa menos que os nomes — **todos são heurística**: Microsoft `Trojan:Win32/Wacatac.B!ml` (o sufixo `!ml` é veredito de *machine learning*, não assinatura), MaxSecure `susgen` (*suspicious generic*), CrowdStrike "grayware, 60% de confiança" e Bkav. **Nenhum motor grande acusou** — Avast, AVG, BitDefender, Avira, Kaspersky, ESET, ClamAV, AhnLab, Alibaba, Acronis e Antiy estão limpos.
+  - ⚠️ **O problema é com UM motor, não com "os antivírus"** — e é justamente o Defender, que é o que está instalado nas máquinas das unidades. Os outros três provavelmente não existem no parque.
+  - **Por que o binário Go dispara heurística:** ele não gera recurso de versão por padrão (`.exe` sem identificação nenhuma), e o coletor faz, por construção, tudo o que um *dropper* faz — copia a si mesmo para `%LOCALAPPDATA%`, grava persistência em `HKCU\Run`, roda sem janela e **baixa um executável para se substituir** (auto-update da v0.12.0). Um motor heurístico não distingue isso de malware pela intenção, só por reputação e assinatura.
+  - `gerar-versioninfo.ps1` gera os recursos a partir de **`ciclo.Versao`** — fonte única; a versão **não** é escrita nos `versioninfo.json`, para não criar um quarto lugar onde esquecer de bumpar. O script **aborta** se `dist/VERSION` divergir, e tem `-Conferir` para checar sem escrever. Entrou na ordem de release **antes** dos `go build`: o `.syso` só é embutido no build seguinte.
+  - ⚠️ **O manifesto é só declarativo, e tem que continuar assim.** `activeCodePage=UTF-8` e `dpiAware` foram deliberadamente deixados de fora: **mudam comportamento** (tratamento de texto nas APIs ANSI, desenho do menu de bandeja), não dão ganho contra antivírus, e num app que se auto-atualiza para máquinas que ninguém alcança fisicamente não valia a carona. Se um dia houver motivo real, que entrem num release próprio e testado em campo.
+  - Conferido após recompilar: `-H=windowsgui` preservado (subsystem 2 no tray, 3 na CLI), acentuação correta no recurso, `go vet` limpo e os portões `go test ./fila/ ./config/` passando.
+
+### Known
+- ⚠️ **Metadado NÃO substitui assinatura digital, e essa é a limitação que sobra.** A liberação de falso positivo da Microsoft é **por hash** — e o auto-update significa que **cada release é um binário novo, com hash novo**, sujeito a ser reavaliado do zero. Sem certificado de *code signing*, o ciclo se repete a cada versão.
+  - Caminho gratuito e imediato: reportar em <https://www.microsoft.com/en-us/wdsi/filesubmission> como *software developer* / falso positivo, **declarando** os comportamentos que parecem suspeitos (auto-cópia, autostart, auto-update). Como o veredito é de nuvem, a correção chega às máquinas sozinha, sem reinstalar nada.
+  - ⚠️ Certificado **ICP-Brasil (e-CNPJ) não serve**: é outra cadeia de confiança. O Windows exige certificado de uma CA do Microsoft Trusted Root Program, e desde 2023 **todo** certificado de code signing exige a chave em hardware (token ou HSM).
+- ⚠️ **Este release faz o parque se auto-atualizar** em até 24h + atraso sorteado. A mudança é só recurso e manifesto declarativo, sem uma linha de lógica alterada — mas o risco estrutural do auto-update continua o de sempre.
+
 ## [2.27.2] - 2026-08-30
 
 ### Fixed

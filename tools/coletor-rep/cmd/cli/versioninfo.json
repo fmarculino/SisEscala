@@ -1,0 +1,56 @@
+{
+  "//": [
+    "Metadados de versao do coletor-rep-cli.exe (recurso VS_VERSION_INFO do Windows).",
+    "",
+    "POR QUE EXISTE (30/08/2026): binario Go nao gera esse recurso por padrao, e executavel sem",
+    "nome de empresa, produto nem versao e um dos sinais que os motores heuristicos usam. Medido",
+    "no VirusTotal com o binario da v0.13.0: 4 de 71 motores acusavam, TODOS por heuristica -",
+    "Microsoft `Trojan:Win32/Wacatac.B!ml` (o `!ml` e veredito de machine learning, nao",
+    "assinatura), MaxSecure `susgen` (suspicious generic), CrowdStrike 'grayware 60% confianca' e",
+    "Bkav. Nenhum motor grande (Avast, AVG, BitDefender, Avira, Kaspersky, ESET, ClamAV) acusou.",
+    "",
+    "Isto NAO substitui assinatura digital - so melhora os sinais que o modelo enxerga. O que",
+    "resolve de vez e certificado de code signing; ver a analise no CHANGELOG da v2.27.3.",
+    "",
+    "⚠️ A VERSAO AQUI E SOBRESCRITA NO BUILD por gerar-versioninfo.ps1, que le `ciclo.Versao`.",
+    "Nao edite os numeros de versao neste arquivo: eles existem so para o JSON ser valido se",
+    "alguem rodar o goversioninfo na mao. A fonte unica da versao continua sendo ciclo/ciclo.go."
+  ],
+  "FixedFileInfo": {
+    "FileVersion": {
+      "Major": 0,
+      "Minor": 0,
+      "Patch": 0,
+      "Build": 0
+    },
+    "ProductVersion": {
+      "Major": 0,
+      "Minor": 0,
+      "Patch": 0,
+      "Build": 0
+    },
+    "FileFlagsMask": "3f",
+    "FileFlags": "00",
+    "FileOS": "040004",
+    "FileType": "01",
+    "FileSubType": "00"
+  },
+  "StringFileInfo": {
+    "CompanyName": "Prefeitura Municipal de Marabá — Secretaria Municipal de Saúde",
+    "ProductName": "SisEscala",
+    "InternalName": "coletor-rep-cli",
+    "OriginalFilename": "coletor-rep-cli.exe",
+    "FileDescription": "SisEscala — Diagnóstico do relógio de ponto (linha de comando)",
+    "LegalCopyright": "© Prefeitura Municipal de Marabá",
+    "Comments": "Ferramenta de diagnóstico e manutenção do relógio de ponto REP-C, executada manualmente numa máquina dentro da rede da unidade. Software interno da Secretaria Municipal de Saúde de Marabá/PA.",
+    "FileVersion": "0.0.0.0",
+    "ProductVersion": "0.0.0.0"
+  },
+  "VarFileInfo": {
+    "Translation": {
+      "LangID": "0416",
+      "CharsetID": "04B0"
+    }
+  },
+  "ManifestPath": "coletor-rep.manifest"
+}

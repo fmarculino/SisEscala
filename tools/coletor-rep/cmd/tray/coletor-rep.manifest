@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity
+      type="win32"
+      name="SisEscala.ColetorREP"
+      version="1.0.0.0"
+      processorArchitecture="amd64"/>
+
+  <description>SisEscala - Coletor do relogio de ponto (REP)</description>
+
+  <!--
+    ⚠️ asInvoker E DELIBERADO, e nao deve virar requireAdministrator.
+    O app roda SEM administrador por decisao de projeto: o autostart e' em HKCU\...\Run
+    justamente para nao precisar de elevacao (ver CLAUDE.md - `kardianos/service` foi REMOVIDO
+    porque servico do Windows roda na Sessao 0 e nunca poderia mostrar icone de bandeja).
+    Declarar isso explicitamente tambem evita que o Windows aplique heuristica de "instalador"
+    ao executavel, que e' um dos gatilhos de elevacao automatica.
+  -->
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+
+  <!-- Sem isto o Windows aplica modo de compatibilidade e o app se declara "Windows Vista". -->
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/><!-- Windows 10 / 11 -->
+      <supportedOS Id="{1f676c76-80e1-4239-95bb-83d0f6d0da78}"/><!-- Windows 8.1 -->
+    </application>
+  </compatibility>
+
+  <!--
+    ⚠️ `activeCodePage=UTF-8` e `dpiAware` FORAM DELIBERADAMENTE DEIXADOS DE FORA.
+    Tudo o que ha' neste manifesto e' DECLARATIVO: diz ao Windows o que o app ja' e'. Aquelas
+    duas MUDAM COMPORTAMENTO - a codepage altera como as variantes ANSI das APIs Win32 tratam
+    texto, e o dpiAware muda o desenho do menu de bandeja.
+    O ganho delas para o objetivo aqui (sinais de antivirus) e' nenhum, e o custo de errar e' o
+    de sempre neste projeto: o release alcanca por auto-update as maquinas que ninguem alcanca
+    fisicamente. Se um dia houver motivo REAL para elas, entrem sozinhas, num release proprio e
+    testado em campo - nao de carona num ajuste de metadados.
+  -->
+</assembly>

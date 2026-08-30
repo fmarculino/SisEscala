@@ -304,9 +304,32 @@ texto puro com o número (`0.3.0`, sem prefixo `v`), lido por `GET /api/coletor-
 (pública, sem sessão — mesmo espírito de `/api/version`) para o próprio app de bandeja comparar
 com `ciclo.Versao` (`tools/coletor-rep/ciclo/ciclo.go`) e avisar sozinho que existe atualização.
 Esquecer de subir um dos dois deixa o app achando que já está atualizado (ou, pior, oferecendo
-"atualização" para a mesma versão). Ordem: bump `ciclo.Versao` → recompilar os dois `.exe` →
-escrever `dist/VERSION` com o mesmo número → `npm run build` → conferir
-`find .next/standalone -iname VERSION -path "*coletor-rep*"` → commitar os três juntos.
+"atualização" para a mesma versão). Ordem: bump `ciclo.Versao` → escrever `dist/VERSION` com o
+mesmo número → **`.\gerar-versioninfo.ps1`** → recompilar os dois `.exe` → `npm run build` →
+conferir `find .next/standalone -iname VERSION -path "*coletor-rep*"` → commitar juntos.
+
+⚠️ **O passo do `gerar-versioninfo.ps1` entrou em 30/08/2026 e vem ANTES do build** — o `.syso`
+só entra no `.exe` no build seguinte. Ele regenera os recursos `VS_VERSION_INFO` dos dois
+binários a partir de `ciclo.Versao` (fonte única; a versão **não** é escrita nos
+`versioninfo.json`) e **aborta** se `dist/VERSION` divergir. `.\gerar-versioninfo.ps1 -Conferir`
+checa sem escrever.
+
+**Por que existe:** binário Go não gera recurso de versão, e `.exe` sem nome de empresa, produto
+nem versão é um dos sinais que motores heurísticos usam — e o coletor já tem vários outros por
+construção (copia a si mesmo, grava autostart em `HKCU\Run`, roda sem janela, se auto-atualiza
+baixando executável). Medido no VirusTotal na v0.13.0: **4 de 71**, todos heurística, e o único
+que importa é o **Microsoft** (`Trojan:Win32/Wacatac.B!ml` — `!ml` é veredito de machine
+learning, não assinatura), porque é o Defender que apaga o arquivo nas máquinas.
+
+⚠️ **Metadado NÃO substitui assinatura digital.** Enquanto não houver certificado de code
+signing, cada release é um binário novo, com hash novo, sujeito a ser reavaliado do zero — e a
+liberação de falso positivo da Microsoft é **por hash**. Assinar é o que quebra o ciclo.
+
+⚠️ **O manifesto é só declarativo, e tem que continuar assim.** `activeCodePage=UTF-8` e
+`dpiAware` foram deliberadamente deixados de fora: eles **mudam comportamento** (tratamento de
+texto nas APIs ANSI, desenho do menu de bandeja), não dão ganho contra antivírus, e num app que
+se auto-atualiza sozinho para máquinas que ninguém alcança fisicamente não valia a carona. Se um
+dia houver motivo real, que entrem num release próprio e testado em campo.
 
 ⚠️ **`cmd/tray` precisa compilar com `-ldflags="-H=windowsgui"` (documentado no `README.md` do
 coletor, ignorado uma vez em 14/08/2026 ao recompilar rápido pra testar `cadastros-exportar`).**

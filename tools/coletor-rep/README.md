@@ -176,6 +176,7 @@ usuário descartável "SISESCALA TESTE - PODE APAGAR" e imprime o formato aceito
 ```powershell
 cd tools/coletor-rep
 go mod tidy
+.\gerar-versioninfo.ps1                                                    # metadados de versão (ANTES do build)
 go build -o cmd/cli/coletor-rep.exe ./cmd/cli                              # binário de dev, uso local
 go build -o dist/coletor-rep-cli.exe ./cmd/cli                             # binário de release (GET /api/coletor-rep/download-cli)
 go build -ldflags="-H=windowsgui" -o dist/coletor-rep-tray.exe ./cmd/tray  # binário de release, sem console
@@ -183,6 +184,25 @@ go build -ldflags="-H=windowsgui" -o dist/coletor-rep-tray.exe ./cmd/tray  # bin
 
 - `-ldflags="-H=windowsgui"` no build do `cmd/tray` suprime a janela de console que piscaria ao
   abrir — sem isso o app ainda funciona, só fica visualmente errado para um app de bandeja.
+- ⚠️ **`.\gerar-versioninfo.ps1` vem ANTES dos `go build`** — ele escreve
+  `cmd/{tray,cli}/resource.syso`, e o linker do Go só embute o `.syso` no build seguinte. Rodar
+  depois não tem efeito nenhum no `.exe` que acabou de sair.
+  - A versão vem de `ciclo.Versao` (**fonte única** — não está escrita nos `versioninfo.json`), e
+    o script **aborta** se `dist/VERSION` divergir dela.
+  - `.\gerar-versioninfo.ps1 -Conferir` checa se os `.syso` estão na versão certa, sem escrever.
+  - Precisa de `goversioninfo` uma vez:
+    `go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest`
+  - **Por quê:** binário Go não gera recurso de versão, e `.exe` sem nome de empresa, produto nem
+    versão é um dos sinais que motores heurísticos de antivírus usam. O coletor já tem vários
+    outros por construção (copia a si mesmo, autostart em `HKCU\Run`, roda sem janela, se
+    auto-atualiza baixando executável). ⚠️ **Não substitui assinatura digital** — a liberação de
+    falso positivo da Microsoft é por *hash*, então sem certificado cada release recomeça do zero.
+
+  Conferir os metadados de um binário já compilado:
+
+  ```powershell
+  (Get-Item dist\coletor-rep-tray.exe).VersionInfo | Format-List ProductName,FileDescription,FileVersion,CompanyName
+  ```
 - `dist/coletor-rep-cli.exe` e `dist/coletor-rep-tray.exe` são os binários que
   `/api/coletor-rep/download-cli` e `/api/coletor-rep/download`
   (`src/app/api/coletor-rep/download{-cli,}/route.ts`) servem — **precisam ser recompilados e
