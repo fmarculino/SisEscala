@@ -61,6 +61,21 @@ export function AutorizacaoExcecaoModal({
   const [sobreavisosAdicionais, setSobreavisosAdicionais] = useState<number>(0)
   const [justificativa, setJustificativa] = useState('')
 
+  /**
+   * Quem concedeu a autorização VIGENTE, e de qual unidade (31/08/2026).
+   *
+   * ⚠️ A autorização é UMA por (servidor, mês, ano) e vale para a soma de todas as escalas da
+   * pessoa (armadilha 26) — salvar aqui SUBSTITUI o que outra unidade concedeu, e a escala dela
+   * depende desse número. Com 5 pessoas podendo conceder isso era raro; desde que RH Geral e RH
+   * da Unidade entraram, são 20. Sobrescrever continua permitido (às vezes é o certo: reduzir o
+   * que se concedeu demais); o que não pode é sobrescrever **sem ver**.
+   *
+   * ⚠️ Vem de `fn_excecao_carga_detalhe` (SECURITY DEFINER) e não de um join no cliente: a
+   * policy de `profiles` só libera a tabela inteira para super_admin, então a tela receberia
+   * zero linhas ao tentar resolver o nome do autor por conta própria.
+   */
+  const [vigente, setVigente] = useState<any>(null)
+
   // O que a autorização de fato precisa cobrir: a soma de TODAS as escalas do mês, não só a
   // desta grade. Era exatamente aqui que a margem sugerida saía curta.
   const outras = (cargasOutras || []).filter(c => Number(c.horas) > 0 || Number(c.sobreavisos) > 0)
@@ -86,6 +101,18 @@ export function AutorizacaoExcecaoModal({
       }
     }
   }, [isOpen, excecaoExistente, horasMes, sobreavisosMes, limiteGlobalHoras, limiteGlobalSobreavisos])
+
+  useEffect(() => {
+    if (!isOpen) { setVigente(null); return }
+    let cancelado = false
+    ;(async () => {
+      const { data } = await supabase.rpc('fn_excecao_carga_detalhe', {
+        p_servidor_ids: [servidorId], p_mes: mes, p_ano: ano
+      })
+      if (!cancelado) setVigente(data?.[0] || null)
+    })()
+    return () => { cancelado = true }
+  }, [isOpen, servidorId, mes, ano, supabase])
 
   if (!isOpen) return null
 
@@ -158,7 +185,7 @@ export function AutorizacaoExcecaoModal({
                 Autorização Extraordinária
               </h3>
               <p className="text-xs text-zinc-500 font-medium">
-                Prerrogativa do Administrador para exceção de limites na escala
+                Prerrogativa do RH e do Administrador para exceção de limites na escala
               </p>
             </div>
           </div>
@@ -181,6 +208,31 @@ export function AutorizacaoExcecaoModal({
             <p className="text-base font-black text-zinc-900 dark:text-white uppercase">{servidorNome}</p>
             {unidadeNome && <p className="text-xs text-zinc-500">{unidadeNome}</p>}
           </div>
+
+          {/*
+            Autorização já vigente, com autor e origem. Fica ACIMA dos números para ser lida
+            antes de qualquer decisão — ver o comentário de `vigente`.
+          */}
+          {vigente && (
+            <div className="p-4 bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-900/60 rounded-2xl space-y-1">
+              <span className="text-[10px] font-black text-amber-700 dark:text-amber-400 uppercase tracking-widest block">
+                Autorização vigente neste mês
+              </span>
+              <p className="text-xs text-amber-900 dark:text-amber-200 font-bold">
+                +{formatarHoras(Number(vigente.horas_adicionais_autorizadas) || 0)}h
+                {' · '}+{vigente.sobreavisos_adicionais_autorizados || 0} un
+              </p>
+              <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80">
+                Concedida por <strong>{vigente.autorizado_por_nome}</strong>
+                {vigente.unidade_nome ? ` (${vigente.unidade_nome})` : ''}
+                {vigente.autorizado_em ? ` em ${new Date(vigente.autorizado_em).toLocaleDateString('pt-BR')}` : ''}.
+              </p>
+              <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80">
+                Salvar <strong>substitui</strong> estes valores — a autorização é uma só para o mês
+                do servidor e vale para todas as escalas dele.
+              </p>
+            </div>
+          )}
 
           {/* Comparativo de Limites Globais vs o MÊS INTEIRO da pessoa */}
           <div className="grid grid-cols-2 gap-4">

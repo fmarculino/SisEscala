@@ -28,6 +28,12 @@ import {
   type CargaEscala,
   type TetoServidor
 } from '@/utils/limiteCargaMensal'
+import {
+  podeAutorizarCarga,
+  mensagemTetoExcedido,
+  instrucaoSalvarBloqueado,
+  type PedidoPendente
+} from '@/utils/autorizacaoCarga'
 import { buildSectorPathMap, formatSectorsHierarchy } from '@/utils/sectors'
 import { decomporPlantao } from '@/utils/plantaoUnidades'
 import { celulaTemPassosDeIntervalo } from '@/utils/intervaloIntrajornada'
@@ -53,6 +59,7 @@ import { SwapRequestPanel } from '@/components/SwapRequestPanel'
 import { sendWhatsAppMessageAction } from '@/app/actions/communication'
 import { AcionarSobreavisoModal } from '@/components/sobreaviso/AcionarSobreavisoModal'
 import { AutorizacaoExcecaoModal } from '@/components/escalas/AutorizacaoExcecaoModal'
+import { SolicitarExcecaoModal } from '@/components/escalas/SolicitarExcecaoModal'
 import { AlterarJornadaModal, type AlterarJornadaAlvo } from '@/components/escalas/AlterarJornadaModal'
 
 interface ScaleGridProps {
@@ -270,6 +277,21 @@ export function ScaleGrid({
 
   const [unidadedata, setUnidadedata] = useState<any>(null)
   const [excecoesEscala, setExcecoesEscala] = useState<any[]>([])
+  /**
+   * Pedidos de Autorização Extraordinária EM ABERTO na competência, por servidor.
+   *
+   * ⚠️ Sem isto o coordenador que já pediu recebe de novo o convite para pedir, e a RPC recusa
+   * com "já existe pedido pendente" — a tela mandaria fazer algo que ela mesma vai negar. É a
+   * mesma regra do texto de teto: não oferecer o que não vai acontecer.
+   */
+  const [pedidosPendentes, setPedidosPendentes] = useState<Record<string, PedidoPendente>>({})
+  const [solicitacaoModalState, setSolicitacaoModalState] = useState<{
+    isOpen: boolean
+    servidorId: string
+    servidorNome: string
+    horasAtuais: number
+    sobreavisosAtuais: number
+  } | null>(null)
   const [autorizacaoModalState, setAutorizacaoModalState] = useState<{
     isOpen: boolean
     servidorId: string
@@ -297,11 +319,28 @@ export function ScaleGrid({
     }
   }, [supabase, mes, ano])
 
+  /**
+   * ⚠️ Vem de `fn_solicitacoes_excecao_carga` (SECURITY DEFINER), não de um SELECT na tabela: a
+   * listagem precisa do NOME de quem pediu, e a RLS de `profiles` só libera a tabela inteira
+   * para super_admin — um coordenador consultando o autor receberia zero linhas.
+   */
+  const fetchPedidosPendentes = useCallback(async () => {
+    if (!mes || !ano) return
+    const { data, error } = await supabase.rpc('fn_solicitacoes_excecao_carga', {
+      p_status: 'pendente', p_mes: mes, p_ano: ano
+    })
+    if (error || !data) return
+    const porServidor: Record<string, PedidoPendente> = {}
+    for (const s of data) porServidor[s.servidor_id] = s
+    setPedidosPendentes(porServidor)
+  }, [supabase, mes, ano])
+
   useEffect(() => {
     fetchServidoresEventos()
     fetchJornadasTemporarias()
     fetchLogsTentativas()
     fetchExcecoesEscala()
+    fetchPedidosPendentes()
 
     async function fetchUnidadeConfig() {
       if (!unidadeId) return
@@ -1949,16 +1988,18 @@ export function ScaleGrid({
       if (avaliacao.excede) {
         const servidor = todosServidoresSetor.find(s => s.id === servidorId)
         const servidorNome = servidor?.nome || 'Servidor'
-        const isAdmin = userProfile?.role === 'super_admin' || userProfile?.role === 'admin'
         // O texto lista as outras escalas: sem dizer ONDE estão as horas, quem lança não tem
         // como decidir nada — o número dele continua parecendo certo.
         const detalhe = descreverExcesso(avaliacao, servidorNome)
+        // Quem decide de fato é o banco (`fn_pode_autorizar_excecao_carga`, avaliada dentro da
+        // policy de escrita); aqui se decide só O QUE OFERECER. Ver src/utils/autorizacaoCarga.ts.
+        const aviso = mensagemTetoExcedido(detalhe, userProfile?.role, pedidosPendentes[servidorId])
 
-        if (isAdmin) {
+        if (aviso.acao === 'autorizar' && !pedidosPendentes[servidorId]) {
           setConfirmModal({
             isOpen: true,
-            title: '⚠️ Teto Mensal Excedido (Bloqueio de Escala)',
-            message: `${detalhe}\n\nComo Administrador, você pode autorizar uma Exceção Extraordinária para este servidor neste mês. Deseja abrir a tela de autorização?`,
+            title: aviso.titulo,
+            message: aviso.mensagem,
             type: 'warning',
             onConfirm: () => {
               setAutorizacaoModalState({
@@ -1970,11 +2011,27 @@ export function ScaleGrid({
               })
             }
           })
+        } else if (aviso.acao === 'solicitar' && !pedidosPendentes[servidorId]) {
+          setConfirmModal({
+            isOpen: true,
+            title: aviso.titulo,
+            message: aviso.mensagem,
+            type: 'warning',
+            onConfirm: () => {
+              setSolicitacaoModalState({
+                isOpen: true,
+                servidorId,
+                servidorNome,
+                horasAtuais: totals.totalPlanejado,
+                sobreavisosAtuais: totals.p_soQtd
+              })
+            }
+          })
         } else {
           setAlertModal({
             isOpen: true,
-            title: '⚠️ Teto Mensal Excedido',
-            message: `${detalhe}\n\nSolicite a um Administrador a concessão de uma Autorização Extraordinária.`,
+            title: aviso.titulo,
+            message: aviso.mensagem,
             type: 'warning'
           })
         }
@@ -3550,15 +3607,10 @@ export function ScaleGrid({
         setCargaMensal(prev => ({ ...prev, ...cargasPorServidor }))
         setTetoCarga(prev => ({ ...prev, ...tetosPorServidor }))
 
-        const isAdmin = userProfile?.role === 'super_admin' || userProfile?.role === 'admin'
         setAlertModal({
           isOpen: true,
           title: '⚠️ Teto Mensal Excedido',
-          message: `Não é possível salvar: ${estouros.length === 1 ? 'um servidor ultrapassa' : `${estouros.length} servidores ultrapassam`} o teto do mês somando TODAS as escalas da competência.\n\n${estouros.slice(0, 8).join('\n')}${estouros.length > 8 ? `\n...e mais ${estouros.length - 8}.` : ''}\n\n${
-            isAdmin
-              ? 'Reduza a escala ou clique no escudo vermelho ao lado do nome para autorizar excepcionalmente.'
-              : 'Reduza a escala ou solicite a um Administrador uma Autorização Extraordinária.'
-          }`,
+          message: `Não é possível salvar: ${estouros.length === 1 ? 'um servidor ultrapassa' : `${estouros.length} servidores ultrapassam`} o teto do mês somando TODAS as escalas da competência.\n\n${estouros.slice(0, 8).join('\n')}${estouros.length > 8 ? `\n...e mais ${estouros.length - 8}.` : ''}\n\n${instrucaoSalvarBloqueado(userProfile?.role)}`,
           type: 'warning'
         })
         return
@@ -4652,13 +4704,14 @@ export function ScaleGrid({
                               )}
                               {(() => {
                                 const excecao = excecoesEscala.find(e => e.servidor_id === em.servidor_id)
-                                const isAdmin = userProfile?.role === 'super_admin' || userProfile?.role === 'admin'
+                                const podeAutorizar = podeAutorizarCarga(userProfile?.role)
+                                const pedido = pedidosPendentes[em.servidor_id]
                                 if (excecao) {
                                   return (
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        if (isAdmin) {
+                                        if (podeAutorizar) {
                                           setAutorizacaoModalState({
                                             isOpen: true,
                                             servidorId: em.servidor_id,
@@ -4685,8 +4738,17 @@ export function ScaleGrid({
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        if (isAdmin) {
+                                        const aviso = mensagemTetoExcedido(resumo, userProfile?.role, pedido)
+                                        if (aviso.acao === 'autorizar' && !pedido) {
                                           setAutorizacaoModalState({
+                                            isOpen: true,
+                                            servidorId: em.servidor_id,
+                                            servidorNome: em.servidores?.nome || 'Servidor',
+                                            horasAtuais: totals.totalPlanejado,
+                                            sobreavisosAtuais: totals.p_soQtd
+                                          })
+                                        } else if (aviso.acao === 'solicitar' && !pedido) {
+                                          setSolicitacaoModalState({
                                             isOpen: true,
                                             servidorId: em.servidor_id,
                                             servidorNome: em.servidores?.nome || 'Servidor',
@@ -4696,15 +4758,29 @@ export function ScaleGrid({
                                         } else {
                                           setAlertModal({
                                             isOpen: true,
-                                            title: '⚠️ Teto Mensal Excedido',
-                                            message: `${resumo}\n\nSolicite a um Administrador a concessão de uma Autorização Extraordinária.`,
+                                            title: aviso.titulo,
+                                            message: aviso.mensagem,
                                             type: 'warning'
                                           })
                                         }
                                       }}
-                                      className="p-1 text-red-700 dark:text-red-300 bg-red-100/80 dark:bg-red-950/70 hover:bg-red-200 dark:hover:bg-red-900 rounded border border-red-300 dark:border-red-800 transition-colors shadow-xs"
-                                      title={`${resumo}\n\n${isAdmin ? 'Clique para autorizar excepcionalmente.' : 'Clique para ver o detalhe.'}`}
+                                      className={`p-1 rounded border transition-colors shadow-xs ${
+                                        pedido
+                                          ? 'text-blue-700 dark:text-blue-300 bg-blue-100/80 dark:bg-blue-950/70 hover:bg-blue-200 dark:hover:bg-blue-900 border-blue-300 dark:border-blue-800'
+                                          : 'text-red-700 dark:text-red-300 bg-red-100/80 dark:bg-red-950/70 hover:bg-red-200 dark:hover:bg-red-900 border-red-300 dark:border-red-800'
+                                      }`}
+                                      title={`${resumo}\n\n${
+                                        pedido
+                                          ? `Pedido de autorização em análise${pedido.solicitado_por_nome ? ` (aberto por ${pedido.solicitado_por_nome})` : ''}.`
+                                          : podeAutorizar
+                                            ? 'Clique para autorizar excepcionalmente.'
+                                            : 'Clique para solicitar autorização ao RH.'
+                                      }`}
                                     >
+                                      {/* Azul = pedido em análise; vermelho = ninguém pediu nada
+                                          ainda. A cor precisa distinguir "travado e parado" de
+                                          "travado e em andamento" — sem isso, quem já pediu vê o
+                                          mesmo alerta do primeiro dia e pede de novo. */}
                                       <ShieldAlert className="h-3.5 w-3.5 fill-red-500/20" />
                                     </button>
                                   )
@@ -6177,13 +6253,15 @@ export function ScaleGrid({
                   if (cargaSimulada.excede) {
                     const nome = escalaMensal.find(x => x.servidor_id === sId)?.servidores?.nome || 'Servidor'
                     const detalhe = descreverExcesso(cargaSimulada, nome)
-                    const isAdmin = userProfile?.role === 'super_admin' || userProfile?.role === 'admin'
+                    const pedidoAberto = pedidosPendentes[sId]
+                    const aviso = mensagemTetoExcedido(detalhe, userProfile?.role, pedidoAberto)
+                    const semTemplate = 'O template NÃO foi aplicado.'
 
-                    if (isAdmin) {
+                    if (aviso.acao === 'autorizar' && !pedidoAberto) {
                       setConfirmModal({
                         isOpen: true,
                         title: '⚠️ Teto Mensal Excedido (Template não aplicado)',
-                        message: `${detalhe}\n\nO template NÃO foi aplicado. Como Administrador, você pode autorizar uma Exceção Extraordinária e aplicá-lo de novo. Deseja abrir a tela de autorização?`,
+                        message: `${detalhe}\n\n${semTemplate} Você pode conceder uma Autorização Extraordinária e aplicá-lo de novo. Deseja abrir a tela de autorização?`,
                         type: 'warning',
                         onConfirm: () => {
                           setTemplateModal(null)
@@ -6196,11 +6274,28 @@ export function ScaleGrid({
                           })
                         }
                       })
+                    } else if (aviso.acao === 'solicitar' && !pedidoAberto) {
+                      setConfirmModal({
+                        isOpen: true,
+                        title: '⚠️ Teto Mensal Excedido (Template não aplicado)',
+                        message: `${detalhe}\n\n${semTemplate} Você pode solicitar ao RH uma Autorização Extraordinária. Deseja abrir o pedido agora?`,
+                        type: 'warning',
+                        onConfirm: () => {
+                          setTemplateModal(null)
+                          setSolicitacaoModalState({
+                            isOpen: true,
+                            servidorId: sId,
+                            servidorNome: nome,
+                            horasAtuais: calculateTotals(sId).totalPlanejado,
+                            sobreavisosAtuais: calculateTotals(sId).p_soQtd
+                          })
+                        }
+                      })
                     } else {
                       setAlertModal({
                         isOpen: true,
                         title: '⚠️ Teto Mensal Excedido (Template não aplicado)',
-                        message: `${detalhe}\n\nO template NÃO foi aplicado. Reduza o período ou solicite a um Administrador uma Autorização Extraordinária.`,
+                        message: `${detalhe}\n\n${semTemplate} ${aviso.mensagem.split('\n\n').slice(1).join('\n\n')}`,
                         type: 'warning'
                       })
                     }
@@ -7757,6 +7852,30 @@ export function ScaleGrid({
           </div>
         </Modal>
       )}
+      {solicitacaoModalState?.isOpen && (
+        <SolicitarExcecaoModal
+          isOpen={solicitacaoModalState.isOpen}
+          onClose={() => setSolicitacaoModalState(null)}
+          onEnviado={(mensagem) => {
+            fetchPedidosPendentes()
+            setAlertModal({ isOpen: true, title: 'Pedido enviado', message: mensagem, type: 'success' })
+          }}
+          servidorId={solicitacaoModalState.servidorId}
+          servidorNome={solicitacaoModalState.servidorNome}
+          unidadeId={unidadeId}
+          setorId={setorId}
+          mes={mes}
+          ano={ano}
+          horasAtuais={solicitacaoModalState.horasAtuais}
+          sobreavisosAtuais={solicitacaoModalState.sobreavisosAtuais}
+          cargasOutras={(cargaMensal[solicitacaoModalState.servidorId] || []).filter(
+            c => c.escala_mensal_id !== escalaMensal.find(em => em.servidor_id === solicitacaoModalState.servidorId)?.id
+          )}
+          tetoHoras={Number(tetoCarga[solicitacaoModalState.servidorId]?.teto_horas ?? configs['max_horas_escala_servidor']) || 300}
+          tetoSobreavisos={Number(tetoCarga[solicitacaoModalState.servidorId]?.teto_sobreavisos ?? configs['max_sobreavisos_escala_servidor']) || 10}
+        />
+      )}
+
       {autorizacaoModalState?.isOpen && (
         <AutorizacaoExcecaoModal
           isOpen={autorizacaoModalState.isOpen}
