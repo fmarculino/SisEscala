@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { formatarData, formatarDataHora, formatarHora, formatarHoraComSegundos } from '@/utils/horario'
 import { createClient } from '@/utils/supabase/client'
 import { useRouter } from 'next/navigation'
@@ -13,6 +13,7 @@ import {
 import { gerarFolhaPonto } from '@/app/(dashboard)/folha-ponto/actions'
 import { ScalePrintView } from '@/components/ScalePrintView'
 import { Modal } from '@/components/ui/Modal'
+import { SelectComBuscaRemota, type OpcaoRemota } from '@/components/ui/SelectComBuscaRemota'
 import React from 'react'
 import { canEditScale, podeEditarForaDoPrazo, UserRole } from '@/utils/governance'
 import { runComplianceCheck, getViolationsForCell, type ComplianceViolation } from '@/utils/complianceEngine'
@@ -458,6 +459,19 @@ export function ScaleGrid({
   })
   const [externalSectors, setExternalSectors] = useState<any[]>([])
   const [externalServers, setExternalServers] = useState<any[]>([])
+  /**
+   * O servidor escolhido pela BUSCA POR NOME do modal de Servidor Externo (31/08/2026).
+   *
+   * Guarda o registro inteiro, não só o id, por dois motivos: o rótulo do campo fechado precisa
+   * do nome (a lista da busca é volátil — some a cada termo novo), e a LOTAÇÃO encontrada é
+   * mostrada logo abaixo como confirmação. Quem busca pelo nome está justamente escolhendo sem
+   * saber onde a pessoa está lotada; ver a lotação antes de adicionar é o que evita levar para a
+   * grade um homônimo.
+   */
+  const [externalEncontrado, setExternalEncontrado] = useState<{
+    id: string; nome: string; matricula: string | null; cargo: string | null
+    unidade_nome: string | null; setor_caminho: string | null
+  } | null>(null)
   const [currentSector, setCurrentSector] = useState<any>(null)
 
   // Modal & Alert states
@@ -792,10 +806,46 @@ export function ScaleGrid({
           .rpc('get_external_servers_for_scale', { p_setor_id: externalData.setorId })
         setExternalServers(data || [])
         setExternalData(prev => ({ ...prev, servidorId: '' }))
+        setExternalEncontrado(null)
       }
     }
     fetchExtServers()
   }, [externalData.setorId, supabase])
+
+  /**
+   * A última resposta crua de `fn_buscar_servidor_para_escala`, para recuperar a LOTAÇÃO da
+   * pessoa escolhida — o combobox devolve só a opção (id + rótulo), e o modal precisa exibir de
+   * onde ela veio.
+   */
+  const externalAchadosRef = useRef<any[]>([])
+
+  /**
+   * Busca por nome/matrícula em toda a rede (31/08/2026).
+   *
+   * ⚠️ **Não dá para trocar isto por uma consulta a `servidores` pelo cliente.** A RLS da tabela
+   * mostra a um coordenador só o próprio escopo, e servidor externo é, por definição, de fora
+   * dele — a lista viria vazia justamente para os casos que este campo existe para resolver.
+   * Quem atravessa a RLS é a RPC `SECURITY DEFINER`, que em troca é bounded (3 caracteres,
+   * LIMIT 30) e nunca devolve a base inteira.
+   */
+  const buscarServidorExterno = useCallback(async (termo: string): Promise<OpcaoRemota[]> => {
+    const { data, error } = await supabase.rpc('fn_buscar_servidor_para_escala', { p_termo: termo })
+    if (error) throw new Error(error.message)
+    externalAchadosRef.current = data || []
+    return (data || []).map((s: any) => {
+      const jaNaGrade = escalaMensal.some(em => em.servidor_id === s.id)
+      const lotacao = [s.unidade_nome, s.setor_caminho].filter(Boolean).join(' / ')
+      return {
+        value: s.id,
+        label: s.matricula ? `${s.nome} (${s.matricula})` : s.nome,
+        detalhe: [lotacao, s.cargo].filter(Boolean).join(' · ') || undefined,
+        // Já escalado aqui continua VISÍVEL, só não selecionável: sumir da lista faria quem
+        // procura concluir que a pessoa não existe, em vez de que ela já está na grade.
+        disabled: jaNaGrade,
+        motivoDesabilitado: jaNaGrade ? 'Já está nesta escala' : undefined,
+      }
+    })
+  }, [supabase, escalaMensal])
   
   // Realtime subscription for logs_sobreaviso
   useEffect(() => {
@@ -1469,6 +1519,13 @@ export function ScaleGrid({
     })
   }
 
+  /** Fecha o modal de Servidor Externo sem deixar seleção pendurada para a próxima abertura. */
+  const fecharModalExterno = () => {
+    setIsExternalModalOpen(false)
+    setExternalData({ unidadeId: '', setorId: '', servidorId: '' })
+    setExternalEncontrado(null)
+  }
+
   const handleAddExternalServer = async () => {
     if (!externalData.servidorId) return
 
@@ -1506,7 +1563,7 @@ export function ScaleGrid({
         servidor_id: externalData.servidorId,
         nome: data.servidores?.nome 
       })
-      setIsExternalModalOpen(false)
+      fecharModalExterno()
 
       // Servidor Externo é o caso onde a carga em outra escala é mais provável — ele vem de
       // outra lotação, e a escala de origem dele é justamente a que esta grade não mostra.
@@ -4299,6 +4356,10 @@ export function ScaleGrid({
                 if (val === 'all') {
                   handleAddAll()
                 } else if (val === 'external') {
+                  // Abre sempre limpo: reabrir com a escolha anterior ainda no campo já fez
+                  // alguém adicionar a pessoa errada por não reparar no que estava selecionado.
+                  setExternalData({ unidadeId: '', setorId: '', servidorId: '' })
+                  setExternalEncontrado(null)
                   setIsExternalModalOpen(true)
                 } else if (val) {
                   handleAddServer(val)
@@ -5772,21 +5833,73 @@ export function ScaleGrid({
       {/* Modal Servidor Externo */}
       {isExternalModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-2xl border border-zinc-200 dark:border-zinc-800 w-full max-w-md overflow-hidden" style={{ maxWidth: '450px' }}>
-            <div className="p-6 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between bg-zinc-50 dark:bg-zinc-900/50">
+          {/* ⚠️ Sem `overflow-hidden` aqui, ao contrário dos outros modais: o painel da busca de
+              servidor é `absolute` e mais alto que o corpo do modal — recortado, ele mostraria
+              duas ou três linhas de resultado e o restante ficaria inalcançável. Os cantos
+              arredondados vêm de `rounded-t-xl`/`rounded-b-xl` no cabeçalho e no rodapé. */}
+          <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-2xl border border-zinc-200 dark:border-zinc-800 w-full max-w-md" style={{ maxWidth: '450px' }}>
+            <div className="p-6 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between bg-zinc-50 dark:bg-zinc-900/50 rounded-t-xl">
               <h2 className="text-xl font-bold flex items-center gap-2 text-zinc-900 dark:text-white">
                 <Globe className="h-5 w-5 text-blue-600" />
                 Adicionar Servidor Externo
               </h2>
-              <button onClick={() => setIsExternalModalOpen(false)} className="text-zinc-400 hover:text-zinc-600">
+              <button onClick={() => fecharModalExterno()} className="text-zinc-400 hover:text-zinc-600">
                 <X className="h-5 w-5" />
               </button>
             </div>
             
             <div className="p-6 space-y-4">
+              {/* ── Busca direta pelo nome ────────────────────────────────────────────────────
+                  Caminho principal desde 31/08/2026: escolher a PESSOA sem precisar saber a
+                  lotação dela. O caminho por Unidade → Setor continua abaixo, porque quem já
+                  sabe de onde a pessoa vem acha mais rápido por ali. */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                  Buscar Servidor <span className="text-zinc-400 font-normal">(nome ou matrícula)</span>
+                </label>
+                <SelectComBuscaRemota
+                  value={externalEncontrado?.id || ''}
+                  rotuloSelecionado={externalEncontrado
+                    ? `${externalEncontrado.nome}${externalEncontrado.matricula ? ` (${externalEncontrado.matricula})` : ''}`
+                    : undefined}
+                  buscar={buscarServidorExterno}
+                  placeholder="Digite o nome do servidor…"
+                  aria-label="Buscar servidor por nome ou matrícula"
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all text-zinc-900 dark:text-white"
+                  onChange={(op) => {
+                    if (!op) {
+                      setExternalEncontrado(null)
+                      setExternalData(prev => ({ ...prev, servidorId: '' }))
+                      return
+                    }
+                    const bruto = externalAchadosRef.current.find((s: any) => s.id === op.value)
+                    setExternalEncontrado(bruto ? {
+                      id: bruto.id, nome: bruto.nome, matricula: bruto.matricula, cargo: bruto.cargo,
+                      unidade_nome: bruto.unidade_nome, setor_caminho: bruto.setor_caminho,
+                    } : null)
+                    // Escolher pela busca zera o caminho por lotação: dois campos apontando para
+                    // servidores diferentes ao mesmo tempo é a receita para adicionar o errado.
+                    setExternalData({ unidadeId: '', setorId: '', servidorId: op.value })
+                  }}
+                />
+                {externalEncontrado && (
+                  <div className="rounded-lg border border-blue-200 dark:border-blue-900/60 bg-blue-50 dark:bg-blue-950/30 px-3 py-2 text-xs text-blue-900 dark:text-blue-200">
+                    <span className="font-semibold">Lotação:</span>{' '}
+                    {[externalEncontrado.unidade_nome, externalEncontrado.setor_caminho].filter(Boolean).join(' / ') || 'não informada'}
+                    {externalEncontrado.cargo && <> · {externalEncontrado.cargo}</>}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center gap-3">
+                <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
+                <span className="text-[11px] uppercase tracking-wider text-zinc-400">ou localize pela lotação</span>
+                <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
+              </div>
+
               <div className="space-y-2">
                 <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Unidade de Origem</label>
-                <select 
+                <select
                   className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all text-zinc-900 dark:text-white"
                   value={externalData.unidadeId}
                   onChange={(e) => setExternalData(prev => ({ ...prev, unidadeId: e.target.value }))}
@@ -5817,21 +5930,29 @@ export function ScaleGrid({
                 <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Servidor</label>
                 <select 
                   className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all disabled:opacity-50 text-zinc-900 dark:text-white"
-                  value={externalData.servidorId}
+                  value={externalEncontrado ? '' : externalData.servidorId}
                   disabled={!externalData.setorId}
-                  onChange={(e) => setExternalData(prev => ({ ...prev, servidorId: e.target.value }))}
+                  onChange={(e) => {
+                    setExternalEncontrado(null)
+                    setExternalData(prev => ({ ...prev, servidorId: e.target.value }))
+                  }}
                 >
                   <option value="">Selecione o Servidor</option>
-                  {externalServers.map(s => (
-                    <option key={s.id} value={s.id}>{s.nome}</option>
-                  ))}
+                  {externalServers.map(s => {
+                    const jaNaGrade = escalaMensal.some(em => em.servidor_id === s.id)
+                    return (
+                      <option key={s.id} value={s.id} disabled={jaNaGrade}>
+                        {s.nome}{jaNaGrade ? ' — já está nesta escala' : ''}
+                      </option>
+                    )
+                  })}
                 </select>
               </div>
             </div>
 
-            <div className="p-6 bg-zinc-50 dark:bg-zinc-900/50 border-t border-zinc-100 dark:border-zinc-800 flex justify-end gap-3">
-              <button 
-                onClick={() => setIsExternalModalOpen(false)}
+            <div className="p-6 bg-zinc-50 dark:bg-zinc-900/50 border-t border-zinc-100 dark:border-zinc-800 flex justify-end gap-3 rounded-b-xl">
+              <button
+                onClick={() => fecharModalExterno()}
                 className="px-4 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
               >
                 Cancelar
