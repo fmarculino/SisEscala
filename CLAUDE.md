@@ -2900,6 +2900,37 @@ onde a query vem de `createClient()` (a RLS segura por baixo), **não** onde vem
 `createAdminClient()` — e existe um sítio assim (`justificativas/actions.ts`). Estava protegido
 por um guard externo, mas o default de uma função de segurança é **negar**.
 
+### 42. `RETURNS TABLE` cria variável com o nome da coluna, e `SET` não pode ser qualificado (30/08/2026)
+
+🚨 **`fn_avisos_ponto_pendentes` ficou quebrada em produção** entre duas migrations, e nenhum
+`tsc`, `lint` ou `build` pegou:
+
+```
+POST /rpc/fn_avisos_ponto_pendentes -> HTTP 400
+42702: "It could refer to either a PL/pgSQL variable or a table column."
+```
+
+**A causa:** `RETURNS TABLE (… canal text, destino text, tentativas integer …)` declara parâmetros
+de **saída** com esses nomes. No corpo,
+`UPDATE avisos_ponto_fila f SET tentativas = …, canal = …, destino = …` referencia colunas com os
+**mesmos nomes** — e **o alvo de um `SET` não pode ser qualificado** (`SET f.canal` é erro de
+sintaxe), então não há como desambiguar escrevendo melhor.
+
+**A correção é `#variable_conflict use_column`** logo após o `AS $fn$`, antes do `DECLARE`. Em
+função assim, o parâmetro de saída nunca é lido como variável (o retorno é por `RETURN QUERY`),
+então resolver sempre para a coluna é o que se quer. ⚠️ **Não remova essa linha ao regerar a
+função.**
+
+⚠️ **O modo de falha é o da armadilha 1, agravado:** plpgsql só resolve nome na **execução**, então
+a função é criada sem reclamar. E como a migration tinha feito `DROP` da assinatura antiga (para
+evitar `PGRST203`, armadilha 41), **a única versão existente passou a ser a quebrada** — o despacho
+parou por completo, em silêncio, até alguém medir.
+
+⚠️ **Verificação que confere se a função EXISTE não serve aqui.** Ela existia. A verificação
+precisa **EXECUTAR** a função, com argumentos que não produzam efeito colateral (aqui,
+`fn_avisos_ponto_pendentes(1, 0)`, que só alcança item de e-mail e não envia nada). Quem pegou o
+erro foi a sonda por fora, não a migration.
+
 ### 41. Assinatura nova de função é objeto NOVO: `GRANT` não é herdado, e a ordem de deploy vira problema (30/08/2026)
 
 `/api/rep/v1/pendencias` e `/remocoes` autenticam o relógio por HMAC e **já tinham o
