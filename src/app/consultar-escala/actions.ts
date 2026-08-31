@@ -2869,7 +2869,16 @@ export async function getPreferenciaAvisoPonto() {
 
   return {
     status: data.aviso_ponto_status || 'inativo',
-    modo: data.aviso_ponto_modo || 'resumo_diario',
+    // ⚠️ O padrão caiu para `resumo_semanal` em 30/08/2026 (migration 20260830140000). Este
+    // fallback só é usado quando a coluna vem nula, mas deixá-lo em `resumo_diario` faria a tela
+    // marcar o rádio errado — dizendo que a pessoa escolheu algo que ela não escolheu.
+    modo: data.aviso_ponto_modo || 'resumo_semanal',
+    // ⚠️ `email` e `canal` PRECISAM sair daqui. O `.select()` já os buscava, mas eles não eram
+    // devolvidos — e a tela, sem `estado.email`, exibia "Você ainda não tem e-mail cadastrado"
+    // para quem tem, deixando a opção recomendada desabilitada. Ao acrescentar campo à consulta,
+    // confira que ele chega ao componente: buscar não é entregar.
+    email: data.email,
+    canal: data.aviso_ponto_canal || 'email',
     definidoEm: data.aviso_ponto_definido_em,
     confirmadoEm: data.aviso_ponto_confirmado_em,
     expiraEm: data.aviso_ponto_expira_em,

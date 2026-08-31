@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.28.1] - 2026-08-30
+
+### Fixed
+- **O Portal dizia "Você ainda não tem e-mail cadastrado" para quem tem**, deixando a opção recomendada desabilitada. `getPreferenciaAvisoPonto` **buscava** `email` e `aviso_ponto_canal` no `.select()` mas **não os devolvia** no objeto de retorno — a tela nunca recebia os campos.
+  - ⚠️ **Buscar não é entregar.** Ao acrescentar coluna a uma consulta, confira que ela chega ao componente: o `.select()` mudou, o `return` não, e nada em `tsc`/`lint`/`build` acusa — o objeto simplesmente não tem a chave, e no JSX isso vira `undefined`, que é indistinguível de "não cadastrado".
+  - Junto: o fallback de `modo` ainda era `resumo_diario`, o que fazia a tela marcar o rádio errado quando a coluna vinha nula — dizendo que a pessoa escolheu algo que ela não escolheu.
+- **A tela e o termo descreviam um comportamento que o sistema não tem mais.** O título dizia "Aviso de ponto **no WhatsApp**" e o texto, "receba uma mensagem **a cada vez que registrar** o ponto". Nenhuma das duas coisas é verdade: o canal padrão passou a ser e-mail (2.28.0) e o envio virou resumo desde a `20260814130000`. Tela que descreve comportamento inexistente é pior que tela sem descrição.
+  - **Termo de ciência subiu para 1.1** e passou a descrever o resumo e a escolha de canal. ⚠️ **Consentimentos dados sob a 1.0 continuam válidos, com o texto vigente à época** — `logs_preferencia_aviso_ponto` guarda o literal, não uma referência, e ninguém é reconsentido à força.
+  - ℹ️ Não se exigiu novo aceite porque a mudança é **menos intrusiva** que a consentida (menos mensagens, canal escolhível pela própria pessoa). Se a Secretaria entender que a troca de canal pede reconsentimento explícito, é decisão administrativa — o mecanismo existe.
+
 ## [2.28.0] - 2026-08-30
 
 ### Changed

@@ -157,12 +157,16 @@ export function AvisoPontoSection() {
           <MessageSquare className="h-5 w-5" />
         </div>
         <div className="space-y-1">
+          {/* ⚠️ O título e o texto foram corrigidos em 30/08/2026: diziam "no WhatsApp" e "a cada
+              vez que registrar", e nenhuma das duas coisas era verdade — o canal padrão passou a
+              ser e-mail e o envio virou resumo (semanal por padrão) desde a 20260814130000. Tela
+              que descreve um comportamento que o sistema não tem é pior que tela sem descrição. */}
           <h3 className="text-base font-black text-zinc-900 dark:text-white uppercase tracking-tight">
-            Aviso de ponto no WhatsApp
+            Aviso de registro de ponto
           </h3>
           <p className="text-sm text-zinc-500 leading-relaxed">
-            Receba uma mensagem no seu WhatsApp a cada vez que registrar o ponto no terminal, com a
-            data, o horário e o local do registro.
+            Receba um resumo dos seus registros — data, horário e local de cada batida. Você
+            escolhe abaixo por onde recebe e com que frequência.
           </p>
         </div>
       </div>
