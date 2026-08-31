@@ -2842,7 +2842,7 @@ export async function getPreferenciaAvisoPonto() {
 
   const { data, error } = await supabase
     .from('servidores')
-    .select('id, telefone, aviso_ponto_status, aviso_ponto_modo, aviso_ponto_definido_em, aviso_ponto_confirmado_em, aviso_ponto_expira_em, unidade_id, setor_id')
+    .select('id, telefone, email, aviso_ponto_status, aviso_ponto_modo, aviso_ponto_canal, aviso_ponto_definido_em, aviso_ponto_confirmado_em, aviso_ponto_expira_em, unidade_id, setor_id')
     .eq('id', portalServidorId)
     .single()
 
@@ -2940,6 +2940,44 @@ export async function definirPreferenciaAvisoPonto(ativar: boolean) {
  * "resumo diário" é ajuste de preferência, não novo consentimento — não faz sentido pedir o termo
  * e uma nova confirmação por WhatsApp a cada troca. O consentimento já foi dado e continua valendo.
  */
+/**
+ * Troca o canal do aviso de ponto (e-mail ou WhatsApp).
+ *
+ * ⚠️ **E-mail é o padrão desde 30/08/2026**, e a razão não é preferência estética: o número de
+ * WhatsApp foi restringido pela Meta **duas vezes** — e a segunda com apenas 25 servidores ativos
+ * e ~440 mensagens no total, o que descarta volume como causa e aponta a API não oficial.
+ *
+ * O aviso de ponto é 99% do tráfego e é **informativo** (o próprio termo diz que não é
+ * comprovante). O acionamento de sobreaviso é 1% e é **emergência**. Como os dois saem pelo mesmo
+ * número, cada bloqueio derruba os dois — tirar o informativo do WhatsApp é o que protege o
+ * urgente. Ver docs/planos/2026-08-30-estrategia-de-canais-e-bloqueios-do-whatsapp.md.
+ *
+ * A recusa por falta de endereço vive na RPC, não aqui: aceitar em silêncio faria o servidor
+ * achar que trocou enquanto o fallback manda pelo outro canal, sem nada na tela explicando.
+ */
+export async function definirCanalAvisoPonto(canal: string) {
+  const portalServidorId = await servidorDaSessao()
+
+  if (!portalServidorId) {
+    return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
+  }
+
+  const supabase = await createAdminClient()
+
+  const { data, error } = await supabase.rpc('fn_definir_canal_aviso_ponto', {
+    p_servidor_id: portalServidorId,
+    p_canal: canal,
+  })
+
+  if (error) return { error: error.message }
+
+  const res = Array.isArray(data) ? data[0] : data
+  if (!res?.success) return { error: res?.message || 'Não foi possível salvar o canal.' }
+
+  revalidatePath('/consultar-escala')
+  return { success: true, canal: res.canal as string, message: res.message as string }
+}
+
 export async function definirModoAvisoPonto(modo: string) {
   const portalServidorId = await servidorDaSessao()
 

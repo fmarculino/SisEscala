@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.28.0] - 2026-08-30
+
+### Changed
+- **O aviso de ponto passa a sair por E-MAIL por padrão, e o resumo passa a ser SEMANAL** (migrations `20260830140000` e `20260830150000`). Plano completo em `docs/planos/2026-08-30-estrategia-de-canais-e-bloqueios-do-whatsapp.md`.
+  - 🚨 **O motivo, e ele descarta a explicação intuitiva:** o número de WhatsApp foi restringido pela Meta **outra vez** — e desta vez **com apenas 25 servidores ativos e ~440 mensagens no total**. A `20260814130000` já tinha cortado os modos caros pelo mesmo motivo. Nesse patamar **não é volume**: é a API não oficial em si, cuja detecção não depende de conteúdo nem de cadência.
+  - ⚠️ **Então o objetivo NÃO é "parar de ser bloqueado".** É garantir que, quando o bloqueio vier, ele alcance o aviso **informativo** e não o **acionamento de sobreaviso** — que sai pelo mesmo número e serve para chamar alguém para uma emergência. Medido: **440 mensagens de aviso contra 5 de sobreaviso**. 99% do tráfego é a mensagem de menor valor, e é ela que queima o canal de que a de maior valor depende.
+  - **Roteamento por disponibilidade, não por decreto** (`fn_canal_aviso_ponto`): a preferência vale quando há endereço para ela e cai para o outro canal quando não há. Medido em produção — **870 têm telefone e só 634 têm e-mail** —, então o fallback é o caso comum, não a exceção, e **ninguém deixa de ser avisado** por causa da mudança. Simulado: **~79% do tráfego sai do WhatsApp**, com **zero** servidores ativos ficando sem canal.
+  - **`resumo_semanal` vira o padrão e os existentes migram.** Os 999 em `resumo_diario` estavam nele **por omissão**: em todo o cadastro apenas 1 pessoa escolheu algo diferente. Quem quiser diário troca no Portal.
+  - **O servidor escolhe o canal no Portal** (`fn_definir_canal_aviso_ponto`). A RPC **recusa** escolher um canal sem endereço, com mensagem dizendo o que fazer — aceitar em silêncio faria a pessoa achar que trocou enquanto o fallback entrega pelo outro lado.
+  - **Teto por hora/dia e janela de silêncio (21h–06h)** valem **só para o WhatsApp**: e-mail não bloqueia número nem acorda ninguém, e segurá-lo seria atrasar o aviso sem ganho.
+  - **Item de servidor sem e-mail e sem telefone sai da fila com motivo legível**, em vez de ser tentado 3× contra um destino que não existe — o que gravaria "erro de envio" e esconderia que o problema é cadastro incompleto.
+  - `enviarEmailInterno` ganha **o primeiro chamador real do sistema**: o motor de e-mail existia desde sempre e nunca tinha sido usado por ninguém.
+
+### Fixed
+- 🚨 **Espaçamento entre envios de WhatsApp: NÃO use `setTimeout` dentro da requisição.** A primeira versão desta correção esperava 30–90 s entre cada envio no mesmo laço — um lote de 20 levaria **~20 minutos**, e nenhum proxy segura uma requisição HTTP aberta por tanto tempo. O cron receberia timeout com o lote pela metade e a fila **já marcada como tentada**. O espaçamento passou a vir da **cadência do cron** (1 por rodada, com 45% de chance de pular), o que espalha o intervalo entre ~1 e ~5 minutos e faz a requisição terminar em segundos.
+- 🚨 **E o teto de WhatsApp da rodada vai para a RPC, não é aplicado depois de reservar.** `fn_avisos_ponto_pendentes` **incrementa `tentativas` ao reservar**: reservar 20 e enviar 1 devolveria os outros 19 à fila com uma tentativa gasta sem nada ter sido tentado — e em 3 rodadas eles morreriam como falha **sem que uma única mensagem tivesse saído**.
+
+### Known
+- ⚠️ **Isto reduz a superfície; não elimina o bloqueio.** O número já foi restringido duas vezes e o volume já foi cortado uma vez. Enquanto a API for não oficial, o risco permanece.
+- ℹ️ **A Cloud API oficial continua sendo a única solução que remove a causa** — as mensagens do sistema são categoria *utility* (80–95% mais barata que marketing, gratuita dentro da janela de 24 h, já faturável em BRL). **Fora de cogitação por ora** (decisão do usuário, 30/08/2026): depende de licitação, sem previsão.
+- ⚠️ **Variar o texto da mensagem foi considerado e descartado.** É frágil, não ataca a causa, e tem custo próprio: mensagem oficial de órgão público deveria ser **idêntica e reconhecível** — texto que muda a cada envio é o que um golpista faz, e este sistema envia PIN de acesso.
+- ⚠️ **Pendência operacional, não de código:** usar **dois números** (um exclusivo para sobreaviso) continua sendo a proteção mais direta do fluxo de emergência. Depende de linha e conta novas.
+
 ## [2.27.3] - 2026-08-30
 
 ### Added

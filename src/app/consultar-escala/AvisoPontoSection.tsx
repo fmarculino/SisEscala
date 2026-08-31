@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { MessageSquare, ShieldCheck, AlertTriangle, Loader2, Check, X, Info } from 'lucide-react'
-import { getPreferenciaAvisoPonto, definirPreferenciaAvisoPonto, definirModoAvisoPonto } from './actions'
+import { getPreferenciaAvisoPonto, definirPreferenciaAvisoPonto, definirModoAvisoPonto, definirCanalAvisoPonto } from './actions'
 import { TERMO_ATIVACAO, TERMO_DESATIVACAO } from '@/utils/avisoPonto'
 
 /**
@@ -57,8 +57,8 @@ export function AvisoPontoSection() {
    * RPC direto; não é só a tela que os escondeu.
    */
   const MODOS: { chave: string; titulo: string; detalhe: string; volume: string }[] = [
-    { chave: 'resumo_semanal', titulo: 'Resumo semanal', detalhe: 'Toda segunda-feira, com os registros da semana anterior e o link da sua folha.', volume: '~4 por mês' },
-    { chave: 'resumo_diario', titulo: 'Resumo diário (recomendado)', detalhe: 'Uma mensagem ao fim do expediente, com todas as batidas do dia.', volume: '~22 por mês' },
+    { chave: 'resumo_semanal', titulo: 'Resumo semanal (recomendado)', detalhe: 'Toda segunda-feira, com os registros da semana anterior e o link da sua folha.', volume: '~4 por mês' },
+    { chave: 'resumo_diario', titulo: 'Resumo diário', detalhe: 'Uma mensagem ao fim do expediente, com todas as batidas do dia.', volume: '~22 por mês' },
   ]
 
   async function salvarModo(modo: string) {
@@ -67,6 +67,46 @@ export function AvisoPontoSection() {
     const res: any = await definirModoAvisoPonto(modo)
     if (res?.error) setErro(res.error)
     else { setErro(null); setFeedback(res.message); setEstado((e: any) => ({ ...e, modo: res.modo })) }
+    setSalvando(false)
+  }
+
+  /**
+   * Canal de entrega. **E-mail é o padrão desde 30/08/2026.**
+   *
+   * ⚠️ O motivo não é preferência: o número de WhatsApp foi restringido pela Meta **duas vezes**,
+   * a segunda com apenas 25 servidores ativos — o que descarta volume como causa. Como o aviso de
+   * ponto (informativo) e o acionamento de sobreaviso (emergência) saem pelo mesmo número, cada
+   * bloqueio derruba os dois. Tirar o informativo do WhatsApp é o que protege o urgente.
+   *
+   * A opção só é oferecida quando há endereço para ela — escolher um canal sem endereço faria o
+   * servidor achar que trocou enquanto o sistema entrega pelo outro. A RPC também recusa, então
+   * esconder aqui é conveniência, não a defesa.
+   */
+  const CANAIS: { chave: string; titulo: string; detalhe: string; disponivel: boolean }[] = [
+    {
+      chave: 'email',
+      titulo: 'E-mail (recomendado)',
+      detalhe: estado?.email
+        ? `Chega em ${estado.email}. É o canal mais estável e não depende do WhatsApp.`
+        : 'Você ainda não tem e-mail cadastrado. Peça ao seu coordenador para cadastrar.',
+      disponivel: !!estado?.email,
+    },
+    {
+      chave: 'whatsapp',
+      titulo: 'WhatsApp',
+      detalhe: estado?.telefone
+        ? 'Chega no telefone cadastrado. Pode atrasar ou falhar quando o número da Secretaria está com restrição.'
+        : 'Você ainda não tem telefone cadastrado.',
+      disponivel: !!estado?.telefone,
+    },
+  ]
+
+  async function salvarCanal(canal: string) {
+    setSalvando(true)
+    setFeedback(null)
+    const res: any = await definirCanalAvisoPonto(canal)
+    if (res?.error) setErro(res.error)
+    else { setErro(null); setFeedback(res.message); setEstado((e: any) => ({ ...e, canal: res.canal })) }
     setSalvando(false)
   }
 
@@ -212,6 +252,48 @@ export function AvisoPontoSection() {
       {/* A frequência só aparece depois de o aviso estar valendo — oferecer a escolha a quem ainda
           não ativou seria pedir uma decisão sobre algo que não está acontecendo. */}
       {ativo && (
+       <>
+        <div className="space-y-3 pt-4 border-t border-zinc-100 dark:border-zinc-800">
+          <div>
+            <p className="text-xs font-black uppercase tracking-wider text-zinc-400">
+              Por onde você quer receber
+            </p>
+            <p className="text-[11px] text-zinc-500 mt-0.5">
+              O e-mail é o canal padrão por ser mais estável. O WhatsApp continua disponível.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-2">
+            {CANAIS.map(c => {
+              const escolhido = (estado?.canal || 'email') === c.chave
+              return (
+                <label
+                  key={c.chave}
+                  className={`flex items-start gap-3 p-4 rounded-2xl border-2 transition-all ${
+                    !c.disponivel
+                      ? 'border-zinc-200 dark:border-zinc-800 opacity-60 cursor-not-allowed'
+                      : escolhido
+                        ? 'border-emerald-600 bg-emerald-50/40 dark:bg-emerald-950/20 cursor-pointer'
+                        : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 cursor-pointer'}`}
+                >
+                  <input
+                    type="radio"
+                    name="aviso_ponto_canal"
+                    checked={escolhido}
+                    disabled={salvando || !c.disponivel}
+                    onChange={() => salvarCanal(c.chave)}
+                    className="mt-0.5 text-emerald-600 focus:ring-emerald-500"
+                  />
+                  <div className="min-w-0">
+                    <span className="text-sm font-black text-zinc-900 dark:text-white">{c.titulo}</span>
+                    <p className="text-xs text-zinc-500 leading-relaxed">{c.detalhe}</p>
+                  </div>
+                </label>
+              )
+            })}
+          </div>
+        </div>
+
         <div className="space-y-3 pt-4 border-t border-zinc-100 dark:border-zinc-800">
           <div>
             <p className="text-xs font-black uppercase tracking-wider text-zinc-400">
@@ -225,7 +307,7 @@ export function AvisoPontoSection() {
 
           <div className="grid grid-cols-1 gap-2">
             {MODOS.map(m => {
-              const escolhido = (estado?.modo || 'resumo_diario') === m.chave
+              const escolhido = (estado?.modo || 'resumo_semanal') === m.chave
               return (
                 <label
                   key={m.chave}
@@ -253,6 +335,7 @@ export function AvisoPontoSection() {
             })}
           </div>
         </div>
+       </>
       )}
 
       {feedback && (
