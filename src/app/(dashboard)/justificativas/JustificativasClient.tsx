@@ -21,6 +21,7 @@ import { formatSectorsHierarchy } from '@/utils/sectors'
 import { formatarHora } from '@/utils/horario'
 import { PAPEIS_REVERTEM_DESFECHO, type Desfecho } from '@/utils/gestaoJustificativas'
 import { rotularInativo } from '@/utils/opcoesAtivas'
+import { SelectComBusca } from '@/components/ui/SelectComBusca'
 
 interface JustificativasClientProps {
   unidades: any[]
@@ -383,16 +384,13 @@ export function JustificativasClient({
           {/* Setor */}
           <div className="space-y-1">
             <label className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Setor</label>
-            <select
+            <SelectComBusca
               value={selectedSetor}
-              onChange={(e) => { setSelectedSetor(e.target.value); setSelectedServidor(''); setCurrentPage(1) }}
+              onChange={(v) => { setSelectedSetor(v); setSelectedServidor(''); setCurrentPage(1) }}
+              placeholder="Todos os Setores"
+              opcoes={filteredSetores.map(s => ({ value: s.id, label: rotularInativo(s as any) }))}
               className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2.5 text-xs font-bold text-zinc-800 dark:text-zinc-200 focus:ring-2 focus:ring-indigo-500 outline-none"
-            >
-              <option value="">Todos os Setores</option>
-              {filteredSetores.map(s => (
-                <option key={s.id} value={s.id}>{rotularInativo(s as any)}</option>
-              ))}
-            </select>
+            />
           </div>
 
           {/* Servidor (Combobox Pesquisável) */}

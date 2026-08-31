@@ -6,6 +6,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Loader2, AlertTriangle, CheckCircle2, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react'
 import { listarPendencias, buscarEscalasCandidatas, aceitarMarcacaoPendente } from './actions'
 import type { EscalaCandidata, PrevistoDoBloco } from './actions'
+import { SelectComBusca } from '@/components/ui/SelectComBusca'
 
 interface Pendencia {
   marcacao_id: string
@@ -353,38 +354,35 @@ export function PendenciasTab({ opcoes }: { opcoes?: Opcoes }) {
 
       {opcoes && opcoes.unidades.length > 1 && (
         <div className="flex flex-wrap items-center gap-3">
-          <select
+          <SelectComBusca
             value={filtroUnidade}
-            onChange={(e) => { setFiltroUnidade(e.target.value); setFiltroSetor(''); setFiltroServidor(''); setPagina(1) }}
+            onChange={(v) => { setFiltroUnidade(v); setFiltroSetor(''); setFiltroServidor(''); setPagina(1) }}
+            placeholder="Todas as unidades"
+            opcoes={opcoes.unidades.map((u) => ({ value: u.id, label: u.nome }))}
             className="rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-1.5 text-sm"
-          >
-            <option value="">Todas as unidades</option>
-            {opcoes.unidades.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
-          </select>
+          />
 
           {filtroUnidade && setoresDaUnidade.length > 0 && (
-            <select
+            <SelectComBusca
               value={filtroSetor}
-              onChange={(e) => { setFiltroSetor(e.target.value); setFiltroServidor(''); setPagina(1) }}
+              onChange={(v) => { setFiltroSetor(v); setFiltroServidor(''); setPagina(1) }}
+              placeholder="Todos os setores"
+              opcoes={setoresDaUnidade.map((s) => ({ value: s.id, label: s.nome }))}
               className="rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-1.5 text-sm"
-            >
-              <option value="">Todos os setores</option>
-              {setoresDaUnidade.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
-            </select>
+            />
           )}
         </div>
       )}
 
       {!carregando && pendencias.length > 0 && (
         <div className="flex flex-wrap items-center gap-3">
-          <select
+          <SelectComBusca
             value={filtroServidor}
-            onChange={(e) => mudarFiltro(() => setFiltroServidor(e.target.value))}
+            onChange={(v) => mudarFiltro(() => setFiltroServidor(v))}
+            placeholder={`Todos os servidores (${servidores.length})`}
+            opcoes={servidores.map(([id, nome]) => ({ value: id, label: nome }))}
             className="rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-1.5 text-sm"
-          >
-            <option value="">Todos os servidores ({servidores.length})</option>
-            {servidores.map(([id, nome]) => <option key={id} value={id}>{nome}</option>)}
-          </select>
+          />
 
           <select
             value={filtroSituacao}

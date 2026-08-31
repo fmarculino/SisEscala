@@ -13,6 +13,7 @@ import { applyAccessFilters, hasSectorAccess } from '@/utils/permissions'
 import { formatSectorsHierarchy } from '@/utils/sectors'
 import { useDialog } from '@/components/ui/DialogProvider'
 import { h, raw } from '@/utils/htmlSeguro'
+import { SelectComBusca } from '@/components/ui/SelectComBusca'
 
 interface Servidor {
   id: string
@@ -1343,54 +1344,47 @@ export default function AfastamentosPage() {
 
             <div>
               <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Unidade</label>
-              <select
+              <SelectComBusca
                 value={selectedUnidade}
-                onChange={e => {
-                  setSelectedUnidade(e.target.value)
+                onChange={v => {
+                  setSelectedUnidade(v)
                   setSelectedSetor('')
                   setBuscaServidor('')
                 }}
+                placeholder="Selecione a Unidade"
+                opcoes={unidades.map(u => ({ value: u.id, label: u.nome }))}
                 className="w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-sm"
-              >
-                <option value="">Selecione a Unidade</option>
-                {unidades.map(u => (
-                  <option key={u.id} value={u.id}>{u.nome}</option>
-                ))}
-              </select>
+              />
             </div>
 
             <div>
               <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Setor</label>
-              <select
+              <SelectComBusca
                 value={selectedSetor}
                 disabled={!selectedUnidade}
-                onChange={e => { setSelectedSetor(e.target.value); setBuscaServidor('') }}
-                className="w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-sm disabled:opacity-50"
-              >
-                <option value="">Selecione o Setor</option>
-                {setores
+                onChange={v => { setSelectedSetor(v); setBuscaServidor('') }}
+                placeholder="Selecione o Setor"
+                opcoes={setores
                   .filter(s => s.unidade_id === selectedUnidade)
-                  .map(s => (
-                    <option key={s.id} value={s.id}>{s.nome}</option>
-                  ))}
-              </select>
+                  .map(s => ({ value: s.id, label: s.nome }))}
+                className="w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-sm disabled:opacity-50"
+              />
             </div>
 
             <div>
               <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Servidor</label>
-              <select
+              <SelectComBusca
                 value={selectedServidor}
                 disabled={!selectedSetor}
-                onChange={e => setSelectedServidor(e.target.value)}
+                onChange={setSelectedServidor}
+                placeholder="Selecione o Servidor"
+                opcoes={servidores.map(s => ({
+                  value: s.id,
+                  label: s.nome,
+                  detalhe: s.matricula ? `Matricula ${s.matricula}` : undefined,
+                }))}
                 className="w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-sm disabled:opacity-50"
-              >
-                <option value="">Selecione o Servidor</option>
-                {servidores.map(s => (
-                  <option key={s.id} value={s.id}>
-                    {s.nome} {s.matricula ? `(${s.matricula})` : ''}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
 
             <div>
@@ -1621,35 +1615,33 @@ export default function AfastamentosPage() {
 
             <div className="flex items-center gap-2">
               <Building2 className="h-4 w-4 text-zinc-400" />
-              <select 
+              <SelectComBusca
                 className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-bold"
                 value={filterUnidade}
-                onChange={(e) => {
-                  setFilterUnidade(e.target.value)
+                onChange={(v) => {
+                  setFilterUnidade(v)
                   setFilterSetor('todos')
                 }}
-              >
-                <option value="todas">Todas as Unidades</option>
-                {unidades.map(u => (
-                  <option key={u.id} value={u.id}>{u.nome}</option>
-                ))}
-              </select>
+                opcoes={[
+                  { value: 'todas', label: 'Todas as Unidades' },
+                  ...unidades.map(u => ({ value: u.id, label: u.nome })),
+                ]}
+              />
             </div>
 
             <div className="flex items-center gap-2">
               <Layers className="h-4 w-4 text-zinc-400" />
-              <select 
+              <SelectComBusca
                 className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-bold"
                 value={filterSetor}
-                onChange={(e) => setFilterSetor(e.target.value)}
-              >
-                <option value="todos">Todos os Setores</option>
-                {setores
-                  .filter(s => filterUnidade === 'todas' || s.unidade_id === filterUnidade)
-                  .map(s => (
-                    <option key={s.id} value={s.id}>{s.nome}</option>
-                  ))}
-              </select>
+                onChange={setFilterSetor}
+                opcoes={[
+                  { value: 'todos', label: 'Todos os Setores' },
+                  ...setores
+                    .filter(s => filterUnidade === 'todas' || s.unidade_id === filterUnidade)
+                    .map(s => ({ value: s.id, label: s.nome })),
+                ]}
+              />
             </div>
 
             <div className="flex items-center gap-2">

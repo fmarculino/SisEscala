@@ -3,12 +3,12 @@
 import { createServidor } from '../actions'
 import { useState, useEffect, useMemo, useRef } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Save, Layers, ChevronRight, Eye, EyeOff, MessageCircle, Briefcase, Search, Check, ChevronsUpDown, FileText, User } from 'lucide-react'
+import { ArrowLeft, Save, Layers, ChevronRight, Eye, EyeOff, MessageCircle, Briefcase, Search, Check, ChevronsUpDown, FileText, User, Mail, Loader2 } from 'lucide-react'
 import { createClient } from '@/utils/supabase/client'
 import { applyAccessFilters } from '@/utils/permissions'
 import { formatSectorsHierarchy } from '@/utils/sectors'
 import { DadosComplementaresSection } from '@/components/servidores/DadosComplementaresSection'
-import { sendWhatsAppMessageAction } from '@/app/actions/communication'
+import { sendWhatsAppMessageAction, sendPinEmailAction } from '@/app/actions/communication'
 import { useDialog } from '@/components/ui/DialogProvider'
 import { IntervaloPersonalizadoFields } from '@/components/servidores/IntervaloPersonalizadoFields'
 import { CampoDocumento } from '@/components/CampoDocumento'
@@ -170,7 +170,42 @@ export default function NovoServidorPage() {
   const [currentEmail, setCurrentEmail] = useState('')
   const [selectedSetor, setSelectedSetor] = useState('')
 
+  const [emailSending, setEmailSending] = useState(false)
+
   const dialog = useDialog()
+
+  /**
+   * Envia a credencial por E-MAIL. Caminho preferido — ver o cabecalho de `sendPinEmailAction`.
+   * O WhatsApp fica como alternativa para quem nao tem e-mail cadastrado.
+   */
+  const sharePinEmail = async () => {
+    if (!currentPin || !currentEmail) return
+
+    const message = gerarMensagemAcessoPortal({
+      nome: currentNome,
+      matricula: currentMatricula,
+      pin: currentPin,
+    })
+
+    setEmailSending(true)
+    try {
+      const res = await sendPinEmailAction({
+        to: currentEmail,
+        nome: currentNome,
+        mensagem: message,
+        unidadeId: selectedUnidade || undefined,
+      })
+      if (res.success) {
+        await dialog.alert({ type: 'success', title: 'PIN enviado', message: `O PIN de acesso foi enviado para ${currentEmail}.` })
+      } else {
+        await dialog.alert({ type: 'warning', title: 'Não foi possível enviar', message: res.error || 'Falha ao enviar o e-mail. Confira as configurações de SMTP.' })
+      }
+    } catch (err: any) {
+      await dialog.alert({ type: 'warning', title: 'Não foi possível enviar', message: err?.message || 'Falha ao enviar o e-mail.' })
+    } finally {
+      setEmailSending(false)
+    }
+  }
 
   const sharePinWhatsApp = async () => {
     if (!currentPin) return
@@ -576,6 +611,15 @@ export default function NovoServidorPage() {
                     className="px-3 py-2 bg-zinc-100 dark:bg-zinc-800 text-xs font-bold rounded-md hover:bg-zinc-200 border border-zinc-200 dark:border-zinc-700"
                   >
                     Gerar PIN
+                  </button>
+                  <button
+                    type="button"
+                    onClick={sharePinEmail}
+                    disabled={!currentPin || !currentEmail || emailSending}
+                    className="p-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:bg-zinc-300 transition-colors shadow-sm flex items-center justify-center"
+                    title={currentEmail ? `Enviar PIN por e-mail para ${currentEmail}` : 'Preencha o e-mail do servidor para enviar por aqui'}
+                  >
+                    {emailSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
                   </button>
                   <button
                     type="button"

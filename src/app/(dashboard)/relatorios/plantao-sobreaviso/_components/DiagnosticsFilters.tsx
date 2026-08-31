@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { Calendar, Building2, LayoutGrid, Users, Briefcase, FileText } from 'lucide-react'
 import { formatSectorsHierarchy } from '@/utils/sectors'
+import { SelectComBusca } from '@/components/ui/SelectComBusca'
 
 interface FiltersProps {
   unidades: any[]
@@ -157,20 +158,17 @@ export function DiagnosticsFilters({ unidades, setores, servidores, cargos, init
           <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 ml-1">Unidade</label>
           <div className="relative">
             <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
-            <select
+            <SelectComBusca
               value={unidadeId}
-              onChange={(e) => {
-                setUnidadeId(e.target.value)
+              onChange={(v) => {
+                setUnidadeId(v)
                 setSetorId('')
                 setServidorId('')
               }}
+              placeholder="Todas as Unidades"
+              opcoes={unidades.map(u => ({ value: u.id, label: u.nome }))}
               className="w-full pl-10 pr-4 py-2.5 bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-xl text-xs font-bold text-zinc-700 dark:text-zinc-300 focus:ring-2 focus:ring-indigo-500 transition-all appearance-none cursor-pointer"
-            >
-              <option value="">Todas as Unidades</option>
-              {unidades.map(u => (
-                <option key={u.id} value={u.id}>{u.nome}</option>
-              ))}
-            </select>
+            />
           </div>
         </div>
 
@@ -179,19 +177,16 @@ export function DiagnosticsFilters({ unidades, setores, servidores, cargos, init
           <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 ml-1">Setor</label>
           <div className="relative">
             <LayoutGrid className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
-            <select
+            <SelectComBusca
               value={setorId}
-              onChange={(e) => {
-                setSetorId(e.target.value)
+              onChange={(v) => {
+                setSetorId(v)
                 setServidorId('')
               }}
+              placeholder="Todos os Setores"
+              opcoes={filteredSectors.map(s => ({ value: s.id, label: s.nome }))}
               className="w-full pl-10 pr-4 py-2.5 bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-xl text-xs font-bold text-zinc-700 dark:text-zinc-300 focus:ring-2 focus:ring-indigo-500 transition-all appearance-none cursor-pointer"
-            >
-              <option value="">Todos os Setores</option>
-              {filteredSectors.map(s => (
-                <option key={s.id} value={s.id}>{s.nome}</option>
-              ))}
-            </select>
+            />
           </div>
         </div>
 
@@ -200,16 +195,13 @@ export function DiagnosticsFilters({ unidades, setores, servidores, cargos, init
           <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 ml-1">Cargo</label>
           <div className="relative">
             <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
-            <select
+            <SelectComBusca
               value={cargo}
-              onChange={(e) => setCargo(e.target.value)}
+              onChange={setCargo}
+              placeholder="Todos os Cargos"
+              opcoes={cargos.map(c => ({ value: c, label: c }))}
               className="w-full pl-10 pr-4 py-2.5 bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-xl text-xs font-bold text-zinc-700 dark:text-zinc-300 focus:ring-2 focus:ring-indigo-500 transition-all appearance-none cursor-pointer"
-            >
-              <option value="">Todos os Cargos</option>
-              {cargos.map(c => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
+            />
           </div>
         </div>
       </div>
@@ -221,18 +213,17 @@ export function DiagnosticsFilters({ unidades, setores, servidores, cargos, init
             <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 ml-1">Servidor Específico</label>
             <div className="relative">
               <Users className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
-              <select
+              <SelectComBusca
                 value={servidorId}
-                onChange={(e) => setServidorId(e.target.value)}
+                onChange={setServidorId}
+                placeholder="Todos os Servidores"
+                opcoes={filteredServidores.map(s => ({
+                  value: s.id,
+                  label: s.nome,
+                  detalhe: s.matricula ? `Matrícula ${s.matricula}` : undefined,
+                }))}
                 className="w-full pl-10 pr-4 py-2.5 bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-xl text-xs font-bold text-zinc-700 dark:text-zinc-300 focus:ring-2 focus:ring-indigo-500 transition-all appearance-none cursor-pointer"
-              >
-                <option value="">Todos os Servidores</option>
-                {filteredServidores.map(s => (
-                  <option key={s.id} value={s.id}>
-                    {s.nome} {s.matricula ? `(${s.matricula})` : ''}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
           </div>
 

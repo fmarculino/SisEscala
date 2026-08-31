@@ -27,6 +27,7 @@
 
 import { createClient } from '@/utils/supabase/server'
 import { formatarDataHoraComSegundos } from '@/utils/horario'
+import { escaparHtml } from '@/utils/htmlSeguro'
 import { enviarWhatsAppInterno, enviarEmailInterno } from '@/utils/comunicacao/enviar'
 
 /**
@@ -93,6 +94,46 @@ export async function sendEmailAction(params: {
     subject: params.subject,
     html: params.html,
     text: params.text,
+    unidadeId: params.unidadeId,
+  })
+}
+
+/**
+ * Envia a credencial de acesso ao Portal (matricula + PIN) por E-MAIL.
+ *
+ * ⚠️ **E-mail e o caminho preferido para credencial, e nao so por causa do bloqueio do WhatsApp.**
+ * O PIN e um dado de acesso: por e-mail ele fica recuperavel na caixa do servidor, chega mesmo
+ * com o numero da Secretaria restrito, e nao depende de o telefone cadastrado ser exclusivo
+ * daquela pessoa — telefone compartilhado em unidade e caso real (`fn_telefone_aviso_ponto`
+ * existe justamente para detectar isso).
+ *
+ * O WhatsApp continua disponivel como alternativa manual, para quem nao tem e-mail.
+ */
+export async function sendPinEmailAction(params: {
+  to: string
+  nome: string
+  mensagem: string
+  unidadeId?: string
+}) {
+  await exigirSessao()
+
+  const corpo = escaparHtml(params.mensagem).replace(/\n/g, '<br>')
+  return await enviarEmailInterno({
+    to: params.to,
+    subject: 'SisEscala — Seu acesso ao Portal do Servidor',
+    text: params.mensagem,
+    // ⚠️ `escaparHtml` obrigatorio: `mensagem` carrega nome e matricula vindos do banco.
+    // Mesma regra dos relatorios (armadilha 37).
+    html: `<div style="font-family:system-ui,-apple-system,'Segoe UI',sans-serif;font-size:15px;line-height:1.6;color:#18181b;max-width:560px">
+  <p style="font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#71717a;margin:0 0 14px">
+    Secretaria Municipal de Saúde · Marabá / PA
+  </p>
+  <div style="padding:18px 20px;background:#fafafa;border:1px solid #e4e4e7;border-radius:12px">${corpo}</div>
+  <p style="font-size:12px;color:#71717a;margin:18px 0 0">
+    Guarde este PIN. Ele dá acesso à sua escala e à sua folha de ponto no Portal do Servidor.
+    Se não foi você que solicitou, avise a coordenação da sua unidade.
+  </p>
+</div>`,
     unidadeId: params.unidadeId,
   })
 }

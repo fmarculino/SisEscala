@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.29.0] - 2026-08-30
+
+### Added
+- **Envio do PIN de acesso por E-MAIL**, ao lado do envio por WhatsApp, nas telas de **novo servidor** e **edição de servidor** (`sendPinEmailAction`).
+  - ⚠️ **E-mail é o caminho preferido para credencial, e não só por causa do bloqueio do WhatsApp.** O PIN é dado de acesso: por e-mail ele fica recuperável na caixa da pessoa, chega mesmo com o número da Secretaria restrito, e **não depende de o telefone cadastrado ser exclusivo dela** — telefone compartilhado em unidade é caso real neste sistema (`fn_telefone_aviso_ponto` existe justamente para detectar isso).
+  - O botão de e-mail vem **antes** do de WhatsApp e fica desabilitado, com o motivo no `title`, quando não há e-mail no cadastro. O WhatsApp continua disponível para quem não tem e-mail.
+  - ℹ️ Conferido em produção nesta passada: dos 1.392 servidores ativos, **826 têm PIN com hash bcrypt e ZERO estão em texto plano** (566 sem PIN). O valor legível no formulário é o PIN recém-gerado vivendo no estado do componente antes de salvar — ao gravar ele vira hash.
+
+- **`SelectComBusca`** (`src/components/ui/SelectComBusca.tsx`) — seletor com **busca incremental**, substituto do `<select>` nativo em lista longa. Aplicado em 10 seletores de 5 telas.
+  - **O problema, medido:** servidores **1.392** · setores **646** (196 só na maior unidade) · cargos **260**. O `<select>` nativo não filtra — para achar um nome era preciso rolar 1.392 linhas. O seletor de "Servidor Específico" do Diagnóstico de Plantões era, na prática, inutilizável.
+  - ⚠️ **Abaixo de 12 opções ele devolve o `<select>` NATIVO, de propósito.** Em lista curta o nativo é melhor: abre o seletor do sistema no celular, funciona sem JavaScript e não tem risco nenhum. Por isso mês, ano e "Foco de Escala" **não** foram convertidos — trocar tudo seria pagar complexidade onde não há problema, e complexidade é onde moram os defeitos.
+  - ⚠️ **A busca é acento-insensível e casa em qualquer pedaço do texto.** Quem digita em campo de filtro raramente acentua, e o cadastro é cheio de acento; sem isso o componente pareceria não achar registros que existem — **pior que não ter busca**, porque induz à conclusão errada de que o servidor não está cadastrado. E os rótulos carregam matrícula entre parênteses, que está no MEIO do texto.
+  - ⚠️ **Sentinela não é `placeholder`.** Os filtros de `/afastamentos` usam `'todas'`/`'todos'`, não string vazia; ali o "todos" entra como **opção normal**. Passá-lo como `placeholder` emitiria `''` e trocaria o valor do filtro em silêncio.
+  - Rodapé "N de M" quando a busca corta a lista — com 1.392 opções, sem isso parece que o cadastro só tem o que está à vista.
+  - Aplicado por gerador com conferência (`scratchpad/gen_select_busca.js` e `gen_select_busca2.js`): cada troca declara que casa **exatamente uma vez** e **quantos `<select>` devem sobrar**, então tanto uma troca esquecida quanto uma feita a mais abortam. Foi o que pegou o "Foco de Escala" sendo contado errado.
+  - Telas: `/relatorios/plantao-sobreaviso` (unidade, setor, cargo, servidor), `ServidorSelector` dos relatórios, `/afastamentos` (unidade, setor e servidor do lançamento + unidade e setor do filtro), `/marcacoes` → Pendências (unidade, setor, servidor) e `/justificativas` (setor).
+
 ## [2.28.1] - 2026-08-30
 
 ### Fixed

@@ -4,13 +4,13 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import { formatarData } from '@/utils/horario'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Save, User, Layers, Eye, EyeOff, MessageCircle, Info, Briefcase, Search, Check, ChevronsUpDown, FileText, Printer, Camera, ZoomIn, Loader2, Calendar, MapPin, ExternalLink, Clock } from 'lucide-react'
+import { Save, User, Layers, Eye, EyeOff, MessageCircle, Info, Briefcase, Search, Check, ChevronsUpDown, FileText, Printer, Camera, ZoomIn, Loader2, Calendar, MapPin, ExternalLink, Clock, Mail } from 'lucide-react'
 import { updateServidor } from '../actions'
 import { DadosComplementaresSection } from '@/components/servidores/DadosComplementaresSection'
 import { WebcamPhotoCaptureModal } from '@/components/servidores/WebcamPhotoCaptureModal'
 import { FichaServidorPrintView } from '@/components/servidores/FichaServidorPrintView'
 import { PhotoPreviewModal } from '@/components/servidores/PhotoPreviewModal'
-import { sendWhatsAppMessageAction } from '@/app/actions/communication'
+import { sendWhatsAppMessageAction, sendPinEmailAction } from '@/app/actions/communication'
 import { useDialog } from '@/components/ui/DialogProvider'
 import { IntervaloPersonalizadoFields } from '@/components/servidores/IntervaloPersonalizadoFields'
 import { CampoDocumento } from '@/components/CampoDocumento'
@@ -142,8 +142,58 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
   const [intervaloFlexivel, setIntervaloFlexivel] = useState(!!servidor.intervalo_flexivel)
 
   const [waSending, setWaSending] = useState(false)
+  const [emailSending, setEmailSending] = useState(false)
 
   const dialog = useDialog()
+
+  /**
+   * Envia a credencial por E-MAIL. É o caminho preferido, e não só por causa do bloqueio do
+   * WhatsApp: o PIN é dado de acesso, e por e-mail ele fica recuperável na caixa da pessoa,
+   * chega mesmo com o número da Secretaria restrito, e não depende de o telefone cadastrado ser
+   * exclusivo dela — telefone compartilhado em unidade é caso real neste sistema.
+   */
+  const sharePinEmail = async () => {
+    if (!currentPin || currentPin === '****') return
+    const email = (document.getElementById('email') as HTMLInputElement)?.value?.trim() || servidor.email
+    if (!email) return
+
+    const message = gerarMensagemAcessoPortal({
+      nome: servidor.nome,
+      matricula: servidor.matricula,
+      pin: currentPin,
+    })
+
+    setEmailSending(true)
+    try {
+      const res = await sendPinEmailAction({
+        to: email,
+        nome: servidor.nome,
+        mensagem: message,
+        unidadeId: selectedUnidade || undefined,
+      })
+      if (res.success) {
+        await dialog.alert({
+          type: 'success',
+          title: 'PIN enviado',
+          message: `O PIN de acesso foi enviado para ${email}.`,
+        })
+      } else {
+        await dialog.alert({
+          type: 'warning',
+          title: 'Não foi possível enviar',
+          message: res.error || 'Falha ao enviar o e-mail. Confira as configurações de SMTP.',
+        })
+      }
+    } catch (err: any) {
+      await dialog.alert({
+        type: 'warning',
+        title: 'Não foi possível enviar',
+        message: err?.message || 'Falha ao enviar o e-mail.',
+      })
+    } finally {
+      setEmailSending(false)
+    }
+  }
 
   const sharePinWhatsApp = async () => {
     if (!currentPin || currentPin === '****') return
@@ -809,17 +859,36 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
                   >
                     Gerar PIN
                   </button>
+                  {/* ⚠️ E-MAIL PRIMEIRO, e não é só por causa do bloqueio do WhatsApp: o PIN é
+                      dado de ACESSO. Por e-mail ele fica recuperável na caixa da pessoa, chega
+                      mesmo com o número da Secretaria restrito, e não depende de o telefone
+                      cadastrado ser exclusivo dela — telefone compartilhado em unidade é caso
+                      real aqui (`fn_telefone_aviso_ponto` existe para detectar isso). */}
+                  <button
+                    type="button"
+                    onClick={sharePinEmail}
+                    disabled={!currentPin || currentPin === '****' || !servidor.email || emailSending}
+                    className="p-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:bg-zinc-300 transition-colors shadow-sm flex items-center justify-center"
+                    title={servidor.email ? `Enviar PIN por e-mail para ${servidor.email}` : 'Servidor sem e-mail cadastrado'}
+                  >
+                    {emailSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+                  </button>
                   <button
                     type="button"
                     onClick={sharePinWhatsApp}
-                    disabled={!currentPin || currentPin === '****' || !currentTelefone}
+                    disabled={!currentPin || currentPin === '****' || !currentTelefone || waSending}
                     className="p-2 bg-green-500 text-white rounded-md hover:bg-green-600 disabled:opacity-50 disabled:bg-zinc-300 transition-colors shadow-sm flex items-center justify-center"
-                    title="Enviar PIN via WhatsApp"
+                    title={currentTelefone ? 'Enviar PIN via WhatsApp' : 'Servidor sem telefone cadastrado'}
                   >
-                    <MessageCircle className="h-4 w-4" />
+                    {waSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4" />}
                   </button>
                 </div>
-                <p className="mt-1 text-[10px] text-zinc-500">Este PIN permitirá ao servidor consultar sua escala sem senha.</p>
+                <p className="mt-1 text-[10px] text-zinc-500">
+                  Este PIN permitirá ao servidor consultar sua escala sem senha.
+                  {servidor.email
+                    ? ' Prefira enviar por e-mail — é mais estável e fica recuperável para o servidor.'
+                    : ' Sem e-mail cadastrado, só o WhatsApp está disponível.'}
+                </p>
               </div>
             </div>
           </div>
