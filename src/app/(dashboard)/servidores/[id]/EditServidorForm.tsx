@@ -18,6 +18,7 @@ import { PendenciaRhCpfBanner } from '@/components/servidores/PendenciaRhCpfBann
 import { createClient } from '@/utils/supabase/client'
 import { calcularDataMinimaTransferencia } from '@/utils/transferValidation'
 import { gerarMensagemAcessoPortal } from '@/utils/servidorMensagens'
+import { gerarPin } from '@/utils/pin'
 
 interface EditServidorFormProps {
   id: string
@@ -851,7 +852,11 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
                   <button
                     type="button"
                     onClick={() => {
-                      const pin = Math.floor(1000 + Math.random() * 9000).toString()
+                      // ⚠️ 6 digitos desde 30/08/2026. O gerador antigo dava 4 (9.000 possibilidades),
+                      // que `hash_servidor_pin` agora RECUSA — deixa-lo aqui faria o botao produzir
+                      // um valor que o proprio banco rejeita, e a tela pareceria quebrada.
+                      // PIN de 4 digitos JA EMITIDO continua valendo: a regra e' so na escrita.
+                      const pin = gerarPin(servidor.matricula)
                       setCurrentPin(pin)
                       setShowPin(true)
                     }}

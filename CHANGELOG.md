@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.30.0] - 2026-08-30
+
+### Added
+- **O servidor troca o próprio PIN no Portal** (⚙️ Minha Conta → Trocar meu PIN), e **PIN novo passa a exigir 6 dígitos** — migration `20260830170000`. Diário em `docs/evolucao/2026-08-30-troca-de-pin-pelo-servidor.md`.
+  - **Por quê:** até aqui o PIN era **gerado pelo coordenador e transmitido** por WhatsApp ou e-mail — duas pessoas conheciam cada PIN, e ele passava por um canal. Definido pela própria pessoa, ele vira credencial pessoal em vez de segredo compartilhado. É também o mecanismo que faltava para a decisão de 30/08/2026 de deixar os PINs de 4 dígitos rodarem naturalmente: sem um caminho de troca, "com o tempo" era um prazo sem meio.
+
+  - ✅ **PIN de 4 dígitos já emitido continua valendo, sem prazo — e não é um truque.** O login (`verify_pin`) **só compara hash bcrypt**: ele nunca soube quantos dígitos o PIN tem. A regra nova vive inteiramente no caminho que **grava**, então alcança exclusivamente quem **define um PIN novo**. Medido em produção: **826 com hash, 0 em texto plano**, 1.392 ativos.
+  - 🚨 **A refatoração razoável que quebraria tudo:** "uniformizar" fazendo `fn_validar_pin_portal` chamar `fn_validar_pin_novo`. No mesmo instante **826 pessoas perdem o Portal E o terminal de ponto**, e o sintoma seria *"ninguém consegue bater o ponto hoje"*. A migration **aborta** se detectar isso, e o portão reprova junto. Forçar a troca é possível — seria barrar no **login** —, mas é uma decisão diferente e não foi tomada.
+
+  - ⚠️ **A regra mora no TRIGGER, não só na RPC.** `hash_servidor_pin` já era o funil por onde todo PIN passa antes de virar hash; validar ali faz as duas telas do coordenador e a RPC herdarem a regra sem precisar lembrar dela (padrão da armadilha 23). **Os dois guards originais dele sobreviveram à recriação** (armadilha 1): sem `NOT LIKE '$2a$%'` todo UPDATE em `servidores` aplicaria hash **sobre o hash** e o parque inteiro perderia acesso; sem `IS DISTINCT FROM OLD.pin_acesso` a regra nova reprovaria os 4 dígitos **legados** em qualquer edição de ficha, e o coordenador não conseguiria mais salvar o cadastro de ninguém.
+
+  - 🚨 **Este PIN não é só do Portal — é a credencial do terminal de ponto.** Quem troca à noite e bate de manhã com o antigo **leva recusa**, e pela conformidade da v1.22.0 matrícula/PIN inválidos é a única coisa que ainda recusa batida: vira tentativa registrada e **não vira ponto**. O aviso em âmbar no topo da tela é o que impede a pessoa de descobrir isso na frente do relógio, com fila atrás.
+  - ⚠️ **Exigir o PIN atual não é redundância com a sessão:** o cookie do Portal dura horas e a tela roda em computador compartilhado de unidade — sessão aberta prova que *alguém* entrou, não que quem está na frente agora seja a mesma pessoa.
+  - ⚠️ **E a troca reusa o contador de tentativas do login.** Sem isso ela viraria um oráculo para adivinhar o PIN atual **sem trava** — o furo que a `20260830110000` fechou no login, reaberto por uma porta ao lado.
+  - `servidorId` vem da **sessão assinada**, nunca do cliente (armadilha 32). `logs_troca_pin` registra quem, quando e de onde — **nunca o valor nem o hash**, e a tabela não tem policy de `INSERT` de propósito.
+
+  - ⚠️ **Trocar o piso obrigou a trocar o gerador junto:** `Math.floor(1000 + Math.random() * 9000)` vivia nas duas telas do coordenador, e deixá-lo lá faria o botão "Gerar PIN" produzir um valor que o **próprio banco recusa** — a tela pareceria quebrada por um acerto de regra. Fonte única em `src/utils/pin.ts`; o TypeScript **avisa antes de salvar e traduz o código de recusa**, nunca substitui a checagem do banco.
+  - `pin_min_digitos` fica em `configuracoes_globais` (afrouxável sem deploy) e `fn_pin_e_sequencia` é **estrutural** (todo par de dígitos vizinhos difere de +1 ou de −1) em vez de lista de proibidos, que envelhece e depende do tamanho.
+
+  - Portão: `node scratchpad/sim_troca_pin.js` (56 casos), **validado injetando três regressões de propósito** — piso voltando a 4, trigger perdendo o guard de não re-hashear, e a regra vazando para o login. As três reprovam.
+
 ## [2.29.0] - 2026-08-30
 
 ### Added

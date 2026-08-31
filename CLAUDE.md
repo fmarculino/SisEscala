@@ -2967,6 +2967,65 @@ O plano completo da auditoria fica em `docs/security-audit/`, que **está no `.g
 propósito** — o repositório é público (armadilha 18) e aquele diretório descreve vulnerabilidades
 ainda abertas.
 
+### 43. Regra nova em credencial: aplique na ESCRITA, nunca na LEITURA (30/08/2026)
+
+O servidor passou a **trocar o próprio PIN** no Portal (`fn_trocar_pin_portal`), e PIN **novo**
+passou a exigir **6 dígitos**. Os 826 PINs de 4 dígitos já emitidos **continuam valendo, sem
+prazo** — decisão do usuário de não forçar rotação.
+
+⚠️ **Isso só é possível porque o login não conhece a regra.** `verify_pin` apenas compara hash
+bcrypt: ele não sabe, nem precisa saber, quantos dígitos o PIN tem. A regra vive inteiramente em
+`fn_validar_pin_novo`, chamada de dentro do **trigger de hash** — ou seja, **no caminho que
+grava**. Forçar a troca dos antigos seria barrar no **login**, e aí sim tira gente do ar: é uma
+decisão diferente, e não foi tomada.
+
+🚨 **A refatoração razoável que quebraria tudo:** "uniformizar" fazendo `fn_validar_pin_portal`
+chamar `fn_validar_pin_novo`. No mesmo instante, todo PIN de 4 dígitos para de entrar **no Portal
+e no terminal de ponto**, e o sintoma é *"ninguém consegue bater o ponto hoje"*. A migration
+`20260830170000` **aborta** se detectar isso (`prosrc ILIKE '%fn_validar_pin_novo%'` sobre
+`fn_validar_pin_portal` e `verify_pin`), e `scratchpad/sim_troca_pin.js` reprova junto.
+
+⚠️ **A regra mora no TRIGGER, não só na RPC.** `hash_servidor_pin` (`20260523000000`) já era o
+funil por onde todo PIN passa antes de virar hash — as duas telas do coordenador e a RPC nova
+caem nele. Validar ali é o padrão da armadilha 23: trigger como rede de segurança, RPC como
+caminho que carrega a mensagem legível. **Os dois guards originais dele precisam sobreviver a
+qualquer recriação** (armadilha 1): sem `NOT LIKE '$2a$%'` todo UPDATE em `servidores` aplica hash
+sobre o hash e o parque inteiro perde acesso; sem `IS DISTINCT FROM OLD.pin_acesso` a validação
+nova reprovaria os 4 dígitos **legados** em qualquer edição de ficha, e o coordenador não
+conseguiria mais salvar o cadastro de ninguém.
+
+🚨 **Este PIN não é só do Portal — é a credencial do terminal de ponto.** Quem troca à noite e
+bate de manhã com o antigo **leva recusa**, e pela conformidade da v1.22.0 matrícula/PIN inválidos
+é a única coisa que ainda recusa batida: vira `logs_tentativas_presenca` e some da folha. O aviso
+em âmbar no topo de `TrocarPinSection` é o que impede a pessoa de descobrir isso na frente do
+relógio; não o remova nem o esconda.
+
+⚠️ **Exigir o PIN atual não é redundância com a sessão.** O cookie do Portal dura horas e a tela é
+aberta em computador compartilhado de unidade: sessão aberta prova que *alguém* entrou, não que
+quem está na frente agora seja a mesma pessoa.
+
+⚠️ **E a troca REUSA o contador de tentativas do login.** Sem isso ela viraria um oráculo para
+adivinhar o PIN atual sem trava nenhuma — exatamente o furo que a `20260830110000` fechou no
+login, reaberto por uma porta ao lado.
+
+⚠️ **Trocar o piso obriga a trocar o gerador junto.** `Math.floor(1000 + Math.random() * 9000)`
+vivia nas duas telas do coordenador; deixá-lo lá faria o botão "Gerar PIN" produzir um valor que o
+próprio banco recusa, e a tela pareceria quebrada. Fonte única em `src/utils/pin.ts` (`gerarPin`,
+`conferirPinNovo`, `mensagemRecusaPin`) — o TypeScript **avisa antes de salvar e traduz o código
+de recusa**, nunca substitui a checagem do banco.
+
+⚠️ **Sortear às cegas não basta:** `000000` e `123456` estão no espaço amostral. `gerarPin`
+redesenha até passar na própria regra, **com teto** — `while (true)` num gerador é um travamento
+esperando um bug de regra.
+
+ℹ️ `fn_pin_e_sequencia` é estrutural (todo par de dígitos vizinhos difere de +1 ou de −1) em vez
+de lista de proibidos: lista envelhece e depende do tamanho do PIN.
+
+Portão: `node scratchpad/sim_troca_pin.js` (56 casos). Transpile antes com
+`npx tsc src/utils/pin.ts --outDir scratchpad/_sim --module commonjs --target es2020`.
+**Validado injetando três regressões de propósito** (piso voltando a 4, trigger perdendo o guard
+de não re-hashear, regra vazando para o login) — as três reprovam.
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.

@@ -3,7 +3,7 @@
 import { createClient, createAdminClient } from '@/utils/supabase/server'
 import { lerLimitesTolerancia, minutosEntre, toleranciaAbsorve } from '@/utils/folha/toleranciaExtra'
 import { definirTimezone, formatarHora } from '@/utils/horario'
-import { cookies } from 'next/headers'
+import { cookies, headers } from 'next/headers'
 import { PORTAL_COOKIE, PORTAL_COOKIE_LEGADO, criarSessaoPortal, validarSessaoPortal, opcoesCookiePortal } from '@/utils/portalSession'
 import { unstable_cache, revalidatePath } from 'next/cache'
 import { autoCloseExpiredScalesAndTimesheets, isCompetencyClosed } from '@/utils/autoClose'
@@ -16,6 +16,7 @@ import { preservarCampo } from '@/utils/folha/preservacao'
 import { montarCargaPorJornada, horasNormaisDoDia } from '@/utils/folha/cargaDiaria'
 import { autorizacaoDoDia, aplicarObservacaoAutorizacao } from '@/utils/folha/autorizacaoPonto'
 import { afastamentosDoDia, descreverAfastamentos, isShiftOverlappingAfastamento } from '@/utils/folha/afastamentosDia'
+import { conferirPinNovo, mensagemRecusaPin } from '@/utils/pin'
 
 
 /**
@@ -3008,4 +3009,87 @@ export async function definirModoAvisoPonto(modo: string) {
 
   revalidatePath('/consultar-escala')
   return { success: true, modo: res.modo as string, message: res.message as string }
+}
+
+/**
+ * Troca do PIN pelo PRÓPRIO servidor.
+ *
+ * ⚠️ **`servidorId` NÃO entra por parâmetro** — vem da sessão assinada (armadilha 32). Foi
+ * exatamente essa a correção de 30/08/2026: derivar em vez de comparar, para que uma ação nova
+ * não possa esquecer de conferir.
+ *
+ * ⚠️ **Exigir o PIN atual não é redundância com a sessão.** O cookie do Portal dura horas e a
+ * tela é aberta em computador compartilhado de unidade: sessão aberta prova que alguém entrou,
+ * não que quem está na frente agora seja a mesma pessoa.
+ *
+ * A decisão inteira (bloqueio de tentativas, conferência do atual, regra do novo, gravação e log)
+ * acontece dentro de `fn_trocar_pin_portal`, numa transação só. Aqui só se traduz o resultado.
+ */
+export async function trocarPinPortal(pinAtual: string, pinNovo: string) {
+  const portalServidorId = await servidorDaSessao()
+
+  if (!portalServidorId) {
+    return { error: 'Sessão expirada. Por favor, valide seu PIN novamente.' }
+  }
+
+  // Espelho local da regra, só para não gastar uma ida ao banco no caso óbvio. Quem decide
+  // continua sendo `fn_validar_pin_novo`, chamada de dentro da RPC e do trigger de hash.
+  const local = conferirPinNovo(pinNovo)
+  if (local) return { error: local }
+
+  const h = await headers()
+  const supabase = await createAdminClient()
+
+  const { data, error } = await supabase.rpc('fn_trocar_pin_portal', {
+    p_servidor_id: portalServidorId,
+    p_pin_atual: pinAtual,
+    p_pin_novo: pinNovo,
+    p_ip: h.get('x-forwarded-for')?.split(',')[0]?.trim() || null,
+    p_user_agent: h.get('user-agent') || null,
+  })
+
+  if (error) {
+    console.error('Erro ao trocar PIN do portal:', error.message)
+    return { error: 'Não foi possível trocar o PIN agora. Tente novamente.' }
+  }
+
+  const r = data as {
+    resultado: string
+    tentativas_restantes?: number
+    minutos_restantes?: number
+    motivo?: string
+    minimo?: number
+    maximo?: number
+  }
+
+  switch (r?.resultado) {
+    case 'ok':
+      return { success: true }
+
+    case 'nao_encontrado':
+      return { error: 'Cadastro não encontrado. Fale com a coordenação da sua unidade.' }
+
+    case 'sem_pin':
+      return { error: 'Você ainda não possui um PIN cadastrado. Solicite ao seu coordenador.' }
+
+    case 'bloqueado':
+      return { error: `Muitas tentativas incorretas. Tente novamente em ${r.minutos_restantes} minutos.` }
+
+    case 'pin_atual_invalido': {
+      const restantes = r.tentativas_restantes ?? 0
+      if (restantes > 0) {
+        return { error: `PIN atual incorreto. Você tem mais ${restantes} tentativa(s) antes do bloqueio.` }
+      }
+      return { error: 'Muitas tentativas incorretas. Sua conta está bloqueada por 15 minutos.' }
+    }
+
+    case 'pin_novo_recusado':
+      return { error: mensagemRecusaPin(r.motivo, { minimo: r.minimo, maximo: r.maximo }) }
+
+    case 'pin_novo_igual_ao_atual':
+      return { error: 'O novo PIN é igual ao atual. Escolha um diferente.' }
+
+    default:
+      return { error: 'Não foi possível trocar o PIN agora. Tente novamente.' }
+  }
 }

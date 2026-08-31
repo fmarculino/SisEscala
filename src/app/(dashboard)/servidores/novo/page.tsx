@@ -14,6 +14,7 @@ import { IntervaloPersonalizadoFields } from '@/components/servidores/IntervaloP
 import { CampoDocumento } from '@/components/CampoDocumento'
 import { PendenciaRhCpfBanner } from '@/components/servidores/PendenciaRhCpfBanner'
 import { gerarMensagemAcessoPortal } from '@/utils/servidorMensagens'
+import { gerarPin } from '@/utils/pin'
 
 interface Cargo {
   id: string
@@ -604,7 +605,11 @@ export default function NovoServidorPage() {
                   <button
                     type="button"
                     onClick={() => {
-                      const pin = Math.floor(1000 + Math.random() * 9000).toString()
+                      // ⚠️ 6 digitos desde 30/08/2026. O gerador antigo dava 4 (9.000 possibilidades),
+                      // que `hash_servidor_pin` agora RECUSA — deixa-lo aqui faria o botao produzir
+                      // um valor que o proprio banco rejeita, e a tela pareceria quebrada.
+                      // PIN de 4 digitos JA EMITIDO continua valendo: a regra e' so na escrita.
+                      const pin = gerarPin(currentMatricula)
                       setCurrentPin(pin)
                       setShowPin(true)
                     }}

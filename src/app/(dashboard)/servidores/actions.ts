@@ -9,6 +9,7 @@ import { validarDataTransferencia } from '@/utils/transferValidation'
 import { avaliarPermissaoTransferencia, ehAvaliadorDeTransferencia, ERRO_PAPEL_SEM_PODER } from '@/utils/avaliacaoTransferencia'
 import { listarTodosUsuariosAuth } from '@/utils/authAdmin'
 import { MOTIVO_OBRIGATORIO, traduzirErroVigencia } from '@/utils/vigenciaJornada'
+import { mensagemRecusaPin } from '@/utils/pin'
 
 const normalizarCpf = (cpf?: string | null) => (cpf || '').replace(/\D/g, '')
 
@@ -526,6 +527,17 @@ function traduzirErroCadastro(error: { message?: string; code?: string }): strin
   if (error?.code === '42501' || /row-level security/i.test(msg)) {
     return 'Seu perfil não tem permissão para gravar este cadastro com a lotação informada. Confira o setor selecionado: ' +
       'só é possível gravar nos setores vinculados ao seu acesso, e um servidor não pode ficar sem setor.'
+  }
+  // PIN novo fora da regra. Quem barra e' `hash_servidor_pin` (20260830170000), que e' o funil por
+  // onde todo PIN passa antes de virar hash — as duas telas caem nele sem precisar lembrar da
+  // regra. O que chega aqui e' a mensagem crua do RAISE, com o CODIGO do motivo entre parenteses;
+  // `mensagemRecusaPin` e a fonte unica do texto em portugues.
+  //
+  // ⚠️ Isto alcanca so PIN NOVO. PIN de 4 digitos ja emitido continua valendo: o trigger tem o
+  // guard `IS DISTINCT FROM`, entao editar a ficha sem tocar no PIN nao passa pela validacao.
+  if (error?.code === '23514' && /PIN recusado/i.test(msg)) {
+    const motivo = msg.match(/PIN recusado \(([a-z_]+)\)/i)?.[1]
+    return mensagemRecusaPin(motivo)
   }
   return msg
 }

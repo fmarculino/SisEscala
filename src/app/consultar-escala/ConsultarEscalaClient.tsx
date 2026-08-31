@@ -20,6 +20,7 @@ import { ScalePrintView } from '@/components/ScalePrintView'
 import { PortalScaleGrid } from '@/app/consultar-escala/PortalScaleGrid'
 import { PortalFeriasLicencasSection } from '@/app/consultar-escala/PortalFeriasLicencasSection'
  import { AvisoPontoSection } from '@/app/consultar-escala/AvisoPontoSection'
+ import { TrocarPinSection } from '@/app/consultar-escala/TrocarPinSection'
 import { SugerirJustificativaModal } from '@/components/justificativas/SugerirJustificativaModal'
 import { RelatorioEventoPrintView } from '@/components/reports/RelatorioEventoPrintView'
 
@@ -656,7 +657,7 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
                                 : 'text-zinc-500 hover:text-zinc-850 dark:hover:text-zinc-300'
                             }`}
                           >
-                            💬 Avisos
+                            ⚙️ Minha Conta
                           </button>
                           {justificativasHabilitada && (
                             <button
@@ -687,7 +688,10 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
                 )}
 
                 {viewMode === 'avisos' && (
-                  <AvisoPontoSection />
+                  <div className="space-y-6">
+                    <AvisoPontoSection />
+                    <TrocarPinSection />
+                  </div>
                 )}
 
                 {viewMode === 'justificativas' && (
