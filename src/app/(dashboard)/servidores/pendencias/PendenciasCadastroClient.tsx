@@ -7,6 +7,7 @@ import {
   ChevronDown, ChevronUp, ExternalLink, Info, UserPlus, ArrowRightLeft,
 } from 'lucide-react'
 import { ImportacaoRhSection } from './ImportacaoRhSection'
+import { ImportacaoPlanilhaSection } from './ImportacaoPlanilhaSection'
 import { SolicitacoesTransferenciaSection } from './SolicitacoesTransferenciaSection'
 
 interface DocumentoInvalido {
@@ -222,6 +223,8 @@ export function PendenciasCadastroClient({
           setores={setores}
           cargos={cargos}
         />
+
+        <ImportacaoPlanilhaSection unidades={unidades} setores={setores} />
       </div>
     )
   }
@@ -259,6 +262,8 @@ export function PendenciasCadastroClient({
         setores={setores}
         cargos={cargos}
       />
+
+      <ImportacaoPlanilhaSection unidades={unidades} setores={setores} />
 
       {/* Documentos inválidos */}
       <section className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
