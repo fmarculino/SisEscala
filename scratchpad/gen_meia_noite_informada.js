@@ -145,16 +145,17 @@ ${PREAMBULO}
 
     FOR v_i IN 1..4 LOOP
         v_passo := v_passos[v_i];
+        v_hhmm  := NULLIF(btrim(COALESCE(p_horarios->>v_passo, '')), '');
 
-        -- Horario ja gravado neste passo manda na referencia: os UPDATE abaixo usam COALESCE e
-        -- nao o sobrescrevem, entao e ele que o passo seguinte tem de suceder.
-        IF v_ja[v_i] IS NOT NULL THEN
-            IF v_ancora IS NULL THEN v_ancora := v_ja[v_i]; END IF;
-            v_ref := v_ja[v_i];
+        -- Se este passo nao veio no payload, o horario que ja estava gravado manda
+        -- como referencia para os passos seguintes.
+        IF v_hhmm IS NULL THEN
+            IF v_ja[v_i] IS NOT NULL THEN
+                IF v_ancora IS NULL THEN v_ancora := v_ja[v_i]; END IF;
+                v_ref := v_ja[v_i];
+            END IF;
+            CONTINUE;
         END IF;
-
-        v_hhmm := NULLIF(btrim(COALESCE(p_horarios->>v_passo, '')), '');
-        CONTINUE WHEN v_hhmm IS NULL;
 
         IF v_hhmm !~ '^([01][0-9]|2[0-3]):[0-5][0-9]$' THEN
             RETURN jsonb_build_object('success', false,
@@ -186,7 +187,7 @@ ${PREAMBULO}
         END IF;
 
         v_resolvido[v_i] := v_ts;
-        v_ref := COALESCE(v_ja[v_i], v_ts);
+        v_ref := v_ts;
     END LOOP;
 
     IF v_resolvido[1] IS NULL AND v_resolvido[2] IS NULL
