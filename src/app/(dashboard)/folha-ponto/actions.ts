@@ -7,7 +7,7 @@ import { lerLimitesTolerancia, minutosEntre, toleranciaAbsorve } from '@/utils/f
 import { definirTimezone, formatarHora } from '@/utils/horario'
 import { revalidatePath } from 'next/cache'
 import { registrarLog, calcularAlteracoes, calcularAlteracoesFolha } from '@/utils/auditoria'
-import { hasSectorAccess, UserProfile, applyAccessFilters, isAccessUnrestricted } from '@/utils/permissions'
+import { hasSectorAccess, hasUnitAccess, UserProfile, applyAccessFilters, isAccessUnrestricted } from '@/utils/permissions'
 import { autoCloseExpiredScalesAndTimesheets, isCompetencyClosed } from '@/utils/autoClose'
 import { resolverMarcacaoDoDia, turnosDaFolha, COLUNAS_PRESENCA_FOLHA, type PassoPresenca } from '@/utils/folha/origemMarcacao'
 import { podePreAssinalarIntervalo } from '@/utils/folha/preAssinalacao'
@@ -2429,12 +2429,41 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
 
     if (sErr) throw sErr
 
+    // 2. Fetch active scales of this server for that month/year
+    const { data: escalasMensais, error: eErr } = await supabase
+      .from('escala_mensal')
+      .select(`
+        id, mes, ano, status, unidade_id, setor_id,
+        unidades(nome),
+        setores(dicionario_setores(nome))
+      `)
+      .eq('servidor_id', servidorId)
+      .eq('mes', mes)
+      .eq('ano', ano)
+      .eq('ativo', true)
+
+    if (eErr) throw eErr
+
     // O servidor consultado precisa estar no escopo de quem pergunta (quando logado como coordenador/RH/admin).
-    if (userProfile && (!servidor?.setor_id || !hasSectorAccess(userProfile, servidor.setor_id, servidor.unidade_id || undefined))) {
-      return { error: 'Acesso negado a este servidor.' }
+    // O usuário tem acesso se:
+    // - Possui acesso irrestrito (super_admin / RH Geral)
+    // - Tem acesso ao setor ou unidade cadastral do servidor
+    // - Tem acesso a qualquer uma das escalas ativas deste servidor na competência informada
+    if (userProfile && !isAccessUnrestricted(userProfile)) {
+      const temAcessoCadastro = (!!servidor?.setor_id && hasSectorAccess(userProfile, servidor.setor_id, servidor.unidade_id || undefined))
+        || (!!servidor?.unidade_id && hasUnitAccess(userProfile, servidor.unidade_id))
+
+      const temAcessoEscala = (escalasMensais || []).some(em =>
+        (em.setor_id && hasSectorAccess(userProfile, em.setor_id, em.unidade_id)) ||
+        (em.unidade_id && hasUnitAccess(userProfile, em.unidade_id))
+      )
+
+      if (!temAcessoCadastro && !temAcessoEscala) {
+        return { error: 'Acesso negado a este servidor.' }
+      }
     }
 
-    // 2. Resolve Unit and Sector names
+    // 3. Resolve Unit and Sector names
     let unidadeNome = 'SECRETARIA MUNICIPAL DE SAÚDE'
     if (servidor?.unidade_id) {
       const { data: u } = await supabase.from('unidades').select('nome').eq('id', servidor.unidade_id).maybeSingle()
@@ -2452,21 +2481,6 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
       unidades: { nome: unidadeNome },
       setores: { dicionario_setores: { nome: setorNome } }
     }
-
-    // 3. Fetch active scales of this server for that month/year
-    const { data: escalasMensais, error: eErr } = await supabase
-      .from('escala_mensal')
-      .select(`
-        id, mes, ano, status, unidade_id, setor_id,
-        unidades(nome),
-        setores(dicionario_setores(nome))
-      `)
-      .eq('servidor_id', servidorId)
-      .eq('mes', mes)
-      .eq('ano', ano)
-      .eq('ativo', true)
-
-    if (eErr) throw eErr
 
     const escalaMensalIds = escalasMensais?.map(em => em.id) || []
     const emMap = new Map((escalasMensais || []).map(em => [em.id, em]))
