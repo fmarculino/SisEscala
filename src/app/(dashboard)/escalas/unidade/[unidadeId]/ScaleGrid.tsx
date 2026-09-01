@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
-import { formatarData, formatarDataHora, formatarHora, formatarHoraComSegundos } from '@/utils/horario'
+import { formatarData, formatarDataHora, formatarHora, formatarHoraComSegundos, dataISOLocal } from '@/utils/horario'
+import { avaliarSequenciaPresenca, type PassoPresenca } from '@/utils/sequenciaPresenca'
 import { createClient } from '@/utils/supabase/client'
 import { useRouter } from 'next/navigation'
 import { 
@@ -80,7 +81,6 @@ interface ScaleGridProps {
 
 type RowCategory = 'Regular' | 'Extra' | 'Plantão' | 'Sobreaviso'
 
-type PassoPresenca = 'entrada' | 'intervalo_saida' | 'intervalo_retorno' | 'saida'
 
 // Uma batida real que o coordenador escolheu para um passo. `fonte` diz de onde ela veio, e o
 // banco resolve cada uma por um caminho diferente (fn_validar_presenca_manual):
@@ -1187,6 +1187,31 @@ export function ScaleGrid({
     if (!edId) return null
     return blocosPrevistos.get(edId) || null
   }, [edIdPorCelula, blocosPrevistos])
+
+  // Este dia termina no dia seguinte?
+  //
+  // A resposta vem do PREVISTO do bloco (fn_blocos_previstos_mes, a mesma fonte que o terminal
+  // cobra): inicio e fim em dias civis diferentes. Quando o previsto ainda nao chegou — ou a
+  // celula acabou de ser lancada e nem tem escala_diaria_id —, cai no codigo do turno pelo mesmo
+  // getShiftEndHour que a grade ja usa para desenhar (> 24 = vira o dia).
+  //
+  // ⚠️ NUNCA deduzir isso do horario digitado. Era o que produzia o remendo `mSai > 360`, que
+  // aceitava saida ate as 06:00 e recusava as 07:00 de um plantao `N`.
+  const celulaCruzaMeiaNoite = useCallback((servidorId?: string, cat?: string, day?: number) => {
+    const bloco = blocoDaCelula(servidorId, cat, day)
+    const ini = bloco?.inicio_previsto
+    const fim = bloco?.fim_previsto
+    if (ini && fim) {
+      const dIni = dataISOLocal(ini)
+      const dFim = dataISOLocal(fim)
+      if (dIni && dFim) return dIni !== dFim
+    }
+    const em = escalaMensal.find(e => e.servidor_id === servidorId)
+    const turnoId = day && cat ? em?.dias?.[day]?.[cat] : undefined
+    const turno = turnos.find(t => t.id === turnoId)
+    if (!turno?.codigo) return false
+    return getShiftEndHour(turno.codigo, Number(turno.horas_computadas)) > 24
+  }, [blocoDaCelula, escalaMensal, turnos, getShiftEndHour])
 
   // O previsto DESTA linha dentro do bloco, quando o bloco funde mais de um turno.
   //
@@ -2840,7 +2865,14 @@ export function ScaleGrid({
         return
       }
 
-      // Validação de consistência cronológica dos horários (Portaria 671/2021 e CLT)
+      // Ordem cronológica dos passos. Fonte única: src/utils/sequenciaPresenca.ts.
+      //
+      // ⚠️ COMPARAR MINUTOS DO MESMO DIA CIVIL RECUSA TODO PLANTÃO QUE ATRAVESSA A MEIA-NOITE.
+      // Entrada 19:00, intervalo 22:00/23:00 e saída 07:00 é a sequência CORRETA de um `N` — a
+      // saída é do dia seguinte. Até 01/09/2026 a tela respondia "a saída final (07:00) não pode
+      // ser anterior ou igual ao retorno do intervalo (23:00)" e a validação não tinha como ser
+      // concluída. O remendo que existia (`mSai > 360`) aceitava saída até 06:00 e recusava
+      // justamente as 07:00 em que a família `N`/`T?N`/`MTN` termina.
       const diaPres = presenceData[manualPresenceModal.servidorId]?.[manualPresenceModal.categoria]?.[manualPresenceModal.dia]
       const toHHMM = (isoOrTime?: string | null) => {
         if (!isoOrTime) return null
@@ -2860,57 +2892,21 @@ export function ScaleGrid({
         return null
       }
 
-      const fEnt = getFinalPassoHora('entrada')
-      const fIntSai = getFinalPassoHora('intervalo_saida')
-      const fIntRet = getFinalPassoHora('intervalo_retorno')
-      const fSai = getFinalPassoHora('saida')
+      const seq = avaliarSequenciaPresenca({
+        entrada: getFinalPassoHora('entrada'),
+        intervalo_saida: getFinalPassoHora('intervalo_saida'),
+        intervalo_retorno: getFinalPassoHora('intervalo_retorno'),
+        saida: getFinalPassoHora('saida'),
+      }, {
+        cruzaMeiaNoite: celulaCruzaMeiaNoite(
+          manualPresenceModal.servidorId, manualPresenceModal.categoria, manualPresenceModal.dia),
+      })
 
-      const toMin = (hhmm?: string | null) => {
-        if (!hhmm) return null
-        const [h, m] = hhmm.split(':').map(Number)
-        return h * 60 + m
-      }
-
-      const mEnt = toMin(fEnt)
-      const mIntSai = toMin(fIntSai)
-      const mIntRet = toMin(fIntRet)
-      const mSai = toMin(fSai)
-
-      if (mEnt !== null && mIntSai !== null && mIntSai <= mEnt) {
+      if (!seq.ok) {
         setAlertModal({
           isOpen: true,
           title: 'Horários Inconsistentes',
-          message: `A saída para o intervalo (${fIntSai}) não pode ser anterior ou igual à entrada (${fEnt}).`,
-          type: 'warning'
-        })
-        return
-      }
-
-      if (mIntSai !== null && mIntRet !== null && mIntRet <= mIntSai) {
-        setAlertModal({
-          isOpen: true,
-          title: 'Horários Inconsistentes',
-          message: `O retorno do intervalo (${fIntRet}) não pode ser anterior ou igual à saída para o intervalo (${fIntSai}).`,
-          type: 'warning'
-        })
-        return
-      }
-
-      if (mIntRet !== null && mSai !== null && mSai <= mIntRet && mSai > 360) {
-        setAlertModal({
-          isOpen: true,
-          title: 'Horários Inconsistentes',
-          message: `A saída final (${fSai}) não pode ser anterior ou igual ao retorno do intervalo (${fIntRet}).`,
-          type: 'warning'
-        })
-        return
-      }
-
-      if (mEnt !== null && mSai !== null && !fIntSai && !fIntRet && mSai <= mEnt && mSai > 360) {
-        setAlertModal({
-          isOpen: true,
-          title: 'Horários Inconsistentes',
-          message: `A saída (${fSai}) não pode ser anterior ou igual à entrada (${fEnt}).`,
+          message: seq.mensagem || 'Os horários informados não formam uma sequência válida.',
           type: 'warning'
         })
         return
@@ -7008,11 +7004,21 @@ export function ScaleGrid({
       </Modal>
 
       {/* Modals Extras */}
+      {/*
+        🚨 O ALERTA É O ÚLTIMO A APARECER E TEM DE FICAR POR CIMA DE TODOS (01/09/2026).
+        Ele é renderizado ANTES dos outros modais deste arquivo e todos usam o `z-[100]` padrão
+        do `Modal` — com o mesmo z-index, quem vem depois no DOM ganha. Resultado medido em
+        campo: a recusa da validação manual ("Horários Inconsistentes") abria ATRÁS do modal de
+        Validar Presença, que continua aberto de propósito para o coordenador corrigir. Ninguém
+        via a mensagem, e a tela parecia travada no clique. Não é o caso do `confirmModal` logo
+        abaixo, onde quem fecha é o botão: aqui o modal de baixo PRECISA continuar aberto.
+      */}
       <Modal
         isOpen={alertModal.isOpen}
         onClose={() => setAlertModal(prev => ({ ...prev, isOpen: false }))}
         title={alertModal.title}
         type={alertModal.type as any}
+        zIndexClass="z-[130]"
         footer={
           <div className="w-full flex flex-col gap-2">
             {alertModal.action && (
@@ -7265,6 +7271,31 @@ export function ScaleGrid({
         const passoDaBatida = (id: string) =>
           (Object.keys(selecoes) as PassoPresenca[]).find(p => selecoes[p]?.id === id) || null
 
+        // "+1 dia" ao lado do passo que cai no dia seguinte.
+        //
+        // O campo é `<input type="time">`: o coordenador digita HH:MM e não tem onde dizer a
+        // DATA. Num plantão 19:00–07:00 a saída é do dia seguinte, e sem esta marca ele não tem
+        // como saber se o sistema entendeu "07:00 de hoje" (o que seria 12h antes da entrada) ou
+        // "07:00 de amanhã". A regra é a MESMA que valida o envio e a que o banco aplica ao
+        // gravar (fn_registrar_presenca_informada) — não é uma terceira conta.
+        const horaFinalDoPasso = (p: PassoPresenca) => {
+          if (selecoes[p]?.hora) return selecoes[p]!.hora.slice(0, 5)
+          if (manualPresenceModal.horarios?.[p]) return manualPresenceModal.horarios[p]!.slice(0, 5)
+          const iso = p === 'entrada' ? diaPresence?.entrada_em
+            : p === 'intervalo_saida' ? diaPresence?.intervalo_saida_em
+            : p === 'intervalo_retorno' ? diaPresence?.intervalo_retorno_em
+            : diaPresence?.saida_em
+          return iso ? formatarHora(iso) : null
+        }
+        const cruzaMeiaNoiteNaCelula = celulaCruzaMeiaNoite(
+          manualPresenceModal.servidorId, manualPresenceModal.categoria, manualPresenceModal.dia)
+        const passosNoDiaSeguinte = new Set(avaliarSequenciaPresenca({
+          entrada: horaFinalDoPasso('entrada'),
+          intervalo_saida: horaFinalDoPasso('intervalo_saida'),
+          intervalo_retorno: horaFinalDoPasso('intervalo_retorno'),
+          saida: horaFinalDoPasso('saida'),
+        }, { cruzaMeiaNoite: cruzaMeiaNoiteNaCelula }).diaSeguinte)
+
         // Sugestão de qual passo cada batida preenche: mesma ideia de fn_batidas_reais_recusadas
         // — proximidade ao previsto, gulosa, sem reuso, 90 min de tolerância. Aqui ela só
         // pré-seleciona o passo no momento do clique; quem grava é o banco, e o coordenador pode
@@ -7506,7 +7537,15 @@ export function ScaleGrid({
                       return (
                         <div key={p}>
                           <label className="flex items-baseline justify-between gap-1 text-[10px] font-semibold text-zinc-500 mb-0.5">
-                            <span>{rotuloPasso(p)}</span>
+                            <span>
+                              {rotuloPasso(p)}
+                              {passosNoDiaSeguinte.has(p) && (
+                                <span
+                                  title="Este horário é do dia seguinte — o turno atravessa a meia-noite."
+                                  className="ml-1 px-1 rounded bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 font-bold"
+                                >+1 dia</span>
+                              )}
+                            </span>
                             {previsto && <span className="font-normal tabular-nums">previsto {previsto}</span>}
                           </label>
                           {sel ? (
