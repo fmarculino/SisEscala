@@ -1,6 +1,8 @@
 'use server'
 
 import { createClient, createAdminClient } from '@/utils/supabase/server'
+import { cookies } from 'next/headers'
+import { PORTAL_COOKIE, validarSessaoPortal } from '@/utils/portalSession'
 import { lerLimitesTolerancia, minutosEntre, toleranciaAbsorve } from '@/utils/folha/toleranciaExtra'
 import { definirTimezone, formatarHora } from '@/utils/horario'
 import { revalidatePath } from 'next/cache'
@@ -2397,17 +2399,24 @@ function formatarJanelaPrevista(horaInicioPrevista: string | null | undefined, t
 
 export async function getDadosPlantoesSobreavisosServidor(servidorId: string, mes: number, ano: number) {
   try {
-    // ⚠️ GUARD OBRIGATORIO — achado 7 da auditoria de 30/08/2026.
+    // ⚠️ GUARD OBRIGATÓRIO — achado 7 da auditoria de 30/08/2026.
     //
     // Esta action usa `createAdminClient()` (service_role, que ignora RLS) e recebe `servidorId`
-    // do cliente. Ate 30/08/2026 nao conferia sessao, papel NEM escopo: bastava chamar com o id
-    // de qualquer servidor da rede municipal para receber plantoes, sobreavisos, cargo, vinculo,
-    // unidade e setor dele. Server Action e um POST cujo id vai no bundle do navegador.
-    //
-    // O escopo e conferido com a SESSAO do usuario (`createClient`), nunca com o admin — e por
-    // isso as duas instancias de cliente coexistem aqui de proposito.
+    // do cliente. O acesso pode ser concedido por dois caminhos:
+    // 1) Usuário autenticado no sistema (coordenador/RH/admin) com escopo no setor/unidade do servidor.
+    // 2) O próprio servidor autenticado via sessão assinada do Portal do Servidor (/consultar-escala).
     const supabaseUsuario = await createClient()
-    const userProfile = await getUserProfile(supabaseUsuario)
+    let userProfile: UserProfile | null = null
+    try {
+      userProfile = await getUserProfile(supabaseUsuario)
+    } catch {
+      // Usuário não está no Supabase Auth. Verifica se possui sessão válida do Portal do Servidor.
+      const cookieStore = await cookies()
+      const sessaoServidorId = validarSessaoPortal(cookieStore.get(PORTAL_COOKIE)?.value)
+      if (!sessaoServidorId || sessaoServidorId !== servidorId) {
+        return { error: 'Não autenticado' }
+      }
+    }
 
     const supabase = await createAdminClient()
 
@@ -2420,10 +2429,8 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
 
     if (sErr) throw sErr
 
-    // O servidor consultado precisa estar no escopo de quem pergunta. `hasSectorAccess` ja trata
-    // super_admin/RH Geral (irrestritos) e a heranca "unidade + acesso_todos_setores".
-    if (!servidor?.setor_id
-        || !hasSectorAccess(userProfile, servidor.setor_id, servidor.unidade_id || undefined)) {
+    // O servidor consultado precisa estar no escopo de quem pergunta (quando logado como coordenador/RH/admin).
+    if (userProfile && (!servidor?.setor_id || !hasSectorAccess(userProfile, servidor.setor_id, servidor.unidade_id || undefined))) {
       return { error: 'Acesso negado a este servidor.' }
     }
 
