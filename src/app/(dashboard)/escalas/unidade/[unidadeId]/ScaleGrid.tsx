@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { formatarData, formatarDataHora, formatarHora, formatarHoraComSegundos } from '@/utils/horario'
 import { createClient } from '@/utils/supabase/client'
 import { useRouter } from 'next/navigation'
@@ -13,6 +13,7 @@ import {
 import { gerarFolhaPonto } from '@/app/(dashboard)/folha-ponto/actions'
 import { ScalePrintView } from '@/components/ScalePrintView'
 import { Modal } from '@/components/ui/Modal'
+import { SelectComBuscaRemota, type OpcaoRemota } from '@/components/ui/SelectComBuscaRemota'
 import React from 'react'
 import { canEditScale, podeEditarForaDoPrazo, UserRole } from '@/utils/governance'
 import { runComplianceCheck, getViolationsForCell, type ComplianceViolation } from '@/utils/complianceEngine'
@@ -27,6 +28,12 @@ import {
   type CargaEscala,
   type TetoServidor
 } from '@/utils/limiteCargaMensal'
+import {
+  podeAutorizarCarga,
+  mensagemTetoExcedido,
+  instrucaoSalvarBloqueado,
+  type PedidoPendente
+} from '@/utils/autorizacaoCarga'
 import { buildSectorPathMap, formatSectorsHierarchy } from '@/utils/sectors'
 import { decomporPlantao } from '@/utils/plantaoUnidades'
 import { celulaTemPassosDeIntervalo } from '@/utils/intervaloIntrajornada'
@@ -52,6 +59,7 @@ import { SwapRequestPanel } from '@/components/SwapRequestPanel'
 import { sendWhatsAppMessageAction } from '@/app/actions/communication'
 import { AcionarSobreavisoModal } from '@/components/sobreaviso/AcionarSobreavisoModal'
 import { AutorizacaoExcecaoModal } from '@/components/escalas/AutorizacaoExcecaoModal'
+import { SolicitarExcecaoModal } from '@/components/escalas/SolicitarExcecaoModal'
 import { AlterarJornadaModal, type AlterarJornadaAlvo } from '@/components/escalas/AlterarJornadaModal'
 
 interface ScaleGridProps {
@@ -269,6 +277,21 @@ export function ScaleGrid({
 
   const [unidadedata, setUnidadedata] = useState<any>(null)
   const [excecoesEscala, setExcecoesEscala] = useState<any[]>([])
+  /**
+   * Pedidos de Autorização Extraordinária EM ABERTO na competência, por servidor.
+   *
+   * ⚠️ Sem isto o coordenador que já pediu recebe de novo o convite para pedir, e a RPC recusa
+   * com "já existe pedido pendente" — a tela mandaria fazer algo que ela mesma vai negar. É a
+   * mesma regra do texto de teto: não oferecer o que não vai acontecer.
+   */
+  const [pedidosPendentes, setPedidosPendentes] = useState<Record<string, PedidoPendente>>({})
+  const [solicitacaoModalState, setSolicitacaoModalState] = useState<{
+    isOpen: boolean
+    servidorId: string
+    servidorNome: string
+    horasAtuais: number
+    sobreavisosAtuais: number
+  } | null>(null)
   const [autorizacaoModalState, setAutorizacaoModalState] = useState<{
     isOpen: boolean
     servidorId: string
@@ -296,11 +319,28 @@ export function ScaleGrid({
     }
   }, [supabase, mes, ano])
 
+  /**
+   * ⚠️ Vem de `fn_solicitacoes_excecao_carga` (SECURITY DEFINER), não de um SELECT na tabela: a
+   * listagem precisa do NOME de quem pediu, e a RLS de `profiles` só libera a tabela inteira
+   * para super_admin — um coordenador consultando o autor receberia zero linhas.
+   */
+  const fetchPedidosPendentes = useCallback(async () => {
+    if (!mes || !ano) return
+    const { data, error } = await supabase.rpc('fn_solicitacoes_excecao_carga', {
+      p_status: 'pendente', p_mes: mes, p_ano: ano
+    })
+    if (error || !data) return
+    const porServidor: Record<string, PedidoPendente> = {}
+    for (const s of data) porServidor[s.servidor_id] = s
+    setPedidosPendentes(porServidor)
+  }, [supabase, mes, ano])
+
   useEffect(() => {
     fetchServidoresEventos()
     fetchJornadasTemporarias()
     fetchLogsTentativas()
     fetchExcecoesEscala()
+    fetchPedidosPendentes()
 
     async function fetchUnidadeConfig() {
       if (!unidadeId) return
@@ -458,6 +498,19 @@ export function ScaleGrid({
   })
   const [externalSectors, setExternalSectors] = useState<any[]>([])
   const [externalServers, setExternalServers] = useState<any[]>([])
+  /**
+   * O servidor escolhido pela BUSCA POR NOME do modal de Servidor Externo (31/08/2026).
+   *
+   * Guarda o registro inteiro, não só o id, por dois motivos: o rótulo do campo fechado precisa
+   * do nome (a lista da busca é volátil — some a cada termo novo), e a LOTAÇÃO encontrada é
+   * mostrada logo abaixo como confirmação. Quem busca pelo nome está justamente escolhendo sem
+   * saber onde a pessoa está lotada; ver a lotação antes de adicionar é o que evita levar para a
+   * grade um homônimo.
+   */
+  const [externalEncontrado, setExternalEncontrado] = useState<{
+    id: string; nome: string; matricula: string | null; cargo: string | null
+    unidade_nome: string | null; setor_caminho: string | null
+  } | null>(null)
   const [currentSector, setCurrentSector] = useState<any>(null)
 
   // Modal & Alert states
@@ -801,10 +854,46 @@ export function ScaleGrid({
           .rpc('get_external_servers_for_scale', { p_setor_id: externalData.setorId })
         setExternalServers(data || [])
         setExternalData(prev => ({ ...prev, servidorId: '' }))
+        setExternalEncontrado(null)
       }
     }
     fetchExtServers()
   }, [externalData.setorId, supabase])
+
+  /**
+   * A última resposta crua de `fn_buscar_servidor_para_escala`, para recuperar a LOTAÇÃO da
+   * pessoa escolhida — o combobox devolve só a opção (id + rótulo), e o modal precisa exibir de
+   * onde ela veio.
+   */
+  const externalAchadosRef = useRef<any[]>([])
+
+  /**
+   * Busca por nome/matrícula em toda a rede (31/08/2026).
+   *
+   * ⚠️ **Não dá para trocar isto por uma consulta a `servidores` pelo cliente.** A RLS da tabela
+   * mostra a um coordenador só o próprio escopo, e servidor externo é, por definição, de fora
+   * dele — a lista viria vazia justamente para os casos que este campo existe para resolver.
+   * Quem atravessa a RLS é a RPC `SECURITY DEFINER`, que em troca é bounded (3 caracteres,
+   * LIMIT 30) e nunca devolve a base inteira.
+   */
+  const buscarServidorExterno = useCallback(async (termo: string): Promise<OpcaoRemota[]> => {
+    const { data, error } = await supabase.rpc('fn_buscar_servidor_para_escala', { p_termo: termo })
+    if (error) throw new Error(error.message)
+    externalAchadosRef.current = data || []
+    return (data || []).map((s: any) => {
+      const jaNaGrade = escalaMensal.some(em => em.servidor_id === s.id)
+      const lotacao = [s.unidade_nome, s.setor_caminho].filter(Boolean).join(' / ')
+      return {
+        value: s.id,
+        label: s.matricula ? `${s.nome} (${s.matricula})` : s.nome,
+        detalhe: [lotacao, s.cargo].filter(Boolean).join(' · ') || undefined,
+        // Já escalado aqui continua VISÍVEL, só não selecionável: sumir da lista faria quem
+        // procura concluir que a pessoa não existe, em vez de que ela já está na grade.
+        disabled: jaNaGrade,
+        motivoDesabilitado: jaNaGrade ? 'Já está nesta escala' : undefined,
+      }
+    })
+  }, [supabase, escalaMensal])
   
   // Realtime subscription for logs_sobreaviso
   useEffect(() => {
@@ -1478,6 +1567,13 @@ export function ScaleGrid({
     })
   }
 
+  /** Fecha o modal de Servidor Externo sem deixar seleção pendurada para a próxima abertura. */
+  const fecharModalExterno = () => {
+    setIsExternalModalOpen(false)
+    setExternalData({ unidadeId: '', setorId: '', servidorId: '' })
+    setExternalEncontrado(null)
+  }
+
   const handleAddExternalServer = async () => {
     if (!externalData.servidorId) return
 
@@ -1515,7 +1611,7 @@ export function ScaleGrid({
         servidor_id: externalData.servidorId,
         nome: data.servidores?.nome 
       })
-      setIsExternalModalOpen(false)
+      fecharModalExterno()
 
       // Servidor Externo é o caso onde a carga em outra escala é mais provável — ele vem de
       // outra lotação, e a escala de origem dele é justamente a que esta grade não mostra.
@@ -1901,16 +1997,18 @@ export function ScaleGrid({
       if (avaliacao.excede) {
         const servidor = todosServidoresSetor.find(s => s.id === servidorId)
         const servidorNome = servidor?.nome || 'Servidor'
-        const isAdmin = userProfile?.role === 'super_admin' || userProfile?.role === 'admin'
         // O texto lista as outras escalas: sem dizer ONDE estão as horas, quem lança não tem
         // como decidir nada — o número dele continua parecendo certo.
         const detalhe = descreverExcesso(avaliacao, servidorNome)
+        // Quem decide de fato é o banco (`fn_pode_autorizar_excecao_carga`, avaliada dentro da
+        // policy de escrita); aqui se decide só O QUE OFERECER. Ver src/utils/autorizacaoCarga.ts.
+        const aviso = mensagemTetoExcedido(detalhe, userProfile?.role, pedidosPendentes[servidorId])
 
-        if (isAdmin) {
+        if (aviso.acao === 'autorizar' && !pedidosPendentes[servidorId]) {
           setConfirmModal({
             isOpen: true,
-            title: '⚠️ Teto Mensal Excedido (Bloqueio de Escala)',
-            message: `${detalhe}\n\nComo Administrador, você pode autorizar uma Exceção Extraordinária para este servidor neste mês. Deseja abrir a tela de autorização?`,
+            title: aviso.titulo,
+            message: aviso.mensagem,
             type: 'warning',
             onConfirm: () => {
               setAutorizacaoModalState({
@@ -1922,11 +2020,27 @@ export function ScaleGrid({
               })
             }
           })
+        } else if (aviso.acao === 'solicitar' && !pedidosPendentes[servidorId]) {
+          setConfirmModal({
+            isOpen: true,
+            title: aviso.titulo,
+            message: aviso.mensagem,
+            type: 'warning',
+            onConfirm: () => {
+              setSolicitacaoModalState({
+                isOpen: true,
+                servidorId,
+                servidorNome,
+                horasAtuais: totals.totalPlanejado,
+                sobreavisosAtuais: totals.p_soQtd
+              })
+            }
+          })
         } else {
           setAlertModal({
             isOpen: true,
-            title: '⚠️ Teto Mensal Excedido',
-            message: `${detalhe}\n\nSolicite a um Administrador a concessão de uma Autorização Extraordinária.`,
+            title: aviso.titulo,
+            message: aviso.mensagem,
             type: 'warning'
           })
         }
@@ -3502,15 +3616,10 @@ export function ScaleGrid({
         setCargaMensal(prev => ({ ...prev, ...cargasPorServidor }))
         setTetoCarga(prev => ({ ...prev, ...tetosPorServidor }))
 
-        const isAdmin = userProfile?.role === 'super_admin' || userProfile?.role === 'admin'
         setAlertModal({
           isOpen: true,
           title: '⚠️ Teto Mensal Excedido',
-          message: `Não é possível salvar: ${estouros.length === 1 ? 'um servidor ultrapassa' : `${estouros.length} servidores ultrapassam`} o teto do mês somando TODAS as escalas da competência.\n\n${estouros.slice(0, 8).join('\n')}${estouros.length > 8 ? `\n...e mais ${estouros.length - 8}.` : ''}\n\n${
-            isAdmin
-              ? 'Reduza a escala ou clique no escudo vermelho ao lado do nome para autorizar excepcionalmente.'
-              : 'Reduza a escala ou solicite a um Administrador uma Autorização Extraordinária.'
-          }`,
+          message: `Não é possível salvar: ${estouros.length === 1 ? 'um servidor ultrapassa' : `${estouros.length} servidores ultrapassam`} o teto do mês somando TODAS as escalas da competência.\n\n${estouros.slice(0, 8).join('\n')}${estouros.length > 8 ? `\n...e mais ${estouros.length - 8}.` : ''}\n\n${instrucaoSalvarBloqueado(userProfile?.role)}`,
           type: 'warning'
         })
         return
@@ -4349,6 +4458,10 @@ export function ScaleGrid({
                 if (val === 'all') {
                   handleAddAll()
                 } else if (val === 'external') {
+                  // Abre sempre limpo: reabrir com a escolha anterior ainda no campo já fez
+                  // alguém adicionar a pessoa errada por não reparar no que estava selecionado.
+                  setExternalData({ unidadeId: '', setorId: '', servidorId: '' })
+                  setExternalEncontrado(null)
                   setIsExternalModalOpen(true)
                 } else if (val) {
                   handleAddServer(val)
@@ -4649,13 +4762,14 @@ export function ScaleGrid({
                               )}
                               {(() => {
                                 const excecao = excecoesEscala.find(e => e.servidor_id === em.servidor_id)
-                                const isAdmin = userProfile?.role === 'super_admin' || userProfile?.role === 'admin'
+                                const podeAutorizar = podeAutorizarCarga(userProfile?.role)
+                                const pedido = pedidosPendentes[em.servidor_id]
                                 if (excecao) {
                                   return (
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        if (isAdmin) {
+                                        if (podeAutorizar) {
                                           setAutorizacaoModalState({
                                             isOpen: true,
                                             servidorId: em.servidor_id,
@@ -4682,8 +4796,17 @@ export function ScaleGrid({
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        if (isAdmin) {
+                                        const aviso = mensagemTetoExcedido(resumo, userProfile?.role, pedido)
+                                        if (aviso.acao === 'autorizar' && !pedido) {
                                           setAutorizacaoModalState({
+                                            isOpen: true,
+                                            servidorId: em.servidor_id,
+                                            servidorNome: em.servidores?.nome || 'Servidor',
+                                            horasAtuais: totals.totalPlanejado,
+                                            sobreavisosAtuais: totals.p_soQtd
+                                          })
+                                        } else if (aviso.acao === 'solicitar' && !pedido) {
+                                          setSolicitacaoModalState({
                                             isOpen: true,
                                             servidorId: em.servidor_id,
                                             servidorNome: em.servidores?.nome || 'Servidor',
@@ -4693,15 +4816,29 @@ export function ScaleGrid({
                                         } else {
                                           setAlertModal({
                                             isOpen: true,
-                                            title: '⚠️ Teto Mensal Excedido',
-                                            message: `${resumo}\n\nSolicite a um Administrador a concessão de uma Autorização Extraordinária.`,
+                                            title: aviso.titulo,
+                                            message: aviso.mensagem,
                                             type: 'warning'
                                           })
                                         }
                                       }}
-                                      className="p-1 text-red-700 dark:text-red-300 bg-red-100/80 dark:bg-red-950/70 hover:bg-red-200 dark:hover:bg-red-900 rounded border border-red-300 dark:border-red-800 transition-colors shadow-xs"
-                                      title={`${resumo}\n\n${isAdmin ? 'Clique para autorizar excepcionalmente.' : 'Clique para ver o detalhe.'}`}
+                                      className={`p-1 rounded border transition-colors shadow-xs ${
+                                        pedido
+                                          ? 'text-blue-700 dark:text-blue-300 bg-blue-100/80 dark:bg-blue-950/70 hover:bg-blue-200 dark:hover:bg-blue-900 border-blue-300 dark:border-blue-800'
+                                          : 'text-red-700 dark:text-red-300 bg-red-100/80 dark:bg-red-950/70 hover:bg-red-200 dark:hover:bg-red-900 border-red-300 dark:border-red-800'
+                                      }`}
+                                      title={`${resumo}\n\n${
+                                        pedido
+                                          ? `Pedido de autorização em análise${pedido.solicitado_por_nome ? ` (aberto por ${pedido.solicitado_por_nome})` : ''}.`
+                                          : podeAutorizar
+                                            ? 'Clique para autorizar excepcionalmente.'
+                                            : 'Clique para solicitar autorização ao RH.'
+                                      }`}
                                     >
+                                      {/* Azul = pedido em análise; vermelho = ninguém pediu nada
+                                          ainda. A cor precisa distinguir "travado e parado" de
+                                          "travado e em andamento" — sem isso, quem já pediu vê o
+                                          mesmo alerta do primeiro dia e pede de novo. */}
                                       <ShieldAlert className="h-3.5 w-3.5 fill-red-500/20" />
                                     </button>
                                   )
@@ -5830,21 +5967,73 @@ export function ScaleGrid({
       {/* Modal Servidor Externo */}
       {isExternalModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-2xl border border-zinc-200 dark:border-zinc-800 w-full max-w-md overflow-hidden" style={{ maxWidth: '450px' }}>
-            <div className="p-6 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between bg-zinc-50 dark:bg-zinc-900/50">
+          {/* ⚠️ Sem `overflow-hidden` aqui, ao contrário dos outros modais: o painel da busca de
+              servidor é `absolute` e mais alto que o corpo do modal — recortado, ele mostraria
+              duas ou três linhas de resultado e o restante ficaria inalcançável. Os cantos
+              arredondados vêm de `rounded-t-xl`/`rounded-b-xl` no cabeçalho e no rodapé. */}
+          <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-2xl border border-zinc-200 dark:border-zinc-800 w-full max-w-md" style={{ maxWidth: '450px' }}>
+            <div className="p-6 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between bg-zinc-50 dark:bg-zinc-900/50 rounded-t-xl">
               <h2 className="text-xl font-bold flex items-center gap-2 text-zinc-900 dark:text-white">
                 <Globe className="h-5 w-5 text-blue-600" />
                 Adicionar Servidor Externo
               </h2>
-              <button onClick={() => setIsExternalModalOpen(false)} className="text-zinc-400 hover:text-zinc-600">
+              <button onClick={() => fecharModalExterno()} className="text-zinc-400 hover:text-zinc-600">
                 <X className="h-5 w-5" />
               </button>
             </div>
             
             <div className="p-6 space-y-4">
+              {/* ── Busca direta pelo nome ────────────────────────────────────────────────────
+                  Caminho principal desde 31/08/2026: escolher a PESSOA sem precisar saber a
+                  lotação dela. O caminho por Unidade → Setor continua abaixo, porque quem já
+                  sabe de onde a pessoa vem acha mais rápido por ali. */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                  Buscar Servidor <span className="text-zinc-400 font-normal">(nome ou matrícula)</span>
+                </label>
+                <SelectComBuscaRemota
+                  value={externalEncontrado?.id || ''}
+                  rotuloSelecionado={externalEncontrado
+                    ? `${externalEncontrado.nome}${externalEncontrado.matricula ? ` (${externalEncontrado.matricula})` : ''}`
+                    : undefined}
+                  buscar={buscarServidorExterno}
+                  placeholder="Digite o nome do servidor…"
+                  aria-label="Buscar servidor por nome ou matrícula"
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all text-zinc-900 dark:text-white"
+                  onChange={(op) => {
+                    if (!op) {
+                      setExternalEncontrado(null)
+                      setExternalData(prev => ({ ...prev, servidorId: '' }))
+                      return
+                    }
+                    const bruto = externalAchadosRef.current.find((s: any) => s.id === op.value)
+                    setExternalEncontrado(bruto ? {
+                      id: bruto.id, nome: bruto.nome, matricula: bruto.matricula, cargo: bruto.cargo,
+                      unidade_nome: bruto.unidade_nome, setor_caminho: bruto.setor_caminho,
+                    } : null)
+                    // Escolher pela busca zera o caminho por lotação: dois campos apontando para
+                    // servidores diferentes ao mesmo tempo é a receita para adicionar o errado.
+                    setExternalData({ unidadeId: '', setorId: '', servidorId: op.value })
+                  }}
+                />
+                {externalEncontrado && (
+                  <div className="rounded-lg border border-blue-200 dark:border-blue-900/60 bg-blue-50 dark:bg-blue-950/30 px-3 py-2 text-xs text-blue-900 dark:text-blue-200">
+                    <span className="font-semibold">Lotação:</span>{' '}
+                    {[externalEncontrado.unidade_nome, externalEncontrado.setor_caminho].filter(Boolean).join(' / ') || 'não informada'}
+                    {externalEncontrado.cargo && <> · {externalEncontrado.cargo}</>}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center gap-3">
+                <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
+                <span className="text-[11px] uppercase tracking-wider text-zinc-400">ou localize pela lotação</span>
+                <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
+              </div>
+
               <div className="space-y-2">
                 <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Unidade de Origem</label>
-                <select 
+                <select
                   className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all text-zinc-900 dark:text-white"
                   value={externalData.unidadeId}
                   onChange={(e) => setExternalData(prev => ({ ...prev, unidadeId: e.target.value }))}
@@ -5875,21 +6064,29 @@ export function ScaleGrid({
                 <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Servidor</label>
                 <select 
                   className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all disabled:opacity-50 text-zinc-900 dark:text-white"
-                  value={externalData.servidorId}
+                  value={externalEncontrado ? '' : externalData.servidorId}
                   disabled={!externalData.setorId}
-                  onChange={(e) => setExternalData(prev => ({ ...prev, servidorId: e.target.value }))}
+                  onChange={(e) => {
+                    setExternalEncontrado(null)
+                    setExternalData(prev => ({ ...prev, servidorId: e.target.value }))
+                  }}
                 >
                   <option value="">Selecione o Servidor</option>
-                  {externalServers.map(s => (
-                    <option key={s.id} value={s.id}>{s.nome}</option>
-                  ))}
+                  {externalServers.map(s => {
+                    const jaNaGrade = escalaMensal.some(em => em.servidor_id === s.id)
+                    return (
+                      <option key={s.id} value={s.id} disabled={jaNaGrade}>
+                        {s.nome}{jaNaGrade ? ' — já está nesta escala' : ''}
+                      </option>
+                    )
+                  })}
                 </select>
               </div>
             </div>
 
-            <div className="p-6 bg-zinc-50 dark:bg-zinc-900/50 border-t border-zinc-100 dark:border-zinc-800 flex justify-end gap-3">
-              <button 
-                onClick={() => setIsExternalModalOpen(false)}
+            <div className="p-6 bg-zinc-50 dark:bg-zinc-900/50 border-t border-zinc-100 dark:border-zinc-800 flex justify-end gap-3 rounded-b-xl">
+              <button
+                onClick={() => fecharModalExterno()}
                 className="px-4 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
               >
                 Cancelar
@@ -6114,13 +6311,15 @@ export function ScaleGrid({
                   if (cargaSimulada.excede) {
                     const nome = escalaMensal.find(x => x.servidor_id === sId)?.servidores?.nome || 'Servidor'
                     const detalhe = descreverExcesso(cargaSimulada, nome)
-                    const isAdmin = userProfile?.role === 'super_admin' || userProfile?.role === 'admin'
+                    const pedidoAberto = pedidosPendentes[sId]
+                    const aviso = mensagemTetoExcedido(detalhe, userProfile?.role, pedidoAberto)
+                    const semTemplate = 'O template NÃO foi aplicado.'
 
-                    if (isAdmin) {
+                    if (aviso.acao === 'autorizar' && !pedidoAberto) {
                       setConfirmModal({
                         isOpen: true,
                         title: '⚠️ Teto Mensal Excedido (Template não aplicado)',
-                        message: `${detalhe}\n\nO template NÃO foi aplicado. Como Administrador, você pode autorizar uma Exceção Extraordinária e aplicá-lo de novo. Deseja abrir a tela de autorização?`,
+                        message: `${detalhe}\n\n${semTemplate} Você pode conceder uma Autorização Extraordinária e aplicá-lo de novo. Deseja abrir a tela de autorização?`,
                         type: 'warning',
                         onConfirm: () => {
                           setTemplateModal(null)
@@ -6133,11 +6332,28 @@ export function ScaleGrid({
                           })
                         }
                       })
+                    } else if (aviso.acao === 'solicitar' && !pedidoAberto) {
+                      setConfirmModal({
+                        isOpen: true,
+                        title: '⚠️ Teto Mensal Excedido (Template não aplicado)',
+                        message: `${detalhe}\n\n${semTemplate} Você pode solicitar ao RH uma Autorização Extraordinária. Deseja abrir o pedido agora?`,
+                        type: 'warning',
+                        onConfirm: () => {
+                          setTemplateModal(null)
+                          setSolicitacaoModalState({
+                            isOpen: true,
+                            servidorId: sId,
+                            servidorNome: nome,
+                            horasAtuais: calculateTotals(sId).totalPlanejado,
+                            sobreavisosAtuais: calculateTotals(sId).p_soQtd
+                          })
+                        }
+                      })
                     } else {
                       setAlertModal({
                         isOpen: true,
                         title: '⚠️ Teto Mensal Excedido (Template não aplicado)',
-                        message: `${detalhe}\n\nO template NÃO foi aplicado. Reduza o período ou solicite a um Administrador uma Autorização Extraordinária.`,
+                        message: `${detalhe}\n\n${semTemplate} ${aviso.mensagem.split('\n\n').slice(1).join('\n\n')}`,
                         type: 'warning'
                       })
                     }
@@ -7714,6 +7930,30 @@ export function ScaleGrid({
           </div>
         </Modal>
       )}
+      {solicitacaoModalState?.isOpen && (
+        <SolicitarExcecaoModal
+          isOpen={solicitacaoModalState.isOpen}
+          onClose={() => setSolicitacaoModalState(null)}
+          onEnviado={(mensagem) => {
+            fetchPedidosPendentes()
+            setAlertModal({ isOpen: true, title: 'Pedido enviado', message: mensagem, type: 'success' })
+          }}
+          servidorId={solicitacaoModalState.servidorId}
+          servidorNome={solicitacaoModalState.servidorNome}
+          unidadeId={unidadeId}
+          setorId={setorId}
+          mes={mes}
+          ano={ano}
+          horasAtuais={solicitacaoModalState.horasAtuais}
+          sobreavisosAtuais={solicitacaoModalState.sobreavisosAtuais}
+          cargasOutras={(cargaMensal[solicitacaoModalState.servidorId] || []).filter(
+            c => c.escala_mensal_id !== escalaMensal.find(em => em.servidor_id === solicitacaoModalState.servidorId)?.id
+          )}
+          tetoHoras={Number(tetoCarga[solicitacaoModalState.servidorId]?.teto_horas ?? configs['max_horas_escala_servidor']) || 300}
+          tetoSobreavisos={Number(tetoCarga[solicitacaoModalState.servidorId]?.teto_sobreavisos ?? configs['max_sobreavisos_escala_servidor']) || 10}
+        />
+      )}
+
       {autorizacaoModalState?.isOpen && (
         <AutorizacaoExcecaoModal
           isOpen={autorizacaoModalState.isOpen}

@@ -9,7 +9,9 @@ import { validarDataTransferencia } from '@/utils/transferValidation'
 import { avaliarPermissaoTransferencia, ehAvaliadorDeTransferencia, ERRO_PAPEL_SEM_PODER } from '@/utils/avaliacaoTransferencia'
 import { listarTodosUsuariosAuth } from '@/utils/authAdmin'
 import { MOTIVO_OBRIGATORIO, traduzirErroVigencia } from '@/utils/vigenciaJornada'
-import { mensagemRecusaPin } from '@/utils/pin'
+import { mensagemRecusaPin, gerarPin } from '@/utils/pin'
+import { gerarMensagemAcessoPortal } from '@/utils/servidorMensagens'
+import { sendPinEmailAction } from '@/app/actions/communication'
 
 const normalizarCpf = (cpf?: string | null) => (cpf || '').replace(/\D/g, '')
 
@@ -1582,6 +1584,304 @@ export async function buscarPendenciaRhPorTermo(termo: string) {
   const { data, error } = await supabase.rpc('fn_buscar_pendencia_rh_por_termo', { p_termo: termo })
   if (error) return { error: error.message }
   return data || []
+}
+
+// ============================================================================
+// Importação de planilha em /servidores/pendencias (31/08/2026)
+// ============================================================================
+// Empacota em tela o que fiz na mão em 31/08/2026 (script em scratchpad, sessão gerada manualmente
+// para admin@admin.com, fn_promover_pendencia_rh chamada linha a linha) — o usuário achou aquilo
+// demorado e pediu para RH Geral/RH da Unidade fazerem isso sozinhos, por CSV. A classificação
+// roda em `fn_classificar_lote_importacao_rh` (20260831140000); esta camada só traduz o resultado
+// e decide QUAL caminho de escrita já existente usar por linha — nenhuma escrita nova é
+// inventada aqui.
+
+export interface LinhaClassificadaImportacao {
+  idx: number
+  cpfNormalizado: string | null
+  matricula: string | null
+  cpfDigitoValido: boolean
+  servidor: {
+    id: string
+    nome: string
+    matricula: string | null
+    unidadeId: string | null
+    unidadeNome: string | null
+    status: string
+    email: string | null
+    telefone: string | null
+    pinDefinido: boolean
+  } | null
+  pendencia: {
+    id: string
+    nome: string
+    matricula: string | null
+    unidadeId: string | null
+    unidadeNome: string | null
+    departamentoOrigem: string | null
+    vinculoAdicional: boolean
+  } | null
+}
+
+/**
+ * Classifica em lote as linhas de um CSV recém-parseado contra `servidores` e
+ * `importacao_rh_pendentes` — fonte única `fn_classificar_lote_importacao_rh`, mesma lógica que
+ * rodei manualmente em `scratchpad/classificar.mjs` em 31/08/2026 (CPF tem prioridade sobre
+ * matrícula no casamento com a pendência).
+ */
+export async function classificarLoteImportacaoRh(
+  linhas: { idx: number; cpf: string; matricula: string }[]
+): Promise<{ data: LinhaClassificadaImportacao[] } | { error: string }> {
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc('fn_classificar_lote_importacao_rh', { p_linhas: linhas })
+  if (error) return { error: error.message }
+
+  return {
+    data: (data || []).map((r: any) => ({
+      idx: r.idx,
+      cpfNormalizado: r.cpf_normalizado,
+      matricula: r.matricula,
+      cpfDigitoValido: !!r.cpf_digito_valido,
+      servidor: r.servidor_id ? {
+        id: r.servidor_id,
+        nome: r.servidor_nome,
+        matricula: r.servidor_matricula,
+        unidadeId: r.servidor_unidade_id,
+        unidadeNome: r.servidor_unidade_nome,
+        status: r.servidor_status,
+        email: r.servidor_email,
+        telefone: r.servidor_telefone,
+        pinDefinido: !!r.servidor_pin_definido,
+      } : null,
+      pendencia: r.pendencia_id ? {
+        id: r.pendencia_id,
+        nome: r.pendencia_nome,
+        matricula: r.pendencia_matricula,
+        unidadeId: r.pendencia_unidade_id,
+        unidadeNome: r.pendencia_unidade_nome,
+        departamentoOrigem: r.pendencia_departamento_origem,
+        vinculoAdicional: !!r.pendencia_vinculo_adicional,
+      } : null,
+    })),
+  }
+}
+
+/** Classificação que a tela decidiu para a linha, depois de o usuário revisar. */
+export type ClasseItemImportacao =
+  | 'pronta'                    // pendência encontrada, sem conflito de unidade
+  | 'divergencia_unidade'       // pendência encontrada, mas com unidade diferente da escolhida — só roda se marcado explicitamente
+  | 'ja_servidor_mesma_unidade' // CPF/matrícula já em servidores, na unidade escolhida — só completa contato vazio
+  | 'novo_sem_pendencia'        // sem pendência e sem cadastro — cria direto (exige matrícula e CPF válido)
+
+export interface ItemImportacaoLote {
+  idx: number
+  classe: ClasseItemImportacao
+  pendenciaId?: string | null
+  servidorExistenteId?: string | null
+  nome: string
+  matricula: string | null
+  cpf: string
+  cargo: string
+  email: string | null
+  telefone: string | null
+  unidadeId: string
+  setorId: string
+}
+
+export interface ResultadoItemImportacao {
+  idx: number
+  ok: boolean
+  servidorId?: string
+  erro?: string
+  pinEnviado?: boolean
+}
+
+/**
+ * Gera e grava um PIN (6 dígitos, `gerarPin`) para o servidor recém-criado/promovido e, se houver
+ * e-mail, dispara `sendPinEmailAction` — mesmo par usado no botão "Gerar PIN" de
+ * `EditServidorForm.tsx`. Nunca é chamado sem e-mail: o texto puro do PIN não pode ser relido do
+ * banco depois do hash, então sem e-mail o PIN simplesmente não é gerado (pedido do usuário).
+ */
+async function gerarEEnviarPin(
+  supabase: any,
+  servidorId: string,
+  nome: string,
+  matricula: string | null,
+  email: string | null
+): Promise<boolean> {
+  if (!email) return false
+
+  const pin = gerarPin(matricula)
+  const { error: erroPin } = await supabase.from('servidores').update({ pin_acesso: pin }).eq('id', servidorId)
+  if (erroPin) {
+    console.error('[importacao-planilha] falha ao gravar PIN gerado:', erroPin.message)
+    return false
+  }
+
+  const mensagem = gerarMensagemAcessoPortal({ nome, matricula, pin })
+  const resEmail = await sendPinEmailAction({ to: email, nome, mensagem })
+  return !!resEmail?.success
+}
+
+/**
+ * Executa a importação em lote — só os itens que o usuário marcou na tela de revisão. Cada
+ * classe usa exatamente o caminho de escrita que já existe (a mesma RPC que
+ * `promoverPendenciaRh` chama, ou o mesmo INSERT que `createServidor` faz), nunca um caminho
+ * novo. Devolve o resultado REAL por linha — nunca uma contagem calculada (armadilha 22 do
+ * CLAUDE.md: relatar o que mudou e por que o resto não, não o que foi calculado).
+ */
+export async function executarImportacaoLoteRh(
+  itens: ItemImportacaoLote[],
+  opcoes: { gerarPin: boolean }
+): Promise<ResultadoItemImportacao[]> {
+  const supabase = await createClient()
+  const { data: { user: autor } } = await supabase.auth.getUser()
+  const resultados: ResultadoItemImportacao[] = []
+
+  for (const item of itens) {
+    try {
+      if (item.classe === 'pronta' || item.classe === 'divergencia_unidade') {
+        if (!item.pendenciaId) throw new Error('Item sem pendência associada.')
+
+        const { data: servidorId, error } = await supabase.rpc('fn_promover_pendencia_rh', {
+          p_pendencia_id: item.pendenciaId,
+          p_unidade_id: item.unidadeId,
+          p_setor_id: item.setorId,
+          p_cargo: item.cargo,
+          p_confirma_vinculo_adicional: false,
+        })
+        if (error) throw new Error(error.message)
+
+        // fn_promover_pendencia_rh não grava e-mail/telefone (o CSV original do RH não tinha
+        // esses campos) — completa aqui, no mesmo request, enquanto o registro está fresco.
+        if (item.email || item.telefone) {
+          await supabase.from('servidores').update({
+            ...(item.email ? { email: item.email } : {}),
+            ...(item.telefone ? { telefone: item.telefone } : {}),
+          }).eq('id', servidorId)
+        }
+
+        let pinEnviado = false
+        if (opcoes.gerarPin) {
+          pinEnviado = await gerarEEnviarPin(supabase, servidorId, item.nome, item.matricula, item.email)
+        }
+
+        await registrarLog({
+          acao: 'SERVIDOR_CRIADO',
+          entidade: 'servidor',
+          entidadeId: servidorId,
+          userId: autor?.id || null,
+          detalhes: { origem: 'importacao_planilha_rh', pendenciaId: item.pendenciaId },
+          unidadeId: item.unidadeId,
+          setorId: item.setorId,
+        })
+
+        resultados.push({ idx: item.idx, ok: true, servidorId, pinEnviado })
+        continue
+      }
+
+      if (item.classe === 'ja_servidor_mesma_unidade') {
+        if (!item.servidorExistenteId) throw new Error('Item sem cadastro existente associado.')
+
+        // Nunca sobrescreve — só preenche o que estiver vazio, mesma regra de
+        // fn_atualizar_cadastro_via_pendencia_rh. Busca o estado atual porque a classificação
+        // pode ter sido feita alguns segundos antes desta execução.
+        const { data: atual, error: erroAtual } = await supabase
+          .from('servidores')
+          .select('email, telefone, pin_acesso')
+          .eq('id', item.servidorExistenteId)
+          .single()
+        if (erroAtual) throw new Error(erroAtual.message)
+
+        const patch: Record<string, string> = {}
+        if (!atual?.email && item.email) patch.email = item.email
+        if (!atual?.telefone && item.telefone) patch.telefone = item.telefone
+        if (Object.keys(patch).length > 0) {
+          const { error: erroPatch } = await supabase.from('servidores').update(patch).eq('id', item.servidorExistenteId)
+          if (erroPatch) throw new Error(erroPatch.message)
+
+          await registrarLog({
+            acao: 'SERVIDOR_EDITADO',
+            entidade: 'servidor',
+            entidadeId: item.servidorExistenteId,
+            userId: autor?.id || null,
+            alteracoes: calcularAlteracoes(atual, { ...atual, ...patch }),
+            detalhes: { origem: 'importacao_planilha_rh', complementoDeContato: true },
+            unidadeId: item.unidadeId,
+            setorId: item.setorId,
+          })
+        }
+
+        let pinEnviado = false
+        if (opcoes.gerarPin && !atual?.pin_acesso) {
+          pinEnviado = await gerarEEnviarPin(supabase, item.servidorExistenteId, item.nome, item.matricula, item.email || atual?.email)
+        }
+
+        resultados.push({ idx: item.idx, ok: true, servidorId: item.servidorExistenteId, pinEnviado })
+        continue
+      }
+
+      if (item.classe === 'novo_sem_pendencia') {
+        const erroCpfObrigatorio = validarCpfObrigatorio(item.cpf)
+        if (erroCpfObrigatorio) throw new Error(erroCpfObrigatorio)
+
+        const erroDoc = validarDocumentosServidor(item.cpf, null)
+        if (erroDoc) throw new Error(erroDoc)
+
+        if (!item.matricula) throw new Error('Sem matrícula e sem pendência correspondente — não incluído.')
+
+        const cpfLimpo = normalizarDoc(item.cpf)
+        const { erro: erroCpf, vinculoMultiplo } = await verificarCpfDuplicado(supabase, cpfLimpo)
+        if (erroCpf) throw new Error(erroCpf)
+
+        const pin = opcoes.gerarPin && item.email ? gerarPin(item.matricula) : null
+
+        const { data: novo, error } = await supabase.from('servidores').insert({
+          nome: item.nome,
+          matricula: item.matricula,
+          cpf: cpfLimpo,
+          cargo: item.cargo,
+          vinculo: 'Contratada',
+          unidade_id: item.unidadeId,
+          setor_id: item.setorId,
+          email: item.email || null,
+          telefone: item.telefone || null,
+          pin_acesso: pin,
+          status: 'Ativo',
+          vinculo_multiplo_confirmado: vinculoMultiplo,
+        }).select('id').single()
+        if (error) throw new Error(traduzirErroCadastro(error))
+
+        let pinEnviado = false
+        if (pin && item.email) {
+          const mensagem = gerarMensagemAcessoPortal({ nome: item.nome, matricula: item.matricula, pin })
+          const resEmail = await sendPinEmailAction({ to: item.email, nome: item.nome, mensagem })
+          pinEnviado = !!resEmail?.success
+        }
+
+        await registrarLog({
+          acao: 'SERVIDOR_CRIADO',
+          entidade: 'servidor',
+          entidadeId: novo.id,
+          userId: autor?.id || null,
+          detalhes: { origem: 'importacao_planilha_rh', semPendencia: true },
+          unidadeId: item.unidadeId,
+          setorId: item.setorId,
+        })
+
+        resultados.push({ idx: item.idx, ok: true, servidorId: novo.id, pinEnviado })
+        continue
+      }
+
+      throw new Error(`Classe de item desconhecida: ${item.classe}`)
+    } catch (e: any) {
+      resultados.push({ idx: item.idx, ok: false, erro: e?.message || 'Erro desconhecido.' })
+    }
+  }
+
+  revalidatePath('/servidores/pendencias')
+  revalidatePath('/servidores')
+  return resultados
 }
 
 /**

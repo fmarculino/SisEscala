@@ -134,6 +134,7 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
       : (servidor.pin_acesso || '')
   )
   const [currentTelefone, setCurrentTelefone] = useState(servidor.telefone || '')
+  const [currentEmail, setCurrentEmail] = useState(servidor.email || '')
   const [currentCpf, setCurrentCpf] = useState(servidor.cpf || '')
 
   // Intervalo — as regras (exclusividade entre horário fixo e flexível, e a dependência
@@ -155,7 +156,7 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
    */
   const sharePinEmail = async () => {
     if (!currentPin || currentPin === '****') return
-    const email = (document.getElementById('email') as HTMLInputElement)?.value?.trim() || servidor.email
+    const email = currentEmail.trim()
     if (!email) return
 
     const message = gerarMensagemAcessoPortal({
@@ -238,6 +239,8 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
     setLoading(true)
     formData.set('cargo', cargoFinal)
     formData.set('pin_acesso', currentPin)
+    formData.set('email', currentEmail.trim())
+    formData.set('telefone', currentTelefone)
     formData.set('cpf', currentCpf)
     formData.set('foto_url', fotoUrl)
     formData.set('confirma_vinculo_adicional', confirmaVinculoAdicional ? 'true' : 'false')
@@ -800,7 +803,8 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
                   id="email"
                   name="email"
                   type="email"
-                  defaultValue={servidor.email || ''}
+                  value={currentEmail}
+                  onChange={(e) => setCurrentEmail(e.target.value)}
                   placeholder="email@servidor.com"
                   className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800"
                 />
@@ -872,9 +876,9 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
                   <button
                     type="button"
                     onClick={sharePinEmail}
-                    disabled={!currentPin || currentPin === '****' || !servidor.email || emailSending}
+                    disabled={!currentPin || currentPin === '****' || !currentEmail || emailSending}
                     className="p-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:bg-zinc-300 transition-colors shadow-sm flex items-center justify-center"
-                    title={servidor.email ? `Enviar PIN por e-mail para ${servidor.email}` : 'Servidor sem e-mail cadastrado'}
+                    title={currentEmail ? `Enviar PIN por e-mail para ${currentEmail}` : 'Servidor sem e-mail cadastrado'}
                   >
                     {emailSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
                   </button>
@@ -890,7 +894,7 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
                 </div>
                 <p className="mt-1 text-[10px] text-zinc-500">
                   Este PIN permitirá ao servidor consultar sua escala sem senha.
-                  {servidor.email
+                  {currentEmail
                     ? ' Prefira enviar por e-mail — é mais estável e fica recuperável para o servidor.'
                     : ' Sem e-mail cadastrado, só o WhatsApp está disponível.'}
                 </p>

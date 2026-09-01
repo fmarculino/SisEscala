@@ -9,7 +9,7 @@ import {
   Calendar, Layers, Shield, User, Briefcase, CalendarDays, 
   ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   Settings, Database, Lock, FileText, Activity, HelpCircle, BookOpen,
-  Palmtree, ClipboardCheck, ShieldAlert, Radio
+  Palmtree, ClipboardCheck, ShieldAlert, ShieldQuestion, Radio
 } from 'lucide-react'
 import { LogoutButton } from './LogoutButton'
 import { ThemeToggle } from '../ThemeToggle'
@@ -39,6 +39,11 @@ const menuGroups: MenuGroup[] = [
     icon: Activity,
     items: [
       { name: 'Escalas', href: '/escalas', icon: Calendar },
+      // Pedidos de Autorizacao Extraordinaria de carga mensal (31/08/2026). Fica em OPERACAO
+      // porque as duas pontas do fluxo sao operacionais: quem lanca a escala pede, o RH decide.
+      // Coordenador e ass_adm veem o item (o grupo inteiro e liberado a eles) e enxergam os
+      // proprios pedidos -- a RPC e que escopa as linhas, nao o menu.
+      { name: 'Autorizações de Escala', href: '/autorizacoes-escala', icon: ShieldQuestion },
       { name: 'Afastamentos', href: '/afastamentos', icon: CalendarDays },
       { name: 'Férias e Licenças', href: '/ferias-licencas', icon: Palmtree },
       { name: 'Folha de Ponto', href: '/folha-ponto', icon: FileText },

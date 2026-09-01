@@ -3026,6 +3026,77 @@ Portão: `node scratchpad/sim_troca_pin.js` (56 casos). Transpile antes com
 **Validado injetando três regressões de propósito** (piso voltando a 4, trigger perdendo o guard
 de não re-hashear, regra vazando para o login) — as três reprovam.
 
+### 44. Allowlist de papel envelhece em silêncio, e a mensagem que manda "pedir a um Administrador" não tinha a quem pedir (31/08/2026)
+
+⚠️ **Duas travas independentes, a mesma causa: papel escrito à mão numa condição que ninguém
+revisita.** Diário em
+[`docs/evolucao/2026-08-31-rh-autoriza-carga-e-coordenador-solicita.md`](docs/evolucao/2026-08-31-rh-autoriza-carga-e-coordenador-solicita.md).
+
+**(a) O modal "Adicionar Servidor Externo" recusava o RH.** `get_external_servers_for_scale`
+(06/2026) e `fn_buscar_servidor_para_escala` (31/08/2026) tinham allowlist fixa
+`super_admin/admin/coordenador` — escrita antes de `rh`, `ass_adm` e `rh_unidade` existirem. A RLS
+de `escala_mensal` **já autorizava os três** desde `20260818170000`: o banco deixava gravar a
+escala, faltava poder escolher quem escalar. E o sintoma era diferente em cada caminho, sendo o
+antigo o pior — a busca por nome dava "Acesso negado", mas o caminho Unidade → Setor **não trata o
+erro do RPC** e devolvia lista **vazia**, indistinguível de "essa pessoa não existe".
+
+`20260831110000` troca as duas por **denylist** (`fn_pode_escalar_servidor_externo`: fora só
+`servidor` e `comum`, os papéis do Portal). Decisão do usuário: *"todos podem adicionar, desde que
+dentro dos limites e regras; fora das regras, os RH autorizam"*. De quebra,
+`get_external_servers_for_scale` **nunca teve `REVOKE FROM PUBLIC`** e estava aberta a `anon` desde
+06/2026 (armadilha 24) — as `20260827*` e a `20260830120000` não a alcançaram.
+
+**(b) O teto de horas mandava "Solicite a um Administrador" — e não existia como solicitar.**
+Nem tabela, nem tela, nem registro: o pedido saía por WhatsApp e a decisão não ficava em lugar
+nenhum. Medido em 31/08/2026: **5 pessoas** podiam conceder (2 super_admin + 3 admin) contra **96**
+que lançam escala (73 coordenadores, 8 rh, 7 rh_unidade, 8 ass_adm), e as duas únicas autorizações
+da base inteira foram do mesmo super_admin.
+
+🚨 **A regra transferível: nunca instrua uma ação que o sistema não oferece.** Instrução que o
+sistema não cumpre ensina a contornar o sistema — o teto vira algo que se resolve "falando com
+alguém", e a decisão sobre carga horária de servidor público desaparece. É a armadilha 22 pelo
+outro lado: lá se relatava o que não mudou, aqui se manda fazer o que não existe.
+
+| peça | onde |
+|---|---|
+| quem **concede** | `fn_pode_autorizar_excecao_carga` (`20260831120000`) — +`rh`, +`rh_unidade` **no escopo dele** |
+| quem **pede** | `fn_pode_solicitar_excecao_carga` — espelha a policy de escrita de `escala_mensal` |
+| a fila | `solicitacoes_excecao_carga` (`20260831130000`) |
+| decidir | `fn_avaliar_solicitacao_excecao_carga` — aprovar **grava a exceção na mesma transação** |
+| tela | `/autorizacoes-escala` |
+| fonte única no frontend | `src/utils/autorizacaoCarga.ts` |
+
+⚠️ **A policy antiga foi DERRUBADA, não ganhou uma irmã** — permissivas se somam com `OR`, e a
+migration **aborta** se achar mais de uma policy de escrita em `excecoes_escala_servidor`. Mesma
+lição de `solicitacoes_transferencia_servidor` (armadilha registrada em 28/08/2026).
+
+⚠️ **RH da Unidade precisa de escopo, e o motivo é a armadilha 26:** a autorização é UMA por
+`(servidor, mês, ano)` e vale para **todas** as escalas da pessoa — quem autoriza mexe num número
+que a outra unidade também usa. Daí `fn_excecao_carga_detalhe`, que faz o modal mostrar **quem
+concedeu a vigente, de qual unidade e quando**, antes de gravar por cima. Sobrescrever continua
+possível (reduzir excesso é legítimo); sobrescrever **sem ver**, não.
+
+⚠️ **`solicitacoes_excecao_carga` não tem policy de escrita, de propósito** — só as RPCs
+`SECURITY DEFINER` escrevem. Sem isso, qualquer autenticado marcaria o próprio pedido como
+`aprovada` pelo PostgREST (armadilha 12).
+
+⚠️ **Um pendente por (servidor, mês, ano)**, índice único parcial: dois pedidos abertos produzem
+duas decisões sobre o mesmo número. O segundo é recusado **nomeando quem já pediu**; e existe
+cancelamento para a trava não virar prisão. Na grade, pedido em aberto pinta o escudo de **azul**
+em vez de vermelho — sem distinguir "travado e parado" de "travado e em andamento", quem já pediu
+pede de novo.
+
+⚠️ **Os quatro caminhos do teto na grade** (célula, Salvar Previsão, escudo da linha, Aplicar
+Template) tinham a condição de papel escrita à mão, cada um com seu texto — trocados de uma vez por
+`scratchpad/gen_autorizacao_carga_grade.js`, que aborta se qualquer das 11 substituições não bater
+na contagem. **`isAdminRole` (linha ~4275) NÃO é sobre carga** (valida presença e ignora a trava de
+previsão) e continua como está; o gerador confere que ele sobreviveu.
+
+Portão: `node scratchpad/sim_autorizacao_carga.js` (69 casos). Transpile antes com
+`npx tsc src/utils/autorizacaoCarga.ts --outDir scratchpad/_sim --module commonjs --target es2020`.
+**Validado injetando três regressões de propósito** (voltar a admin-only, ressuscitar o texto
+"Solicite a um Administrador", e dar autorização ao coordenador) — as três reprovam.
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.
