@@ -443,3 +443,74 @@ export async function fundirEExcluirSetor(id: string, destinoId: string) {
   revalidatePath('/setores')
   return { success: true, resultado: data }
 }
+
+/**
+ * Renomeia um item no Dicionário Municipal de Setores.
+ *
+ * Se o novo nome já existir no dicionário com outro ID, mescla automaticamente
+ * todos os setores para o nome existente e remove a entrada redundante.
+ */
+export async function renomearItemDicionario(id: string, novoNomeRaw: string) {
+  const supabase = await createClient()
+  const novoNome = (novoNomeRaw || '').trim().toUpperCase()
+
+  if (!novoNome) {
+    return { error: 'O nome do setor não pode ficar vazio.' }
+  }
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Sessão expirada. Entre novamente.' }
+
+  const { data: perfil } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  if (!['super_admin', 'admin', 'rh'].includes(perfil?.role)) {
+    return { error: 'Apenas administradores e RH podem renomear itens do dicionário municipal.' }
+  }
+
+  // 1. Verificar se o novo nome já existe no dicionário com outro ID
+  const { data: existente } = await supabase
+    .from('dicionario_setores')
+    .select('id')
+    .eq('nome', novoNome)
+    .maybeSingle()
+
+  if (existente && existente.id !== id) {
+    // Mesclar setores vinculados ao ID antigo para o ID existente
+    const { error: errUpdateSetores } = await supabase
+      .from('setores')
+      .update({ dicionario_setor_id: existente.id })
+      .eq('dicionario_setor_id', id)
+
+    if (errUpdateSetores) {
+      return { error: 'Erro ao migrar setores para o nome existente: ' + errUpdateSetores.message }
+    }
+
+    // Excluir a entrada antiga que ficou sem uso
+    const { error: errDelete } = await supabase
+      .from('dicionario_setores')
+      .delete()
+      .eq('id', id)
+
+    if (errDelete) {
+      console.warn('Não foi possível remover o item antigo após mesclagem:', errDelete.message)
+    }
+  } else if (!existente || existente.id === id) {
+    const { error: errUpdate } = await supabase
+      .from('dicionario_setores')
+      .update({ nome: novoNome })
+      .eq('id', id)
+
+    if (errUpdate) {
+      return { error: 'Erro ao renomear item no dicionário: ' + errUpdate.message }
+    }
+  }
+
+  revalidatePath('/setores')
+  revalidatePath('/escalas')
+  revalidatePath('/servidores')
+  return { success: true }
+}

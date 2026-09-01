@@ -2,9 +2,11 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { Layers, Plus, Building2, ChevronRight, Eye, EyeOff, Search, Loader2, ChevronDown, Tag, MoreHorizontal } from 'lucide-react'
+import { Layers, Plus, Building2, ChevronRight, Eye, EyeOff, Search, Loader2, ChevronDown, Tag, MoreHorizontal, Pencil } from 'lucide-react'
 import Link from 'next/link'
 import { applyAccessFilters } from '@/utils/permissions'
+import { Modal } from '@/components/ui/Modal'
+import { renomearItemDicionario } from './actions'
 
 interface SetoresClientProps {
   userProfile: any
@@ -25,6 +27,47 @@ export default function SetoresClient({ userProfile }: SetoresClientProps) {
 
   const [viewMode, setViewMode] = useState<'unidade' | 'dicionario'>('unidade')
   const [dicionario, setDicionario] = useState<any[]>([])
+
+  const [editModalItem, setEditModalItem] = useState<{ id: string; nome: string; ocorrencias: number } | null>(null)
+  const [editNovoNome, setEditNovoNome] = useState('')
+  const [editSalvando, setEditSalvando] = useState(false)
+  const [editErro, setEditErro] = useState<string | null>(null)
+
+  const podeEditarDicionario = ['super_admin', 'admin', 'rh'].includes(userProfile?.role)
+
+  const handleAbrirEdicaoDicionario = (item: any) => {
+    setEditModalItem({
+      id: item.id,
+      nome: item.nome,
+      ocorrencias: item.setores?.length || 0
+    })
+    setEditNovoNome(item.nome)
+    setEditErro(null)
+  }
+
+  const handleSalvarEdicaoDicionario = async () => {
+    if (!editModalItem) return
+    const novo = editNovoNome.trim().toUpperCase()
+    if (!novo) {
+      setEditErro('O nome não pode ficar vazio.')
+      return
+    }
+    setEditSalvando(true)
+    setEditErro(null)
+    try {
+      const res = await renomearItemDicionario(editModalItem.id, novo)
+      if (res && 'error' in res && res.error) {
+        setEditErro(res.error)
+      } else {
+        setEditModalItem(null)
+        await Promise.all([fetchDicionario(), fetchSetores()])
+      }
+    } catch (err: any) {
+      setEditErro(err?.message || 'Erro ao renomear setor no dicionário.')
+    } finally {
+      setEditSalvando(false)
+    }
+  }
 
   useEffect(() => {
     fetchSetores()
@@ -421,6 +464,9 @@ export default function SetoresClient({ userProfile }: SetoresClientProps) {
                     <th className="px-8 py-4 text-[10px] font-black uppercase tracking-widest text-zinc-400">Nome Padronizado</th>
                     <th className="px-8 py-4 text-[10px] font-black uppercase tracking-widest text-zinc-400">Ocorrências</th>
                     <th className="px-8 py-4 text-[10px] font-black uppercase tracking-widest text-zinc-400">Unidades</th>
+                    {podeEditarDicionario && (
+                      <th className="px-8 py-4 text-[10px] font-black uppercase tracking-widest text-zinc-400 text-right">Ações</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -449,6 +495,18 @@ export default function SetoresClient({ userProfile }: SetoresClientProps) {
                           )}
                         </div>
                       </td>
+                      {podeEditarDicionario && (
+                        <td className="px-8 py-5 text-right">
+                          <button
+                            onClick={() => handleAbrirEdicaoDicionario(item)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-zinc-700 dark:text-zinc-300 hover:text-blue-600 rounded-xl text-xs font-bold transition-colors"
+                            title="Renomear no dicionário municipal"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                            Renomear
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -457,6 +515,74 @@ export default function SetoresClient({ userProfile }: SetoresClientProps) {
           </div>
         )}
       </div>
+
+      {/* Modal de Renomear Item do Dicionário Municipal */}
+      <Modal
+        isOpen={!!editModalItem}
+        onClose={() => setEditModalItem(null)}
+        title="Renomear Setor no Dicionário"
+        footer={
+          <div className="flex justify-end gap-2 w-full">
+            <button
+              type="button"
+              onClick={() => setEditModalItem(null)}
+              disabled={editSalvando}
+              className="px-4 py-2 rounded-xl text-xs font-bold text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={handleSalvarEdicaoDicionario}
+              disabled={editSalvando || !editNovoNome.trim()}
+              className="inline-flex items-center gap-2 px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-colors disabled:opacity-50"
+            >
+              {editSalvando ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Salvar Alterações'}
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-4 p-2">
+          {editErro && (
+            <div className="p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-xl text-xs text-red-600 dark:text-red-400 font-medium">
+              {editErro}
+            </div>
+          )}
+
+          <div>
+            <label className="block text-[11px] font-black uppercase tracking-widest text-zinc-400 mb-1">
+              Nome Atual
+            </label>
+            <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-xl text-sm font-bold text-zinc-800 dark:text-zinc-200 uppercase">
+              {editModalItem?.nome}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-black uppercase tracking-widest text-zinc-500 dark:text-zinc-400 mb-1">
+              Novo Nome Padronizado
+            </label>
+            <input
+              type="text"
+              value={editNovoNome}
+              onChange={(e) => setEditNovoNome(e.target.value.toUpperCase())}
+              placeholder="Ex: ODONTOLOGIA"
+              className="block w-full px-4 py-3 bg-zinc-50 dark:bg-zinc-800 border-2 border-zinc-200 dark:border-zinc-700 rounded-xl text-zinc-900 dark:text-white focus:border-blue-500 focus:ring-0 transition-all font-bold uppercase"
+              autoFocus
+            />
+          </div>
+
+          <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/40 rounded-xl text-xs text-blue-700 dark:text-blue-300 space-y-1">
+            <p className="font-bold">Atenção:</p>
+            <p>
+              Esta alteração atualizará <strong>{editModalItem?.ocorrencias || 0} setor(es)</strong> vinculados na rede municipal.
+            </p>
+            <p className="text-[11px] opacity-80">
+              Se o novo nome já existir no dicionário, os setores serão mesclados automaticamente sob o nome padronizado existente.
+            </p>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }
