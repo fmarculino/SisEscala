@@ -224,7 +224,7 @@ export function PendenciasCadastroClient({
           cargos={cargos}
         />
 
-        <ImportacaoPlanilhaSection unidades={unidades} setores={setores} />
+        <ImportacaoPlanilhaSection unidades={unidades} setores={setores} cargos={cargos} />
       </div>
     )
   }
@@ -263,7 +263,7 @@ export function PendenciasCadastroClient({
         cargos={cargos}
       />
 
-      <ImportacaoPlanilhaSection unidades={unidades} setores={setores} />
+      <ImportacaoPlanilhaSection unidades={unidades} setores={setores} cargos={cargos} />
 
       {/* Documentos inválidos */}
       <section className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
