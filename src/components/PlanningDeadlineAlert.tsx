@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter, usePathname } from 'next/navigation'
 import { createClient } from '@/utils/supabase/client'
 import { AlertTriangle, X, CalendarClock, ClipboardCheck, ShieldAlert } from 'lucide-react'
 
@@ -9,6 +10,8 @@ interface PlanningDeadlineAlertProps {
 }
 
 export function PlanningDeadlineAlert({ userRole }: PlanningDeadlineAlertProps) {
+  const router = useRouter()
+  const pathname = usePathname()
   const [isOpen, setIsOpen] = useState(false)
   const [dontShowToday, setDontShowToday] = useState(false)
   const [deadlineDay, setDeadlineDay] = useState<number | null>(null)
@@ -144,7 +147,20 @@ export function PlanningDeadlineAlert({ userRole }: PlanningDeadlineAlertProps) 
     setIsOpen(false)
   }
 
-  if (!isOpen || deadlineDay === null) return null
+  const handleResolverAgora = () => {
+    if (compRisco) {
+      sessionStorage.setItem('justificativa_filtro_mes', String(compRisco.mes))
+      sessionStorage.setItem('justificativa_filtro_ano', String(compRisco.ano))
+      sessionStorage.setItem('justificativa_filtro_status', 'em_avaliacao')
+    }
+    setIsOpen(false)
+    const targetUrl = compRisco 
+      ? `/justificativas?mes=${compRisco.mes}&ano=${compRisco.ano}&status=em_avaliacao` 
+      : '/justificativas'
+    router.push(targetUrl)
+  }
+
+  if (!isOpen || deadlineDay === null || pathname?.startsWith('/justificativas')) return null
 
   const daysRemaining = deadlineDay - currentDay
 
@@ -262,13 +278,14 @@ export function PlanningDeadlineAlert({ userRole }: PlanningDeadlineAlertProps) 
                   </p>
                 )}
 
-                <a
-                  href="/justificativas"
-                  className="mt-1 w-full inline-flex items-center justify-center gap-2 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-black text-[11px] uppercase tracking-widest transition-all"
+                <button
+                  type="button"
+                  onClick={handleResolverAgora}
+                  className="mt-1 w-full inline-flex items-center justify-center gap-2 py-2.5 bg-red-600 hover:bg-red-700 active:scale-[0.98] text-white rounded-xl font-black text-[11px] uppercase tracking-widest transition-all cursor-pointer shadow-md shadow-red-600/20"
                 >
                   <ClipboardCheck className="h-4 w-4" />
                   Resolver agora
-                </a>
+                </button>
               </div>
             )}
           </div>

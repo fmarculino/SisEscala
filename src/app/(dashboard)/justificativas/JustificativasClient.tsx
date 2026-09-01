@@ -28,20 +28,31 @@ interface JustificativasClientProps {
   setores: any[]
   servidores?: any[]
   userProfile: any
+  initialParams?: {
+    mes?: string
+    ano?: string
+    status?: string
+    categoria?: string
+    unidadeId?: string
+    setorId?: string
+    servidorId?: string
+  }
 }
 
 export function JustificativasClient({
   unidades,
   setores,
   servidores = [],
-  userProfile
+  userProfile,
+  initialParams
 }: JustificativasClientProps) {
   const supabase = createClient()
   const [loading, setLoading] = useState(false)
   const [activeTab, setActiveTab] = useState<'fila' | 'sugestoes' | 'templates' | 'relatorios'>('fila')
 
-  // Filters with sessionStorage persistence
+  // Filters with sessionStorage persistence and URL initialParams
   const [selectedUnidade, setSelectedUnidade] = useState(() => {
+    if (initialParams?.unidadeId) return initialParams.unidadeId
     if (typeof window !== 'undefined') {
       // `?? ` e não `|| `: string vazia agora é uma escolha legítima ("Todas as Unidades"), e
       // com `||` ela caía de volta para a primeira unidade a cada recarga — a opção existiria
@@ -52,12 +63,14 @@ export function JustificativasClient({
     return unidades[0]?.id || ''
   })
   const [selectedSetor, setSelectedSetor] = useState(() => {
+    if (initialParams?.setorId) return initialParams.setorId
     if (typeof window !== 'undefined') {
       return sessionStorage.getItem('justificativa_filtro_setor') || ''
     }
     return ''
   })
   const [selectedServidor, setSelectedServidor] = useState(() => {
+    if (initialParams?.servidorId) return initialParams.servidorId
     if (typeof window !== 'undefined') {
       return sessionStorage.getItem('justificativa_filtro_servidor') || ''
     }
@@ -78,6 +91,10 @@ export function JustificativasClient({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
   const [mes, setMes] = useState<number>(() => {
+    if (initialParams?.mes) {
+      const p = parseInt(initialParams.mes, 10)
+      if (!isNaN(p)) return p
+    }
     if (typeof window !== 'undefined') {
       const saved = sessionStorage.getItem('justificativa_filtro_mes')
       if (saved) return parseInt(saved, 10)
@@ -85,6 +102,10 @@ export function JustificativasClient({
     return new Date().getMonth() + 1
   })
   const [ano, setAno] = useState<number>(() => {
+    if (initialParams?.ano) {
+      const p = parseInt(initialParams.ano, 10)
+      if (!isNaN(p)) return p
+    }
     if (typeof window !== 'undefined') {
       const saved = sessionStorage.getItem('justificativa_filtro_ano')
       if (saved) return parseInt(saved, 10)
@@ -92,18 +113,47 @@ export function JustificativasClient({
     return new Date().getFullYear()
   })
   const [filterCategoria, setFilterCategoria] = useState(() => {
+    if (initialParams?.categoria) return initialParams.categoria
     if (typeof window !== 'undefined') {
       return sessionStorage.getItem('justificativa_filtro_categoria') || 'todos'
     }
     return 'todos'
   })
   const [filterStatus, setFilterStatus] = useState(() => {
+    if (initialParams?.status) return initialParams.status
     if (typeof window !== 'undefined') {
       return sessionStorage.getItem('justificativa_filtro_status') || 'todos'
     }
     return 'todos'
   })
   const [currentPage, setCurrentPage] = useState(1)
+
+  // Synchronize with URL params when they change
+  useEffect(() => {
+    if (initialParams?.mes) {
+      const p = parseInt(initialParams.mes, 10)
+      if (!isNaN(p)) setMes(p)
+    }
+    if (initialParams?.ano) {
+      const p = parseInt(initialParams.ano, 10)
+      if (!isNaN(p)) setAno(p)
+    }
+    if (initialParams?.status) {
+      setFilterStatus(initialParams.status)
+    }
+    if (initialParams?.categoria) {
+      setFilterCategoria(initialParams.categoria)
+    }
+    if (initialParams?.unidadeId !== undefined) {
+      setSelectedUnidade(initialParams.unidadeId)
+    }
+    if (initialParams?.setorId !== undefined) {
+      setSelectedSetor(initialParams.setorId)
+    }
+    if (initialParams?.servidorId !== undefined) {
+      setSelectedServidor(initialParams.servidorId)
+    }
+  }, [initialParams?.mes, initialParams?.ano, initialParams?.status, initialParams?.categoria, initialParams?.unidadeId, initialParams?.setorId, initialParams?.servidorId])
 
   // Save filters to sessionStorage
   useEffect(() => {

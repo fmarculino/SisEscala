@@ -1995,7 +1995,7 @@ export async function salvarFolhaPonto(folhaId: string, registros: any[], status
         if (pendentes.length > 0) {
           const dias = pendentes.map((d: any) => d.dia).sort((a: number, b: number) => a - b).join(', ')
           return {
-            error: `Não é possível fechar: ${pendentes.length} plantão(ões)/sobreaviso(s) sem registro completo de ponto e sem decisão do coordenador — dia(s) ${dias}. Resolva em OPERAÇÃO > Justificativas (filtro "Em avaliação").`
+            error: `Não é possível fechar: ${pendentes.length} plantão(ões)/sobreaviso(s) sem registro completo de ponto e sem decisão do coordenador — dia(s) ${dias}. Acesse o menu lateral em Justificativas (filtro "Em avaliação") para regularizar.`
           }
         }
       }

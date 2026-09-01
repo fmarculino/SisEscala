@@ -1345,7 +1345,7 @@ export default function ConfigPage() {
                   Exige que todo plantão/sobreaviso tenha desfecho — validado ou falta — antes de
                   fechar escala e folha. Um plantão sem registro completo de ponto e sem decisão do
                   coordenador fica <strong>&quot;Em avaliação&quot;</strong>: aparece no anexo, mas não soma na
-                  carga horária. Resolva em OPERAÇÃO &gt; Justificativas, filtro &quot;Em avaliação&quot;.
+                  carga horária. Resolva no menu lateral em Justificativas, filtro &quot;Em avaliação&quot;.
                 </p>
                 {String(getConfig('desfecho_obrigatorio_fechar')?.valor ?? 'false').replace(/"/g, '') === 'true' ? (
                   <div className="text-[11px] leading-normal p-3 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 text-red-700 dark:text-red-300 font-bold">

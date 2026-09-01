@@ -4,7 +4,10 @@ import { AcessoNegado } from '@/components/AcessoNegado'
 import { applyAccessFilters } from '@/utils/permissions'
 import { podeAbrirJustificativas } from '@/utils/gestaoJustificativas'
 
-export default async function JustificativasPage() {
+export default async function JustificativasPage(props: {
+  searchParams?: Promise<{ mes?: string; ano?: string; status?: string; categoria?: string; unidadeId?: string; setorId?: string; servidorId?: string }>
+}) {
+  const searchParams = props.searchParams ? await props.searchParams : undefined
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
@@ -71,6 +74,7 @@ export default async function JustificativasPage() {
       setores={setores || []} 
       servidores={servidores || []}
       userProfile={userProfile} 
+      initialParams={searchParams}
     />
   )
 }

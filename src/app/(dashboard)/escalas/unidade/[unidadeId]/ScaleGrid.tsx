@@ -479,7 +479,16 @@ export function ScaleGrid({
     codigoAnterior: string, codigoNovo: string, texto: string, salvando: boolean
   }>({ isOpen: false, servidorId: '', servidorNome: '', escalaMensalId: '', categoria: 'Plantão', day: 0, turnoNovoId: '', codigoAnterior: '', codigoNovo: '', texto: '', salvando: false })
 
-  const [alertModal, setAlertModal] = useState<{ isOpen: boolean, title: string, message: string, type: 'default' | 'danger' | 'success' | 'warning' }>({
+  const [alertModal, setAlertModal] = useState<{ 
+    isOpen: boolean
+    title: string
+    message: string
+    type: 'default' | 'danger' | 'success' | 'warning'
+    action?: {
+      label: string
+      onClick: () => void
+    }
+  }>({
     isOpen: false,
     title: '',
     message: '',
@@ -3984,7 +3993,25 @@ export function ScaleGrid({
   }
 
   const handleCloseScale = async () => {
-    if (isCompetenciaEncerrada) return
+    if (isCompetenciaEncerrada) {
+      setAlertModal({
+        isOpen: true,
+        title: 'Competência Encerrada',
+        message: 'Esta competência já foi encerrada e não permite alterações no status da escala.',
+        type: 'warning'
+      })
+      return
+    }
+
+    if (escalaMensal.length === 0) {
+      setAlertModal({
+        isOpen: true,
+        title: 'Escala Vazia',
+        message: 'Adicione pelo menos um servidor à escala antes de finalizá-la.',
+        type: 'warning'
+      })
+      return
+    }
 
     // Validação de Dimensionamento (Regra Rígida - Mínimos e Máximos)
     const regraDimensionamento = configs['escala_regra_dimensionamento'] || 'flexivel'
@@ -4077,8 +4104,19 @@ export function ScaleGrid({
         setAlertModal({
           isOpen: true,
           title: '⚠️ Justificativas Pendentes',
-          message: `Não é possível fechar a escala. Existem ${pendencias} evento(s) de Hora Extra, Plantão ou Sobreaviso sem justificativa registrada no setor. Acesse o menu OPERAÇÃO > Justificativas para regularizar.`,
-          type: 'warning'
+          message: `Não é possível fechar a escala. Existem ${pendencias} evento(s) de Hora Extra, Plantão ou Sobreaviso sem justificativa registrada no setor. Acesse o menu lateral em Justificativas ou clique no botão abaixo para regularizar.`,
+          type: 'warning',
+          action: {
+            label: 'Regularizar Justificativas Agora',
+            onClick: () => {
+              sessionStorage.setItem('justificativa_filtro_unidade', unidadeId)
+              sessionStorage.setItem('justificativa_filtro_setor', setorId)
+              sessionStorage.setItem('justificativa_filtro_mes', String(mes))
+              sessionStorage.setItem('justificativa_filtro_ano', String(ano))
+              sessionStorage.setItem('justificativa_filtro_status', 'pendentes')
+              router.push(`/justificativas?unidadeId=${unidadeId}&setorId=${setorId}&mes=${mes}&ano=${ano}&status=pendentes`)
+            }
+          }
         })
         return
       }
@@ -4120,8 +4158,19 @@ export function ScaleGrid({
         setAlertModal({
           isOpen: true,
           title: '⚠️ Plantões sem desfecho',
-          message: `Não é possível fechar a escala. Existem ${pendentesDesfecho.length} plantão(ões)/sobreaviso(s) sem registro completo de ponto e sem decisão do coordenador:\n\n${linhas.join('\n')}${resto}\n\nEm OPERAÇÃO > Justificativas, filtre por "Em avaliação" e valide ou registre a falta de cada um.`,
-          type: 'warning'
+          message: `Não é possível fechar a escala. Existem ${pendentesDesfecho.length} plantão(ões)/sobreaviso(s) sem registro completo de ponto e sem decisão do coordenador:\n\n${linhas.join('\n')}${resto}\n\nAcesse o menu lateral em Justificativas (filtro "Em avaliação") ou clique no botão abaixo para validar ou registrar falta.`,
+          type: 'warning',
+          action: {
+            label: 'Avaliar Plantões Pendentes Agora',
+            onClick: () => {
+              sessionStorage.setItem('justificativa_filtro_unidade', unidadeId)
+              sessionStorage.setItem('justificativa_filtro_setor', setorId)
+              sessionStorage.setItem('justificativa_filtro_mes', String(mes))
+              sessionStorage.setItem('justificativa_filtro_ano', String(ano))
+              sessionStorage.setItem('justificativa_filtro_status', 'em_avaliacao')
+              router.push(`/justificativas?unidadeId=${unidadeId}&setorId=${setorId}&mes=${mes}&ano=${ano}&status=em_avaliacao`)
+            }
+          }
         })
         return
       }
@@ -4241,7 +4290,8 @@ export function ScaleGrid({
     deadlineDay
   })
 
-  const isClosed = escalaMensal[0]?.status === 'Fechada' || isInactive || isComum || !governanceLock.canEdit || isCompetenciaEncerrada
+  const isStatusFechada = escalaMensal.length > 0 && escalaMensal.every(em => em.status === 'Fechada')
+  const isClosed = isStatusFechada || isInactive || isComum || !governanceLock.canEdit || isCompetenciaEncerrada
 
   // Sort escalaMensal alphabetically by server name
   const sortedEscalaMensal = useMemo(() => {
@@ -4431,13 +4481,21 @@ export function ScaleGrid({
               {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
               Salvar Previsão
             </button>
-            {!isClosed && (
-              <button onClick={handleCloseScale} disabled={loading} className="inline-flex items-center rounded-md bg-zinc-900 dark:bg-zinc-100 px-4 py-2 text-sm font-semibold text-white dark:text-zinc-900 shadow-sm hover:bg-black dark:hover:bg-white transition-all">
+            {!isStatusFechada && !isCompetenciaEncerrada && (
+              <button 
+                onClick={handleCloseScale} 
+                disabled={loading || escalaMensal.length === 0} 
+                className="inline-flex items-center rounded-md bg-zinc-900 dark:bg-zinc-100 px-4 py-2 text-sm font-semibold text-white dark:text-zinc-900 shadow-sm hover:bg-black dark:hover:bg-white transition-all cursor-pointer disabled:opacity-50"
+              >
                 <Lock className="mr-2 h-4 w-4" /> Fechar Escala
               </button>
             )}
-            {isClosed && !isCompetenciaEncerrada && podeEditarForaDoPrazo(userProfile?.role) && (
-              <button onClick={handleReopenScale} disabled={loading} className="inline-flex items-center rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-700 transition-all">
+            {isStatusFechada && !isCompetenciaEncerrada && podeEditarForaDoPrazo(userProfile?.role) && (
+              <button 
+                onClick={handleReopenScale} 
+                disabled={loading} 
+                className="inline-flex items-center rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-700 transition-all cursor-pointer"
+              >
                 <Unlock className="mr-2 h-4 w-4" /> Reabrir Escala
               </button>
             )}
@@ -6740,15 +6798,35 @@ export function ScaleGrid({
         title={alertModal.title}
         type={alertModal.type as any}
         footer={
-          <button
-            onClick={() => setAlertModal(prev => ({ ...prev, isOpen: false }))}
-            className="w-full px-4 py-2 rounded-xl bg-zinc-900 dark:bg-white dark:text-zinc-900 text-white font-bold"
-          >
-            Entendido
-          </button>
+          <div className="w-full flex flex-col gap-2">
+            {alertModal.action && (
+              <button
+                type="button"
+                onClick={() => {
+                  const act = alertModal.action?.onClick
+                  setAlertModal(prev => ({ ...prev, isOpen: false }))
+                  act?.()
+                }}
+                className="w-full px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white font-black text-xs uppercase tracking-wider transition-all shadow-md shadow-indigo-600/20 cursor-pointer"
+              >
+                {alertModal.action.label}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setAlertModal(prev => ({ ...prev, isOpen: false }))}
+              className={`w-full px-4 py-2 rounded-xl font-bold transition-all cursor-pointer ${
+                alertModal.action 
+                  ? 'bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 text-xs' 
+                  : 'bg-zinc-900 dark:bg-white dark:text-zinc-900 text-white font-bold'
+              }`}
+            >
+              Entendido
+            </button>
+          </div>
         }
       >
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">{alertModal.message}</p>
+        <p className="text-sm text-zinc-600 dark:text-zinc-400 whitespace-pre-line leading-relaxed">{alertModal.message}</p>
       </Modal>
 
       {confirmModal && (
