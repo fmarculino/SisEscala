@@ -52,7 +52,7 @@ export function JustificativasClient({
 
   // Filters with sessionStorage persistence and URL initialParams
   const [selectedUnidade, setSelectedUnidade] = useState(() => {
-    if (initialParams?.unidadeId) return initialParams.unidadeId
+    if (initialParams?.unidadeId !== undefined) return initialParams.unidadeId
     if (typeof window !== 'undefined') {
       // `?? ` e não `|| `: string vazia agora é uma escolha legítima ("Todas as Unidades"), e
       // com `||` ela caía de volta para a primeira unidade a cada recarga — a opção existiria
@@ -63,14 +63,14 @@ export function JustificativasClient({
     return unidades[0]?.id || ''
   })
   const [selectedSetor, setSelectedSetor] = useState(() => {
-    if (initialParams?.setorId) return initialParams.setorId
+    if (initialParams?.setorId !== undefined) return initialParams.setorId
     if (typeof window !== 'undefined') {
       return sessionStorage.getItem('justificativa_filtro_setor') || ''
     }
     return ''
   })
   const [selectedServidor, setSelectedServidor] = useState(() => {
-    if (initialParams?.servidorId) return initialParams.servidorId
+    if (initialParams?.servidorId !== undefined) return initialParams.servidorId
     if (typeof window !== 'undefined') {
       return sessionStorage.getItem('justificativa_filtro_servidor') || ''
     }

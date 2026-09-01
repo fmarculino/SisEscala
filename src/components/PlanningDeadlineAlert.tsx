@@ -149,13 +149,17 @@ export function PlanningDeadlineAlert({ userRole }: PlanningDeadlineAlertProps) 
 
   const handleResolverAgora = () => {
     if (compRisco) {
+      sessionStorage.setItem('justificativa_filtro_unidade', '')
+      sessionStorage.setItem('justificativa_filtro_setor', '')
+      sessionStorage.setItem('justificativa_filtro_servidor', '')
       sessionStorage.setItem('justificativa_filtro_mes', String(compRisco.mes))
       sessionStorage.setItem('justificativa_filtro_ano', String(compRisco.ano))
+      sessionStorage.setItem('justificativa_filtro_categoria', 'todos')
       sessionStorage.setItem('justificativa_filtro_status', 'em_avaliacao')
     }
     setIsOpen(false)
     const targetUrl = compRisco 
-      ? `/justificativas?mes=${compRisco.mes}&ano=${compRisco.ano}&status=em_avaliacao` 
+      ? `/justificativas?mes=${compRisco.mes}&ano=${compRisco.ano}&status=em_avaliacao&unidadeId=&setorId=&servidorId=&categoria=todos` 
       : '/justificativas'
     router.push(targetUrl)
   }
