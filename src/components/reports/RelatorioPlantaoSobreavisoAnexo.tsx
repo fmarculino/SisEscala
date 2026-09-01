@@ -18,6 +18,7 @@ interface PlantaoItem {
   unidade: string
   setor: string
   ajuste_manual?: boolean
+  justificativa?: string
   observacao?: string
   /** Estado vindo de fn_desfecho_evento_dia. `null` = a RPC nao respondeu. */
   estado?: string | null
@@ -468,11 +469,20 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
                               : 'Plantão não cumprido. '}
                           </span>
                         )}
-                        {p.ajuste_manual ? 'Ajuste Manual Validado • ' : ''}
-                        {p.observacao
-                          || (p.estado === 'em_avaliacao'
-                                ? (p.estado_motivo || 'Em avaliação')
-                                : p.confirmado ? 'Presença confirmada no ponto' : 'Em validação')}
+                        {p.justificativa ? (
+                          <span>
+                            {p.ajuste_manual ? <span className="font-semibold not-italic">Ajuste Manual Validado • </span> : ''}
+                            {p.justificativa}
+                          </span>
+                        ) : (
+                          <>
+                            {p.ajuste_manual ? 'Ajuste Manual Validado • ' : ''}
+                            {p.observacao
+                              || (p.estado === 'em_avaliacao'
+                                    ? (p.estado_motivo || 'Em avaliação')
+                                    : p.confirmado ? 'Presença confirmada no ponto' : 'Em validação')}
+                          </>
+                        )}
                       </td>
                     </tr>
                   )})}

@@ -2494,7 +2494,7 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
           id, dia, categoria, escala_mensal_id, dicionario_turnos_id, hora_inicio_prevista,
           presenca_entrada_em, presenca_saida_em,
           presenca_confirmada, presenca_entrada_origem, presenca_saida_origem,
-          presenca_entrada_manual, presenca_saida_manual,
+          presenca_entrada_manual, presenca_saida_manual, justificativa_manual,
           dicionario_turnos(id, codigo, descricao, horas_computadas, tipo, slots, horario_inicio)
         `)
         .in('escala_mensal_id', escalaMensalIds)
@@ -2505,15 +2505,6 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
     }
 
     // 4-B. O DESFECHO DE CADA EVENTO — fn_desfecho_evento_dia (20260824120000).
-    //
-    // Ate 24/08/2026 este anexo somava `horas_computadas` de TODA linha de plantao, tivesse ou
-    // nao registro de ponto, e a observacao dizia apenas "Em validacao" — texto, sem
-    // consequencia. Medido em 08/2026: de 2.107h impressas, 1.377h (65%) nao tinham registro
-    // completo. O anexo e comprobatorio: e o que o servidor assina e o que o RH usa para pagar
-    // a unidade de plantao.
-    //
-    // A classificacao NAO e refeita aqui. Se a tela derivasse por conta propria, o que o
-    // coordenador decidiu na fila deixaria de ser o que este documento imprime.
     const desfechoPorLinha = new Map<string, { estado: string; motivo: string | null }>()
     if (escalaMensalIds.length > 0) {
       try {
@@ -2526,9 +2517,6 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
           desfechoPorLinha.set(d.escala_diaria_id, { estado: d.estado, motivo: d.motivo })
         })
       } catch (err) {
-        // Sem o desfecho o anexo volta a ser o de antes (soma tudo) em vez de nao abrir. Um
-        // documento que nao imprime na hora da conferencia e pior do que um que imprime demais
-        // — e o rotulo diz qual dos dois o leitor tem na mao.
         console.warn('Desfecho dos eventos indisponivel; o anexo sai sem a reparticao:', err)
       }
     }
@@ -2541,10 +2529,23 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
       .eq('mes', mes)
       .eq('ano', ano)
 
+    const normalizarCat = (c?: string | null) => {
+      if (!c) return ''
+      const s = c.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
+      if (s.startsWith('plant')) return 'plantao'
+      if (s.startsWith('sobreav')) return 'sobreaviso'
+      if (s.startsWith('extr')) return 'extra'
+      if (s.startsWith('regul')) return 'regular'
+      return s
+    }
+
     const justMap = new Map<string, any>()
     justificativas?.forEach((j: any) => {
       if (j.escala_diaria_id) justMap.set(j.escala_diaria_id, j)
+      const norm = normalizarCat(j.categoria)
+      justMap.set(`${j.dia}_${norm}`, j)
       justMap.set(`${j.dia}_${j.categoria}`, j)
+      justMap.set(String(j.dia), j)
     })
 
     // 6. Fetch on-call logs (logs_sobreaviso) for this server in that month/year
@@ -2591,8 +2592,12 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
       const turno = (Array.isArray(rawTurno) ? rawTurno[0] : rawTurno) as any
       const cat = String(ed.categoria || '').toLowerCase()
 
-      const just = justMap.get(ed.id) || justMap.get(`${ed.dia}_${ed.categoria}`)
-      const justTexto = just?.texto_justificativa || ''
+      const norm = normalizarCat(ed.categoria)
+      const just = justMap.get(ed.id) 
+        || justMap.get(`${ed.dia}_${norm}`) 
+        || justMap.get(`${ed.dia}_${ed.categoria}`)
+        || justMap.get(String(ed.dia))
+      const justTexto = just?.texto_justificativa || ed.justificativa_manual || ''
 
       if (cat.includes('plant') || cat.includes('extra')) {
         const dateObj = new Date(ano, mes - 1, ed.dia)
@@ -2612,6 +2617,7 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
           unidade: uNome,
           setor: sNome,
           ajuste_manual: ed.presenca_entrada_manual || ed.presenca_saida_manual,
+          justificativa: justTexto,
           observacao: justTexto || (ed.presenca_entrada_origem ? `Origem: ${ed.presenca_entrada_origem}` : ''),
           estado: desfechoPorLinha.get(ed.id)?.estado || null,
           estado_motivo: desfechoPorLinha.get(ed.id)?.motivo || null,
