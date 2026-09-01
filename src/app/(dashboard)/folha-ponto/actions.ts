@@ -2522,12 +2522,16 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
     }
 
     // 5. Fetch justificativas_eventos for this server in that month/year
-    const { data: justificativas } = await supabase
+    const { data: justificativas, error: jErr } = await supabase
       .from('justificativas_eventos')
-      .select('escala_diaria_id, dia, categoria, texto_justificativa, status, origem, motivo_recusa, resultado, resultado_origem')
+      .select('escala_diaria_id, dia, categoria, texto_justificativa, status, origem, motivo_rejeicao, resultado, resultado_origem')
       .eq('servidor_id', servidorId)
       .eq('mes', mes)
       .eq('ano', ano)
+
+    if (jErr) {
+      console.warn('Erro ao buscar justificativas_eventos no anexo de plantões:', jErr.message)
+    }
 
     const normalizarCat = (c?: string | null) => {
       if (!c) return ''
