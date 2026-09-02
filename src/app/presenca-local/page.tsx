@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { formatarDataExtenso } from '@/utils/horario'
 import { CheckCircle, Loader2, CheckSquare, XCircle, AlertTriangle, MessageCircle, ShieldOff } from 'lucide-react'
+import { PIN_MAX_DIGITOS } from '@/utils/pin'
 
 /**
  * Terminal de presença ativado pelo app local (coletor-rep), sem sessão Supabase Auth de
@@ -234,10 +235,10 @@ export default function PresencaTerminalLocalPage() {
                   name="confirmacao_pin"
                   id="confirmacao_pin"
                   required
-                  maxLength={4}
+                  maxLength={PIN_MAX_DIGITOS}
                   autoComplete="new-password"
-                  className="w-full bg-zinc-50 dark:bg-zinc-800 border-2 border-zinc-200 dark:border-zinc-700 rounded-2xl px-6 py-5 text-2xl font-black text-center focus:ring-4 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all placeholder:text-zinc-300 tracking-[1em]"
-                  placeholder="••••"
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border-2 border-zinc-200 dark:border-zinc-700 rounded-2xl px-6 py-5 text-2xl font-black text-center focus:ring-4 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all placeholder:text-zinc-300 tracking-[0.5em] sm:tracking-[0.75em]"
+                  placeholder="••••••"
                   value={pin}
                   onChange={(e) => setPin(e.target.value)}
                 />

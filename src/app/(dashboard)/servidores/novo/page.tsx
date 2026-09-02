@@ -14,7 +14,7 @@ import { IntervaloPersonalizadoFields } from '@/components/servidores/IntervaloP
 import { CampoDocumento } from '@/components/CampoDocumento'
 import { PendenciaRhCpfBanner } from '@/components/servidores/PendenciaRhCpfBanner'
 import { gerarMensagemAcessoPortal } from '@/utils/servidorMensagens'
-import { gerarPin } from '@/utils/pin'
+import { gerarPin, PIN_MAX_DIGITOS } from '@/utils/pin'
 
 interface Cargo {
   id: string
@@ -588,10 +588,10 @@ export default function NovoServidorPage() {
                     <input
                       id="pin_acesso"
                       type={showPin ? 'text' : 'password'}
-                      maxLength={6}
+                      maxLength={PIN_MAX_DIGITOS}
                       value={currentPin}
                       onChange={(e) => setCurrentPin(e.target.value)}
-                      placeholder="Ex: 1234"
+                      placeholder="Ex: 123456"
                       className="block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm font-mono dark:border-zinc-700 dark:bg-zinc-800 pr-10"
                     />
                     <button

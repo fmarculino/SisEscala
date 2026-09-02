@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.34.1] - 2026-09-02
+
+### Fixed
+- **Terminal Local (`/presenca-local`) e Presença Clássica (`/presenca`) limitavam o PIN a 4 dígitos.**
+  Com a atualização do padrão de segurança do sistema para PINs de 6 a 8 dígitos (`PIN_MIN_DIGITOS = 6`, `PIN_MAX_DIGITOS = 8`),
+  o campo de entrada nas telas de registro de ponto mantinha `maxLength={4}` e `placeholder="••••"`, travando a digitação de servidores com PINs novos.
+  - Limite atualizado para aceitar até `PIN_MAX_DIGITOS` (8 dígitos), suportando PINs novos e legados sem restrições.
+  - Placeholder ajustado para `••••••` e espaçamento tipográfico (`tracking`) ajustado para responsividade.
+  - Placeholders e `maxLength` sincronizados nos formulários de servidores e portal.
+  - Documentado em `docs/evolucao/2026-09-02-pin-6-a-8-digitos-terminais-de-presenca.md`.
+
 ## [2.34.0] - 2026-09-01
 
 Seis correções/funcionalidades, todas a partir de relatos do usuário sobre a tela em uso real.

@@ -117,7 +117,7 @@ export function TrocarPinSection() {
             value={atual}
             onChange={e => setAtual(soDigitos(e.target.value))}
             className={campo}
-            placeholder="••••"
+            placeholder="••••••"
           />
         </div>
 
