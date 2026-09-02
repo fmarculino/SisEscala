@@ -191,6 +191,8 @@ export function montarResumoGerador(dados: {
   puladasPorTeto?: number
   /** Uma linha por servidor recusado pelo teto, já dizendo onde estão as outras horas. */
   servidoresPorTeto?: string[]
+  /** Extra descartada por cair em dia sem Regular — hora extra nunca é extensão de plantão. */
+  puladasPorExtraSemRegular?: number
   extrasGravadas: { rotulo: string; celulas: number }[]
   extrasErro: string
   servidoresSemHistorico: number
@@ -229,6 +231,7 @@ export function montarResumoGerador(dados: {
   if (dados.puladasPorAfastamento > 0) motivos.push(`${dados.puladasPorAfastamento} ${dados.puladasPorAfastamento === 1 ? 'caiu' : 'caíram'} em dia de afastamento`)
   if (dados.puladasPorConflito > 0) motivos.push(`${dados.puladasPorConflito} ${dados.puladasPorConflito === 1 ? 'caiu' : 'caíram'} em dia com o servidor já escalado em outro setor no mesmo horário`)
   if ((dados.puladasPorTeto || 0) > 0) motivos.push(`${dados.puladasPorTeto} ${dados.puladasPorTeto === 1 ? 'foi descartada' : 'foram descartadas'} por levarem o servidor acima do teto de horas do mês`)
+  if ((dados.puladasPorExtraSemRegular || 0) > 0) motivos.push(`${dados.puladasPorExtraSemRegular} ${dados.puladasPorExtraSemRegular === 1 ? 'de Hora Extra caiu' : 'de Hora Extra caíram'} em dia sem Regular (extra não é extensão de plantão)`)
   if (motivos.length > 0) linhas.push(`\nO gerador propôs mais do que aplicou: ${motivos.join('; ')}.`)
 
   // O teto é o único destes motivos que depende de OUTRA escala — sem dizer onde estão as horas,

@@ -46,9 +46,31 @@ export default async function DashboardHome() {
   // PARALLEL DATA FETCHING
   // ======================================================================
 
-  // 1. Servidores status list
-  let serversQuery = supabase.from('servidores').select('status')
-  serversQuery = applyAccessFilters(serversQuery, userProfile)
+  // O PostgREST corta em 1000 linhas por padrão, em silêncio (CLAUDE.md, armadilha 8) — não é
+  // erro, é a página seguinte que nunca é buscada. Toda consulta abaixo que devolve LINHAS (não
+  // só contagem) pagina explicitamente por isso; já causou undercount real no card "Servidores"
+  // (996 exibido contra bem mais de 1000 no cadastro).
+  async function buscarTodasPaginas<T>(montarQuery: (from: number, to: number) => any): Promise<T[]> {
+    const linhas: T[] = []
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await montarQuery(from, from + 999)
+      if (error) {
+        console.error('Erro ao paginar consulta do painel:', error)
+        break
+      }
+      linhas.push(...((data || []) as T[]))
+      if (!data || data.length < 1000) break
+    }
+    return linhas
+  }
+
+  // 1. Servidores por status — contagem exata via head:true. Diferente de buscar as linhas, o
+  // header Content-Range da contagem não é afetado pelo corte de 1000, então isso é imune à
+  // armadilha 8 por construção (e mais barato que buscar e paginar 'status' de cada linha).
+  let servidoresAtivosQuery = supabase.from('servidores').select('id', { count: 'exact', head: true }).eq('status', 'Ativo')
+  servidoresAtivosQuery = applyAccessFilters(servidoresAtivosQuery, userProfile)
+  let servidoresInativosQuery = supabase.from('servidores').select('id', { count: 'exact', head: true }).eq('status', 'Inativo')
+  servidoresInativosQuery = applyAccessFilters(servidoresInativosQuery, userProfile)
 
   // 2. Setores count (total possible scales)
   let sectorsQuery = supabase.from('setores').select('id', { count: 'exact', head: true }).eq('ativo', true)
@@ -58,29 +80,28 @@ export default async function DashboardHome() {
   let unitsQuery = supabase.from('unidades').select('id', { count: 'exact', head: true }).eq('ativo', true)
   unitsQuery = applyAccessFilters(unitsQuery, userProfile, { unidadeField: 'id' })
 
-  // 3. Escalas do mês corrente
-  let escalasQuery = supabase.from('escala_mensal').select(`
-    id, servidor_id, unidade_id, setor_id, mes, ano, status,
-    servidores(nome),
-    unidades(nome),
-    setores(dicionario_setores(nome))
-  `).eq('mes', currentMonth).eq('ano', currentYear)
-  escalasQuery = applyAccessFilters(escalasQuery, userProfile)
-
-  // 3. Escala diária de hoje. "Ontem" saiu daqui junto com o painel de sobreaviso: quem cobre
-  // o turno noturno que atravessa a meia-noite agora é fn_painel_sobreaviso_dia.
-  let diariaTodayQuery = supabase.from('escala_diaria').select(`
-    id, dia, categoria, presenca_confirmada, presenca_entrada_em, presenca_saida_em,
-    dicionario_turnos(id, codigo, horas_computadas, tipo, slots),
-    escala_mensal!inner(
+  // 3. Escalas do mês corrente — o painel "Escalas de <mês>" precisa do nome de unidade/setor
+  // de cada linha, então pagina de verdade (não dá para virar head:true como os servidores).
+  const escalasPromise = buscarTodasPaginas<any>((from, to) => {
+    const q = supabase.from('escala_mensal').select(`
       id, servidor_id, unidade_id, setor_id, mes, ano, status,
-      servidores(id, nome, telefone),
-      unidades(id, nome)
-    )
-  `).eq('dia', todayDay)
+      servidores(nome),
+      unidades(nome),
+      setores(dicionario_setores(nome))
+    `).eq('mes', currentMonth).eq('ano', currentYear).order('id').range(from, to)
+    return applyAccessFilters(q, userProfile)
+  })
+
+  // 3b. Em serviço hoje. "Ontem" saiu daqui junto com o painel de sobreaviso: quem cobre
+  // o turno noturno que atravessa a meia-noite agora é fn_painel_sobreaviso_dia. Só o NÚMERO
+  // importa aqui (exclui Sobreaviso) — head:true evita buscar e paginar linha nenhuma.
+  let emServicoQuery = supabase.from('escala_diaria')
+    .select('id, escala_mensal!inner(id, unidade_id, setor_id, mes, ano)', { count: 'exact', head: true })
+    .eq('dia', todayDay)
     .eq('escala_mensal.mes', currentMonth)
     .eq('escala_mensal.ano', currentYear)
-  diariaTodayQuery = applyAccessFilters(diariaTodayQuery, userProfile, { unidadeField: 'escala_mensal.unidade_id', setorField: 'escala_mensal.setor_id' })
+    .neq('categoria', 'Sobreaviso')
+  emServicoQuery = applyAccessFilters(emServicoQuery, userProfile, { unidadeField: 'escala_mensal.unidade_id', setorField: 'escala_mensal.setor_id' })
 
   // NOTA (08/08/2026): as consultas de sobreaviso saíram daqui.
   // O painel passou a ser global — todo coordenador/admin vê o sobreaviso de toda a secretaria,
@@ -90,16 +111,21 @@ export default async function DashboardHome() {
   // funções que fn_acionar_sobreaviso aplica ao gravar.
   // Ver docs/planos/2026-08-08-acionamento-de-sobreaviso-com-destino.md
 
-  // 4. Afastamentos ativos
+  // 4. Afastamentos ativos hoje — precisa das linhas para a lista abaixo, então pagina.
+  // applyAccessFilters estava ausente aqui (única consulta do arquivo sem escopo): um RH da
+  // Unidade via afastamento de toda a Secretaria nesta seção, mesmo com as outras já escopadas.
   const yyyy = today.getFullYear()
   const mm = String(today.getMonth() + 1).padStart(2, '0')
   const dd = String(today.getDate()).padStart(2, '0')
   const todayStr = `${yyyy}-${mm}-${dd}`
-  let afastamentosQuery = supabase.from('servidores_eventos').select(`
-    id, data_inicio, data_fim, observacao,
-    servidores(id, nome, unidade_id),
-    tipos_eventos(nome, cor)
-  `).lte('data_inicio', todayStr).gte('data_fim', todayStr)
+  const afastamentosPromise = buscarTodasPaginas<any>((from, to) => {
+    const q = supabase.from('servidores_eventos').select(`
+      id, data_inicio, data_fim, observacao,
+      servidores!inner(id, nome, unidade_id),
+      tipos_eventos(nome, cor)
+    `).lte('data_inicio', todayStr).gte('data_fim', todayStr).order('id').range(from, to)
+    return applyAccessFilters(q, userProfile, { unidadeField: 'servidores.unidade_id', setorField: null })
+  })
 
   // 6. Historical data: last 3 months of escala_diaria for chart
   const months: { mes: number; ano: number; label: string }[] = []
@@ -112,43 +138,49 @@ export default async function DashboardHome() {
     })
   }
 
-  // For the chart, fetch escala_diaria for past 3 months
+  // For the chart, fetch escala_diaria for past 3 months — cada mês fechado facilmente passa de
+  // 1000 linhas (armadilha 23: ~4.200/mês em produção), então pagina também.
   const historicalPromises = months.map(async (m) => {
     const isCurrentMonth = m.mes === currentMonth && m.ano === currentYear
-    let q = supabase.from('escala_diaria').select(`
-      categoria,
-      dicionario_turnos(horas_computadas),
-      escala_mensal!inner(mes, ano, status, unidade_id, setor_id)
-    `)
-      .eq('escala_mensal.mes', m.mes)
-      .eq('escala_mensal.ano', m.ano)
-    
-    // For past months, require 'Fechada' status. For current month, include real-time ongoing scales!
-    if (!isCurrentMonth) {
-      q = q.eq('escala_mensal.status', 'Fechada')
-    }
+    const data = await buscarTodasPaginas<any>((from, to) => {
+      let q = supabase.from('escala_diaria').select(`
+        id, categoria,
+        dicionario_turnos(horas_computadas),
+        escala_mensal!inner(mes, ano, status, unidade_id, setor_id)
+      `)
+        .eq('escala_mensal.mes', m.mes)
+        .eq('escala_mensal.ano', m.ano)
+        .order('id')
+        .range(from, to)
 
-    q = applyAccessFilters(q, userProfile, { unidadeField: 'escala_mensal.unidade_id', setorField: 'escala_mensal.setor_id' })
-    const { data } = await q
-    return { ...m, data: data || [] }
+      // For past months, require 'Fechada' status. For current month, include real-time ongoing scales!
+      if (!isCurrentMonth) {
+        q = q.eq('escala_mensal.status', 'Fechada')
+      }
+
+      return applyAccessFilters(q, userProfile, { unidadeField: 'escala_mensal.unidade_id', setorField: 'escala_mensal.setor_id' })
+    })
+    return { ...m, data }
   })
 
   // Execute all queries in parallel
   const [
-    { data: serversData },
+    { count: servidoresAtivosCount },
+    { count: servidoresInativosCount },
     { count: setoresCount },
     { count: unidadesCount },
-    { data: escalasData },
-    { data: diariaToday },
-    { data: afastamentosData },
+    escalasData,
+    { count: emServicoHojeCount },
+    afastamentosData,
     ...historicalResults
   ] = await Promise.all([
-    serversQuery,
+    servidoresAtivosQuery,
+    servidoresInativosQuery,
     sectorsQuery,
     unitsQuery,
-    escalasQuery,
-    diariaTodayQuery,
-    afastamentosQuery,
+    escalasPromise,
+    emServicoQuery,
+    afastamentosPromise,
     ...historicalPromises
   ])
 
@@ -165,20 +197,18 @@ export default async function DashboardHome() {
   // ======================================================================
 
   const escalas = (escalasData || []) as any[]
-  const diaria = (diariaToday || []) as any[]
   const afastamentos = (afastamentosData || []) as any[]
 
   // --- KPIs ---
-  const serversList = (serversData || []) as any[]
-  const servidoresAtivos = serversList.filter((s: any) => s.status === 'Ativo').length
-  const servidoresInativos = serversList.filter((s: any) => s.status === 'Inativo').length
+  const servidoresAtivos = servidoresAtivosCount || 0
+  const servidoresInativos = servidoresInativosCount || 0
 
   const escalasAbertas = escalas.filter((e: any) => e.status !== 'Fechada').length
   const escalasFechadas = escalas.filter((e: any) => e.status === 'Fechada').length
   const totalEscalasCriadas = new Set(escalas.map((e: any) => `${e.unidade_id}|${e.setor_id}`)).size
 
   // Em serviço hoje (todos escalados para turnos ativos/regulares/plantão/extra hoje, excluindo sobreaviso)
-  const emServicoHoje = diaria.filter((d: any) => d.categoria !== 'Sobreaviso').length
+  const emServicoHoje = emServicoHojeCount || 0
 
   // Afastamentos ativos count
   const afastamentosAtivos = afastamentos.length

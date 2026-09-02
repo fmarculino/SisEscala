@@ -145,6 +145,18 @@ export function ScaleGrid({
   const [servidoresEventos, setServidoresEventos] = useState<any[]>([])
   const [jornadasTemporarias, setJornadasTemporarias] = useState<any[]>([])
 
+  // Servidor Afastado/Inativo sai da ESCOLHA de quem entra numa escala nova — o próprio
+  // StatusToggle promete isso ("sai das novas escalas até voltar para Ativo" / "não aparecerá
+  // mais nas novas escalas"), mas a query que traz todosServidoresSetor não filtra por status,
+  // então "+ Adicionar Servidor" e "Adicionar Todos do Setor" ofereciam (e inseriam de verdade em
+  // escala_mensal) gente afastada ou inativa. `todosServidoresSetor` em si fica intacto — o resto
+  // do arquivo usa ele para achar nome/cargo de quem JÁ está na escala, mesmo que tenha ficado
+  // afastado depois de escalado, e não deve parar de achar.
+  const servidoresElegiveisParaEscala = useMemo(
+    () => todosServidoresSetor.filter(s => s.status === 'Ativo'),
+    [todosServidoresSetor]
+  )
+
   const handleNavigateToFolha = async (em: any) => {
     if (!em?.servidor_id) return
     setNavigatingFolhaId(em.servidor_id)
@@ -1823,15 +1835,16 @@ export function ScaleGrid({
           })
           return
         }
-        // Impede horas extras se o servidor não estiver escalado em Regular ou Plantão no dia
+        // Hora extra é extensão do expediente REGULAR, nunca do plantão — que já tem duração e
+        // pagamento próprios (PL12/PL6/PL4, armadilha 16). Decisão do usuário, 01/09/2026: um
+        // dia só com Plantão não habilita Extra, mesmo que o servidor esteja trabalhando nele.
         const serverRows = gridData[servidorId] || {}
         const hasRegular = !!serverRows['Regular']?.[day]
-        const hasPlantao = !!serverRows['Plantão']?.[day]
-        if (!hasRegular && !hasPlantao) {
+        if (!hasRegular) {
           setAlertModal({
             isOpen: true,
             title: '⚠️ Servidor Não Escalado',
-            message: 'Não é possível inserir horas extras em um dia no qual o servidor não está escalado para trabalhar (Regular ou Plantão).',
+            message: 'Não é possível inserir horas extras em um dia no qual o servidor não está escalado no turno Regular. Hora extra é extensão do expediente regular — plantão não conta para isso.',
             type: 'warning'
           })
           return
@@ -3339,17 +3352,36 @@ export function ScaleGrid({
       // O que entraria, agrupado por servidor — antes de decidir se entra.
       const porServidorInserts = new Map<string, any[]>()
       const gridNovoPorServidor = new Map<string, Record<RowCategory, Record<number, string>>>()
+      let puladasPorExtraSemRegular = 0
+      // Ordem fixa (não a do objeto vindo do motor): Regular antes de Extra, para o guard
+      // abaixo enxergar o Regular que ESTE lote acabou de gerar, e não só o que já está no banco.
+      const ORDEM_CATEGORIAS: RowCategory[] = ['Regular', 'Plantão', 'Sobreaviso', 'Extra']
       for (const [servidorId, categorias] of Object.entries(alvo.grid)) {
         const emAlvo = porServidor.get(servidorId)
         if (!emAlvo || emAlvo.status === 'Fechada') continue
-        for (const [categoria, dias] of Object.entries(categorias)) {
-          for (const [diaStr, turnoId] of Object.entries(dias as Record<string, string>)) {
+        for (const cat of ORDEM_CATEGORIAS) {
+          const dias = (categorias as Partial<Record<RowCategory, Record<string, string>>>)[cat]
+          if (!dias) continue
+          for (const [diaStr, turnoId] of Object.entries(dias)) {
             const dia = parseInt(diaStr)
-            if (ocupadas.has(`${emAlvo.id}|${categoria}|${dia}`)) continue
+            if (ocupadas.has(`${emAlvo.id}|${cat}|${dia}`)) continue
+
+            // Hora extra é extensão do Regular, nunca do plantão (mesma regra do merge da
+            // competência aberta, acima). Estes meses vão direto para o banco sem grade aberta
+            // para segurar — se não checar aqui, não checa em lugar nenhum para eles.
+            if (cat === 'Extra') {
+              const temRegularNoLote = !!gridNovoPorServidor.get(servidorId)?.['Regular'][dia]
+              const temRegularNoBanco = ocupadas.has(`${emAlvo.id}|Regular|${dia}`)
+              if (!temRegularNoLote && !temRegularNoBanco) {
+                puladasPorExtraSemRegular++
+                continue
+              }
+            }
+
             const linha = {
               escala_mensal_id: emAlvo.id,
               dia,
-              categoria,
+              categoria: cat,
               dicionario_turnos_id: turnoId
             }
             const lista = porServidorInserts.get(servidorId)
@@ -3358,7 +3390,7 @@ export function ScaleGrid({
 
             const g = gridNovoPorServidor.get(servidorId)
               || { 'Regular': {}, 'Extra': {}, 'Plantão': {}, 'Sobreaviso': {} }
-            g[categoria as RowCategory][dia] = turnoId
+            g[cat][dia] = turnoId
             gridNovoPorServidor.set(servidorId, g)
           }
         }
@@ -3417,8 +3449,12 @@ export function ScaleGrid({
 
       // Relatar o que MUDOU, e por que o resto não (armadilha 22): dizer "0 células" sem contar
       // que um servidor inteiro foi recusado pelo teto é o mesmo defeito de 25/08/2026.
+      const motivosDescartados = [
+        bloqueadosPorTeto > 0 ? `${bloqueadosPorTeto} não gerada(s) por teto mensal` : null,
+        puladasPorExtraSemRegular > 0 ? `${puladasPorExtraSemRegular} de Hora Extra descartada(s) por não ter Regular no dia` : null
+      ].filter((m): m is string => m !== null)
       resumo.push({
-        rotulo: bloqueadosPorTeto > 0 ? `${rotulo} (${bloqueadosPorTeto} não gerada(s) por teto mensal)` : rotulo,
+        rotulo: motivosDescartados.length > 0 ? `${rotulo} (${motivosDescartados.join('; ')})` : rotulo,
         celulas: inserts.length
       })
     }
@@ -3500,6 +3536,36 @@ export function ScaleGrid({
         isOpen: true,
         title: '⚠️ Lançamento em Dia de Afastamento',
         message: `Não é possível salvar: há ${conflitosAfastamento.length} lançamento(s) em dias de afastamento. Remova-os da grade antes de salvar.\n\n${conflitosAfastamento.slice(0, 8).join('\n')}${conflitosAfastamento.length > 8 ? `\n...e mais ${conflitosAfastamento.length - 8}.` : ''}`,
+        type: 'warning'
+      })
+      return
+    }
+
+    // Validação de Hora Extra sem Regular — última barreira antes do banco.
+    // handleCellChange já bloqueia isso na digitação célula a célula, mas Aplicar Template e o
+    // Gerador Inteligente escrevem direto no gridData sem passar por ali (armadilha 14/23/26:
+    // não é só a digitação que precisa proteger regra de negócio, e sim todo caminho que grava).
+    // Extra é extensão do expediente REGULAR — nunca do plantão, que já tem duração e pagamento
+    // próprios (PL12/PL6/PL4).
+    const conflitosExtraSemRegular: string[] = []
+    escalaMensal.forEach(em => {
+      const serverData = gridData[em.servidor_id]
+      if (!serverData) return
+      Object.entries(serverData['Extra'] || {}).forEach(([dayStr, turnoId]) => {
+        if (!turnoId) return
+        const day = parseInt(dayStr)
+        if (!serverData['Regular']?.[day]) {
+          const turnoCel = turnos.find(t => t.id === turnoId)
+          conflitosExtraSemRegular.push(`Dia ${day} — ${em.servidores?.nome || 'Servidor'} (Extra: ${turnoCel?.codigo || '?'})`)
+        }
+      })
+    })
+
+    if (conflitosExtraSemRegular.length > 0) {
+      setAlertModal({
+        isOpen: true,
+        title: '⚠️ Hora Extra sem Regular',
+        message: `Não é possível salvar: há ${conflitosExtraSemRegular.length} lançamento(s) de Hora Extra em dia sem turno Regular. Hora extra é extensão do expediente regular — plantão não conta para isso. Remova-os ou lance o Regular do dia antes de salvar.\n\n${conflitosExtraSemRegular.slice(0, 8).join('\n')}${conflitosExtraSemRegular.length > 8 ? `\n...e mais ${conflitosExtraSemRegular.length - 8}.` : ''}`,
         type: 'warning'
       })
       return
@@ -4026,7 +4092,7 @@ export function ScaleGrid({
   }
 
   const handleAddAll = async () => {
-    const serversToAdd = todosServidoresSetor.filter(s => !escalaMensal.some(em => em.servidor_id === s.id))
+    const serversToAdd = servidoresElegiveisParaEscala.filter(s => !escalaMensal.some(em => em.servidor_id === s.id))
     if (serversToAdd.length === 0) return
     
     setLoading(true)
@@ -4470,7 +4536,7 @@ export function ScaleGrid({
               <option value="">+ Adicionar Servidor...</option>
               
               <optgroup label="Ações Rápidas">
-                <option value="all" disabled={todosServidoresSetor.length === escalaMensal.length}>
+                <option value="all" disabled={servidoresElegiveisParaEscala.every(s => escalaMensal.some(em => em.servidor_id === s.id))}>
                   👥 Adicionar Todos do Setor
                 </option>
                 <option value="external">
@@ -4479,7 +4545,7 @@ export function ScaleGrid({
               </optgroup>
 
               <optgroup label="Servidores do Setor">
-                {todosServidoresSetor
+                {servidoresElegiveisParaEscala
                   .filter(s => !escalaMensal.some(em => em.servidor_id === s.id))
                   .map(s => (
                     <option key={s.id} value={s.id}>{s.nome}</option>
@@ -6690,6 +6756,7 @@ export function ScaleGrid({
                     let puladasPorAfastamento = 0
                     let puladasPorConflito = 0
                     let puladasPorTeto = 0
+                    let puladasPorExtraSemRegular = 0
                     const servidoresPorTeto: string[] = []
 
                     // ⚠️ A mesclagem é feita AQUI, de forma síncrona, e só o resultado pronto vai
@@ -6712,8 +6779,13 @@ export function ScaleGrid({
                           Sobreaviso: { ...anterior['Sobreaviso'] }
                         }
 
-                        Object.entries(categorias).forEach(([categoria, days]) => {
-                          const cat = categoria as RowCategory
+                        // Ordem fixa (não a ordem em que o motor devolveu as categorias): Regular
+                        // antes de Extra, para a rede de segurança abaixo enxergar o Regular que
+                        // este MESMO lote acabou de gerar, e não só o que já estava salvo.
+                        const ORDEM_CATEGORIAS: RowCategory[] = ['Regular', 'Plantão', 'Sobreaviso', 'Extra']
+                        ORDEM_CATEGORIAS.forEach(cat => {
+                          const days = (categorias as Partial<Record<RowCategory, Record<string, string>>>)[cat]
+                          if (!days) return
                           Object.entries(days).forEach(([dayStr, turnoId]) => {
                             const day = parseInt(dayStr)
 
@@ -6739,6 +6811,17 @@ export function ScaleGrid({
                             // horário, e o trigger do banco derruba o lote inteiro no salvar.
                             if (em && encontrarConflitoExterno(externalOccupancy, servidorId, em.id, day, turnoGerado?.slots || [])) {
                               puladasPorConflito++
+                              return
+                            }
+
+                            // Hora extra é extensão do expediente REGULAR, nunca do plantão
+                            // (armadilha 16 — plantão já tem duração e pagamento próprios,
+                            // PL12/PL6/PL4). O motor prevê cada linha de forma independente a
+                            // partir do histórico, então uma Extra órfã de mês antigo pode
+                            // ensinar o gerador a repetir o erro — esta rede olha o dia FINAL
+                            // (Regular já aplicado nesta mesma passada, graças à ordem acima).
+                            if (cat === 'Extra' && !novo['Regular'][day]) {
+                              puladasPorExtraSemRegular++
                               return
                             }
 
@@ -6818,6 +6901,7 @@ export function ScaleGrid({
                       puladas_por_afastamento: puladasPorAfastamento,
                       puladas_por_conflito_setor: puladasPorConflito,
                       puladas_por_teto_mensal: puladasPorTeto,
+                      puladas_por_extra_sem_regular: puladasPorExtraSemRegular,
                       servidores_acima_do_teto: servidoresPorTeto,
                       meses_extras: extrasGravadas,
                       meses_de_origem: resultado.mesesDeOrigemEncontrados
@@ -6835,6 +6919,7 @@ export function ScaleGrid({
                         puladasPorAfastamento,
                         puladasPorConflito,
                         puladasPorTeto,
+                        puladasPorExtraSemRegular,
                         servidoresPorTeto,
                         extrasGravadas,
                         extrasErro,
