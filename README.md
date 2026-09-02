@@ -1,4 +1,4 @@
-# SisEscala 📅[![Version](https://img.shields.io/badge/version-2.28.1-green.svg)](https://github.com/fmarculino/SisEscala)
+# SisEscala 📅[![Version](https://img.shields.io/badge/version-2.34.0-green.svg)](https://github.com/fmarculino/SisEscala)
 [![Next.js](https://img.shields.io/badge/framework-Next.js%2015-black.svg)](https://nextjs.org/)
 [![Supabase](https://img.shields.io/badge/backend-Supabase-green.svg)](https://supabase.com/)
 [![Tailwind CSS](https://img.shields.io/badge/styling-Tailwind%20CSS-38B2AC.svg)](https://tailwindcss.com/)
@@ -10,6 +10,35 @@ O sistema foca em **governança, segurança jurídica e eficiência operacional*
 ---
 
 ## 🚀 Principais Funcionalidades
+
+### 📊 Painel Confiável, Hora Extra com Base Certa & Falta com Regras Claras (v2.34.0)
+- **Painel de Controle parava de contar tudo.** Os cartões de Servidores, Escalas Ativas e
+  Afastados buscavam a tabela inteira sem paginar — acima de 1000 linhas, o PostgREST corta em
+  silêncio e a segunda metade nunca chegava à tela. Servidores e Escalas Ativas passaram a contar
+  de forma exata; o gráfico histórico e a lista de afastamentos passaram a paginar de verdade
+  (esta última também ganhou o filtro de escopo que faltava).
+- **"Comparativo Histórico de Horas" zerava categorias que aconteceram de verdade.** O gráfico só
+  contava meses passados **já oficialmente fechados** — mas cada escala fecha no próprio ritmo, e
+  Sobreaviso costuma viver numa escala separada da Regular da mesma pessoa. Um mês com Regular já
+  fechado e Sobreaviso ainda em aberto aparecia com horas de um e **zero** do outro, sem indicar
+  que faltava algo. O gráfico passou a contar tudo que está lançado, fechado ou não — como já
+  fazia para o mês corrente.
+- **Hora extra passa a exigir turno Regular no dia — Plantão não habilita mais Extra.** Plantão
+  já tem duração e pagamento próprios; hora extra é extensão só do expediente Regular. A regra
+  vale agora nos quatro caminhos que escrevem na grade (célula, Gerador Inteligente, geração de
+  meses futuros e o "Salvar Previsão", que passou a recusar salvar com Extra sem Regular no dia).
+- **Servidor Afastado ou Inativo deixa de aparecer para ser escalado.** A tela já prometia que
+  esses servidores saem das novas escalas; o cadastro que alimenta "+ Adicionar Servidor" não
+  aplicava esse filtro.
+- **Fechar a folha de ponto sem justificar passa a virar falta definitiva, com confirmação.**
+  Falta pendente ("aguardando justificativa") só era reavaliada quando a folha era regenerada —
+  uma folha fechada antes do prazo vencer ficava com o rodapé mostrando **0 faltas para sempre**.
+  Agora o fechamento (manual, com alerta e confirmação; ou automático, registrado em log)
+  converte o que sobrou de pendente em falta definitiva.
+- **Nova: lançar falta com antecedência.** Quando o coordenador já tem certeza de que o servidor
+  faltou, não precisa esperar o mecanismo automático — um botão na lista de folhas de ponto
+  registra a falta na hora, mesmo antes de a folha existir, recusando se o dia já tiver presença
+  real registrada.
 
 ### 🔐 Endurecimento de Segurança (v2.24.0 → v2.27.0)
 Uma auditoria de segurança sobre todo o código foi verificada achado a achado contra o sistema real e executada em quatro entregas. As correções tocam **quem consegue entrar, quem consegue ver e quem consegue agir em nome de outra pessoa** — nenhuma delas altera o cálculo de ponto, de escala ou de folha, e essa fronteira foi mantida de propósito para que a correção fosse reversível.

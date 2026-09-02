@@ -2,6 +2,71 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.34.0] - 2026-09-01
+
+Seis correções/funcionalidades, todas a partir de relatos do usuário sobre a tela em uso real.
+Diário completo em `docs/evolucao/2026-09-01-painel-regras-de-escala-e-falta-antecipada.md`.
+
+### Fixed
+- **Painel de Controle (`/home`) contava com o corte de 1000 linhas do PostgREST.** Os cartões
+  "Servidores", "Escalas Ativas" e "Afastados Agora" buscavam a tabela inteira sem `.range()` e
+  filtravam em JavaScript — com mais de 1000 servidores cadastrados, a segunda metade nunca
+  chegava ao navegador (o card de Servidores mostrava **996 Ativos + 2 Inativos = 998**, perto
+  demais do teto para ser coincidência). Mesma armadilha 8 do `CLAUDE.md`, num quinto lugar
+  diferente do código.
+  - Servidores por status e "Em Serviço Hoje" viraram contagem exata (`count: 'exact', head:
+    true`) — imune ao corte por construção. `escala_mensal` do mês, `servidores_eventos`
+    (afastamentos) e os três meses do gráfico histórico passaram a paginar de verdade.
+  - ⚠️ **Achado colateral:** a consulta de afastamentos era a única do arquivo sem
+    `applyAccessFilters` — um RH da Unidade via afastamento da Secretaria inteira nessa seção.
+- **Gráfico "Comparativo Histórico de Horas" zerava categorias que aconteceram de verdade** —
+  agosto/2026 aparecia com **0h de Sobreaviso** apesar de o usuário ter feito ~23 no mês.
+  - Causa: a consulta exigia `escala_mensal.status = 'Fechada'` para meses passados, e **cada
+    `(servidor, unidade, setor, mês, ano)` fecha no próprio ritmo** — Sobreaviso costuma viver
+    numa escala à parte (setor de coordenação) da escala Regular da mesma pessoa, então o Regular
+    já fechado aparecia enquanto o Sobreaviso, ainda em Rascunho, sumia inteiro, sem indicar que
+    faltava algo. Confirmado em homologação: a mesma categoria tem linhas em `Fechada` **e**
+    `Rascunho` simultaneamente.
+  - Filtro removido também para meses passados — o comparativo passa a contar tudo que está
+    lançado, igual ao mês corrente já fazia.
+  - ⚠️ Não descarta a hipótese de escopo (conta com acesso restrito a certas unidades não veria
+    sobreaviso de fora do escopo dela, corretamente) — não foi possível verificar contra produção.
+- **Servidor Afastado/Inativo aparecia em "+ Adicionar Servidor" e podia ser escalado.** A
+  consulta que traz os servidores do setor não filtrava por `status`, só por unidade/setor — o
+  próprio texto da tela de status do servidor já promete "sai das novas escalas até voltar para
+  Ativo", mas nada aplicava isso. Corrigido só no ponto de escolha (dropdown, "Adicionar Todos do
+  Setor"); os demais usos do array (achar nome de quem já está na escala) continuam vendo todo
+  mundo, mesmo quem ficou afastado depois de escalado.
+
+### Changed
+- **Hora extra deixa de aceitar Plantão como base — só Regular habilita a linha de Extras.**
+  Decisão do usuário: extra é extensão do expediente Regular; Plantão já tem duração e pagamento
+  próprios (PL12/PL6/PL4). A regra existia só na digitação célula a célula; fechada também no
+  Gerador Inteligente (competência aberta e meses futuros) e como última barreira no "Salvar
+  Previsão", que agora recusa salvar qualquer escala com Extra sem Regular no dia.
+  - ⚠️ Isso bloqueia salvar escalas que **já tinham** Extra num dia só de Plantão, lançadas sob a
+    regra anterior — o coordenador precisa corrigir antes de conseguir salvar mais nada na grade.
+- **Fechar a folha de ponto sem justificar passa a contar como falta definitiva**, com
+  confirmação explícita. Falta pendente ("AGUARDANDO JUSTIFICATIVA") era recalculada só na
+  geração/sincronização da folha — uma folha fechada antes do prazo de justificativa vencer
+  congelava "aguardando" para sempre, contando **0 faltas indefinidamente** no rodapé (caso real:
+  folha de agosto de um servidor, dois dias pendentes, já Revisada).
+  - "Revisar/Fechar" com dias pendentes mostra um alerta antes de fechar, com os dias e a opção
+    de cancelar (para corrigir) ou confirmar. O fechamento automático do cron recebeu a mesma
+    promoção, sem confirmação (não há quem confirmar), registrada em log como reversível pelo RH.
+
+### Added
+- **Lançar falta com antecedência.** Quando o coordenador já tem certeza de que o servidor
+  faltou (comunicado, sem contato), não precisa esperar o mecanismo automático — um botão por
+  linha em `/folha-ponto` abre um modal (dia + motivo) e grava a decisão na hora, mesmo antes de
+  a folha existir.
+  - Reaproveita `justificativas_eventos` (mesma tabela que Extra/Plantão/Sobreaviso já usam),
+    agora também com categoria Regular. Recusa se o dia já tem presença real registrada — batida
+    real sempre vence.
+  - As quatro cópias da geração de folha passaram a consultar essa declaração antes da lógica
+    automática de prazo: se o coordenador já decidiu, grava falta definitiva direto, sem esperar
+    o prazo de dias úteis.
+
 ## [2.30.0] - 2026-08-30
 
 ### Added

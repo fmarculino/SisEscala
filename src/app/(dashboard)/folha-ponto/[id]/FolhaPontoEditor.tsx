@@ -54,7 +54,7 @@ interface FolhaPontoEditorProps {
    */
   onSolicitarAjuste?: (dia: number) => void
   onBack?: () => void
-  saveAction?: (folhaId: string, registros: any[], status?: string, cargo?: string) => Promise<{ success?: boolean; error?: string }>
+  saveAction?: (folhaId: string, registros: any[], status?: string, cargo?: string, confirmarFaltasPendentes?: boolean) => Promise<{ success?: boolean; error?: string; requerConfirmacaoFaltas?: boolean; diasFaltaPendente?: number[] }>
   verifyDivergenceAction?: (folhaId: string) => Promise<{ divergent: boolean; affectedDays?: number[]; error?: string }>
   syncAction?: (folhaId: string) => Promise<{ success?: boolean; error?: string }>
   regenerateAction?: (servidorId: string, mes: number, ano: number, isRascunho: boolean) => Promise<{ success?: boolean; error?: string }>
@@ -429,7 +429,7 @@ export function FolhaPontoEditor({
   }
 
   // Save edits
-  const handleSave = async (newStatus?: string) => {
+  const handleSave = async (newStatus?: string, confirmarFaltasPendentes?: boolean) => {
     // 1. Validação de consistência cronológica
     for (const r of registros) {
       if (!r.turno_codigo || r.afastamento || r.feriado) continue
@@ -474,8 +474,25 @@ export function FolhaPontoEditor({
 
     setSaving(true)
     const targetStatus = newStatus || status
-    const res = await executeSave(folha.id, registros, targetStatus, cargo)
+    const res = await executeSave(folha.id, registros, targetStatus, cargo, confirmarFaltasPendentes)
     setSaving(false)
+
+    // Fechar sem justificar É a decisão (usuário, 01/09/2026) — mas pede confirmação explícita
+    // antes de virar falta definitiva, porque não existe fila em /justificativas para dia comum
+    // (aquela tela só cobre Extra/Plantão/Sobreaviso). Cancelar aqui deixa a folha aberta para o
+    // coordenador ajustar o dia (lançar horário real ou uma observação) antes de fechar de novo.
+    if (res.requerConfirmacaoFaltas) {
+      const dias = (res.diasFaltaPendente || []).map(d => String(d).padStart(2, '0')).join(', ')
+      setConfirmModal({
+        isOpen: true,
+        title: 'Falta(s) Aguardando Justificativa',
+        message: `Ainda há falta(s) sem justificativa no(s) dia(s) ${dias}. Fechar a folha agora confirma que não haverá justificativa: esses dias passam a contar como falta definitiva no total do rodapé. Prefere revisar antes?`,
+        type: 'warning',
+        onConfirm: () => { void handleSave(newStatus, true) }
+      })
+      return
+    }
+
     if (res.error) {
       setAlertModal({
         isOpen: true,

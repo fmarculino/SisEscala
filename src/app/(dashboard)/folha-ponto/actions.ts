@@ -11,7 +11,7 @@ import { hasSectorAccess, hasUnitAccess, UserProfile, applyAccessFilters, isAcce
 import { autoCloseExpiredScalesAndTimesheets, isCompetencyClosed } from '@/utils/autoClose'
 import { resolverMarcacaoDoDia, turnosDaFolha, COLUNAS_PRESENCA_FOLHA, type PassoPresenca } from '@/utils/folha/origemMarcacao'
 import { podePreAssinalarIntervalo } from '@/utils/folha/preAssinalacao'
-import { resolverFaltaAutomatica, isFaltaDefinitiva } from '@/utils/folha/faltaAutomatica'
+import { resolverFaltaAutomatica, isFaltaDefinitiva, diasComFaltaPendente, promoverFaltasPendentes, diasComFaltaDeclarada } from '@/utils/folha/faltaAutomatica'
 import { resolverPendenciaRevisao, resolverBatidaNaoAproveitada, carregarDiasComBatidaFisica } from '@/utils/folha/diaIncompleto'
 import { normalizarRegistrosFolha } from '@/utils/folha/normalizarHorarios'
 import { sequenciarDia, PASSOS_FOLHA } from '@/utils/folha/sequenciaDia'
@@ -615,6 +615,10 @@ export async function executeGerarFolhaPonto(
     // isto, quem tem batida com NSR de AFD assinado recebe falta (3 casos medidos em 21/08/2026).
     const diasComBatidaFisica = await carregarDiasComBatidaFisica(supabase, servidorId, resolvedMes, resolvedAno)
 
+    // Falta que o coordenador já declarou com antecedência (declararFaltaAntecipada) — pula o
+    // prazo de dias úteis inteiro, porque não há mais nada a aguardar.
+    const faltasDeclaradas = await diasComFaltaDeclarada(supabase, servidorId, resolvedMes, resolvedAno)
+
     for (let day = 1; day <= daysInMonth; day++) {
       const dateObj = new Date(resolvedAno, resolvedMes - 1, day)
       const dayOfWeekStr = weekDaysShort[dateObj.getDay()]
@@ -882,16 +886,20 @@ export async function executeGerarFolhaPonto(
 
         // Falta automatica: dia sem nenhuma observacao ainda e sem NENHUMA marcacao (real ou manual)
         if (!registro.observacao && !temMarcacao) {
-          const faltaObservacao = resolverFaltaAutomatica({
-            diaJaPassou,
-            temMarcacao,
-            fimDoMes: new Date(resolvedAno, resolvedMes, 0),
-            hoje: new Date(currentYear, currentMonth - 1, currentDay),
-            feriados: feriadosSet,
-            prazoDiasUteis: prazoJustificativaDiasUteis
-          })
-          if (faltaObservacao) {
-            registro.observacao = faltaObservacao
+          if (faltasDeclaradas.has(day)) {
+            registro.observacao = 'FALTA'
+          } else {
+            const faltaObservacao = resolverFaltaAutomatica({
+              diaJaPassou,
+              temMarcacao,
+              fimDoMes: new Date(resolvedAno, resolvedMes, 0),
+              hoje: new Date(currentYear, currentMonth - 1, currentDay),
+              feriados: feriadosSet,
+              prazoDiasUteis: prazoJustificativaDiasUteis
+            })
+            if (faltaObservacao) {
+              registro.observacao = faltaObservacao
+            }
           }
         }
 
@@ -1371,6 +1379,10 @@ export async function sincronizarFolhaPonto(folhaId: string) {
     // isto, quem tem batida com NSR de AFD assinado recebe falta (3 casos medidos em 21/08/2026).
     const diasComBatidaFisica = await carregarDiasComBatidaFisica(supabase, folha.servidor_id, folha.mes, folha.ano)
 
+    // Falta que o coordenador já declarou com antecedência (declararFaltaAntecipada) — pula o
+    // prazo de dias úteis inteiro, porque não há mais nada a aguardar.
+    const faltasDeclaradas = await diasComFaltaDeclarada(supabase, folha.servidor_id, folha.mes, folha.ano)
+
     for (let day = 1; day <= daysInMonth; day++) {
       const dateObj = new Date(folha.ano, folha.mes - 1, day)
       const dayOfWeekStr = weekDaysShort[dateObj.getDay()]
@@ -1636,16 +1648,20 @@ export async function sincronizarFolhaPonto(folhaId: string) {
 
         // Falta automatica: dia sem nenhuma observacao ainda e sem NENHUMA marcacao (real ou manual)
         if (!registro.observacao && !temMarcacao) {
-          const faltaObservacao = resolverFaltaAutomatica({
-            diaJaPassou,
-            temMarcacao,
-            fimDoMes: new Date(folha.ano, folha.mes, 0),
-            hoje: new Date(currentYear, currentMonth - 1, currentDay),
-            feriados: feriadosSet,
-            prazoDiasUteis: prazoJustificativaDiasUteis
-          })
-          if (faltaObservacao) {
-            registro.observacao = faltaObservacao
+          if (faltasDeclaradas.has(day)) {
+            registro.observacao = 'FALTA'
+          } else {
+            const faltaObservacao = resolverFaltaAutomatica({
+              diaJaPassou,
+              temMarcacao,
+              fimDoMes: new Date(folha.ano, folha.mes, 0),
+              hoje: new Date(currentYear, currentMonth - 1, currentDay),
+              feriados: feriadosSet,
+              prazoDiasUteis: prazoJustificativaDiasUteis
+            })
+            if (faltaObservacao) {
+              registro.observacao = faltaObservacao
+            }
           }
         }
 
@@ -1916,7 +1932,7 @@ export async function reclassificarPassoPresenca(
 }
 
 // Persist edited timesheet records from the UI editor
-export async function salvarFolhaPonto(folhaId: string, registros: any[], status?: string, cargo?: string) {
+export async function salvarFolhaPonto(folhaId: string, registros: any[], status?: string, cargo?: string, confirmarFaltasPendentes?: boolean) {
   try {
     const supabase = await createClient()
     const userProfile = await getUserProfile(supabase)
@@ -2011,6 +2027,27 @@ export async function salvarFolhaPonto(folhaId: string, registros: any[], status
       if (userProfile.role !== 'super_admin' && userProfile.role !== 'admin') {
         return { error: 'Apenas administradores podem reabrir uma folha de ponto fechada.' }
       }
+    }
+
+    // GATE DE FALTA PENDENTE — decisão do usuário, 01/09/2026: fechar a folha SEM justificar é
+    // a decisão de que não vai justificar. "AGUARDANDO JUSTIFICATIVA" só existe para dar tempo
+    // de reação ENQUANTO a folha está aberta (armadilha: nada revisitava uma folha já Revisada
+    // para reavaliar o prazo — congelava "aguardando" para sempre, contando 0 faltas). Diferente
+    // do GATE DE DESFECHO acima (que BLOQUEIA até decidir em /justificativas — Extra, Plantão e
+    // Sobreaviso), este não bloqueia: pede uma segunda confirmação explícita na mesma tela
+    // (ver FolhaPontoEditor.tsx), porque falta de dia comum nunca teve fila em /justificativas —
+    // aquela tela só cobre Extra/Plantão/Sobreaviso (getEventosPendentes).
+    if (status === 'Revisada' && folha.status !== 'Revisada' && !confirmarFaltasPendentes) {
+      const diasPendentes = diasComFaltaPendente(registros)
+      if (diasPendentes.length > 0) {
+        return { requerConfirmacaoFaltas: true, diasFaltaPendente: diasPendentes }
+      }
+    }
+
+    // Fechar É o prazo: promove aqui, na mesma gravação, para não sobrar texto pendente numa
+    // folha que acabou de virar documento definitivo.
+    if (status === 'Revisada' && folha.status !== 'Revisada') {
+      promoverFaltasPendentes(registros)
     }
 
     const jornadaDetails = escala.jornadas ? (escala.jornadas as any) : null
@@ -2164,6 +2201,142 @@ export async function salvarFolhaPonto(folhaId: string, registros: any[], status
     return { success: true }
   } catch (error: any) {
     console.error('Erro ao salvar folha de ponto:', error)
+    return { error: error.message }
+  }
+}
+
+/**
+ * Falta declarada com antecedência pelo coordenador — para quando ele já tem certeza (o
+ * servidor não apareceu, já foi comunicado) e não quer esperar o mecanismo automático de
+ * "AGUARDANDO JUSTIFICATIVA" (que só roda dentro da folha, gerada/sincronizada). Decisão do
+ * usuário, 01/09/2026: reaproveita `justificativas_eventos` (mesma tabela e mesmo shape que
+ * `salvarJustificativa` em justificativas/actions.ts já usa para Extra/Plantão/Sobreaviso — ver
+ * `resultado: 'falta'` em `converterPendentesEmFaltaPorDecurso`), com `categoria: 'Regular'`, que
+ * aquele módulo nunca preenchia. Não duplica a fila de Extra/Plantão/Sobreaviso: aquela é
+ * alimentada pelo motor de desfecho (`fn_desfecho_eventos_escalas`), que não conhece dia comum.
+ *
+ * ⚠️ Nunca declara por cima de presença real — é a mesma regra de "nunca fabricar horário"
+ * (armadilha do terminal de ponto), na direção inversa: aqui é "nunca apagar/ignorar uma
+ * marcação real com um julgamento anterior a ela".
+ */
+export async function declararFaltaAntecipada(dados: {
+  escalaMensalId: string
+  dia: number
+  motivo: string
+}) {
+  try {
+    const supabase = await createClient()
+    const userProfile = await getUserProfile(supabase)
+
+    if (!dados.motivo?.trim()) {
+      return { error: 'Informe o motivo da falta.' }
+    }
+
+    const { data: escala, error: errEscala } = await supabase
+      .from('escala_mensal')
+      .select('id, servidor_id, unidade_id, setor_id, mes, ano, servidores(nome)')
+      .eq('id', dados.escalaMensalId)
+      .single()
+    if (errEscala || !escala) return { error: 'Escala não encontrada.' }
+
+    if (!hasSectorAccess(userProfile, escala.setor_id, escala.unidade_id)) {
+      return { error: 'Acesso negado para esta escala.' }
+    }
+
+    if (await isCompetencyClosed(escala.mes, escala.ano)) {
+      return { error: 'Esta competência está encerrada e todos os dados estão congelados para auditoria.' }
+    }
+
+    const diasNoMes = new Date(escala.ano, escala.mes, 0).getDate()
+    if (!Number.isInteger(dados.dia) || dados.dia < 1 || dados.dia > diasNoMes) {
+      return { error: 'Dia inválido para esta competência.' }
+    }
+
+    // Guard: dia com presença real (entrada ou saída) não pode virar falta por decisão anterior
+    // à batida. `escala_diaria` é a mesma fonte que a folha já usa para `temMarcacao`.
+    const { data: diarias } = await supabase
+      .from('escala_diaria')
+      .select('id, presenca_entrada_em, presenca_saida_em')
+      .eq('escala_mensal_id', escala.id)
+      .eq('dia', dados.dia)
+
+    if ((diarias || []).some(d => d.presenca_entrada_em || d.presenca_saida_em)) {
+      return { error: 'Este dia já tem presença registrada — não é possível declarar falta sobre um dia com marcação.' }
+    }
+
+    const userName = (userProfile as any).full_name || (userProfile as any).userEmail || userProfile.id
+    const agora = new Date().toISOString()
+
+    const { error: errUpsert } = await supabase
+      .from('justificativas_eventos')
+      .upsert({
+        escala_diaria_id: diarias?.[0]?.id || null,
+        servidor_id: escala.servidor_id,
+        escala_mensal_id: escala.id,
+        unidade_id: escala.unidade_id,
+        setor_id: escala.setor_id,
+        dia: dados.dia,
+        mes: escala.mes,
+        ano: escala.ano,
+        categoria: 'Regular',
+        texto_justificativa: dados.motivo.trim(),
+        origem: 'coordenador',
+        status: 'aprovada',
+        registrado_por_id: userProfile.id,
+        registrado_por_nome: userName,
+        validado_por_id: userProfile.id,
+        validado_por_nome: userName,
+        data_validacao: agora,
+        resultado: 'falta',
+        resultado_origem: 'coordenador',
+        resultado_definido_por_id: userProfile.id,
+        resultado_definido_por_nome: userName,
+        resultado_definido_em: agora,
+        updated_at: agora
+      }, { onConflict: 'servidor_id,dia,mes,ano,categoria' })
+
+    if (errUpsert) return { error: errUpsert.message }
+
+    // Se a folha já existe e está aberta, refletir agora — senão o coordenador declara e a tela
+    // de folha só mudaria no próximo "Sincronizar"/"Gerar", que ninguém é avisado para clicar.
+    const { data: folha } = await supabase
+      .from('folha_ponto')
+      .select('id, status, registros, total_faltas')
+      .eq('escala_mensal_id', escala.id)
+      .maybeSingle()
+
+    if (folha && folha.status !== 'Revisada' && Array.isArray(folha.registros)) {
+      const registros = folha.registros as any[]
+      const linha = registros.find((r: any) => r.dia === dados.dia)
+      if (linha && !linha.entrada && !linha.saida && !isFaltaDefinitiva(linha.observacao)) {
+        linha.observacao = 'FALTA'
+        const totalFaltas = registros.filter((r: any) => isFaltaDefinitiva(r.observacao)).length
+        await supabase.from('folha_ponto').update({ registros, total_faltas: totalFaltas }).eq('id', folha.id)
+      }
+    }
+
+    await registrarLog({
+      acao: 'FALTA_DECLARADA_ANTECIPADAMENTE',
+      entidade: 'folha_ponto',
+      entidadeId: escala.id,
+      userId: userProfile.id,
+      detalhes: {
+        servidor_id: escala.servidor_id,
+        servidor_nome: (escala as any).servidores?.nome,
+        dia: dados.dia,
+        mes: escala.mes,
+        ano: escala.ano,
+        motivo: dados.motivo.trim()
+      },
+      unidadeId: escala.unidade_id,
+      setorId: escala.setor_id,
+    })
+
+    revalidatePath('/folha-ponto')
+    if (folha) revalidatePath(`/folha-ponto/${folha.id}`)
+    return { success: true }
+  } catch (error: any) {
+    console.error('Erro ao declarar falta antecipada:', error)
     return { error: error.message }
   }
 }

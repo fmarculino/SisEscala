@@ -3,6 +3,7 @@
 import { createClient, createAdminClient } from '@/utils/supabase/server'
 import { executeGerarFolhaPonto } from '@/app/(dashboard)/folha-ponto/actions'
 import { registrarLog } from '@/utils/auditoria'
+import { diasComFaltaPendente, promoverFaltasPendentes, isFaltaDefinitiva } from '@/utils/folha/faltaAutomatica'
 
 /**
  * Converte em `falta` todo plantão/sobreaviso que chegou ao fechamento automático sem registro
@@ -225,7 +226,7 @@ export async function autoCloseExpiredScalesAndTimesheets() {
         for (const scale of expiredScales) {
           const { data: existingTs, error: findTsError } = await supabase
             .from('folha_ponto')
-            .select('id, status')
+            .select('id, status, registros, total_faltas')
             .eq('escala_mensal_id', scale.id)
             .maybeSingle()
 
@@ -236,9 +237,23 @@ export async function autoCloseExpiredScalesAndTimesheets() {
 
           if (existingTs) {
             if (existingTs.status !== 'Revisada') {
+              // Fechar É o prazo (mesma regra do fechamento manual em salvarFolhaPonto,
+              // decisão do usuário em 01/09/2026): ninguém revisitava uma folha já Revisada
+              // para reavaliar "AGUARDANDO JUSTIFICATIVA" — congelava pendente para sempre,
+              // contando 0 faltas indefinidamente. Aqui é automático (sem confirmação humana
+              // possível), então só promove e registra no log — reversível como o resto desta
+              // rotina (falta por decurso de plantão/sobreaviso, acima).
+              const registros = Array.isArray(existingTs.registros) ? (existingTs.registros as any[]) : []
+              const diasPromovidos = diasComFaltaPendente(registros)
+              if (diasPromovidos.length > 0) promoverFaltasPendentes(registros)
+              const totalFaltas = registros.filter(r => isFaltaDefinitiva(r.observacao)).length
+
               const { error: updateTsError } = await supabase
                 .from('folha_ponto')
-                .update({ status: 'Revisada' })
+                .update({
+                  status: 'Revisada',
+                  ...(diasPromovidos.length > 0 ? { registros, total_faltas: totalFaltas } : {})
+                })
                 .eq('id', existingTs.id)
 
               if (updateTsError) {
@@ -252,7 +267,11 @@ export async function autoCloseExpiredScalesAndTimesheets() {
                     mes: scale.mes,
                     ano: scale.ano,
                     servidor_id: scale.servidor_id,
-                    dias_inativacao: diasInativacao
+                    dias_inativacao: diasInativacao,
+                    ...(diasPromovidos.length > 0 ? {
+                      faltas_confirmadas_por_decurso: diasPromovidos,
+                      reversivel_por: 'RH Geral, RH da Unidade e Administrador Geral'
+                    } : {})
                   },
                   unidade_id: scale.unidade_id,
                   setor_id: scale.setor_id
@@ -297,10 +316,33 @@ export async function autoCloseExpiredScalesAndTimesheets() {
     // 6. Fechar folhas de ponto expiradas remanescentes (segurança)
     if (expiredTimesheets.length > 0) {
       const tsIds = expiredTimesheets.map(t => t.id)
-      const { error: updateTsError } = await supabase
+
+      // Mesma promoção de falta pendente da seção 5, buscada à parte (e só para este
+      // subconjunto pequeno) porque a consulta de `openTimesheets` acima varre TODAS as folhas
+      // abertas do sistema — trazer `registros` (jsonb grande) para todas seria caro à toa.
+      const { data: registrosPorFolha } = await supabase
         .from('folha_ponto')
-        .update({ status: 'Revisada' })
+        .select('id, registros')
         .in('id', tsIds)
+      const registrosMap = new Map((registrosPorFolha || []).map(f => [f.id, f]))
+
+      let updateTsError: any = null
+      for (const tsId of tsIds) {
+        const registros = Array.isArray(registrosMap.get(tsId)?.registros) ? (registrosMap.get(tsId)!.registros as any[]) : []
+        const diasPromovidos = diasComFaltaPendente(registros)
+        if (diasPromovidos.length > 0) promoverFaltasPendentes(registros)
+        const totalFaltas = registros.filter(r => isFaltaDefinitiva(r.observacao)).length
+
+        const { error } = await supabase
+          .from('folha_ponto')
+          .update({
+            status: 'Revisada',
+            ...(diasPromovidos.length > 0 ? { registros, total_faltas: totalFaltas } : {})
+          })
+          .eq('id', tsId)
+
+        if (error) { updateTsError = error; break }
+      }
 
       if (updateTsError) {
         console.error('Erro ao fechar folhas de ponto expiradas:', updateTsError)

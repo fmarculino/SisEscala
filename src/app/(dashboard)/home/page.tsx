@@ -140,10 +140,23 @@ export default async function DashboardHome() {
 
   // For the chart, fetch escala_diaria for past 3 months — cada mês fechado facilmente passa de
   // 1000 linhas (armadilha 23: ~4.200/mês em produção), então pagina também.
+  //
+  // ⚠️ NÃO filtra por escala_mensal.status = 'Fechada' — filtrava até 01/09/2026, "só para
+  // meses passados", e isso subcontava em silêncio: cada (servidor, unidade, setor) tem o
+  // PRÓPRIO escala_mensal, fechado no seu próprio ritmo (fn_desfecho_eventos_escalas, cron de
+  // auto-fechamento com `dias_inativacao_automatica`, default 5 dias após o fim do mês). Um
+  // servidor com o Regular já fechado e o Sobreaviso (setor "geral", frequentemente uma
+  // coordenação à parte) ainda em Rascunho aparecia com horas de Regular e ZERO de Sobreaviso no
+  // mesmo mês — não porque não tivesse sobreaviso nenhum, mas porque aquela escala específica
+  // não tinha virado Fechada ainda. Confirmado em homologação: `Sobreaviso` tinha linhas tanto em
+  // `Fechada` quanto em `Rascunho`, prova de que a categoria convive nos dois estados. Igualando
+  // ao tratamento que o mês corrente já tinha ("include real-time ongoing scales"), o
+  // comparativo deixa de esconder trabalho real só porque uma escala específica ainda não foi
+  // encerrada formalmente — este painel é informativo, não o documento legal (esse é a folha
+  // fechada em si, com seu próprio ciclo de revisão).
   const historicalPromises = months.map(async (m) => {
-    const isCurrentMonth = m.mes === currentMonth && m.ano === currentYear
     const data = await buscarTodasPaginas<any>((from, to) => {
-      let q = supabase.from('escala_diaria').select(`
+      const q = supabase.from('escala_diaria').select(`
         id, categoria,
         dicionario_turnos(horas_computadas),
         escala_mensal!inner(mes, ano, status, unidade_id, setor_id)
@@ -152,11 +165,6 @@ export default async function DashboardHome() {
         .eq('escala_mensal.ano', m.ano)
         .order('id')
         .range(from, to)
-
-      // For past months, require 'Fechada' status. For current month, include real-time ongoing scales!
-      if (!isCurrentMonth) {
-        q = q.eq('escala_mensal.status', 'Fechada')
-      }
 
       return applyAccessFilters(q, userProfile, { unidadeField: 'escala_mensal.unidade_id', setorField: 'escala_mensal.setor_id' })
     })

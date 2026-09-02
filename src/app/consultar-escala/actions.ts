@@ -9,7 +9,7 @@ import { unstable_cache, revalidatePath } from 'next/cache'
 import { autoCloseExpiredScalesAndTimesheets, isCompetencyClosed } from '@/utils/autoClose'
 import { resolverMarcacaoDoDia, turnosDaFolha, COLUNAS_PRESENCA_FOLHA } from '@/utils/folha/origemMarcacao'
 import { podePreAssinalarIntervalo } from '@/utils/folha/preAssinalacao'
-import { resolverFaltaAutomatica, isFaltaDefinitiva } from '@/utils/folha/faltaAutomatica'
+import { resolverFaltaAutomatica, isFaltaDefinitiva, diasComFaltaDeclarada } from '@/utils/folha/faltaAutomatica'
 import { resolverPendenciaRevisao, resolverBatidaNaoAproveitada, carregarDiasComBatidaFisica } from '@/utils/folha/diaIncompleto'
 import { TERMO_ATIVACAO, TERMO_DESATIVACAO, TERMO_VERSAO } from '@/utils/avisoPonto'
 import { preservarCampo } from '@/utils/folha/preservacao'
@@ -1120,6 +1120,10 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
     // isto, quem tem batida com NSR de AFD assinado recebe falta (3 casos medidos em 21/08/2026).
     const diasComBatidaFisica = await carregarDiasComBatidaFisica(supabase, folha.servidor_id, folha.mes, folha.ano)
 
+    // Falta que o coordenador já declarou com antecedência (declararFaltaAntecipada) — pula o
+    // prazo de dias úteis inteiro, porque não há mais nada a aguardar.
+    const faltasDeclaradas = await diasComFaltaDeclarada(supabase, folha.servidor_id, folha.mes, folha.ano)
+
     for (let day = 1; day <= daysInMonth; day++) {
       const dateObj = new Date(folha.ano, folha.mes - 1, day)
       const dayOfWeekStr = weekDaysShort[dateObj.getDay()]
@@ -1379,16 +1383,20 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
 
         // Falta automatica: dia sem nenhuma observacao ainda e sem NENHUMA marcacao (real ou manual)
         if (!registro.observacao && !temMarcacao) {
-          const faltaObservacao = resolverFaltaAutomatica({
-            diaJaPassou,
-            temMarcacao,
-            fimDoMes: new Date(folha.ano, folha.mes, 0),
-            hoje: new Date(currentYear, currentMonth - 1, currentDay),
-            feriados: feriadosSet,
-            prazoDiasUteis: prazoJustificativaDiasUteis
-          })
-          if (faltaObservacao) {
-            registro.observacao = faltaObservacao
+          if (faltasDeclaradas.has(day)) {
+            registro.observacao = 'FALTA'
+          } else {
+            const faltaObservacao = resolverFaltaAutomatica({
+              diaJaPassou,
+              temMarcacao,
+              fimDoMes: new Date(folha.ano, folha.mes, 0),
+              hoje: new Date(currentYear, currentMonth - 1, currentDay),
+              feriados: feriadosSet,
+              prazoDiasUteis: prazoJustificativaDiasUteis
+            })
+            if (faltaObservacao) {
+              registro.observacao = faltaObservacao
+            }
           }
         }
 
@@ -1743,6 +1751,10 @@ export async function gerarFolhaPontoServidor(mes: number, ano: number, forcarRa
     // isto, quem tem batida com NSR de AFD assinado recebe falta (3 casos medidos em 21/08/2026).
     const diasComBatidaFisica = await carregarDiasComBatidaFisica(supabase, servidorId, mes, ano)
 
+    // Falta que o coordenador já declarou com antecedência (declararFaltaAntecipada) — pula o
+    // prazo de dias úteis inteiro, porque não há mais nada a aguardar.
+    const faltasDeclaradas = await diasComFaltaDeclarada(supabase, servidorId, mes, ano)
+
     for (let day = 1; day <= daysInMonth; day++) {
       const dateObj = new Date(ano, mes - 1, day)
       const dayOfWeekStr = weekDaysShort[dateObj.getDay()]
@@ -1996,16 +2008,20 @@ export async function gerarFolhaPontoServidor(mes: number, ano: number, forcarRa
 
         // Falta automatica: dia sem nenhuma observacao ainda e sem NENHUMA marcacao (real ou manual)
         if (!registro.observacao && !temMarcacao) {
-          const faltaObservacao = resolverFaltaAutomatica({
-            diaJaPassou,
-            temMarcacao,
-            fimDoMes: new Date(ano, mes, 0),
-            hoje: new Date(currentYear, currentMonth - 1, currentDay),
-            feriados: feriadosSet,
-            prazoDiasUteis: prazoJustificativaDiasUteis
-          })
-          if (faltaObservacao) {
-            registro.observacao = faltaObservacao
+          if (faltasDeclaradas.has(day)) {
+            registro.observacao = 'FALTA'
+          } else {
+            const faltaObservacao = resolverFaltaAutomatica({
+              diaJaPassou,
+              temMarcacao,
+              fimDoMes: new Date(ano, mes, 0),
+              hoje: new Date(currentYear, currentMonth - 1, currentDay),
+              feriados: feriadosSet,
+              prazoDiasUteis: prazoJustificativaDiasUteis
+            })
+            if (faltaObservacao) {
+              registro.observacao = faltaObservacao
+            }
           }
         }
 

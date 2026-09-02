@@ -66,3 +66,52 @@ export function isFaltaDefinitiva(observacao?: string | null): boolean {
   const upper = observacao.toUpperCase()
   return upper.includes('FALTA') && !upper.includes(MARCADOR_FALTA_PENDENTE)
 }
+
+/**
+ * Fechar a folha É o prazo (decisão do usuário, 01/09/2026): "AGUARDANDO JUSTIFICATIVA" existe
+ * para dar tempo de reação ENQUANTO a folha está aberta. No instante em que o fechamento é
+ * confirmado, ninguém mais vai justificar — o pendente vira falta definitiva ali mesmo, na
+ * mesma gravação. Sem isso, uma folha fechada antes do prazo de `justificativa_prazo_dias_uteis`
+ * vencer congelava "aguardando" para sempre: nada revisita uma folha já Revisada para
+ * reavaliar o texto, nem o fechamento manual nem o automático do cron.
+ */
+export function diasComFaltaPendente(registros: { dia: number; observacao?: string | null }[]): number[] {
+  return registros
+    .filter(r => typeof r.observacao === 'string' && r.observacao.toUpperCase().includes(MARCADOR_FALTA_PENDENTE))
+    .map(r => r.dia)
+    .sort((a, b) => a - b)
+}
+
+/** Promove toda observação pendente para definitiva, em memória — quem chama grava o resultado. */
+export function promoverFaltasPendentes(registros: { observacao?: string | null }[]): void {
+  registros.forEach(r => {
+    if (typeof r.observacao === 'string' && r.observacao.toUpperCase().includes(MARCADOR_FALTA_PENDENTE)) {
+      r.observacao = 'FALTA'
+    }
+  })
+}
+
+/**
+ * Dias com falta DECLARADA com antecedência pelo coordenador (`justificativas_eventos`,
+ * categoria Regular, resultado 'falta' — ver `declararFaltaAntecipada` em folha-ponto/actions.ts).
+ * Diferente da falta automática, esta pula o prazo de dias úteis inteiro: o coordenador já
+ * decidiu, então não há mais nada a aguardar. Chamada uma vez por geração/sincronização, nunca
+ * por dia — evita N+1 no laço que monta os `daysInMonth` registros.
+ */
+export async function diasComFaltaDeclarada(
+  supabase: any,
+  servidorId: string,
+  mes: number,
+  ano: number
+): Promise<Set<number>> {
+  const { data } = await supabase
+    .from('justificativas_eventos')
+    .select('dia')
+    .eq('servidor_id', servidorId)
+    .eq('mes', mes)
+    .eq('ano', ano)
+    .eq('categoria', 'Regular')
+    .eq('resultado', 'falta')
+
+  return new Set((data || []).map((d: any) => d.dia))
+}

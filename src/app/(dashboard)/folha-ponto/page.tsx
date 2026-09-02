@@ -7,7 +7,7 @@ import { FileText, Loader2, Search, Building2, Layers, Calendar, ChevronRight, P
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { applyAccessFilters, isAccessUnrestricted } from '@/utils/permissions'
-import { getServidoresFolhaPonto, gerarFolhaPonto, gerarFolhasEmLote, getFolhasPontoPrintData, autoCorrigirTodasFolhasPonto, buscarServidoresFolhaPonto } from './actions'
+import { getServidoresFolhaPonto, gerarFolhaPonto, gerarFolhasEmLote, getFolhasPontoPrintData, autoCorrigirTodasFolhasPonto, buscarServidoresFolhaPonto, declararFaltaAntecipada } from './actions'
 import { Modal } from '@/components/ui/Modal'
 import { formatSectorsHierarchy } from '@/utils/sectors'
 import { ocorrenciasDoMes } from '@/utils/folha/ocorrencias'
@@ -163,6 +163,19 @@ export default function FolhaPontoPage() {
     type: 'default'
   })
 
+  // Falta declarada com antecedência — o coordenador já tem certeza e não quer esperar o
+  // mecanismo automático (que só roda dentro da folha, gerada/sincronizada). Ver
+  // declararFaltaAntecipada em ./actions.ts.
+  const [faltaModal, setFaltaModal] = useState<{
+    servidorId: string
+    servidorNome: string
+    escalaMensalId: string
+    diasNoMes: number
+  } | null>(null)
+  const [faltaDia, setFaltaDia] = useState<number>(1)
+  const [faltaMotivo, setFaltaMotivo] = useState('')
+  const [faltaSubmitting, setFaltaSubmitting] = useState(false)
+
   // Load user profile & initial filters
   useEffect(() => {
     async function init() {
@@ -304,6 +317,39 @@ export default function FolhaPontoPage() {
       })
       atualizarListagem()
     }
+  }
+
+  const abrirFaltaModal = (servidorId: string, servidorNome: string, escalaMensalId: string) => {
+    setFaltaModal({ servidorId, servidorNome, escalaMensalId, diasNoMes: new Date(ano, mes, 0).getDate() })
+    setFaltaDia(1)
+    setFaltaMotivo('')
+  }
+
+  const handleDeclararFalta = async () => {
+    if (!faltaModal) return
+    if (!faltaMotivo.trim()) {
+      setAlertModal({ isOpen: true, title: 'Motivo obrigatório', message: 'Informe o motivo da falta antes de confirmar.', type: 'warning' })
+      return
+    }
+    setFaltaSubmitting(true)
+    const res = await declararFaltaAntecipada({
+      escalaMensalId: faltaModal.escalaMensalId,
+      dia: faltaDia,
+      motivo: faltaMotivo.trim()
+    })
+    setFaltaSubmitting(false)
+    if (res.error) {
+      setAlertModal({ isOpen: true, title: 'Não foi possível declarar a falta', message: res.error, type: 'danger' })
+      return
+    }
+    setFaltaModal(null)
+    setAlertModal({
+      isOpen: true,
+      title: 'Falta Declarada',
+      message: `Falta de ${faltaModal.servidorNome} no dia ${String(faltaDia).padStart(2, '0')} registrada. Ela entra na folha (gerada agora ou na próxima sincronização) como definitiva, sem esperar o prazo de justificativa.`,
+      type: 'success'
+    })
+    atualizarListagem()
   }
 
   // Bulk generation
@@ -1241,6 +1287,15 @@ export default function FolhaPontoPage() {
                               )}
                             </div>
                           )}
+                          {hasScale && (
+                            <button
+                              onClick={() => abrirFaltaModal(s.servidor_id, s.nome, s.escala_mensal_id)}
+                              title="Lançar falta com antecedência — para quando já se tem certeza"
+                              className="inline-flex items-center text-[10px] font-black uppercase bg-red-50 hover:bg-red-100 text-red-600 dark:bg-red-900/20 dark:hover:bg-red-900/30 dark:text-red-400 px-3 py-2 rounded-xl transition-all active:scale-95"
+                            >
+                              Falta
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1309,6 +1364,75 @@ export default function FolhaPontoPage() {
       >
         <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">{alertModal.message}</p>
       </Modal>
+
+      {/* Modal: lançar falta com antecedência */}
+      {faltaModal && (
+        <Modal
+          isOpen={true}
+          onClose={() => { if (!faltaSubmitting) setFaltaModal(null) }}
+          title={`Lançar Falta — ${faltaModal.servidorNome}`}
+          type="danger"
+          footer={
+            <div className="flex gap-3 w-full">
+              <button
+                onClick={() => setFaltaModal(null)}
+                disabled={faltaSubmitting}
+                className="flex-1 px-4 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-black uppercase tracking-widest text-[10px] disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleDeclararFalta}
+                disabled={faltaSubmitting}
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-black uppercase tracking-widest text-[10px] disabled:opacity-50"
+              >
+                {faltaSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Confirmar Falta'}
+              </button>
+            </div>
+          }
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              Use isto quando já se tem certeza de que o servidor faltou — não é preciso esperar
+              o mecanismo automático (que só avalia depois de a folha ser gerada, e ainda dá um
+              prazo de dias úteis para justificar). O dia entra como falta definitiva direto,
+              contando no total de faltas assim que a folha for gerada ou sincronizada.
+            </p>
+            <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-lg p-2.5">
+              Se o dia já tiver presença registrada, a declaração é recusada — batida real sempre
+              vence.
+            </p>
+            <div>
+              <label className="block text-xs font-black uppercase tracking-wide text-zinc-500 dark:text-zinc-400 mb-1.5">
+                Dia da falta
+              </label>
+              <select
+                value={faltaDia}
+                onChange={(e) => setFaltaDia(parseInt(e.target.value, 10))}
+                disabled={faltaSubmitting}
+                className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm"
+              >
+                {Array.from({ length: faltaModal.diasNoMes }, (_, i) => i + 1).map(d => (
+                  <option key={d} value={d}>{String(d).padStart(2, '0')}/{String(mes).padStart(2, '0')}/{ano}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-black uppercase tracking-wide text-zinc-500 dark:text-zinc-400 mb-1.5">
+                Motivo
+              </label>
+              <textarea
+                value={faltaMotivo}
+                onChange={(e) => setFaltaMotivo(e.target.value)}
+                disabled={faltaSubmitting}
+                placeholder="Ex: Não compareceu, sem contato desde então."
+                className="w-full h-24 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl p-3 text-sm focus:ring-2 focus:ring-red-500 outline-none resize-none"
+                autoFocus
+              />
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }
