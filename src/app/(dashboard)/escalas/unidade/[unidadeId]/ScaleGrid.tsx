@@ -2,7 +2,13 @@
 
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { formatarData, formatarDataHora, formatarHora, formatarHoraComSegundos, dataISOLocal } from '@/utils/horario'
-import { avaliarSequenciaPresenca, type PassoPresenca } from '@/utils/sequenciaPresenca'
+import {
+  batidaVisivelNaCelula, classificarBatida, compararBatidasParaExibir, dataDaCelula,
+  type PosicaoDaBatida,
+} from '@/utils/janelaBatidas'
+import {
+  avaliarSequenciaPresenca, PASSOS_EM_ORDEM, ROTULO_PASSO, type PassoPresenca,
+} from '@/utils/sequenciaPresenca'
 import { createClient } from '@/utils/supabase/client'
 import { useRouter } from 'next/navigation'
 import { 
@@ -87,7 +93,12 @@ type RowCategory = 'Regular' | 'Extra' | 'Plantão' | 'Sobreaviso'
 //   marcacao  → linha em marcacoes_ponto (batida registrada fora da janela, desde a v1.22.0)
 //   tentativa → linha em logs_tentativas_presenca (recusa anterior ao wrapper)
 // O que trafega é o ID, nunca o horário: o servidor relê o timestamp da fonte, com os segundos.
-type SelecaoBatida = { fonte: 'marcacao' | 'tentativa'; id: string; hora: string }
+// `instante` é o ISO completo da batida, guardado só para a tela CONFERIR a ordem cronológica.
+// Sem ele a conferência compara HH:MM e, num turno que cruza a meia-noite, a normalização
+// monotônica de `avaliarSequenciaPresenca` empurra para "+1 dia" uma batida que fisicamente é do
+// dia ANTERIOR — a saída do plantão da véspera passaria por saída deste. Ele NÃO trafega para o
+// banco: o que vai é o `id`, e o servidor relê o timestamp da fonte.
+type SelecaoBatida = { fonte: 'marcacao' | 'tentativa'; id: string; hora: string; instante?: string }
 
 // Com segundos de propósito: é o que distingue batida real de horário sintético (armadilha 5).
 // Esconder os segundos aqui apagaria justamente a evidência que a seleção existe para preservar.
@@ -2923,6 +2934,33 @@ export function ScaleGrid({
           type: 'warning'
         })
         return
+      }
+
+      // ⚠️ A conferência acima trabalha em HH:MM e, num turno que cruza a meia-noite, EMPURRA para
+      // o dia seguinte todo passo cujo horário é menor que o do anterior. Isso é correto para
+      // horário DIGITADO — mas para batida SELECIONADA o instante é conhecido, e a normalização
+      // esconderia o erro que ela existe para pegar: a saída do plantão da véspera (07:02 do dia
+      // civil da célula) sendo aceita como saída DESTE plantão, 12h antes da entrada. Onde há
+      // instante real, ele manda. Caso NEURIAN, 01/09/2026.
+      const instantes = PASSOS_EM_ORDEM
+        .map(p => ({ passo: p, iso: manualPresenceModal.selecoes?.[p]?.instante }))
+        .filter((x): x is { passo: PassoPresenca; iso: string } => !!x.iso)
+      for (let i = 1; i < instantes.length; i++) {
+        const ant = instantes[i - 1]
+        const cur = instantes[i]
+        if (new Date(cur.iso).getTime() <= new Date(ant.iso).getTime()) {
+          setAlertModal({
+            isOpen: true,
+            title: 'Batidas fora de ordem',
+            message: `A batida escolhida para a ${ROTULO_PASSO[cur.passo]} `
+              + `(${formatarDataHora(cur.iso)}) é anterior ou igual à da `
+              + `${ROTULO_PASSO[ant.passo]} (${formatarDataHora(ant.iso)}). `
+              + `Confira a DATA de cada batida — num turno que atravessa a meia-noite o mesmo `
+              + `horário aparece nos dois dias.`,
+            type: 'warning'
+          })
+          return
+        }
       }
     }
 
@@ -7221,17 +7259,28 @@ export function ScaleGrid({
           }
         }
         const labelTipo = formatTipoLabel(manualPresenceModal.tipo)
-        const noDiaDaCelula = (iso: string) => {
-          const d = new Date(iso)
-          return d.getDate() === manualPresenceModal.dia && d.getMonth() + 1 === mes && d.getFullYear() === ano
-        }
+
+        // O previsto vem do BANCO (fn_blocos_previstos_mes, via blocoDaCelula) — a mesma fonte
+        // que o terminal cobra, já com a âncora espelho da jornada noturna (armadilha 4, nível
+        // 2-A). Sem ele o coordenador decide às cegas, e a sugestão de passo não tem âncora.
+        const blocoCelula = blocoDaCelula(
+          manualPresenceModal.servidorId, manualPresenceModal.categoria, manualPresenceModal.dia)
+
+        // ⚠️ A janela NÃO é o dia civil. Num plantão 19:00→07:00 metade das batidas está no dia
+        // seguinte, e as do dia civil da célula pertencem ao plantão da véspera — foi assim que o
+        // modal do dia 1 da NEURIAN ofereceu como SAÍDA uma batida 12h anterior à entrada
+        // (03/09/2026). O critério é a UNIÃO do dia civil com a janela prevista do bloco: união
+        // porque trocar um pelo outro esconderia batida que hoje aparece, e batida escondida vira
+        // ponto perdido em silêncio. Fonte única em src/utils/janelaBatidas.ts.
+        const dataCelulaISO = dataDaCelula(manualPresenceModal.dia, mes, ano)
+        const naCelula = (iso: string) => batidaVisivelNaCelula(iso, dataCelulaISO, blocoCelula)
 
         const cellDeniedAttempts = logsTentativas.filter(l =>
-          l.servidor_id === manualPresenceModal.servidorId && noDiaDaCelula(l.data_hora_tentativa))
+          l.servidor_id === manualPresenceModal.servidorId && naCelula(l.data_hora_tentativa))
 
         // Batidas fora da janela que o terminal registrou para este servidor neste dia.
         const cellPendentes = marcacoesPendentes.filter(m =>
-          m.servidor_id === manualPresenceModal.servidorId && noDiaDaCelula(m.ocorrido_em))
+          m.servidor_id === manualPresenceModal.servidorId && naCelula(m.ocorrido_em))
 
         // Quais campos de horário o escopo escolhido pede.
         const unidadeMarcaIntervalo = !!unidadedata?.permite_marca_intervalo
@@ -7252,15 +7301,21 @@ export function ScaleGrid({
           }
         })()
 
-        // Identifica horários já preenchidos/utilizados na escala em passos fora do escopo atual
+        // Identifica horários já preenchidos/utilizados na escala em passos fora do escopo atual.
+        //
+        // ⚠️ A chave inclui a DATA. Num turno que cruza a meia-noite o mesmo HH:MM aparece dos dois
+        // lados dela — a saída do plantão da véspera às 07:02 e a saída deste às 07:02 do dia
+        // seguinte são batidas físicas diferentes, e uma chave só de horário fazia a segunda ser
+        // descartada como "já utilizada" (NEURIAN, 01/09/2026).
         const diaPresence = presenceData[manualPresenceModal.servidorId]?.[manualPresenceModal.categoria]?.[manualPresenceModal.dia]
         const horariosJaUsados = new Set<string>()
         if (diaPresence) {
           const addHora = (iso?: string | null) => {
             if (!iso) return
             const d = new Date(iso)
-            horariosJaUsados.add(formatarHoraComSegundos(d))
-            horariosJaUsados.add(formatarHora(d))
+            const dia = dataISOLocal(iso) || ''
+            horariosJaUsados.add(`${dia} ${formatarHoraComSegundos(d)}`)
+            horariosJaUsados.add(`${dia} ${formatarHora(d)}`)
           }
           if (!passosDoEscopo.includes('entrada')) addHora(diaPresence.entrada_em)
           if (!passosDoEscopo.includes('intervalo_saida')) addHora(diaPresence.intervalo_saida_em)
@@ -7280,10 +7335,19 @@ export function ScaleGrid({
           elegivel: boolean
           motivo?: string
           previstoNaEpoca?: string | null
+          /** Dentro da janela prevista do bloco, ou só do mesmo dia civil. */
+          posicao: PosicaoDaBatida
+          /** `+1D` / `−1D` em relação ao dia da célula; null no mesmo dia. */
+          rotuloDia: string | null
         }
-        const todasBatidas: BatidaDoDia[] = cellPendentes.map((m): BatidaDoDia => ({
-          fonte: 'marcacao', id: m.id, quando: new Date(m.ocorrido_em), elegivel: true
-        }))
+        const posicionar = (iso: string) => classificarBatida(iso, dataCelulaISO, blocoCelula)
+        const todasBatidas: BatidaDoDia[] = cellPendentes.map((m): BatidaDoDia => {
+          const c = posicionar(m.ocorrido_em)
+          return {
+            fonte: 'marcacao', id: m.id, quando: new Date(m.ocorrido_em), elegivel: true,
+            posicao: c.posicao, rotuloDia: c.rotulo,
+          }
+        })
         for (const l of cellDeniedAttempts) {
           const quando = new Date(l.data_hora_tentativa)
           const gemea = todasBatidas.find(o => o.fonte === 'marcacao'
@@ -7293,20 +7357,28 @@ export function ScaleGrid({
             gemea.previstoNaEpoca = gemea.previstoNaEpoca || l.escala_prevista_inicio
             continue
           }
+          const c = posicionar(l.data_hora_tentativa)
           todasBatidas.push({
             fonte: 'tentativa', id: l.id, quando,
             elegivel: !!l.elegivel, motivo: l.mensagem_erro,
-            previstoNaEpoca: l.escala_prevista_inicio
+            previstoNaEpoca: l.escala_prevista_inicio,
+            posicao: c.posicao, rotuloDia: c.rotulo,
           })
         }
-        todasBatidas.sort((a, b) => a.quando.getTime() - b.quando.getTime())
+        // Primeiro as do turno previsto, depois as que só dividem o dia civil (a saída do plantão
+        // da véspera, tipicamente). Ordenar só por horário as embaralharia numa lista sem
+        // hierarquia — foi o que pôs `07:00` no topo do modal de um plantão que começa às 19:00.
+        todasBatidas.sort((a, b) => compararBatidasParaExibir(
+          { instante: a.quando.getTime(), posicao: a.posicao },
+          { instante: b.quando.getTime(), posicao: b.posicao }))
 
         // Suprime batidas que já estão em uso em passos fora do escopo e deduplica horários repetidos
         const batidasDoDia: BatidaDoDia[] = []
         const horariosVistos = new Set<string>()
         for (const b of todasBatidas) {
-          const hComSec = horaComSegundos(b.quando)
-          const hSemSec = hComSec.slice(0, 5)
+          const dia = dataISOLocal(b.quando.toISOString()) || ''
+          const hComSec = `${dia} ${horaComSegundos(b.quando)}`
+          const hSemSec = hComSec.slice(0, hComSec.length - 3)
           if (horariosJaUsados.has(hComSec) || horariosJaUsados.has(hSemSec)) {
             continue // Já utilizada em outro período/passo da escala
           }
@@ -7334,11 +7406,6 @@ export function ScaleGrid({
           saida: 'Saída',
         }[p])
 
-        // O previsto vem do BANCO (fn_blocos_previstos_mes, via blocoDaCelula) — a mesma fonte
-        // que o terminal cobra, já com a âncora espelho da jornada noturna (armadilha 4, nível
-        // 2-A). Sem ele o coordenador decide às cegas, e a sugestão de passo não tem âncora.
-        const blocoCelula = blocoDaCelula(
-          manualPresenceModal.servidorId, manualPresenceModal.categoria, manualPresenceModal.dia)
         const previstoIso = (p: PassoPresenca): string | null => {
           if (!blocoCelula) return null
           return (p === 'entrada'           ? blocoCelula.inicio_previsto
@@ -7404,8 +7471,13 @@ export function ScaleGrid({
             passosUsados.add(par.passo)
           }
           // Sobrou batida sem par: cai no primeiro passo ainda livre, em ordem cronológica.
+          //
+          // ⚠️ Só as do turno previsto entram neste fallback. A lista agora inclui as batidas que
+          // apenas dividem o dia civil com a célula — num plantão noturno, tipicamente a SAÍDA do
+          // plantão da véspera. Chutar um passo para elas pré-selecionaria a batida errada, que é
+          // exatamente o erro que a data na tela existe para evitar.
           for (const b of batidasSelecionaveis) {
-            if (out.has(b.id)) continue
+            if (out.has(b.id) || b.posicao !== 'no_turno') continue
             const livre = passosDoEscopo.find(p => !passosUsados.has(p))
             if (!livre) break
             out.set(b.id, livre)
@@ -7435,7 +7507,10 @@ export function ScaleGrid({
             // Um passo aceita um horário e uma batida serve um passo: as duas direções da
             // exclusão mútua precisam valer, senão a mesma batida entraria duas vezes.
             if (passoAtual) delete atuais[passoAtual]
-            atuais[destino] = { fonte: b.fonte, id: b.id, hora: horaComSegundos(b.quando) }
+            atuais[destino] = {
+              fonte: b.fonte, id: b.id, hora: horaComSegundos(b.quando),
+              instante: b.quando.toISOString(),
+            }
 
             const horarios = { ...(prev.horarios || {}) }
             delete horarios[destino]
@@ -7531,7 +7606,10 @@ export function ScaleGrid({
                 <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700 rounded-xl space-y-2">
                   <div className="flex items-center gap-1.5 text-amber-800 dark:text-amber-300 text-xs font-bold">
                     <AlertTriangle className="h-4 w-4 flex-shrink-0" />
-                    <span>Batidas registradas no terminal neste dia:</span>
+                    <span>
+                      Batidas registradas para este turno
+                      {cruzaMeiaNoiteNaCelula ? ' (o turno atravessa a meia-noite)' : ''}:
+                    </span>
                   </div>
                   {/* Em colunas: uma rajada de retentativas rendia uma linha cada e empurrava o
                       rodapé para fora da tela. Só uma coluna quando há seletor de passo, que não
@@ -7549,14 +7627,39 @@ export function ScaleGrid({
                               checked={!!passoSel}
                               onChange={() => alternarBatida(b)}
                               className="mt-0.5 h-4 w-4 rounded border-amber-400 text-emerald-600 focus:ring-emerald-500"
-                              aria-label={`Usar a batida das ${horaComSegundos(b.quando)}`}
+                              aria-label={`Usar a batida de ${formatarDataHora(b.quando)}`}
                             />
                           ) : (
                             <span className="mt-0.5 h-4 w-4 flex-shrink-0" />
                           )}
-                          <strong className={`text-sm tabular-nums ${b.elegivel ? 'text-amber-900 dark:text-amber-200' : 'text-zinc-500 line-through'}`}>
+                          {/* A DATA não é enfeite: num turno de 24h `07:02` sozinho é
+                              indecidível — pode ser a saída deste plantão ou a do da véspera.
+                              `+1D`/`−1D` ao lado, data completa no title. */}
+                          <strong
+                            className={`text-sm tabular-nums ${b.elegivel ? 'text-amber-900 dark:text-amber-200' : 'text-zinc-500 line-through'}`}
+                            title={formatarDataHora(b.quando)}
+                          >
                             {horaComSegundos(b.quando)}
+                            {b.rotuloDia && (
+                              <span className={`ml-1 text-[10px] font-bold align-top ${
+                                b.posicao === 'no_turno'
+                                  ? 'text-emerald-700 dark:text-emerald-400'
+                                  : 'text-zinc-500'}`}>
+                                {b.rotuloDia}
+                              </span>
+                            )}
                           </strong>
+                          {/* Fora da janela prevista deste turno: continua selecionável — o
+                              coordenador é a autoridade — mas nunca mais sem aviso. Era esta a
+                              batida que o modal oferecia como "saída" 12h antes da entrada. */}
+                          {b.posicao === 'no_dia' && (
+                            <span
+                              className="text-[10px] px-1 py-0.5 rounded bg-zinc-200 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300"
+                              title="Esta batida está fora do horário previsto para este turno. Confira a data antes de usar."
+                            >
+                              fora do turno previsto
+                            </span>
+                          )}
 
                           {b.elegivel && passosDoEscopo.length > 1 && (
                             <select

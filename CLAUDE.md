@@ -1256,8 +1256,36 @@ Não existe coluna `start_hour`. O horário é resolvido nesta ordem, e o primei
 | 1 | `escala_diaria.hora_inicio_prevista` | o coordenador informou ao escalar. **Não vale para `Regular`** (constraint `chk_hora_prevista_nao_regular`) |
 | **2-A** | **`end_hour` do Regular do dia** | **o Regular cruza a meia-noite e o plantão é diurno** (`slots[1] IN ('M','T')`) — ver abaixo |
 | 2 | `dicionario_turnos.horario_inicio` | o código determina a hora. **Só quando NÃO há turno `Regular` no dia** |
+| **2-B** | **a mesma âncora, quando ela NÃO colide com o Regular** | **depois dos ramos de emenda da cascata, antes do fallback pelo nome da jornada** — ver abaixo |
 | 3 | regex sobre `jornadas.nome` | categoria `Regular` |
 | 4 | cascata legada (`LIKE 'M%'`, `slots[1]`, alinhamento ao Regular) | último recurso, **nunca removida** |
+
+**Nível 2-B — a âncora que não colide** (`20260903100000`, aplicada em 03/09/2026; plano em
+[`docs/planos/2026-09-03-plantao-noturno-previsao-e-virada-de-dia.md`](docs/planos/2026-09-03-plantao-noturno-previsao-e-virada-de-dia.md)).
+⚠️ **O último ramo da cascata legada resolve o início do PLANTÃO pelo início da JORNADA REGULAR**
+(`substring(j.nome from '^([0-9]+)')`). Para plantão **noturno** em jornada **diurna** nenhum ramo
+de emenda casa, e esse fallback não emenda nada: **empilha o plantão em cima do expediente.** Caso
+real (CHARLENE, mat. 69250, 02/09/2026): Regular `M` `07H ÀS 13H` + Plantão `N` viravam **um bloco
+07:00–19:00**, fundido (armadilha 6) e sem o passo de intervalo do plantão de 12h (armadilha 9).
+O DP então casava a batida real das 13:00 com o slot das 07:00 (**360 min**) e a das 18:45 com o
+das 13:00 — o expediente de 6h saía com **11h55** na folha, sem tentativa recusada, sem pendência,
+sem alerta.
+
+Medido em 03/09/2026 sobre 2.216 escalas ativas: **156 plantões previstos sobrepostos ao Regular**,
+54 com ponto, 5 unidades. O 2-B fechou **60** (todos `N`); os 96 restantes são Classe B (o código
+não dá a hora — só o nível 1 resolve) ou escala que não cabe no dia (`MT` 12h + Regular 12h).
+
+⚠️ **Este ramo NÃO pode subir na cascata.** Acima dos ramos de emenda, um `N` em jornada
+`07H ÀS 17H` passaria a esperar até 19:00 em vez de emendar às 17:00 — o comportamento medido em
+49 dias reais em 08/08/2026, que criou a condição do nível 2. E **a condição do nível 2 continua no
+lugar**: o 2-B passa por baixo dela com a checagem explícita de não-colisão
+(`fn_ancora_plantao_livre_do_regular`), que é o próprio critério que ela dizia proteger.
+
+⚠️ **A grade e o banco divergiam em silêncio nesses dias.** `getShiftStartHour` sempre resolveu `N`
+pela âncora fixa (19:00), sem olhar a jornada — então compliance e PDF viam o certo enquanto o
+terminal, a reconciliação e a folha usavam 07:00. Depois do 2-B as duas fontes convergem no caso
+dominante. **Nenhuma tela mostrava o horário que o banco estava usando**, e é por isso que o erro
+só aparecia depois, como hora extra estranha.
 
 **Nível 2-A — o espelho da jornada noturna** (`20260809000000`, plano em
 [`docs/planos/2026-08-09-plantao-diurno-em-jornada-noturna.md`](docs/planos/2026-08-09-plantao-diurno-em-jornada-noturna.md)).
@@ -3096,6 +3124,70 @@ Portão: `node scratchpad/sim_autorizacao_carga.js` (69 casos). Transpile antes 
 `npx tsc src/utils/autorizacaoCarga.ts --outDir scratchpad/_sim --module commonjs --target es2020`.
 **Validado injetando três regressões de propósito** (voltar a admin-only, ressuscitar o texto
 "Solicite a um Administrador", e dar autorização ao coordenador) — as três reprovam.
+
+### 45. A janela de batidas de uma tela não é o DIA CIVIL — e `07:02` sozinho é indecidível (03/09/2026)
+
+⚠️ **O modal de validação manual filtrava as batidas por dia civil da célula**
+(`new Date(iso).getDate() === dia`). Num turno que atravessa a meia-noite isso erra **dos dois
+lados ao mesmo tempo**: metade das batidas do turno está no dia seguinte e é descartada, e as
+batidas do turno da **véspera**, que caem neste dia civil, entram.
+
+Caso real (NEURIAN, mat. 17227, SMS/REGULAÇÃO, 01/09/2026, Plantão `N` 19:00 → 07:00+1): ela
+entrou 18:58 e saiu 07:02 do dia 02. O modal do dia 1 oferecia `07:00:00` e `07:02:00` — **as do
+dia 01**, que são a saída do plantão da véspera — e escondia a saída real.
+
+🚨 **Não era só falta de informação: o modal oferecia, como SAÍDA, uma batida ocorrida 12 horas
+antes da entrada.** Marcada, gravava saída anterior à entrada.
+
+Fonte única: **`src/utils/janelaBatidas.ts`**. Portão: `node scratchpad/sim_janela_batidas.js`.
+
+| regra | por quê |
+|---|---|
+| a lista é a **união** do dia civil com a janela prevista do bloco | trocar um critério pelo outro **esconderia** batida que hoje aparece, e batida escondida vira ponto perdido em silêncio |
+| toda batida carrega o dia relativo (`+1D` / `−1D`), com a data no `title` | num turno de 24h o `HH:MM` sozinho não identifica nada |
+| batida fora da janela do turno continua **visível e selecionável**, mas rotulada | o coordenador é a autoridade; o que não pode é ele escolher às cegas |
+| o palpite de passo ignora batida fora do turno | pré-selecionar a errada é pior que não pré-selecionar |
+
+⚠️ **A chave de deduplicação precisa da DATA.** `07:02` do dia 1 e `07:02` do dia 2 são batidas
+físicas diferentes, e a chave só de horário fazia a **segunda ser descartada** como repetida — o
+mesmo valia para "horário já utilizado em outro passo".
+
+⚠️ **Conferir a ordem por `HH:MM` não serve para batida SELECIONADA.**
+`avaliarSequenciaPresenca` normaliza monotonicamente: num turno que cruza a meia-noite ela
+**empurra para "+1 dia"** todo passo menor que o anterior. Correto para horário *digitado* (é o que
+resolveu o plantão noturno em 01/09/2026); para batida selecionada o instante é conhecido, e
+normalizar **esconde** exatamente o erro que se quer pegar. Por isso a seleção guarda o `instante`
+e o envio confere a ordem pelos instantes reais. O `instante` **não trafega ao banco** — o que vai
+é o `id`, e o servidor relê o timestamp da fonte.
+
+ℹ️ **O banco estava certo nesse caso.** Bloco previsto, alocação (18:58 → 19:00, 2 min; 07:06 →
+07:00+1, 6 min) e projeção, todos corretos — a linha só nunca fora reconciliada. Ver a armadilha 46.
+
+### 46. Mudar a escala não dispara reconciliação, e a ingestão reconcilia o dia DA BATIDA (03/09/2026)
+
+⚠️ `fn_ingerir_afd` chama `fn_reconciliar_marcacoes_dia` para `(m.ocorrido_em)::date` — **o dia da
+batida**, nunca o dia do bloco. E `trg_reconciliar_apos_marcacao` (`20260820020000`) é **inerte**
+enquanto nenhuma unidade estiver em `fonte_ponto_oficial = 'rep'` (Fase 5 não ligada). Então,
+quando a escala é lançada ou ajustada **depois** de a batida chegar, ninguém reprojeta: a alocação
+sabe a resposta e `escala_diaria` fica com o passo vazio, `reconciliado_em IS NULL`.
+
+Sintoma: entrada gravada com origem `terminal` (escrita direta) e saída em branco, mesmo com a
+batida do relógio já ingerida. Conserto: `fn_reconciliar_marcacoes_dia(servidor, dia)` — nada de
+digitar horário, o cálculo já está pronto.
+
+✅ Extensão medida em 08–10/2026: dos 65 turnos que cruzam a meia-noite com um passo faltando,
+apenas **2 eram recuperáveis** (o mesmo evento). Não é epidêmico — mas não tem detecção nenhuma.
+
+🚨 **E a solução NÃO é reconciliar em massa.** Remedido em 03/09/2026 sobre 09/2026 (1.614 pares
+servidor/dia): **4 ganhos contra 43 trocas e 7 perdas** — uma delas tirava `16:36 → 12:02` de uma
+saída já gravada. Bate com o registro de 19/08/2026 ("corrigia 4 dias e PIORAVA 11"). **Reconcilie
+por lista fechada, com ensaio antes/depois** — `scratchpad/fix_pos_nivel2b.mjs` é o modelo, e ele
+classifica cada campo em ganho / troca / perda antes de escrever.
+
+⚠️ **"Perda" no ensaio nem sempre é perda.** Na aplicação de 03/09/2026 a única perda era a mesma
+batida mudando de passo: FABIANA (29316) tinha **uma só** batida (19:21), gravada como *saída* do
+bloco errado; com o bloco certo ela virou **entrada**, e a saída passou a ser a pendência que
+sempre foi. Ler linha a linha é o que separa isso de apagar ponto.
 
 ## Convenções
 
