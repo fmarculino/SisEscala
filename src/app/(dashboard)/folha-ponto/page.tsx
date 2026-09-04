@@ -12,7 +12,7 @@ import { Modal } from '@/components/ui/Modal'
 import { formatSectorsHierarchy } from '@/utils/sectors'
 import { ocorrenciasDoMes } from '@/utils/folha/ocorrencias'
 import { isFaltaDefinitiva } from '@/utils/folha/faltaAutomatica'
-import { formatarMinutosHHMM, formatarHorasDecimaisHHMM, totaisFolha } from '@/utils/folha/calculoDia'
+import { formatarMinutosHHMM, formatarHorasDecimaisHHMM, totaisFolha, regraCompensacaoVigente } from '@/utils/folha/calculoDia'
 import { rotularInativo } from '@/utils/opcoesAtivas'
 import { h, raw } from '@/utils/htmlSeguro'
 
@@ -502,7 +502,12 @@ export default function FolhaPontoPage() {
           ano: folha.ano,
           mes: folha.mes,
           isFaltaDefinitiva,
+          compensacaoVigenteDesde: (res as any).compensacaoVigenteDesde,
         })
+
+        // ⚠️ Competencia anterior a 09/2026 imprime o rodape de 4 caixas — o mesmo com que o
+        // servidor assinou. So a formatacao muda (HH:MM), nunca o conteudo.
+        const compVigente = regraCompensacaoVigente(folha.mes, folha.ano, (res as any).compensacaoVigenteDesde)
 
         const tableRowsHTML = parsedRegs.map((r: any) => {
           const isWorkDay = !!r.turno_codigo
@@ -594,19 +599,21 @@ export default function FolhaPontoPage() {
 
             <!-- Summary / Totals -->
             <div class="mt-6">
-               <div class="grid grid-cols-7 gap-2 text-center mb-8">
+               <div class="grid ${compVigente ? 'grid-cols-7' : 'grid-cols-4'} gap-2 text-center mb-8">
                  <div class="bg-white border border-zinc-300 p-3 rounded-xl">
                    <div class="text-[8px] font-black uppercase text-zinc-400 mb-0.5">Horas Normais</div>
                    <div class="text-base font-black text-zinc-900">${formatarMinutosHHMM(totais.normaisMinutos)}</div>
                  </div>
+                 ${compVigente ? h`
                  <div class="bg-white border border-zinc-300 p-3 rounded-xl">
                    <div class="text-[8px] font-black uppercase text-zinc-400 mb-0.5">Horas Noturnas</div>
                    <div class="text-base font-black text-indigo-600">${formatarMinutosHHMM(totais.noturnoMinutos)}</div>
-                 </div>
+                 </div>` : ''}
                  <div class="bg-white border border-zinc-300 p-3 rounded-xl">
                    <div class="text-[8px] font-black uppercase text-zinc-400 mb-0.5">Dias de Falta</div>
                    <div class="text-base font-black text-red-500">${totais.faltas}</div>
                  </div>
+                 ${compVigente ? h`
                  <div class="bg-white border border-zinc-300 p-3 rounded-xl">
                    <div class="text-[8px] font-black uppercase text-zinc-400 mb-0.5">Falta e Atraso</div>
                    <div class="text-base font-black text-orange-600">${formatarMinutosHHMM(totais.atrasoMinutos)}</div>
@@ -614,7 +621,7 @@ export default function FolhaPontoPage() {
                  <div class="bg-white border border-zinc-300 p-3 rounded-xl">
                    <div class="text-[8px] font-black uppercase text-zinc-400 mb-0.5">Abono</div>
                    <div class="text-base font-black text-emerald-600">${formatarMinutosHHMM(totais.abonoMinutos)}</div>
-                 </div>
+                 </div>` : ''}
                  <div class="bg-white border border-zinc-300 p-3 rounded-xl">
                    <div class="text-[8px] font-black uppercase text-zinc-400 mb-0.5">Extra Diurna (50%)</div>
                    <div class="text-base font-black text-blue-600">${formatarMinutosHHMM(totais.extra50Minutos)}</div>

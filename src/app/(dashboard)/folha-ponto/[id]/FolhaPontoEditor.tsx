@@ -23,6 +23,7 @@ import {
   totaisFolha,
   calcularDia,
   statusCompensacaoDoDia,
+  regraCompensacaoVigente,
   type CompensacaoStatus,
 } from '@/utils/folha/calculoDia'
 
@@ -83,6 +84,8 @@ export function FolhaPontoEditor({
    */
   const [limitesTolerancia, setLimitesTolerancia] = useState<LimitesTolerancia>(TOLERANCIA_CLT)
   const [closedPeriods, setClosedPeriods] = useState<any[]>([])
+  // Ausente = padrao do modulo (2026-09), que e a decisao tomada. Ver COMPETENCIA_COMPENSACAO_PADRAO.
+  const [vigenciaCompensacao, setVigenciaCompensacao] = useState<string | null>(null)
   const supabase = createClient()
 
   const [isMounted, setIsMounted] = useState(false)
@@ -107,6 +110,13 @@ export function FolhaPontoEditor({
         .select('chave, valor')
         .in('chave', ['tolerancia_extra_minutos_por_marcacao', 'tolerancia_extra_minutos_diaria'])
       if (cfgTolerancia?.length) setLimitesTolerancia(lerLimitesTolerancia(cfgTolerancia))
+
+      const { data: cfgVigencia } = await supabase
+        .from('configuracoes_globais')
+        .select('valor')
+        .eq('chave', 'compensacao_atraso_vigente_desde')
+        .maybeSingle()
+      if (typeof cfgVigencia?.valor === 'string') setVigenciaCompensacao(cfgVigencia.valor)
 
       const { data: closedData } = await supabase
         .from('configuracoes_globais')
@@ -152,6 +162,16 @@ export function FolhaPontoEditor({
     }
     return 0 // mes futuro: nenhum dia ocorreu ainda
   }, [folha.mes, folha.ano])
+
+  /**
+   * A regra de atraso/compensacao vale nesta competencia? (decisao do usuario, 04/09/2026:
+   * "faca tudo valer a partir do mes 09/2026"). Antes do corte a folha continua com o rodape de
+   * sempre — competencia anterior e documento ja assinado.
+   */
+  const compensacaoVigente = useMemo(
+    () => regraCompensacaoVigente(folha.mes, folha.ano, vigenciaCompensacao),
+    [folha.mes, folha.ano, vigenciaCompensacao]
+  )
 
   const isEditable = status !== 'Revisada' && !isCompetenciaEncerrada
   
@@ -682,8 +702,9 @@ export function FolhaPontoEditor({
         ano: folha.ano,
         mes: folha.mes,
         isFaltaDefinitiva,
+        compensacaoVigenteDesde: vigenciaCompensacao,
       }),
-    [registros, jornada, folha.ano, folha.mes]
+    [registros, jornada, folha.ano, folha.mes, vigenciaCompensacao]
   )
 
   // Ocorrências do verso (Página 2) — regra em src/utils/folha/ocorrencias.ts.
@@ -1326,10 +1347,10 @@ export function FolhaPontoEditor({
                     <td className="px-2 py-1.5 border-r border-zinc-200 dark:border-zinc-700 text-center font-mono">
                       {isWorkDay && r.hora_extra_minutos && r.hora_extra_minutos > 0 ? (
                         <div className="flex flex-col items-center justify-center print:block">
-                          <span className={`font-bold ${statusComp === 'autorizada' ? 'text-zinc-400 line-through' : 'text-blue-600 dark:text-blue-400'}`}>
+                          <span className={`font-bold ${compensacaoVigente && statusComp === 'autorizada' ? 'text-zinc-400 line-through' : 'text-blue-600 dark:text-blue-400'}`}>
                             {formatarMinutosHHMM(r.hora_extra_minutos)}
                           </span>
-                          {statusComp === 'autorizada' && (
+                          {compensacaoVigente && statusComp === 'autorizada' && (
                             <span className="font-bold text-blue-600 dark:text-blue-400">
                               {formatarMinutosHHMM(Math.max(0, (r.hora_extra_minutos || 0) - calc.compensavelMinutos))}
                             </span>
@@ -1343,14 +1364,14 @@ export function FolhaPontoEditor({
                       )}
 
                       {/* Atraso do dia — informativo, mesmo quando nao ha o que compensar. */}
-                      {isWorkDay && calc.atrasoEntradaMinutos > 0 && calc.compensavelMinutos === 0 && (
+                      {compensacaoVigente && isWorkDay && calc.atrasoEntradaMinutos > 0 && calc.compensavelMinutos === 0 && (
                         <div className="text-[8px] font-bold text-orange-500 mt-0.5 whitespace-nowrap" title={`Entrada ${calc.atrasoEntradaMinutos} min após o previsto`}>
                           atraso {calc.atrasoEntradaMinutos}min
                         </div>
                       )}
 
                       {/* A decisao. Pendente = nada mudou de valor ainda. */}
-                      {isWorkDay && calc.compensavelMinutos > 0 && (
+                      {compensacaoVigente && isWorkDay && calc.compensavelMinutos > 0 && (
                         statusComp === 'pendente' ? (
                           podeDecidirCompensacao ? (
                             <button
@@ -1445,7 +1466,7 @@ export function FolhaPontoEditor({
             Tudo em HH:MM — o decimal ("0.8h" para 48 min, "0.18h" para 11 min) era ilegivel para
             quem confere folha. Ver src/utils/folha/calculoDia.ts.
           */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-4 mb-10 text-center print:grid-cols-7 print:gap-2 print:mb-6">
+          <div className={`grid grid-cols-2 gap-4 mb-10 text-center print:gap-2 print:mb-6 ${compensacaoVigente ? 'sm:grid-cols-4 lg:grid-cols-7 print:grid-cols-7' : 'sm:grid-cols-4 print:grid-cols-4'}`}>
             <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl print:border-zinc-300 print:p-2">
               <div className="text-[9px] font-black uppercase text-zinc-400 mb-1">Horas Normais</div>
               <div className="text-xl font-black text-zinc-900 dark:text-white print:text-base">
@@ -1454,17 +1475,14 @@ export function FolhaPontoEditor({
             </div>
             {/* ⚠️ Nasce zerado para quase todo mundo, e isso NAO e defeito: medido em 08/2026,
                 76 dias em 6.412. O noturno da SMS esta quase todo em Plantao, que nao entra nas
-                linhas da folha (vai no Anexo Plantoes/Sobreavisos). */}
-            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl print:border-zinc-300 print:p-2">
+                linhas da folha (vai no Anexo Plantoes/Sobreavisos).
+                ⚠️ As tres caixas novas (Noturnas, Falta e Atraso, Abono) so existem a partir de
+                09/2026: antes disso a folha ja foi assinada com o rodape de 4 caixas, e reimprimir
+                com campo novo mudaria o documento depois da assinatura. */}
+            {compensacaoVigente && (<><div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl print:border-zinc-300 print:p-2">
               <div className="text-[9px] font-black uppercase text-zinc-400 mb-1" title="Horas trabalhadas entre 22h e 05h no expediente regular (plantões saem no anexo).">Horas Noturnas</div>
               <div className="text-xl font-black text-indigo-600 dark:text-indigo-400 print:text-base">
                 {formatarMinutosHHMM(totalizers.noturnoMinutos)}
-              </div>
-            </div>
-            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl print:border-zinc-300 print:p-2">
-              <div className="text-[9px] font-black uppercase text-zinc-400 mb-1">Dias de Falta</div>
-              <div className="text-xl font-black text-red-500 print:text-base">
-                {totalizers.faltas}
               </div>
             </div>
             <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl print:border-zinc-300 print:p-2">
@@ -1477,6 +1495,12 @@ export function FolhaPontoEditor({
               <div className="text-[9px] font-black uppercase text-zinc-400 mb-1" title="Tempo abonado (declaração de comparecimento e afins). Férias e licenças NÃO entram aqui — têm categoria própria.">Abono</div>
               <div className="text-xl font-black text-emerald-600 dark:text-emerald-400 print:text-base">
                 {formatarMinutosHHMM(totalizers.abonoMinutos)}
+              </div>
+            </div></>)}
+            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl print:border-zinc-300 print:p-2">
+              <div className="text-[9px] font-black uppercase text-zinc-400 mb-1">Dias de Falta</div>
+              <div className="text-xl font-black text-red-500 print:text-base">
+                {totalizers.faltas}
               </div>
             </div>
             {/* ⚠️ O percentual fica no rotulo de proposito. O bucket de 100% mistura noite,

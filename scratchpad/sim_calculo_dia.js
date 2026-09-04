@@ -144,5 +144,42 @@ t('folha antiga (sem o campo) mostra 0, nunca um numero inventado',
 t('so o tempo gravado como abonado conta',
   C.totaisFolha([dia({ dia: 1, turno_codigo: null, afastamento: 'DECL. COMPARECIMENTO', abono_minutos: 90 })], { horasNormaisPorDia: 8, ano: 2026, mes: 9, isFaltaDefinitiva: isFalta }).abonoMinutos, 90)
 
+console.log('== corte de vigencia: a regra vale a partir de 09/2026 ==')
+t('08/2026 esta fora', C.regraCompensacaoVigente(8, 2026), false)
+t('09/2026 esta dentro', C.regraCompensacaoVigente(9, 2026), true)
+t('10/2026 esta dentro', C.regraCompensacaoVigente(10, 2026), true)
+t('06/2026 esta fora', C.regraCompensacaoVigente(6, 2026), false)
+t('01/2027 esta dentro', C.regraCompensacaoVigente(1, 2027), true)
+t('config move o corte para 10/2026', C.regraCompensacaoVigente(9, 2026, '2026-10'), false)
+t('config malformada cai no padrao (nao abre para tras)', C.regraCompensacaoVigente(8, 2026, 'setembro'), false)
+t('config vazia cai no padrao', C.regraCompensacaoVigente(9, 2026, ''), true)
+
+// A CONSEQUENCIA, nao so o booleano: competencia anterior nao ganha indicador nem fila.
+const regAntes = [
+  dia({ dia: 2, entrada: '08:30', saida: '18:20', saida_intervalo: '12:00', retorno_intervalo: '14:00', hora_extra_minutos: 20 }),
+  dia({ dia: 3, turno_codigo: null, afastamento: 'DECL. COMPARECIMENTO', abono_minutos: 90 }),
+]
+const optsBase = { horasNormaisPorDia: 10, jornadaNome: '08H ÀS 18H', isFaltaDefinitiva: isFalta }
+const antes = C.totaisFolha(regAntes, Object.assign({ ano: 2026, mes: 8 }, optsBase))
+const depois = C.totaisFolha(regAntes, Object.assign({ ano: 2026, mes: 9 }, optsBase))
+t('08/2026: sem atraso no rodape', antes.atrasoMinutos, 0)
+t('08/2026: sem noturno no rodape', antes.noturnoMinutos, 0)
+t('08/2026: sem abono no rodape', antes.abonoMinutos, 0)
+t('08/2026: NINGUEM entra na fila de decisao', antes.pendentesCompensacao, [])
+t('08/2026: a hora extra e a de sempre', antes.extra50Minutos + antes.extra100Minutos, 20)
+t('09/2026: os indicadores aparecem', [depois.atrasoMinutos, depois.abonoMinutos], [30, 90])
+t('09/2026: o dia entra na fila', depois.pendentesCompensacao, [2])
+
+// O mais importante: compensacao AUTORIZADA em competencia anterior nao abate nada.
+const regAut = [Object.assign({}, regAntes[0], { compensacao_status: 'autorizada' })]
+const autAntes = C.totaisFolha(regAut, Object.assign({ ano: 2026, mes: 8 }, optsBase))
+t('08/2026: autorizacao antiga nao abate extra', autAntes.extra50Minutos + autAntes.extra100Minutos, 20)
+const autDepois = C.totaisFolha(regAut, Object.assign({ ano: 2026, mes: 9 }, optsBase))
+t('09/2026: autorizacao abate extra', autDepois.extra50Minutos + autDepois.extra100Minutos, 0)
+
+// diasPendentesDeCompensacao tambem respeita o corte (o gate de fechamento chama ela).
+t('fila de fechamento vazia em 08/2026', C.diasPendentesDeCompensacao(regAntes, '08H ÀS 18H', { mes: 8, ano: 2026 }), [])
+t('fila de fechamento cheia em 09/2026', C.diasPendentesDeCompensacao(regAntes, '08H ÀS 18H', { mes: 9, ano: 2026 }), [2])
+
 console.log(`\n${falhou === 0 ? 'TUDO OK' : 'HOUVE FALHA'} — ${ok} passaram, ${falhou} falharam`)
 process.exit(falhou === 0 ? 0 : 1)

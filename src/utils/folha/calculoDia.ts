@@ -43,6 +43,44 @@
 
 import { sequenciarDia, timeToMin, type HorariosDia } from './sequenciaDia'
 
+/**
+ * Competencia a partir da qual a regra de atraso/compensacao vale (decisao do usuario,
+ * 04/09/2026: "faca tudo valer a partir do mes 09/2026").
+ *
+ * 🚨 POR QUE UM CORTE, E POR QUE ELE TAMBEM ESCONDE OS INDICADORES NOVOS EM MES ANTERIOR:
+ *   A folha e documento ASSINADO. Reimprimir uma competencia ja fechada mostrando campos que nao
+ *   existiam quando o servidor assinou muda o documento depois da assinatura. Entao, antes do
+ *   corte, o rodape continua sendo o de sempre (Normais, Extra, Faltas) — so que ja em HH:MM, que
+ *   e o mesmo numero escrito de forma legivel, nao conteudo novo.
+ *
+ *   E medido em 08/2026: sem o corte, reabrir aquelas folhas jogaria **756 dias em 170 folhas**
+ *   na fila de decisao — trabalho que o usuario decidiu explicitamente nao fazer (as 473h de hora
+ *   extra sem autorizacao previa do Art. 8 daquele mes "ficam como estao").
+ *
+ * ⚠️ O default vive AQUI, no codigo, e nao depende da migration ter sido aplicada:
+ *   `configuracoes_globais.compensacao_atraso_vigente_desde` apenas SOBRESCREVE. Falha ao ler cai
+ *   neste valor — que e o comportamento decidido, nunca "liga para todo mundo".
+ */
+export const COMPETENCIA_COMPENSACAO_PADRAO = '2026-09'
+
+/**
+ * A competencia da folha esta dentro da vigencia da regra?
+ *
+ * @param vigenteDesde formato `YYYY-MM`. Valor invalido cai no padrao — nunca abre a regra para
+ *   tras por causa de configuracao malformada.
+ */
+export function regraCompensacaoVigente(
+  mes: number,
+  ano: number,
+  vigenteDesde?: string | null
+): boolean {
+  const bruto = typeof vigenteDesde === 'string' ? vigenteDesde.trim() : ''
+  const alvo = /^\d{4}-\d{2}$/.test(bruto) ? bruto : COMPETENCIA_COMPENSACAO_PADRAO
+  const [anoIni, mesIni] = alvo.split('-').map(Number)
+  if (!Number.isFinite(ano) || !Number.isFinite(mes)) return false
+  return ano > anoIni || (ano === anoIni && mes >= mesIni)
+}
+
 /** Art. 7 §3: a compensacao nao pode passar de 2h por dia. */
 export const TETO_COMPENSACAO_DIARIA_MIN = 120
 
@@ -344,6 +382,11 @@ export interface OpcoesTotais {
   mes: number
   /** Um dia conta como falta definitiva? Injetado para o modulo continuar puro. */
   isFaltaDefinitiva: (observacao?: string | null) => boolean
+  /**
+   * Competencia a partir da qual a regra de atraso/compensacao vale (`YYYY-MM`).
+   * Omitido = `COMPETENCIA_COMPENSACAO_PADRAO`. Ver regraCompensacaoVigente.
+   */
+  compensacaoVigenteDesde?: string | null
 }
 
 /**
@@ -356,6 +399,12 @@ export interface OpcoesTotais {
  *   `registros` ja estavam carregados nos dois lados; passaram a ser a fonte nos dois.
  */
 export function totaisFolha(registros: RegistroDia[], opcoes: OpcoesTotais): TotaisFolha {
+  /*
+    ⚠️ Antes do corte a folha continua com o rodape de sempre: os indicadores novos ficam em zero
+    e nenhum dia entra na fila de decisao. A competencia anterior e documento ja assinado — ver
+    COMPETENCIA_COMPENSACAO_PADRAO.
+  */
+  const vigente = regraCompensacaoVigente(opcoes.mes, opcoes.ano, opcoes.compensacaoVigenteDesde)
   let normaisMinutos = 0
   let noturnoMinutos = 0
   let atrasoMinutos = 0
@@ -370,21 +419,23 @@ export function totaisFolha(registros: RegistroDia[], opcoes: OpcoesTotais): Tot
     if (r.turno_codigo) normaisMinutos += Math.round((opcoes.horasNormaisPorDia || 8) * 60)
     if (opcoes.isFaltaDefinitiva(r.observacao)) faltas++
 
-    // ⚠️ Vem do registro, gravado pela geracao (minutosAbonadosDoDia). NAO deduzir de
-    // `r.afastamento`: aquele campo cobre Ferias, Licenca Premio, Licenca saude... e contar
-    // aquilo como abono daria 1.173 "abonos" em 08/2026, numero que engana quem confere folha.
-    abonoMinutos += Math.max(0, Number(r.abono_minutos) || 0)
+    // ⚠️ O abono vem do registro (minutosAbonadosDoDia), NUNCA deduzido de `r.afastamento`:
+    // aquele campo cobre Ferias, Licenca Premio, Licenca saude... e contar aquilo como abono
+    // daria 1.173 "abonos" em 08/2026. A soma acontece dentro do bloco de vigencia, abaixo.
 
     const calculo = calcularDia(r, opcoes.jornadaNome)
-    noturnoMinutos += calculo.noturnoMinutos
-    atrasoMinutos += atrasoEfetivoDoDia(r, calculo)
+    if (vigente) {
+      noturnoMinutos += calculo.noturnoMinutos
+      atrasoMinutos += atrasoEfetivoDoDia(r, calculo)
+      abonoMinutos += Math.max(0, Number(r.abono_minutos) || 0)
 
-    if (statusCompensacaoDoDia(r, calculo) === 'pendente' && r.dia) {
-      pendentesCompensacao.push(r.dia)
-      compensavelPendenteMinutos += calculo.compensavelMinutos
+      if (statusCompensacaoDoDia(r, calculo) === 'pendente' && r.dia) {
+        pendentesCompensacao.push(r.dia)
+        compensavelPendenteMinutos += calculo.compensavelMinutos
+      }
     }
 
-    const extra = extraEfetivaDoDia(r, calculo)
+    const extra = vigente ? extraEfetivaDoDia(r, calculo) : Math.max(0, Number(r.hora_extra_minutos) || 0)
     if (extra > 0) {
       const domingo = new Date(opcoes.ano, opcoes.mes - 1, r.dia || 1).getDay() === 0
       if (domingo || r.feriado || r.hora_extra_tipo === '100%') extra100Minutos += extra
@@ -443,8 +494,13 @@ export function carregarDecisaoCompensacao(
  */
 export function diasPendentesDeCompensacao(
   registros: RegistroDia[],
-  jornadaNomeFallback?: string | null
+  jornadaNomeFallback?: string | null,
+  competencia?: { mes: number; ano: number; vigenteDesde?: string | null }
 ): number[] {
+  // Sem competencia informada nao ha como saber se a regra vale — e o chamador que decide.
+  if (competencia && !regraCompensacaoVigente(competencia.mes, competencia.ano, competencia.vigenteDesde)) {
+    return []
+  }
   const dias: number[] = []
   for (const r of registros || []) {
     const calculo = calcularDia(r, jornadaNomeFallback)

@@ -19,7 +19,7 @@ import { preservarCampo } from '@/utils/folha/preservacao'
 import { montarCargaPorJornada, horasNormaisDoDia } from '@/utils/folha/cargaDiaria'
 import { autorizacaoDoDia, aplicarObservacaoAutorizacao } from '@/utils/folha/autorizacaoPonto'
 import { afastamentosDoDia, descreverAfastamentos, isShiftOverlappingAfastamento, minutosAbonadosDoDia } from '@/utils/folha/afastamentosDia'
-import { calcularDia, totaisFolha, carregarDecisaoCompensacao, diasPendentesDeCompensacao, extraEfetivaDoDia } from '@/utils/folha/calculoDia'
+import { calcularDia, totaisFolha, carregarDecisaoCompensacao, diasPendentesDeCompensacao, extraEfetivaDoDia, regraCompensacaoVigente } from '@/utils/folha/calculoDia'
 
 // Helper: Get user profile with unit/sector permissions
 async function getUserProfile(supabase: any): Promise<UserProfile> {
@@ -1945,6 +1945,26 @@ export async function reclassificarPassoPresenca(
 }
 
 /**
+ * Competencia a partir da qual a regra de atraso/compensacao vale.
+ *
+ * ⚠️ Chave AUSENTE cai no padrao do modulo (2026-09), que e a decisao tomada — nunca "vale para
+ * todo mundo". Por isso a migration que cria a chave e conveniencia, nao pre-requisito.
+ */
+async function lerVigenciaCompensacao(supabase: any): Promise<string | null> {
+  try {
+    const { data } = await supabase
+      .from('configuracoes_globais')
+      .select('valor')
+      .eq('chave', 'compensacao_atraso_vigente_desde')
+      .maybeSingle()
+    const v = data?.valor
+    return typeof v === 'string' ? v : null
+  } catch {
+    return null
+  }
+}
+
+/**
  * Decide o que fazer com um dia em que o servidor chegou atrasado E saiu depois do previsto.
  *
  * BASE LEGAL — Portaria 382/2019-GAB-MAB/SMS, Art. 7 §1 e §2: o atraso so vira compensacao
@@ -2006,6 +2026,12 @@ export async function decidirCompensacaoDia(
 
     if (!hasSectorAccess(userProfile, escala.setor_id, escala.unidade_id)) {
       return { error: 'Acesso negado para decidir sobre esta folha.' }
+    }
+
+    // ⚠️ A regra vale a partir de 09/2026 (decisao do usuario, 04/09/2026). A tela ja nao mostra
+    // o selo em competencia anterior, mas Server Action e um POST chamavel direto.
+    if (!regraCompensacaoVigente(folha.mes, folha.ano, await lerVigenciaCompensacao(supabase))) {
+      return { error: 'A regra de compensação de atraso passou a valer a partir de 09/2026. Esta competência é anterior e permanece como está.' }
     }
 
     const registros = Array.isArray(folha.registros) ? [...(folha.registros as any[])] : []
@@ -2227,8 +2253,9 @@ export async function salvarFolhaPonto(folhaId: string, registros: any[], status
       pessoas, 253h21 de reposição de atraso lançadas como hora extra.
     */
     if (status === 'Revisada' && folha.status !== 'Revisada' && !confirmarCompensacaoPendente) {
+      const vigenciaCompensacao = await lerVigenciaCompensacao(supabase)
       const jornadaFolha: any = Array.isArray((escala as any).jornadas) ? (escala as any).jornadas[0] : (escala as any).jornadas
-      const diasCompensacao = diasPendentesDeCompensacao(registros, jornadaFolha?.nome)
+      const diasCompensacao = diasPendentesDeCompensacao(registros, jornadaFolha?.nome, { mes: folha.mes, ano: folha.ano, vigenteDesde: vigenciaCompensacao })
       if (diasCompensacao.length > 0) {
         return { requerDecisaoCompensacao: true, diasCompensacaoPendente: diasCompensacao }
       }
@@ -2304,6 +2331,8 @@ export async function salvarFolhaPonto(folhaId: string, registros: any[], status
     // Recalculate totals
     const jornadaFolhaCalculo: any = Array.isArray((escala as any).jornadas) ? (escala as any).jornadas[0] : (escala as any).jornadas
     const jornadaNomeParaCalculo = jornadaFolhaCalculo?.nome
+    // Antes do corte (09/2026) a folha nao conhece compensacao: a extra e a bruta, como sempre foi.
+    const compensacaoVigenteNaFolha = regraCompensacaoVigente(folha.mes, folha.ano, await lerVigenciaCompensacao(supabase))
     let totalHorasNormais = 0
     let totalExtra50 = 0
     let totalExtra100 = 0
@@ -2324,7 +2353,9 @@ export async function salvarFolhaPonto(folhaId: string, registros: any[], status
       // §1/§2). Enquanto o dia esta `pendente` ele devolve o valor cheio — nada muda de valor sem
       // decisao humana. Sem isto, salvar a folha logo depois de autorizar reverteria o abatimento
       // nas colunas do banco, e a LISTAGEM voltaria a mostrar a hora extra antiga.
-      const extraDoDia = extraEfetivaDoDia(r, calcularDia(r, jornadaNomeParaCalculo))
+      const extraDoDia = compensacaoVigenteNaFolha
+        ? extraEfetivaDoDia(r, calcularDia(r, jornadaNomeParaCalculo))
+        : Math.max(0, Number(r.hora_extra_minutos) || 0)
       if (extraDoDia > 0) {
         const dateObj = new Date(folha.ano, folha.mes - 1, r.dia)
         const dateStr = `${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(r.dia).padStart(2, '0')}`
@@ -2676,7 +2707,9 @@ export async function getFolhasPontoPrintData(folhaIds: string[]) {
       })
     }
 
-    return { folhas: mappedFolhas, logoUrl }
+    // A impressao em lote precisa da vigencia para nao imprimir campo novo em competencia
+    // anterior ao corte (documento ja assinado).
+    return { folhas: mappedFolhas, logoUrl, compensacaoVigenteDesde: await lerVigenciaCompensacao(supabase) }
   } catch (error: any) {
     console.error('Erro em getFolhasPontoPrintData:', error)
     return { error: error.message }
