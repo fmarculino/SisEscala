@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.37.1] - 2026-09-04
+
+### Added
+
+- **Coluna e totalizadores de Horas Realizadas no Demonstrativo de Plantões e Sobreavisos** (`RelatorioPlantaoSobreavisoAnexo.tsx`):
+  - Separação clara entre a carga horária contratual prevista (`HORAS PREVISTAS`) e as horas efetivamente apuradas no relógio de ponto (`HORAS REALIZADAS`).
+  - Cálculo dinâmico da duração exata entre a Entrada Real e a Saída Real gravadas na `escala_diaria` (inclusive turnos noturnos que cruzam a meia-noite).
+  - Linha de rodapé na tabela (`<tfoot>`) totalizando tanto as horas previstas cumpridas quanto as horas apuradas no ponto.
+  - Cartões de subtotais e rodapé geral de **TOTALIZADORES CONSOLIDADOS** atualizados para refletir as Horas Realizadas em card e detalhamento próprios.
+
 ## [2.37.0] - 2026-09-04
 
 Questionamento do RH: a folha mostrava **210h** onde eles esperavam ~160h. O RH estava certo —

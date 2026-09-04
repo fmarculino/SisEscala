@@ -3048,6 +3048,20 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
         const turnoDesc = turno?.descricao || turno?.codigo || ed.categoria || 'Plantão'
         const horarioPrevisto = formatarJanelaPrevista(ed.hora_inicio_prevista, turno)
 
+        let horasRealizadasStr = '-'
+        let minutosRealizados: number | null = null
+        if (ed.presenca_entrada_em && ed.presenca_saida_em) {
+          const tEntrada = new Date(ed.presenca_entrada_em).getTime()
+          const tSaida = new Date(ed.presenca_saida_em).getTime()
+          if (!isNaN(tEntrada) && !isNaN(tSaida) && tSaida > tEntrada) {
+            const diffMin = Math.round((tSaida - tEntrada) / 60000)
+            minutosRealizados = diffMin
+            const h = Math.floor(diffMin / 60)
+            const m = diffMin % 60
+            horasRealizadasStr = `${h}h ${String(m).padStart(2, '0')}m`
+          }
+        }
+
         plantoes.push({
           dia: ed.dia,
           dia_semana: weekDays[dateObj.getDay()],
@@ -3055,6 +3069,8 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
           turno_nome: turnoDesc,
           horario_previsto: horarioPrevisto,
           horas_computadas: Number(turno?.horas_computadas || 12),
+          horas_realizadas: horasRealizadasStr,
+          minutos_realizados: minutosRealizados,
           entrada_real: ed.presenca_entrada_em ? formatarHora(ed.presenca_entrada_em) : '-',
           saida_real: ed.presenca_saida_em ? formatarHora(ed.presenca_saida_em) : '-',
           confirmado: !!ed.presenca_confirmada,
@@ -3173,6 +3189,13 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
     const totalPlantoesEmAvaliacao = plantoes.filter(p => p.estado === 'em_avaliacao').length
     const desfechoIndisponivel = plantoes.length > 0 && plantoes.every(p => !p.estado)
 
+    const totalMinutosPlantaoRealizados = plantoes
+      .filter(ehCumprido)
+      .reduce((acc, p) => acc + (p.minutos_realizados || 0), 0)
+    const totalHorasPlantaoRealizadas = totalMinutosPlantaoRealizados > 0
+      ? `${Math.floor(totalMinutosPlantaoRealizados / 60)}h ${String(totalMinutosPlantaoRealizados % 60).padStart(2, '0')}m`
+      : undefined
+
     // Prontidao cumprida usa o mesmo criterio do plantao. `totalHorasSobreavisoEscalado` fica
     // ao lado para a conta continuar conferivel.
     const sobreavisoCumprido = (s: any) => !s.estado || s.estado === 'validado'
@@ -3192,6 +3215,8 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
       sobreavisos,
       totalHorasPlantao,
       totalHorasPlantaoCumpridas,
+      totalHorasPlantaoRealizadas,
+      totalMinutosPlantaoRealizados,
       totalHorasPlantaoEmAvaliacao,
       totalHorasPlantaoFaltas,
       totalPlantoesFaltas,

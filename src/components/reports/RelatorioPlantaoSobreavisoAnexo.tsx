@@ -12,6 +12,8 @@ interface PlantaoItem {
   turno_nome: string
   horario_previsto: string
   horas_computadas: number
+  horas_realizadas?: string
+  minutos_realizados?: number | null
   entrada_real: string
   saida_real: string
   confirmado: boolean
@@ -64,6 +66,8 @@ interface Props {
     sobreavisos: SobreavisoItem[]
     totalHorasPlantao: number
     totalHorasPlantaoCumpridas?: number
+    totalHorasPlantaoRealizadas?: string
+    totalMinutosPlantaoRealizados?: number
     totalHorasPlantaoEmAvaliacao?: number
     totalHorasPlantaoFaltas?: number
     totalPlantoesFaltas?: number
@@ -132,6 +136,48 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
   const ehCumprido = (p: PlantaoItem) =>
     !p.estado || p.estado === 'registrado' || p.estado === 'validado'
   const plantoesCumpridos = plantoes.filter(ehCumprido)
+
+  const formatarHorasRealizadas = (p: PlantaoItem): string => {
+    if (p.horas_realizadas && p.horas_realizadas !== '-') return p.horas_realizadas
+    if (!p.entrada_real || !p.saida_real || p.entrada_real === '-' || p.saida_real === '-') {
+      return '-'
+    }
+    const [hE, mE] = p.entrada_real.split(':').map(Number)
+    const [hS, mS] = p.saida_real.split(':').map(Number)
+    if (!Number.isFinite(hE) || !Number.isFinite(mE) || !Number.isFinite(hS) || !Number.isFinite(mS)) {
+      return '-'
+    }
+    let diff = (hS * 60 + mS) - (hE * 60 + mE)
+    if (diff < 0) {
+      diff += 1440 // Cruzou a meia-noite (plantão noturno)
+    }
+    const h = Math.floor(diff / 60)
+    const m = diff % 60
+    return `${h}h ${String(m).padStart(2, '0')}m`
+  }
+
+  const totalRealizadas = useMemo(() => {
+    if (dados.totalHorasPlantaoRealizadas) return dados.totalHorasPlantaoRealizadas
+    let minTotal = 0
+    let temAlgum = false
+    plantoesCumpridos.forEach(p => {
+      if (typeof p.minutos_realizados === 'number' && p.minutos_realizados > 0) {
+        minTotal += p.minutos_realizados
+        temAlgum = true
+      } else if (p.entrada_real && p.saida_real && p.entrada_real !== '-' && p.saida_real !== '-') {
+        const [hE, mE] = p.entrada_real.split(':').map(Number)
+        const [hS, mS] = p.saida_real.split(':').map(Number)
+        if (Number.isFinite(hE) && Number.isFinite(mE) && Number.isFinite(hS) && Number.isFinite(mS)) {
+          let diff = (hS * 60 + mS) - (hE * 60 + mE)
+          if (diff < 0) diff += 1440
+          minTotal += diff
+          temAlgum = true
+        }
+      }
+    })
+    if (!temAlgum || minTotal <= 0) return null
+    return `${Math.floor(minTotal / 60)}h ${String(minTotal % 60).padStart(2, '0')}m`
+  }, [dados.totalHorasPlantaoRealizadas, plantoesCumpridos])
 
   const resumoTiposPlantao = useMemo(() => {
     const map = new Map<string, { nome: string; horario: string; qtd: number; horas: number }>()
@@ -418,6 +464,7 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
             <span className="text-[10px] font-bold text-zinc-500 print:text-black uppercase">
               Carga horária cumprida: <strong className="text-zinc-900 dark:text-white print:text-black">{cumpridas}h</strong>
               {totalHorasPlantao !== cumpridas && <> de {totalHorasPlantao}h escaladas</>}
+              {totalRealizadas && <> • Realizado no ponto: <strong className="text-blue-600 dark:text-blue-400 print:text-black">{totalRealizadas}</strong></>}
             </span>
           </div>
 
@@ -432,7 +479,8 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
                     <th className="py-2 px-3 text-center">Horário Previsto</th>
                     <th className="py-2 px-3 text-center">Entrada Real</th>
                     <th className="py-2 px-3 text-center">Saída Real</th>
-                    <th className="py-2 px-3 text-center w-12">Horas</th>
+                    <th className="py-2 px-2 text-center whitespace-nowrap">Horas Previstas</th>
+                    <th className="py-2 px-2 text-center whitespace-nowrap">Horas Realizadas</th>
                     <th className="py-2 px-3 text-center w-24">Situação</th>
                     <th className="py-2 px-3">Setor</th>
                     <th className="py-2 px-3">Observações / Justificativas</th>
@@ -442,6 +490,7 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
                   {plantoes.map((p, idx) => {
                     const sit = rotuloSituacao(p)
                     const naoSoma = p.estado === 'falta' || p.estado === 'em_avaliacao' || p.estado === 'previsto'
+                    const horaRealizada = formatarHorasRealizadas(p)
                     return (
                     <tr key={idx} className={`hover:bg-zinc-50 dark:hover:bg-zinc-800/40 print:hover:bg-transparent ${
                       p.estado === 'falta' ? 'bg-red-50/70 dark:bg-red-950/20 print:bg-transparent' : ''
@@ -452,11 +501,14 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
                       <td className="py-2 px-3 text-center font-mono text-zinc-600 dark:text-zinc-400 print:text-black">{p.horario_previsto}</td>
                       <td className="py-2 px-3 text-center font-mono font-bold text-blue-600 dark:text-blue-400 print:text-black">{p.entrada_real}</td>
                       <td className="py-2 px-3 text-center font-mono font-bold text-blue-600 dark:text-blue-400 print:text-black">{p.saida_real}</td>
-                      {/* Hora que nao conta sai riscada: o leitor tem que ver a diferenca entre
-                          o que foi escalado e o que entra na carga sem precisar somar a mao. */}
-                      <td className={`py-2 px-3 text-center font-bold print:text-black ${
+                      {/* Horas Previstas */}
+                      <td className={`py-2 px-2 text-center font-bold print:text-black whitespace-nowrap ${
                         naoSoma ? 'text-zinc-400 line-through' : 'text-zinc-900 dark:text-white'
                       }`}>{p.horas_computadas}h</td>
+                      {/* Horas Realizadas */}
+                      <td className={`py-2 px-2 text-center font-mono font-bold print:text-black whitespace-nowrap ${
+                        naoSoma ? 'text-zinc-400 line-through' : (horaRealizada === '-' ? 'text-zinc-400' : 'text-blue-600 dark:text-blue-400')
+                      }`}>{horaRealizada}</td>
                       <td className={`py-2 px-3 text-center font-black text-[9px] print:text-[7.5pt] uppercase tracking-wider print:text-black ${sit.cor}`}>
                         {sit.texto}
                       </td>
@@ -487,6 +539,22 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
                     </tr>
                   )})}
                 </tbody>
+                <tfoot>
+                  <tr className="bg-zinc-100/90 dark:bg-zinc-800/90 font-bold border-t-2 border-zinc-300 dark:border-zinc-700 print:bg-zinc-200">
+                    <td colSpan={6} className="py-2 px-3 text-right font-black uppercase text-[9px] print:text-[7.5pt] text-zinc-700 dark:text-zinc-300 print:text-black">
+                      Total Cumprido:
+                    </td>
+                    <td className="py-2 px-2 text-center font-black text-zinc-900 dark:text-white print:text-black whitespace-nowrap">
+                      {cumpridas}h
+                    </td>
+                    <td className="py-2 px-2 text-center font-mono font-black text-blue-600 dark:text-blue-400 print:text-black whitespace-nowrap">
+                      {totalRealizadas || '-'}
+                    </td>
+                    <td colSpan={3} className="py-2 px-3 text-left text-[9px] print:text-[7pt] text-zinc-500 print:text-black italic">
+                      {plantoesCumpridos.length} de {plantoes.length} escala(s)
+                    </td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
           ) : (
@@ -505,7 +573,15 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
             <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2 print:grid-cols-3 print:gap-1">
               <div className="rounded-xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/60 dark:bg-emerald-950/20 print:bg-transparent p-2.5 print:p-1.5">
                 <div className="text-[9px] print:text-[7pt] font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-400 print:text-black">Cumpridos</div>
-                <div className="text-base print:text-[9pt] font-black text-emerald-700 dark:text-emerald-400 print:text-black">{cumpridas}h</div>
+                <div className="text-base print:text-[9pt] font-black text-emerald-700 dark:text-emerald-400 print:text-black flex flex-wrap items-baseline gap-1.5">
+                  <span>{cumpridas}h</span>
+                  <span className="text-[10px] print:text-[7pt] font-normal text-zinc-500 print:text-black uppercase">previstas</span>
+                  {totalRealizadas && (
+                    <span className="text-sm print:text-[8.5pt] font-mono font-bold text-blue-600 dark:text-blue-400 print:text-black ml-1">
+                      • {totalRealizadas} <span className="text-[9px] print:text-[6.5pt] font-sans font-normal text-zinc-500 print:text-black uppercase">realizadas</span>
+                    </span>
+                  )}
+                </div>
                 <div className="text-[9px] print:text-[6.5pt] text-zinc-500 print:text-black leading-tight">Registrados no ponto ou validados pelo coordenador</div>
               </div>
               <div className="rounded-xl border border-orange-200 dark:border-orange-900/50 bg-orange-50/60 dark:bg-orange-950/20 print:bg-transparent p-2.5 print:p-1.5">
@@ -631,7 +707,7 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
 
         {/* TOTALIZADORES CONSOLIDADOS */}
         <div className="anexo-summary-box p-4 md:p-5 rounded-2xl bg-zinc-100/70 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 mb-8 print:border-zinc-300 print:p-3 print:mb-6">
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 md:gap-4 divide-y sm:divide-y-0 sm:divide-x divide-zinc-200 dark:divide-zinc-700 print:grid-cols-5 print:divide-y-0 print:divide-x print:divide-zinc-300">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4 divide-y sm:divide-y-0 sm:divide-x divide-zinc-200 dark:divide-zinc-700 print:grid-cols-6 print:divide-y-0 print:divide-x print:divide-zinc-300">
             <div className="text-center pt-2 sm:pt-0">
               <div className="text-[9px] print:text-[7.5pt] font-bold text-zinc-500 print:text-zinc-700 uppercase tracking-wider">Plantões Cumpridos</div>
               {/* Contava TODAS as escalas ao lado de um total de horas que já era só o cumprido.
@@ -643,12 +719,17 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
               </div>
             </div>
             <div className="text-center pt-2 sm:pt-0 sm:pl-3 print:pl-2">
-              <div className="text-[9px] print:text-[7.5pt] font-bold text-zinc-500 print:text-zinc-700 uppercase tracking-wider">Horas de Plantão</div>
-              <div className="text-xl md:text-2xl print:text-lg font-black text-blue-600 dark:text-blue-400 print:text-black mt-0.5">{cumpridas}h</div>
-              {/* "computadas" virou "cumpridas": o numero grande do resumo e o mesmo criterio da
-                  secao 1, senao o resumo e a tabela do mesmo documento se contradizem. */}
+              <div className="text-[9px] print:text-[7.5pt] font-bold text-zinc-500 print:text-zinc-700 uppercase tracking-wider">Horas Previstas</div>
+              <div className="text-xl md:text-2xl print:text-lg font-black text-zinc-900 dark:text-white print:text-black mt-0.5">{cumpridas}h</div>
               <div className="text-[9px] print:text-[7pt] font-medium text-zinc-400 print:text-zinc-600 uppercase">
                 cumpridas{totalHorasPlantao !== cumpridas && <> de {totalHorasPlantao}h</>}
+              </div>
+            </div>
+            <div className="text-center pt-2 sm:pt-0 sm:pl-3 print:pl-2">
+              <div className="text-[9px] print:text-[7.5pt] font-bold text-zinc-500 print:text-zinc-700 uppercase tracking-wider">Horas Realizadas</div>
+              <div className="text-xl md:text-2xl print:text-lg font-black font-mono text-blue-600 dark:text-blue-400 print:text-black mt-0.5">{totalRealizadas || '0h'}</div>
+              <div className="text-[9px] print:text-[7pt] font-medium text-zinc-400 print:text-zinc-600 uppercase">
+                apuradas no ponto
               </div>
             </div>
             <div className="text-center pt-2 sm:pt-0 sm:pl-3 print:pl-2">
@@ -677,7 +758,7 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
               <div>
                 <div className="text-[9px] print:text-[7pt] font-black uppercase text-zinc-500 print:text-zinc-700 tracking-wider mb-1.5 flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-blue-500 print:bg-black inline-block"></span>
-                  Detalhamento dos Plantões ({plantoesCumpridos.length} escala{plantoesCumpridos.length !== 1 ? 's' : ''} cumprida{plantoesCumpridos.length !== 1 ? 's' : ''} • {cumpridas}h)
+                  Detalhamento dos Plantões ({plantoesCumpridos.length} escala{plantoesCumpridos.length !== 1 ? 's' : ''} cumprida{plantoesCumpridos.length !== 1 ? 's' : ''} • {cumpridas}h previstas{totalRealizadas ? ` • ${totalRealizadas} no ponto` : ''})
                 </div>
                 {resumoTiposPlantao.length > 0 ? (
                   <div className="flex flex-wrap gap-1.5">
