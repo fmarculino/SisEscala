@@ -138,45 +138,75 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
   const plantoesCumpridos = plantoes.filter(ehCumprido)
 
   const formatarHorasRealizadas = (p: PlantaoItem): string => {
-    if (p.horas_realizadas && p.horas_realizadas !== '-') return p.horas_realizadas
-    if (!p.entrada_real || !p.saida_real || p.entrada_real === '-' || p.saida_real === '-') {
-      return '-'
+    let min: number | null = null
+    if (typeof p.minutos_realizados === 'number' && p.minutos_realizados > 0) {
+      min = p.minutos_realizados
+    } else if (p.horas_realizadas && p.horas_realizadas !== '-') {
+      const match = p.horas_realizadas.match(/(\d+)h\s*(\d+)m/)
+      if (match) {
+        min = Number(match[1]) * 60 + Number(match[2])
+      } else if (p.horas_realizadas.includes(':')) {
+        return p.horas_realizadas
+      }
     }
-    const [hE, mE] = p.entrada_real.split(':').map(Number)
-    const [hS, mS] = p.saida_real.split(':').map(Number)
-    if (!Number.isFinite(hE) || !Number.isFinite(mE) || !Number.isFinite(hS) || !Number.isFinite(mS)) {
-      return '-'
+    if (min === null) {
+      if (!p.entrada_real || !p.saida_real || p.entrada_real === '-' || p.saida_real === '-') {
+        return '-'
+      }
+      const [hE, mE] = p.entrada_real.split(':').map(Number)
+      const [hS, mS] = p.saida_real.split(':').map(Number)
+      if (!Number.isFinite(hE) || !Number.isFinite(mE) || !Number.isFinite(hS) || !Number.isFinite(mS)) {
+        return '-'
+      }
+      let diff = (hS * 60 + mS) - (hE * 60 + mE)
+      if (diff < 0) {
+        diff += 1440 // Cruzou a meia-noite (plantão noturno)
+      }
+      min = diff
     }
-    let diff = (hS * 60 + mS) - (hE * 60 + mE)
-    if (diff < 0) {
-      diff += 1440 // Cruzou a meia-noite (plantão noturno)
-    }
-    const h = Math.floor(diff / 60)
-    const m = diff % 60
-    return `${h}h ${String(m).padStart(2, '0')}m`
+    const h = Math.floor(min / 60)
+    const m = min % 60
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+  }
+
+  const formatarHorasPrevistas = (p: PlantaoItem): string => {
+    const totalMin = Math.round((p.horas_computadas || 0) * 60)
+    const h = Math.floor(totalMin / 60)
+    const m = totalMin % 60
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
   }
 
   const totalRealizadas = useMemo(() => {
-    if (dados.totalHorasPlantaoRealizadas) return dados.totalHorasPlantaoRealizadas
     let minTotal = 0
     let temAlgum = false
-    plantoesCumpridos.forEach(p => {
-      if (typeof p.minutos_realizados === 'number' && p.minutos_realizados > 0) {
-        minTotal += p.minutos_realizados
+    if (dados.totalHorasPlantaoRealizadas) {
+      const match = dados.totalHorasPlantaoRealizadas.match(/(\d+)h\s*(\d+)m/)
+      if (match) {
+        minTotal = Number(match[1]) * 60 + Number(match[2])
         temAlgum = true
-      } else if (p.entrada_real && p.saida_real && p.entrada_real !== '-' && p.saida_real !== '-') {
-        const [hE, mE] = p.entrada_real.split(':').map(Number)
-        const [hS, mS] = p.saida_real.split(':').map(Number)
-        if (Number.isFinite(hE) && Number.isFinite(mE) && Number.isFinite(hS) && Number.isFinite(mS)) {
-          let diff = (hS * 60 + mS) - (hE * 60 + mE)
-          if (diff < 0) diff += 1440
-          minTotal += diff
-          temAlgum = true
-        }
+      } else if (dados.totalHorasPlantaoRealizadas.includes(':')) {
+        return dados.totalHorasPlantaoRealizadas
       }
-    })
+    }
+    if (!temAlgum) {
+      plantoesCumpridos.forEach(p => {
+        if (typeof p.minutos_realizados === 'number' && p.minutos_realizados > 0) {
+          minTotal += p.minutos_realizados
+          temAlgum = true
+        } else if (p.entrada_real && p.saida_real && p.entrada_real !== '-' && p.saida_real !== '-') {
+          const [hE, mE] = p.entrada_real.split(':').map(Number)
+          const [hS, mS] = p.saida_real.split(':').map(Number)
+          if (Number.isFinite(hE) && Number.isFinite(mE) && Number.isFinite(hS) && Number.isFinite(mS)) {
+            let diff = (hS * 60 + mS) - (hE * 60 + mE)
+            if (diff < 0) diff += 1440
+            minTotal += diff
+            temAlgum = true
+          }
+        }
+      })
+    }
     if (!temAlgum || minTotal <= 0) return null
-    return `${Math.floor(minTotal / 60)}h ${String(minTotal % 60).padStart(2, '0')}m`
+    return `${Math.floor(minTotal / 60)}:${String(minTotal % 60).padStart(2, '0')}`
   }, [dados.totalHorasPlantaoRealizadas, plantoesCumpridos])
 
   const resumoTiposPlantao = useMemo(() => {
@@ -479,10 +509,16 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
                     <th className="py-2 px-3 text-center">Horário Previsto</th>
                     <th className="py-2 px-3 text-center">Entrada Real</th>
                     <th className="py-2 px-3 text-center">Saída Real</th>
-                    <th className="py-2 px-2 text-center whitespace-nowrap">Horas Previstas</th>
-                    <th className="py-2 px-2 text-center whitespace-nowrap">Horas Realizadas</th>
+                    <th className="py-2 px-1.5 text-center leading-tight">
+                      <div>Horas</div>
+                      <div>Previstas</div>
+                    </th>
+                    <th className="py-2 px-1.5 text-center leading-tight">
+                      <div>Horas</div>
+                      <div>Realizadas</div>
+                    </th>
                     <th className="py-2 px-3 text-center w-24">Situação</th>
-                    <th className="py-2 px-3">Setor</th>
+                    <th className="py-2 px-2 w-28">Setor</th>
                     <th className="py-2 px-3">Observações / Justificativas</th>
                   </tr>
                 </thead>
@@ -502,17 +538,19 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
                       <td className="py-2 px-3 text-center font-mono font-bold text-blue-600 dark:text-blue-400 print:text-black">{p.entrada_real}</td>
                       <td className="py-2 px-3 text-center font-mono font-bold text-blue-600 dark:text-blue-400 print:text-black">{p.saida_real}</td>
                       {/* Horas Previstas */}
-                      <td className={`py-2 px-2 text-center font-bold print:text-black whitespace-nowrap ${
+                      <td className={`py-2 px-1.5 text-center font-mono font-bold print:text-black whitespace-nowrap ${
                         naoSoma ? 'text-zinc-400 line-through' : 'text-zinc-900 dark:text-white'
-                      }`}>{p.horas_computadas}h</td>
+                      }`}>{formatarHorasPrevistas(p)}</td>
                       {/* Horas Realizadas */}
-                      <td className={`py-2 px-2 text-center font-mono font-bold print:text-black whitespace-nowrap ${
+                      <td className={`py-2 px-1.5 text-center font-mono font-bold print:text-black whitespace-nowrap ${
                         naoSoma ? 'text-zinc-400 line-through' : (horaRealizada === '-' ? 'text-zinc-400' : 'text-blue-600 dark:text-blue-400')
                       }`}>{horaRealizada}</td>
                       <td className={`py-2 px-3 text-center font-black text-[9px] print:text-[7.5pt] uppercase tracking-wider print:text-black ${sit.cor}`}>
                         {sit.texto}
                       </td>
-                      <td className="py-2 px-3 text-zinc-600 dark:text-zinc-400 print:text-black uppercase print-full-text truncate max-w-[150px]">{p.setor}</td>
+                      <td className="py-2 px-2 text-zinc-600 dark:text-zinc-400 print:text-black uppercase text-[10px] print:text-[7.5pt] font-medium leading-tight break-words max-w-[110px]">
+                        {p.setor}
+                      </td>
                       <td className="py-2 px-3 text-zinc-500 print:text-black italic leading-tight">
                         {p.estado === 'falta' && (
                           <span className="not-italic font-bold text-red-700 dark:text-red-400 print:text-black">
@@ -544,10 +582,10 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
                     <td colSpan={6} className="py-2 px-3 text-right font-black uppercase text-[9px] print:text-[7.5pt] text-zinc-700 dark:text-zinc-300 print:text-black">
                       Total Cumprido:
                     </td>
-                    <td className="py-2 px-2 text-center font-black text-zinc-900 dark:text-white print:text-black whitespace-nowrap">
-                      {cumpridas}h
+                    <td className="py-2 px-1.5 text-center font-mono font-black text-zinc-900 dark:text-white print:text-black whitespace-nowrap">
+                      {cumpridas > 0 ? `${cumpridas}:00` : '0:00'}
                     </td>
-                    <td className="py-2 px-2 text-center font-mono font-black text-blue-600 dark:text-blue-400 print:text-black whitespace-nowrap">
+                    <td className="py-2 px-1.5 text-center font-mono font-black text-blue-600 dark:text-blue-400 print:text-black whitespace-nowrap">
                       {totalRealizadas || '-'}
                     </td>
                     <td colSpan={3} className="py-2 px-3 text-left text-[9px] print:text-[7pt] text-zinc-500 print:text-black italic">
@@ -637,7 +675,7 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
                     <th className="py-2 px-3">Escala de Prontidão</th>
                     <th className="py-2 px-3 text-center">Horário Previsto</th>
                     <th className="py-2 px-3 text-center w-14">Horas Prontidão</th>
-                    <th className="py-2 px-3">Setor</th>
+                    <th className="py-2 px-2 w-28">Setor</th>
                     <th className="py-2 px-3 min-w-[180px]">Acionamento Presencial (Chamado / Chegada / Saída)</th>
                     <th className="py-2 px-3">Motivo / Justificativa do Atendimento</th>
                   </tr>
@@ -650,7 +688,7 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
                       <td className="py-2 px-3 font-bold text-zinc-900 dark:text-white print:text-black uppercase">{s.turno_nome}</td>
                       <td className="py-2 px-3 text-center font-mono text-zinc-600 dark:text-zinc-400 print:text-black">{s.horario_previsto}</td>
                       <td className="py-2 px-3 text-center font-bold text-emerald-600 dark:text-emerald-400 print:text-black">{s.horas_prontidao}h</td>
-                      <td className="py-2 px-3 text-zinc-600 dark:text-zinc-400 print:text-black uppercase print-full-text truncate max-w-[140px]">{s.setor}</td>
+                      <td className="py-2 px-2 text-zinc-600 dark:text-zinc-400 print:text-black uppercase text-[10px] print:text-[7.5pt] font-medium leading-tight break-words max-w-[110px]">{s.setor}</td>
                       <td className="py-2 px-3">
                         {s.acionamentos.length > 0 ? (
                           <div className="space-y-1.5 print:space-y-1">

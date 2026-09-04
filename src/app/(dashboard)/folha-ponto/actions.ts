@@ -3058,7 +3058,7 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
             minutosRealizados = diffMin
             const h = Math.floor(diffMin / 60)
             const m = diffMin % 60
-            horasRealizadasStr = `${h}h ${String(m).padStart(2, '0')}m`
+            horasRealizadasStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
           }
         }
 
@@ -3193,7 +3193,7 @@ export async function getDadosPlantoesSobreavisosServidor(servidorId: string, me
       .filter(ehCumprido)
       .reduce((acc, p) => acc + (p.minutos_realizados || 0), 0)
     const totalHorasPlantaoRealizadas = totalMinutosPlantaoRealizados > 0
-      ? `${Math.floor(totalMinutosPlantaoRealizados / 60)}h ${String(totalMinutosPlantaoRealizados % 60).padStart(2, '0')}m`
+      ? `${Math.floor(totalMinutosPlantaoRealizados / 60)}:${String(totalMinutosPlantaoRealizados % 60).padStart(2, '0')}`
       : undefined
 
     // Prontidao cumprida usa o mesmo criterio do plantao. `totalHorasSobreavisoEscalado` fica

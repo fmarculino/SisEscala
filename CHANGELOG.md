@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.37.2] - 2026-09-04
+
+### Changed
+
+- **Compactação e layout da tabela no Demonstrativo de Plantões e Sobreavisos** (`RelatorioPlantaoSobreavisoAnexo.tsx`):
+  - Títulos das colunas `HORAS PREVISTAS` e `HORAS REALIZADAS` empilhados em duas linhas para economizar espaço horizontal.
+  - Formatação dos valores em `xx:xx` (HH:MM) em vez de `xxh xxm`, alinhando à representação de horários/duração da folha e liberando espaço para as observações.
+  - Coluna `SETOR` com quebra de linha natural das palavras (`break-words`) e remoção do truncamento com reticências, exibindo o nome completo e ocupando melhor a altura da célula.
+
 ## [2.37.1] - 2026-09-04
 
 ### Added
