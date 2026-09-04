@@ -191,3 +191,41 @@ Migration validada em **homologação** (`sisescala-dev`), com ensaio revertido 
 Portão do frontend: `node scratchpad/sim_mesclagem_cadastro.js` (40 casos), validado injetando três
 regressões — peso antes da matrícula definitiva, chute no empate, e o rastro da mesclagem entrando
 no relato do que foi movido. As três reprovam.
+
+---
+
+## Adendo (mesmo dia): o primeiro uso real achou um defeito
+
+A mesclagem da MARIA NAZARE funcionou — `T2600103` ficou Inativa apontando para `65567`. Mas a
+lotação real dela é a **USF Parteira Maria Bico Doce**, e ao transferir o cadastro que ficou para
+lá a tela recusou:
+
+> Este CPF já está cadastrado para MARIA NAZARE NERES BRITO (matrícula T2600103) na unidade USF
+> Parteira Maria Bico Doce. […] marque a confirmação de vínculo adicional.
+
+**A duplicata recém-resolvida estava bloqueando o cadastro que a absorveu** — e a saída oferecida
+era marcar a confirmação de vínculo adicional, *a mesma caixa* cujo uso indevido criou o problema.
+Como o cadastro mesclado nunca é apagado, o bloqueio seria permanente.
+
+A causa é o preço de inativar em vez de excluir: `fn_cpf_ja_cadastrado` (o portão de
+`createServidor`/`updateServidor` desde que o índice único de CPF caiu, `20260810140000`) e
+`fn_possiveis_duplicidades_servidor` olham a tabela inteira, sem distinguir cadastro vivo de
+duplicata já resolvida.
+
+`20260904140000` tira das duas quem tem `mesclado_em_servidor_id` preenchido.
+
+⚠️ **O critério é `mesclado_em_servidor_id`, não `status = 'Inativo'`.** Servidor inativado por
+exoneração continua sendo alerta legítimo ao recadastrar o mesmo CPF; quem foi *mesclado*, não —
+aquele cadastro já foi declarado duplicata de outro que existe.
+
+Validado em homologação, com o par criado e mesclado dentro do ensaio: bloqueios **1 → 0** depois
+da mesclagem, e **1** de novo quando um terceiro cadastro *vivo* com o mesmo CPF entra — a checagem
+não foi afrouxada demais.
+
+### Como a transferência fica depois disso
+
+O cadastro que ficou não tinha escala, folha nem batida (só o vínculo com o relógio da Hiroshi),
+então a troca de lotação não move nada. Para o Administrador Geral a transferência é **direta**: a
+lotação é gravada na hora, e a data serve ao histórico e à decisão sobre a escala — que aqui não
+existe. A antecedência mínima de dias úteis (`dias_uteis_transferencia_servidor`) continua valendo
+para todos os papéis, inclusive `super_admin`.

@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.39.1] - 2026-09-04
+
+### Fixed
+
+- **Cadastro mesclado bloqueava para sempre a edição do cadastro que ficou.** Achado no primeiro
+  uso real da mesclagem (v2.39.0): como `fn_mesclar_servidores` **inativa** o duplicado em vez de
+  excluí-lo, as duas checagens de CPF do sistema continuavam enxergando aquela linha.
+  - `fn_cpf_ja_cadastrado` — portão de `createServidor`/`updateServidor` desde que o índice
+    único de CPF foi derrubado (`20260810140000`) — acusava "Este CPF já está cadastrado" contra a
+    própria duplicata recém-mesclada, e exigia marcar a confirmação de vínculo adicional: a **mesma
+    caixa** cujo uso indevido cria o problema que a mesclagem acabou de desfazer. Foi o que barrou
+    a transferência da MARIA NAZARE para a unidade correta;
+  - `fn_possiveis_duplicidades_servidor` continuaria listando o par como suspeita em
+    `/servidores/pendencias`, também para sempre.
+  - As duas passam a ignorar quem tem `mesclado_em_servidor_id` preenchido (migration
+    `20260904140000`). O critério é esse e **não** "status = Inativo": servidor inativado por
+    exoneração continua sendo alerta legítimo ao recadastrar o mesmo CPF; quem foi **mesclado**,
+    não — aquele cadastro já foi declarado duplicata de outro que existe.
+  - Validado em homologação: o bloqueio cai de 1 para 0 após a mesclagem, e um terceiro cadastro
+    **vivo** com o mesmo CPF continua sendo pego (a checagem não foi afrouxada demais).
+
 ## [2.39.0] - 2026-09-04
 
 Relato do usuário: uma servidora cadastrada duas vezes (matrícula `65567` correta, `T2600103`

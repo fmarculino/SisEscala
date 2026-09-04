@@ -3591,6 +3591,20 @@ separa nada quando as duas são temporárias** — existe assim na base (ANA LUC
 ⚠️ **A escala movida continua no setor onde foi lançada** — a mesclagem não adivinha qual escala é
 a "de verdade". Quem resolve é a grade ou mover/dividir a escala (`20260903120000`). A tela avisa.
 
+🚨 **INATIVAR em vez de excluir tem um preço, e ele apareceu no primeiro uso real:** o cadastro
+mesclado continuava sendo enxergado pelas duas checagens de CPF, e **`fn_cpf_ja_cadastrado` é o
+portão de `createServidor`/`updateServidor`** desde que o índice único caiu. Editar o cadastro
+que FICOU passava a acusar "Este CPF já está cadastrado" contra a própria duplicata inativada — e
+a saída oferecida era marcar a confirmação de vínculo adicional, **a mesma caixa cujo uso indevido
+cria o problema que a mesclagem desfaz**. Como o mesclado nunca é apagado, o bloqueio era para
+sempre. `20260904140000` tira quem tem `mesclado_em_servidor_id` das duas checagens
+(`fn_cpf_ja_cadastrado` e `fn_possiveis_duplicidades_servidor`).
+
+⚠️ **O critério é `mesclado_em_servidor_id`, nunca `status = 'Inativo'`.** Servidor inativado
+por exoneração continua sendo alerta legítimo ao recadastrar o mesmo CPF; quem foi mesclado, não.
+Ao acrescentar qualquer checagem nova sobre CPF repetido, **exclua os mesclados** — senão a
+duplicata resolvida volta a bloquear pela porta nova.
+
 Portão: `node scratchpad/sim_mesclagem_cadastro.js` (40 casos). Transpile antes com
 `npx tsc src/utils/mesclagemCadastro.ts --outDir scratchpad/_sim --module commonjs --target es2020`.
 **Validado injetando três regressões** (peso antes da matrícula definitiva, chute no empate, rastro
