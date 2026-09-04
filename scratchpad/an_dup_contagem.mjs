@@ -1,0 +1,16 @@
+import { all } from './an_duplicados.mjs'
+const sv = await all('servidores?select=id,nome,matricula,cpf,pis_pasep,status,unidade_id,setor_id,vinculo_multiplo_confirmado,created_at&order=nome')
+console.log('total servidores:', sv.length)
+const norm = s => (s||'').replace(/\D/g,'')
+const porCpf = new Map()
+for(const s of sv){ const c = norm(s.cpf); if(!c) continue; if(!porCpf.has(c)) porCpf.set(c,[]); porCpf.get(c).push(s) }
+const dups = [...porCpf.entries()].filter(([,v])=>v.length>1)
+console.log('CPFs com mais de um cadastro:', dups.length)
+const ativos = dups.filter(([,v])=>v.filter(x=>x.status==='Ativo').length>1)
+console.log('  ...com 2+ ATIVOS:', ativos.length)
+const confirmados = dups.filter(([,v])=>v.some(x=>x.vinculo_multiplo_confirmado))
+console.log('  ...com vinculo_multiplo_confirmado marcado em algum:', confirmados.length)
+const tempEjunto = ativos.filter(([,v])=> v.some(x=>/^T\d/i.test(x.matricula||'')) && v.some(x=>!/^T\d/i.test(x.matricula||'')))
+console.log('  ...ativos com uma matricula temporaria + uma definitiva:', tempEjunto.length)
+console.log('\nMARIA NAZARE:')
+console.log(sv.filter(s=>/MARIA NAZARE NERES/i.test(s.nome)))

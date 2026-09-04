@@ -2,6 +2,49 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.39.0] - 2026-09-04
+
+Relato do usuário: uma servidora cadastrada duas vezes (matrícula `65567` correta, `T2600103`
+criada por engano por outra unidade, marcada como se fosse duplo vínculo). Não existia como
+desfazer — a tela de Pendências apenas **listava** duplicidades, sem oferecer ação. Medido em
+produção: **17 CPFs** com dois cadastros ativos, **todos** com a confirmação de duplo vínculo
+marcada em algum lado. Diário em
+`docs/evolucao/2026-09-04-mesclar-cadastros-duplicados-de-servidor.md`.
+
+### Added
+
+- **Mesclagem de cadastros duplicados de servidor** — nova seção "Cadastros duplicados" em
+  `/servidores/pendencias`, exclusiva do **Administrador Geral**. Escolhe-se qual cadastro fica, e
+  todo o vínculo do outro (ponto, escala, folha, vínculos de relógio, afastamentos, solicitações)
+  passa para ele.
+  - migration `20260904130000`: `fn_cadastros_duplicados`, `fn_dependencias_servidor`,
+    `fn_impedimentos_mesclagem_servidor` e `fn_mesclar_servidores`, todas `super_admin` e todas
+    com `REVOKE ... FROM PUBLIC, anon`;
+  - `servidores.mesclado_em_servidor_id` / `mesclado_em` / `mesclado_por` — o rastro de para onde
+    o cadastro foi;
+  - fonte única de tela em `src/utils/mesclagemCadastro.ts`; portão
+    `scratchpad/sim_mesclagem_cadastro.js` (40 casos), validado com três regressões injetadas.
+
+### Changed
+
+- **`fn_bloquear_alteracao_marcacao` ganhou um terceiro ramo.** `marcacoes_ponto` continua
+  INSERT-only; a exceção nova permite trocar **apenas** `servidor_id`, e só durante uma mesclagem
+  declarada (GUC `sisescala.mesclar_servidor`), com o registro inteiro menos essa coluna idêntico.
+  Sem isso, nenhum cadastro com batida poderia ser mesclado — e batida é o que 16 dos 17 casos
+  têm. Horário, NSR, equipamento e origem continuam impossíveis de alterar.
+
+### Notes
+
+- **Move e inativa; não exclui.** A matrícula do cadastro errado pode ter sido impressa em folha e
+  escala — ela continua existindo, Inativa, apontando para quem a absorveu.
+- **Recusa em bloco** quando há CPF divergente, escala sobreposta no mesmo dia (a regra da
+  armadilha 23 aplicada antes de o estado ser criado), colisão de unicidade ou cadastro já
+  mesclado. A tela mostra o impedimento **antes** da confirmação.
+- **A escala movida continua no setor onde foi lançada** — a mesclagem não decide qual escala é a
+  correta; isso é da grade ou de mover/dividir a escala.
+- Migration validada em homologação com ensaio revertido (mesclagem completa, as recusas, a
+  imutabilidade da marcação e os 13 índices únicos reais).
+
 ## [2.37.2] - 2026-09-04
 
 ### Changed

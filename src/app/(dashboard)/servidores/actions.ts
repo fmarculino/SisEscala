@@ -21,6 +21,7 @@ import { MOTIVO_OBRIGATORIO, traduzirErroVigencia } from '@/utils/vigenciaJornad
 import { mensagemRecusaPin, gerarPin } from '@/utils/pin'
 import { gerarMensagemAcessoPortal } from '@/utils/servidorMensagens'
 import { sendPinEmailAction } from '@/app/actions/communication'
+import { descreverMovimentacao, type GrupoDuplicado } from '@/utils/mesclagemCadastro'
 
 const normalizarCpf = (cpf?: string | null) => (cpf || '').replace(/\D/g, '')
 
@@ -2042,3 +2043,136 @@ export async function avaliarSolicitacaoTransferencia(params: {
   return { success: true, escala: resultadoTransferencia.escala, avisoEscala: resultadoTransferencia.escala ? descreverRelato(resultadoTransferencia.escala) : null }
 }
 
+
+// ============================================================================
+// MESCLAGEM DE CADASTROS DUPLICADOS (04/09/2026)
+// ============================================================================
+// Regra inteira no banco: fn_cadastros_duplicados, fn_impedimentos_mesclagem_servidor e
+// fn_mesclar_servidores (migration 20260904130000). As três checam super_admin por conta própria.
+//
+// ⚠️ O papel é conferido AQUI também, e não por desconfiança do banco: server action é um POST
+// cujo id sai no bundle do navegador (armadilha 12 do CLAUDE.md). A diferença prática é a
+// mensagem — sem esta checagem, quem não pode receberia o erro cru do Postgres.
+
+/** Grupos de CPF com mais de um cadastro ainda não mesclado, com o peso de cada lado. */
+export async function listarCadastrosDuplicados() {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Sessão expirada. Entre novamente.' }
+
+  const { data: perfil } = await supabase
+    .from('profiles').select('role').eq('id', user.id).single()
+  if (perfil?.role !== 'super_admin') {
+    return { error: 'Apenas o Administrador Geral pode mesclar cadastros.' }
+  }
+
+  const { data, error } = await supabase.rpc('fn_cadastros_duplicados')
+  if (error) return { error: error.message }
+
+  return { grupos: (data || []) as GrupoDuplicado[] }
+}
+
+/** Tudo que está pendurado num cadastro — é o que a mesclagem vai mover. */
+export async function listarDependenciasServidor(servidorId: string) {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Sessão expirada. Entre novamente.' }
+
+  const { data: perfil } = await supabase
+    .from('profiles').select('role').eq('id', user.id).single()
+  if (perfil?.role !== 'super_admin') {
+    return { error: 'Apenas o Administrador Geral pode mesclar cadastros.' }
+  }
+
+  const { data, error } = await supabase.rpc('fn_dependencias_servidor', {
+    p_servidor_id: servidorId,
+  })
+  if (error) return { error: error.message }
+
+  return { dependencias: (data || []) as { tabela: string; coluna: string; qtd: number }[] }
+}
+
+/**
+ * O que impede mesclar este par. Consultado a cada troca da escolha, para o Administrador ver o
+ * problema enquanto ainda pode trocar — a MESMA checagem roda de novo dentro de
+ * fn_mesclar_servidores, que é quem de fato decide.
+ */
+export async function verificarMesclagemCadastro(origemId: string, destinoId: string) {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Sessão expirada. Entre novamente.' }
+
+  const { data: perfil } = await supabase
+    .from('profiles').select('role').eq('id', user.id).single()
+  if (perfil?.role !== 'super_admin') {
+    return { error: 'Apenas o Administrador Geral pode mesclar cadastros.' }
+  }
+
+  const { data, error } = await supabase.rpc('fn_impedimentos_mesclagem_servidor', {
+    p_origem: origemId,
+    p_destino: destinoId,
+  })
+  if (error) return { error: error.message }
+
+  return { impedimentos: (data || []) as { motivo: string; detalhe: string }[] }
+}
+
+/**
+ * Move TODO vínculo do cadastro duplicado para o cadastro que fica e inativa o duplicado.
+ *
+ * ⚠️ Não exclui, e a diferença importa: a matrícula do cadastro errado pode ter sido impressa em
+ * folha de ponto e escala. Ela continua existindo, Inativa, apontando para quem a absorveu.
+ */
+export async function mesclarCadastrosServidor(
+  origemId: string,
+  destinoId: string,
+  motivo?: string | null,
+) {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Sessão expirada. Entre novamente.' }
+
+  const { data: perfil } = await supabase
+    .from('profiles').select('role').eq('id', user.id).single()
+  if (perfil?.role !== 'super_admin') {
+    return { error: 'Apenas o Administrador Geral pode mesclar cadastros.' }
+  }
+
+  if (!origemId || !destinoId || origemId === destinoId) {
+    return { error: 'Escolha dois cadastros diferentes: o duplicado e o que fica.' }
+  }
+
+  const { data, error } = await supabase.rpc('fn_mesclar_servidores', {
+    p_origem: origemId,
+    p_destino: destinoId,
+    p_motivo: motivo?.trim() || null,
+  })
+
+  if (error) return { error: error.message }
+
+  const resultado = (data || {}) as { movidos?: Record<string, number>; campos_completados?: string[] }
+
+  // Relata o que MUDOU, não o que foi calculado (armadilha 22 do CLAUDE.md): quando o cadastro
+  // duplicado estava vazio — o caso mais simples e o mais comum de encontrar cedo — não houve
+  // vínculo nenhum a mover, e dizer "mesclado" sem dizer isso deixaria quem clicou procurando
+  // por um efeito que não existe.
+  const movimentos = descreverMovimentacao(resultado.movidos)
+
+  revalidatePath('/servidores/pendencias')
+  revalidatePath('/servidores')
+  revalidatePath(`/servidores/${destinoId}`)
+  revalidatePath(`/servidores/${origemId}`)
+  revalidatePath('/escalas')
+  revalidatePath('/folha-ponto')
+
+  return {
+    success: true,
+    resultado,
+    movimentos,
+    camposCompletados: resultado.campos_completados || [],
+  }
+}

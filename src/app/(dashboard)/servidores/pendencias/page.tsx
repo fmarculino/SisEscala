@@ -205,6 +205,9 @@ export default async function PendenciasCadastroPage() {
       <PendenciasCadastroClient
         documentosInvalidos={[]}
         duplicidades={[]}
+        cadastrosDuplicados={[]}
+        erroCadastrosDuplicados={null}
+        podeMesclarCadastros={false}
         semCpf={[]}
         totalServidores={0}
         semPisCount={0}
@@ -244,12 +247,18 @@ export default async function PendenciasCadastroPage() {
   }
 
   const [
-    documentosInvalidosRes, duplicidadesRes, semCpfRes, totaisRes, semPisRes,
+    documentosInvalidosRes, duplicidadesRes, cadastrosDuplicadosRes, semCpfRes, totaisRes, semPisRes,
     pendentesRhRes, unidadesRes, setoresRes, cargosRes,
     solicitacoesTransferenciaRes, profilesRes,
   ] = await Promise.all([
     supabase.rpc('fn_documentos_invalidos'),
     supabase.rpc('fn_possiveis_duplicidades_servidor'),
+    // Cadastros duplicados com AÇÃO (mesclar) — só o Administrador Geral. A RPC recusa os
+    // demais papéis por conta própria; não chamar aqui evita um erro inútil na tela de quem
+    // não teria o que fazer com a resposta.
+    role === 'super_admin'
+      ? supabase.rpc('fn_cadastros_duplicados')
+      : Promise.resolve({ data: [] as any[], error: null }),
     supabase
       .from('servidores')
       .select('id, nome, matricula, status, setor_id, unidades(nome), setores(dicionario_setores(nome))')
@@ -335,6 +344,9 @@ export default async function PendenciasCadastroPage() {
       semPisCount={semPisCount || 0}
       erroDocumentos={documentosInvalidosRes.error?.message || null}
       erroDuplicidades={duplicidadesRes.error?.message || null}
+      cadastrosDuplicados={(cadastrosDuplicadosRes.data || []) as any[]}
+      erroCadastrosDuplicados={cadastrosDuplicadosRes.error?.message || null}
+      podeMesclarCadastros={role === 'super_admin'}
       pendentesRh={pendentesRh}
       erroPendentesRh={pendentesRhRes.error?.message || null}
       unidades={unidadesRes.data || []}

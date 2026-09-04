@@ -3520,6 +3520,84 @@ Portões: `node scratchpad/sim_afastamento_parcial.js` (62 casos) e
 Transpile antes com
 `npx tsc src/utils/afastamentoParcial.ts src/utils/afastamentos.ts src/utils/folha/afastamentosDia.ts --outDir scratchpad/_sim --module commonjs --target es2020`.
 **Validado em homologação contra o banco real, 9 de 9.**
+### 50. Cadastro duplicado de servidor: a confirmação de duplo vínculo apaga a diferença entre engano e vínculo real (04/09/2026)
+
+⚠️ **`servidores` é "1 linha = 1 vínculo" e o índice único de CPF foi DERRUBADO de propósito**
+(`20260810140000`, 110 CPFs com dois vínculos legítimos). O que sobrou no lugar é
+`vinculo_multiplo_confirmado` — uma confirmação humana na tela de cadastro. Na prática **quem está
+cadastrando marca a caixa para o sistema deixar salvar**, e a partir daí o engano fica
+indistinguível do duplo vínculo de verdade.
+
+Medido em 04/09/2026, em 2.075 servidores: **17 CPFs com dois cadastros ativos, e os 17 com a
+confirmação marcada** em pelo menos um lado. Caso relatado: MARIA NAZARE (65567, USF HIROSHI
+MATSUDA) recadastrada por outra unidade como `T2600103`, com a confirmação marcada.
+
+E não havia saída: `/servidores/pendencias` **listava** as duplicidades
+(`fn_possiveis_duplicidades_servidor`) sem oferecer ação — armadilha 44 na forma de apontar o
+problema sem dar o que fazer com ele.
+
+Fonte única desde `20260904130000`: **`fn_mesclar_servidores(origem, destino, motivo)`**, com
+`fn_cadastros_duplicados` (os grupos, com o peso de cada lado),
+`fn_impedimentos_mesclagem_servidor` (o que impede, consultado pela tela antes de confirmar) e
+`fn_dependencias_servidor`. Só `super_admin`. No frontend, `src/utils/mesclagemCadastro.ts`.
+Diário em
+[`docs/evolucao/2026-09-04-mesclar-cadastros-duplicados-de-servidor.md`](docs/evolucao/2026-09-04-mesclar-cadastros-duplicados-de-servidor.md).
+
+⚠️ **MOVE e INATIVA — não exclui**, ao contrário de `fn_fundir_setor`. A linha errada carrega uma
+**matrícula** que pode ter sido impressa em folha, escala e relatório; apagá-la é apagar a única
+explicação possível para aquele número. Ela fica `Inativo` com `mesclado_em_servidor_id` apontando
+para quem a absorveu.
+
+⚠️ **E move mesmo com ponto e escala do lado errado.** Medido: só **1 dos 17** casos tem o cadastro
+errado vazio — exigir limpeza antes tornaria a ferramenta inútil em 16. A batida do lado errado não
+é lixo: a pessoa bateu de verdade, a batida só foi atribuída à linha errada. Mover preserva o fato;
+apagar destruiria prova (Portaria 671/2021).
+
+🚨 **Terceiro ramo em `fn_bloquear_alteracao_marcacao`.** Sem ele nenhum cadastro com batida podia
+ser mesclado. Mesma forma estreita do da fusão de setor: GUC `sisescala.mesclar_servidor` **e**
+`to_jsonb(NEW) - 'servidor_id' = to_jsonb(OLD) - 'servidor_id'`. **Os TRÊS ramos** (reparse de AFD,
+fusão de setor, mesclagem) precisam sobreviver a qualquer recriação da função — armadilha 1.
+
+⚠️ **A varredura de unicidade é por `pg_INDEX`, não `pg_constraint`** — e copiar
+`fn_impedimentos_fusao_setor` sem notar isso seria o bug. **Índice único PARCIAL não aparece em
+`pg_constraint`**, e medido em 04/09/2026: dos **13** índices únicos que envolvem `servidor_id`,
+**8 são parciais** (`uq_profiles_servidor_id`, solicitação pendente, férias não cancelada…). A
+conta de usuário ficaria de fora e o `UPDATE` quebraria no meio da mesclagem.
+
+⚠️ **E o PREDICADO do índice parcial entra na conta.** Ignorá-lo parece conservador e erra dos dois
+lados: recusa mesclagem por colisão que não existe (duas solicitações **já decididas**) e, no
+descarte de `rep_cadastros_fila`, apaga linha **histórica** em vez de só a pendente. Cada lado vai
+numa subconsulta própria (`FROM (SELECT * FROM tab WHERE <pred>) o`), senão as colunas nuas do
+predicado ficam ambíguas entre `o` e `d`.
+
+⚠️ **A checagem de escala sobreposta tem que ser AQUI, não no trigger.**
+`fn_prevent_cross_sector_shift_overlap` (armadilha 23) olha `escala_diaria`; a mesclagem move
+`escala_mensal.servidor_id` e **passa por baixo dele**. Sem o impedimento, mesclar CRIA o estado que
+aquele trigger existe para impedir — e a folha conta as mesmas horas duas vezes.
+
+⚠️ **Campos de pessoa são allowlist explícita, ao contrário das FKs.** A varredura de FK é dinâmica
+porque lista à mão envelhece e a tabela esquecida fica apontando para o cadastro inativado. Nos
+**campos copiados** a assimetria se inverte: copiar por engano é pior que não copiar. Fora da lista,
+de propósito: matrícula, cargo, vínculo, unidade, setor e jornada (são do *vínculo*) e dados
+bancários (podem ser a conta do outro contrato). E **nunca sobrescreve** — só preenche o que está
+vazio no cadastro que fica.
+
+⚠️ **A tela não esconde o grupo já confirmado como duplo vínculo, e não pré-marca a sugestão.** Foi
+uma confirmação marcada por engano que criou o caso; esconder o grupo confirmado esconderia o que a
+ferramenta existe para desfazer. E a heurística (matrícula definitiva vence a temporária) **não
+separa nada quando as duas são temporárias** — existe assim na base (ANA LUCIA, `T2600020` ×
+`T2600056`).
+
+⚠️ **A escala movida continua no setor onde foi lançada** — a mesclagem não adivinha qual escala é
+a "de verdade". Quem resolve é a grade ou mover/dividir a escala (`20260903120000`). A tela avisa.
+
+Portão: `node scratchpad/sim_mesclagem_cadastro.js` (40 casos). Transpile antes com
+`npx tsc src/utils/mesclagemCadastro.ts --outDir scratchpad/_sim --module commonjs --target es2020`.
+**Validado injetando três regressões** (peso antes da matrícula definitiva, chute no empate, rastro
+da mesclagem entrando no relato) — as três reprovam. A migration foi validada em **homologação**,
+com ensaio revertido: mesclagem completa, recusa por escala sobreposta, recusa por CPF divergente,
+imutabilidade da marcação mantida com o GUC ligado, e os 13 índices reais exercitados.
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.

@@ -3,12 +3,14 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
-  AlertTriangle, UserX, Copy, Hash, CheckCircle2, Search,
+  AlertTriangle, UserX, Copy, Hash, CheckCircle2, Search, Users,
   ChevronDown, ChevronUp, ExternalLink, Info, UserPlus, ArrowRightLeft,
 } from 'lucide-react'
 import { ImportacaoRhSection } from './ImportacaoRhSection'
 import { ImportacaoPlanilhaSection } from './ImportacaoPlanilhaSection'
 import { SolicitacoesTransferenciaSection } from './SolicitacoesTransferenciaSection'
+import { CadastrosDuplicadosSection } from './CadastrosDuplicadosSection'
+import type { GrupoDuplicado } from '@/utils/mesclagemCadastro'
 
 interface DocumentoInvalido {
   tabela: string
@@ -66,6 +68,13 @@ interface PendenciasCadastroClientProps {
   semPisCount: number
   erroDocumentos: string | null
   erroDuplicidades: string | null
+  /**
+   * Grupos de CPF repetido COM ação (mesclar) — só chegam preenchidos para o Administrador Geral.
+   * Diferente de `duplicidades`, que é diagnóstico e não oferece nada a fazer sobre o que mostra.
+   */
+  cadastrosDuplicados: GrupoDuplicado[]
+  erroCadastrosDuplicados: string | null
+  podeMesclarCadastros: boolean
   pendentesRh: PendenteRh[]
   erroPendentesRh: string | null
   unidades: { id: string; nome: string }[]
@@ -175,6 +184,7 @@ function EmptyState({ text }: { text: string }) {
 export function PendenciasCadastroClient({
   documentosInvalidos, duplicidades, semCpf, totalServidores, semPisCount,
   erroDocumentos, erroDuplicidades,
+  cadastrosDuplicados, erroCadastrosDuplicados, podeMesclarCadastros,
   pendentesRh, erroPendentesRh, unidades, setores, cargos,
   solicitacoesTransferencia, erroSolicitacoesTransferencia, podeAvaliarTransferencia,
   escopoLimitado,
@@ -255,6 +265,9 @@ export function PendenciasCadastroClient({
         <StatCard icon={AlertTriangle} label="Documentos com dígito inválido" value={documentosInvalidos.length} tone={documentosInvalidos.length ? 'red' : 'green'} />
         <StatCard icon={UserX} label="Servidores sem CPF" value={semCpf.length} tone={semCpf.length ? 'amber' : 'green'} note={totalServidores ? `${Math.round((semCpf.length / totalServidores) * 100)}% do quadro` : undefined} />
         <StatCard icon={Copy} label="Possíveis duplicidades" value={duplicidades.length} tone={duplicidades.length ? 'amber' : 'green'} note="grupos suspeitos" />
+        {podeMesclarCadastros && (
+          <StatCard icon={Users} label="CPFs com mais de um cadastro" value={cadastrosDuplicados.length} tone={cadastrosDuplicados.length ? 'amber' : 'green'} note="dá para mesclar" />
+        )}
         <StatCard icon={Hash} label="Servidores sem PIS/PASEP" value={semPisCount} tone="zinc" note="projeto da Fase 9 do REP — não é anomalia" />
       </div>
 
@@ -275,6 +288,12 @@ export function PendenciasCadastroClient({
       />
 
       <ImportacaoPlanilhaSection unidades={unidades} setores={setores} cargos={cargos} />
+
+      {/* A ação vem ANTES do diagnóstico: a lista de "possíveis duplicidades" logo abaixo é
+          leitura (inclui nome/telefone/e-mail iguais, que não se resolvem mesclando). */}
+      {podeMesclarCadastros && (
+        <CadastrosDuplicadosSection grupos={cadastrosDuplicados} erro={erroCadastrosDuplicados} />
+      )}
 
       {/* Documentos inválidos */}
       <section className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
