@@ -3125,6 +3125,26 @@ Portão: `node scratchpad/sim_autorizacao_carga.js` (69 casos). Transpile antes 
 **Validado injetando três regressões de propósito** (voltar a admin-only, ressuscitar o texto
 "Solicite a um Administrador", e dar autorização ao coordenador) — as três reprovam.
 
+⚠️ **O Diretor ficou 3 dias autorizando a rede inteira, e o pedido para "acrescentá-lo" era, na
+verdade, para FECHÁ-LO** (`20260903110000`, 03/09/2026). A `20260831120000` escopou `rh_unidade`
+por `profile_unidades` e deixou `admin` no mesmo ramo de `super_admin`/`rh` — sem escopo nenhum.
+Medido em 03/09/2026: os 3 diretores têm `acesso_todas_unidades = false` e **uma única unidade**
+cada (2 SMS, 1 HMI), e os dois da SMS decidiam os 5 pedidos pendentes do HMI. Desde então `admin`
+divide o ramo escopado com `rh_unidade`; sem escopo só `super_admin` e `rh` — e isso **não pode
+ser fechado**, porque a autorização é uma por (servidor, mês, ano) e vale para a rede toda
+(armadilha 26): quando duas unidades disputam o mesmo número, alguém precisa enxergar as duas.
+
+⚠️ **Não escope pela unidade do PEDIDO.** `fn_pode_autorizar_excecao_carga` recebe
+`(servidor, mês, ano)` e é avaliada em dois caminhos: a RPC de avaliação (onde há pedido) e a
+**policy de escrita de `excecoes_escala_servidor`**, no escudo da grade (onde **não há**). Duas
+regras para a mesma pergunta deixariam o escudo sem defesa. O critério é o do `rh_unidade`:
+escala da competência **ou** lotação — o ramo de escala é o que preserva o Servidor Externo.
+
+ℹ️ **Como se prova o que está aplicado sem conseguir ler a função:** a porta 5432 é bloqueada e
+não há RPC de SQL cru. A prova veio do **efeito**: 1 das 3 exceções da base foi concedida por uma
+`rh_unidade`, e só a versão de `20260831120000` permite isso. Diário em
+[`docs/evolucao/2026-09-03-escopo-de-unidade-para-o-diretor-autorizar-carga.md`](docs/evolucao/2026-09-03-escopo-de-unidade-para-o-diretor-autorizar-carga.md).
+
 ### 45. A janela de batidas de uma tela não é o DIA CIVIL — e `07:02` sozinho é indecidível (03/09/2026)
 
 ⚠️ **O modal de validação manual filtrava as batidas por dia civil da célula**

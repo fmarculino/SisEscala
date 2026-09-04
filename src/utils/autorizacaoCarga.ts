@@ -16,9 +16,14 @@
  * (migration `20260831120000`) é a fonte única de verdade — ela é avaliada dentro da policy de
  * escrita de `excecoes_escala_servidor` e dentro de `fn_avaliar_solicitacao_excecao_carga`.
  * Aqui só se decide **o que oferecer**, porque a resposta por linha exigiria uma consulta por
- * render. O caso em que as duas divergem é conhecido e tratado: `rh_unidade` recebe `true`
- * abaixo, mas o banco ainda exige que o servidor esteja no escopo dele — a tela, ao receber a
- * recusa, oferece o caminho do pedido em vez de repetir o erro.
+ * render. O caso em que as duas divergem é conhecido e tratado: `rh_unidade` e `admin` recebem
+ * `true` abaixo, mas o banco ainda exige que o servidor esteja no escopo deles — a tela, ao
+ * receber a recusa, oferece o caminho do pedido em vez de repetir o erro.
+ *
+ * ⚠️ Em `/autorizacoes-escala` essa divergência **não** produz botão inútil: cada linha traz
+ * `pode_avaliar` já resolvido pela mesma função do banco, e a tela não reclassifica nada. Quem
+ * está fora do escopo não recebe a linha. É só na grade (o escudo) que o `true` daqui é um
+ * palpite otimista, porque ali não há uma consulta por servidor.
  *
  * ⚠️ Módulo **puro** (sem React, sem Supabase) para ter portão:
  * `node scratchpad/sim_autorizacao_carga.js`.
@@ -33,6 +38,11 @@ export type PapelUsuario =
  * Concede a autorização. RH Geral e RH da Unidade entraram em 31/08/2026 por decisão do usuário:
  * é o RH que autoriza carga horária na prática, e mandá-lo pedir a um Administrador invertia a
  * hierarquia real.
+ *
+ * ⚠️ **A lista não diz o alcance, só o direito.** Desde `20260903110000`, `admin` (Diretor) e
+ * `rh_unidade` concedem **apenas dentro das próprias unidades** (`profile_unidades`, por escala
+ * da competência ou por lotação); sem escopo, só `super_admin` e `rh`. O escopo é do banco — não
+ * o replique aqui, porque ele depende do servidor e do mês, que este módulo não conhece.
  */
 const PAPEIS_QUE_AUTORIZAM = ['super_admin', 'admin', 'rh', 'rh_unidade']
 
