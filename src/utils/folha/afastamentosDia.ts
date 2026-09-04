@@ -15,6 +15,9 @@
  * que espelha `fn_prevent_shift_during_event`. Este módulo é sobre DESCREVER o dia.
  */
 
+import { alcanceNoTurno, minutosPrevistosNosSlots, resumoAfastamentoDia } from '../afastamentoParcial'
+import { previstoDaJornada } from './calculoDia'
+
 export interface AfastamentoDia {
   data_inicio: string
   data_fim: string
@@ -80,9 +83,13 @@ export function minutosAbonadosDoDia(afastamentos: AfastamentoDia[] | null | und
 }
 
 /**
- * O afastamento anula este turno? Por horas nunca anula (é declaração de comparecimento:
- * o servidor trabalha o resto do dia). Integral anula qualquer turno. Por slot, anula o
+ * O afastamento ALCANÇA este turno? Por horas nunca alcança (é declaração de comparecimento:
+ * o servidor trabalha o resto do dia). Integral alcança qualquer turno. Por slot, alcança o
  * turno cujos slots cruzam os dele.
+ *
+ * ⚠️ Alcançar não é ANULAR — a distinção nasceu em 04/09/2026. Um afastamento `{M}` alcança um
+ * turno `MT` sem anulá-lo: o servidor trabalha a tarde, e o dia precisa continuar na folha com
+ * os horários dela. Quem decide anulação é `avaliarAfastamentosNoTurno`, sobre a UNIÃO do dia.
  */
 export function isShiftOverlappingAfastamento(afastamento: any, shift: any): boolean {
   if (!afastamento) return false
@@ -94,6 +101,58 @@ export function isShiftOverlappingAfastamento(afastamento: any, shift: any): boo
   if (!shift || !shift.dicionario_turnos) return false
   const shiftSlots = (shift.dicionario_turnos as any).slots || []
   return shiftSlots.some((s: string) => afastamento.slots.includes(s))
+}
+
+/** O que os afastamentos de um dia fazem com o turno daquele dia. */
+export interface VeredictoAfastamentoTurno {
+  /** Afastamentos que ANULAM o dia. Vazio quando o dia é parcial — ali o servidor trabalhou. */
+  anulantes: AfastamentoDia[]
+  /** Slots do turno cobertos por afastamento parcial. Vazio quando o dia não é parcial. */
+  slotsParciais: string[]
+  /** Minutos da jornada prevista que caem nos slots parciais — o abono do meio período. */
+  abonoParcialMinutos: number
+}
+
+/**
+ * Fonte única das QUATRO cópias da geração de folha para "o que este afastamento faz com o dia".
+ *
+ * 🚨 A avaliação é da UNIÃO dos afastamentos do dia contra os slots do turno, nunca evento a
+ *    evento. Duas declarações de comparecimento (`{M}` e `{T}`) são parciais uma a uma e, juntas,
+ *    cobrem um turno `MT` — tratá-las isoladamente daria um dia "parcial" em que ninguém
+ *    trabalhou. Ver `alcanceNoTurno` em `afastamentoParcial.ts`.
+ *
+ * ⚠️ O abono NÃO desconta o intervalo intrajornada. Na prática ele cai na fronteira M/T (o padrão
+ *    é 12:00, e `FAIXA_SLOT.T` começa exatamente aí), então o período afastado é trabalho puro.
+ *    Descontá-lo exigiria saber onde a jornada põe o intervalo naquele dia — dado que a folha não
+ *    carrega — e erraria mais do que acerta.
+ */
+export function avaliarAfastamentosNoTurno(
+  afastamentosDoDia: AfastamentoDia[],
+  shift: any,
+  jornadaNome?: string | null
+): VeredictoAfastamentoTurno {
+  const turnoSlots: string[] = (shift?.dicionario_turnos as any)?.slots || []
+  const resumo = resumoAfastamentoDia(afastamentosDoDia as any)
+  const alcance = alcanceNoTurno(resumo, turnoSlots)
+
+  if (alcance === 'anula') {
+    return {
+      anulantes: afastamentosDoDia.filter(af => isShiftOverlappingAfastamento(af, shift)),
+      slotsParciais: [],
+      abonoParcialMinutos: 0,
+    }
+  }
+
+  if (alcance === 'parcial') {
+    const slotsParciais = turnoSlots.filter(s => resumo.slots.includes(s))
+    return {
+      anulantes: [],
+      slotsParciais,
+      abonoParcialMinutos: minutosPrevistosNosSlots(slotsParciais, previstoDaJornada(jornadaNome)),
+    }
+  }
+
+  return { anulantes: [], slotsParciais: [], abonoParcialMinutos: 0 }
 }
 
 /**

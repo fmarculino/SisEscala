@@ -223,6 +223,22 @@ export interface RegistroDia extends HorariosDia {
   compensacao_status?: CompensacaoStatus | null
   compensacao_minutos?: number | null
   abono_minutos?: number | null
+  /**
+   * Slots do turno cobertos por afastamento PARCIAL neste dia (`['M']` num turno `MT`).
+   *
+   * 🚨 Preenchido, o dia NAO tem atraso nem saida antecipada medidos. Nao e leniencia: o
+   * `previsto` vem do NOME DA JORNADA e vale para o dia inteiro. Quem tem declaracao de
+   * comparecimento pela manha e volta as 13:10 numa jornada `08H AS 18H` apareceria com 5h10 de
+   * ATRASO contra um horario que ninguem esperava que ela cumprisse — e, com afastamento da
+   * tarde, com 6h de saida antecipada. Recortar o previsto pelo slot tambem nao serve: onde cai o
+   * intervalo e a que horas a declaracao terminou nao estao no dado. Vale o principio que ja rege
+   * `previstoDaJornada`: sem previsto confiavel, nao ha atraso a medir.
+   *
+   * ⚠️ A HORA EXTRA CONTINUA sendo medida. Ela compara a SAIDA contra o fim previsto da jornada,
+   * que o afastamento matinal nao move: quem foi liberada de manha e saiu as 18:30 fez 30 min
+   * depois do horario, e isso e verdade com atestado ou sem.
+   */
+  afastamento_slots?: string[] | null
 }
 
 export type CompensacaoStatus =
@@ -316,15 +332,19 @@ export function calcularDia(
   let saidaAntecipadaMinutos = 0
   let excedenteSaidaMinutos = 0
 
+  // Dia de afastamento PARCIAL: o previsto da jornada nao descreve o que se esperava dela hoje.
+  // Ver `afastamento_slots` em RegistroDia — o excedente da SAIDA continua valendo.
+  const diaParcial = !!registro.afastamento_slots?.length
+
   if (previsto) {
-    if (entradaAbs !== null) {
+    if (entradaAbs !== null && !diaParcial) {
       const d = entradaAbs - previsto.entradaMin
       if (d > PISO_ATRASO_MIN) atrasoEntradaMinutos = d
     }
     if (saidaAbs !== null && !seq.invertido) {
       const d = saidaAbs - previsto.saidaMin
       if (d > 0) excedenteSaidaMinutos = d
-      else if (-d > PISO_ATRASO_MIN) saidaAntecipadaMinutos = -d
+      else if (-d > PISO_ATRASO_MIN && !diaParcial) saidaAntecipadaMinutos = -d
     }
   }
 

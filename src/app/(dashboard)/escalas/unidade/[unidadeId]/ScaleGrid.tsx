@@ -64,6 +64,7 @@ import {
   rotuloAfastamento,
   type AfastamentoEvento
 } from '@/utils/afastamentos'
+import { afastamentoParcialNoTurno, resumoAfastamentoDia } from '@/utils/afastamentoParcial'
 import { NavegacaoEscalas } from './NavegacaoEscalas'
 import { SwapRequestPanel } from '@/components/SwapRequestPanel'
 import { sendWhatsAppMessageAction } from '@/app/actions/communication'
@@ -5147,6 +5148,11 @@ export function ScaleGrid({
                         const blockingEvents = getAfastamentosBloqueantes(em.servidor_id, day, cat, currentSlots)
                         const blockingEvent = blockingEvents[0] || null
                         const isCellBlockedByEvent = !!blockingEvent
+                        // Afastamento de MEIO PERIODO: alcanca parte do turno sem anula-lo. A celula
+                        // fica editavel de proposito — o servidor trabalha o outro periodo, e apagar
+                        // o turno faria a folha perder o que ele de fato cumpriu (ver 20260904120000).
+                        const isMeioPeriodo = !isCellBlockedByEvent &&
+                          afastamentoParcialNoTurno(resumoAfastamentoDia(eventosDoDia as AfastamentoEvento[]), currentSlots)
                         // Sigla do primeiro mais o quanto sobrou: o `+1` denuncia o segundo
                         // lancamento, que a celula nao tem largura para escrever.
                         const eventAbbr = blockingEvent
@@ -5174,7 +5180,7 @@ export function ScaleGrid({
                                       : isHoliday
                                         ? `🎉 Feriado: ${feriado?.descricao}`
                                         : activeEvent
-                                          ? `ℹ️ Servidor em afastamento — ${eventosDoDia.map(ev => `${rotuloAfastamento(ev)}${(ev.periodo_tipo === 'horas' || ev.hora_inicio) ? ' (por horas, não bloqueia a escala do dia)' : ' (alocação permitida nesta linha)'}`).join(' | ')}`
+                                          ? `ℹ️ Servidor em afastamento — ${eventosDoDia.map(ev => `${rotuloAfastamento(ev)}${(ev.periodo_tipo === 'horas' || ev.hora_inicio) ? ' (por horas, não bloqueia a escala do dia)' : ' (alocação permitida nesta linha)'}`).join(' | ')}${isMeioPeriodo ? `\n☑️ MEIO PERÍODO: o servidor trabalha o restante do dia. MANTENHA o turno lançado — apagá-lo faz a folha perder o período efetivamente cumprido.` : ''}`
                                           : ''
                               }`
                             }

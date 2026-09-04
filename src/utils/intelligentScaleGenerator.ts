@@ -58,7 +58,8 @@
  */
 
 import { SupabaseClient } from '@supabase/supabase-js'
-import { afastamentoBloqueiaEscala, afastamentoConflitaComSlots } from '@/utils/afastamentos'
+import { afastamentoBloqueiaEscala } from '@/utils/afastamentos'
+import { afastamentoAnulaTurno, resumoAfastamentoDia } from '@/utils/afastamentoParcial'
 
 export type RowCategory = 'Regular' | 'Extra' | 'Plantão' | 'Sobreaviso'
 
@@ -546,20 +547,24 @@ function limparAfastamentos(
     const doServidor = eventos.filter(ev => ev.servidor_id === sId && afastamentoBloqueiaEscala(ev))
     if (doServidor.length === 0) continue
 
-    for (const ev of doServidor) {
-      for (let d = 1; d <= dias; d++) {
-        const iso = dataISO(ano, mes, d)
-        if (iso < ev.data_inicio || iso > ev.data_fim) continue
+    // ⚠️ O laço externo é o DIA, não o evento. A regra é a cobertura da UNIÃO dos afastamentos
+    // daquele dia (`alcanceNoTurno`): evento a evento, duas declarações parciais `{M}` e `{T}`
+    // nunca anulariam o turno `MT` que juntas cobrem. Ver afastamentoParcial.ts.
+    for (let d = 1; d <= dias; d++) {
+      const iso = dataISO(ano, mes, d)
+      const doDia = doServidor.filter(ev => iso >= ev.data_inicio && iso <= ev.data_fim)
+      if (doDia.length === 0) continue
+      const resumo = resumoAfastamentoDia(doDia)
 
-        for (const cat of CATEGORIAS_GERAVEIS) {
-          const turnoId = categorias[cat][d]
-          if (!turnoId) continue
-          const turno = turnoPorId.get(turnoId)
-          if (afastamentoConflitaComSlots(ev, turno?.slots || [])) {
-            delete categorias[cat][d]
-            contagem[cat].sugeridas--
-            contagem[cat].afastamento++
-          }
+      for (const cat of CATEGORIAS_GERAVEIS) {
+        const turnoId = categorias[cat][d]
+        if (!turnoId) continue
+        const turno = turnoPorId.get(turnoId)
+        // Afastamento PARCIAL não tira a sugestão: o servidor trabalha o resto do dia.
+        if (afastamentoAnulaTurno(resumo, turno?.slots || [])) {
+          delete categorias[cat][d]
+          contagem[cat].sugeridas--
+          contagem[cat].afastamento++
         }
       }
     }

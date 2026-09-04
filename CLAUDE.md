@@ -3448,6 +3448,78 @@ reabrir competência descongela dado guardado para auditoria.
 Portão: `node scratchpad/sim_horas_liquidas.js` (33 casos, cobre as duas armadilhas), validado
 injetando regressões de propósito — voltar a somar o vão bruto, e dar a reabertura ao coordenador.
 
+### 49. Afastamento de MEIO PERÍODO anulava o dia inteiro, e a escala era APAGADA (04/09/2026)
+
+🚨 **Um afastamento por slot `{M}` sobre um turno `MT` fazia o dia todo desaparecer da folha.** Não
+era só bloqueio: `fn_clean_conflicting_shifts` (AFTER INSERT em `servidores_eventos`) **apagava a
+`escala_diaria` do dia** — e apagava **sem olhar slot nenhum**, filtrando só por data e ausência de
+presença. Sem linha na escala, a folha caía no ramo `!shift` e imprimia
+`AFASTAMENTO PARCIAL: DECLARAÇÃO DE COMPARECIMENTO (M) | FOLGA`, sem horário, sem hora normal.
+O `| FOLGA` é a assinatura do defeito. Caso real: LUANA JESUS DE OLIVEIRA (mat. 52705), DMAC/SMS,
+25 e 27/08/2026, jornada `08H ÀS 18H` — trabalhou as duas tardes e a folha marcou folga. Diário em
+[`docs/evolucao/2026-09-04-afastamento-parcial-anulava-o-dia-inteiro.md`](docs/evolucao/2026-09-04-afastamento-parcial-anulava-o-dia-inteiro.md).
+
+**A regra passou a ser a CONTENÇÃO, nunca a interseção** (`20260904120000`; fonte única do
+frontend em `src/utils/afastamentoParcial.ts`, espelho de `fn_afastamento_dia` /
+`fn_afastamento_anula_turno` / `fn_afastamento_parcial_no_turno`):
+
+| o afastamento do dia… | alcance | efeito |
+|---|---|---|
+| integral (sem slots) | `anula` | dia inteiro afastado (inalterado) |
+| COBRE todos os slots do turno | `anula` | dia inteiro afastado (inalterado) |
+| alcança PARTE dos slots | **`parcial`** | preserva a escala e não bloqueia (**novo**) |
+| não alcança nenhum slot | `nao_alcanca` | não é parcial; a limpeza continua apagando (inalterado) |
+
+🚨 **A última linha é deliberada e não pode ser "consertada" junto.** Há **Férias** e **Licença
+Prêmio** em produção com `slots = {M,T}` sobre turno `N` — interseção **vazia**. É uso indevido do
+campo, mas a escala precisa continuar sendo apagada: tratar isso como parcial deixaria a servidora
+**escalada durante as próprias férias**. Por isso a limpeza pergunta `ehParcial`, e não `!anula`.
+
+⚠️ **A leitura é do DIA, nunca de um evento isolado.** Duas declarações de comparecimento no mesmo
+dia (`{M}` e `{T}` — KETHURY CHAVES, 14/08/2026) são parciais uma a uma e **juntas cobrem** o `MT`.
+`fn_afastamento_dia` devolve a união; avaliar evento a evento faria um dia inteiramente afastado
+passar como meio período.
+
+⚠️ **O guard do `DELETE` tem que ler o `integral` da própria `fn_afastamento_dia`, nunca `FALSE`
+fixo** — senão um afastamento integral convivendo com um parcial vira "parcial" e a escala do dia
+inteiro deixa de ser apagada. E o `COALESCE(..., FALSE)` não é zelo: sem afastamento no dia o
+subselect dá `NULL`, e `AND NOT NULL` é `NULL` — a linha não seria apagada. O default de uma
+limpeza é "apaga como antes".
+
+**Na folha**, o dia parcial soma **horas normais integrais** com o meio período em `abono_minutos`
+(decisão do usuário, 04/09/2026) — a mesma regra que o afastamento por horas já seguia, não uma
+segunda regra. E o registro ganha **`afastamento_slots`**, que existe para uma coisa só:
+
+🚨 **impedir que o dia parcial vire ATRASO.** O `previsto` de `calcularDia` vem do nome da jornada e
+vale para o dia inteiro — sem esse campo, quem tem declaração pela manhã e volta às 13:10 numa
+jornada `08H ÀS 18H` aparece com **5h10 de atraso**, e com declaração da tarde, com 6h de "saída
+antecipada". Vale o princípio que já rege `previstoDaJornada`: sem previsto confiável, não se mede
+atraso. ⚠️ **A hora extra CONTINUA sendo medida** — ela compara a saída contra o fim previsto, que o
+afastamento matinal não move.
+
+⚠️ **Recortar o previsto pelo slot foi considerado e descartado**: onde cai o intervalo e a que
+horas a declaração terminou não estão no dado. Um previsto `12:00–18:00` acusaria 2h de atraso em
+quem volta às 14:00, que é o retorno normal de uma jornada com intervalo 12:00–14:00.
+
+✅ **Medido em produção antes de aplicar** (`scratchpad/an_impacto_parcial.mjs`): 495
+`servidores_eventos`, 48 por slot, 242 pares (servidor, dia). Com a escala viva: **0 dias parciais,
+0 de cobertura, 1 de interseção vazia** — **nenhuma folha existente muda de valor**. Os 152 dias
+parciais já tiveram a escala apagada e **não voltam sozinhos**: relançá-los é ato do coordenador.
+
+🚨 **A migration quase foi copiada da fonte errada, e teria sido inofensiva.** A primeira versão do
+gerador copiou as três funções de `20260820120000`. Mas `fn_check_shift_conflicts` foi reescrita
+depois, em **`20260821100000`**, ganhando o 7º argumento `p_escala_mensal_id` (armadilha 15) — e é a
+de **7** que o `ScaleGrid` chama. A cópia de 6 seria sobrecarga morta, e ressuscitá-la reabriria a
+ambiguidade que aquela migration fechou com `DROP`. Só apareceu em homologação, como
+`42725: function ... is not unique`. É a armadilha 1 na prática: **o gerador lê DUAS fontes** e
+tem invariante próprio (`exclusao da propria celula preservada`) que aborta se alguém regerar da
+fonte errada.
+
+Portões: `node scratchpad/sim_afastamento_parcial.js` (62 casos) e
+`node scratchpad/val_sim_afastamento_parcial.js`, que injeta 4 regressões e exige reprovação.
+Transpile antes com
+`npx tsc src/utils/afastamentoParcial.ts src/utils/afastamentos.ts src/utils/folha/afastamentosDia.ts --outDir scratchpad/_sim --module commonjs --target es2020`.
+**Validado em homologação contra o banco real, 9 de 9.**
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.

@@ -12,13 +12,18 @@
  * 1. Afastamento por HORAS (`periodo_tipo = 'horas'` ou `hora_inicio` preenchida) NÃO
  *    bloqueia nada. É a declaração de comparecimento (migration 20260817210000): o
  *    servidor trabalha o resto do dia e continua escalado.
- * 2. Afastamento por SLOT (`slots = ['M']`, por exemplo) bloqueia apenas os turnos cujos
- *    slots cruzam os do afastamento. Afastamento integral (`slots` nulo/vazio) bloqueia
- *    qualquer turno.
+ * 2. Afastamento por SLOT (`slots = ['M']`, por exemplo) bloqueia apenas os turnos que ele
+ *    COBRE POR INTEIRO. Afastamento integral (`slots` nulo/vazio) bloqueia qualquer turno.
+ *    🚨 Era INTERSEÇÃO até 04/09/2026, e é a mudança desta rodada: `{M}` sobre um turno `MT`
+ *    bloqueava o dia todo e a escala era apagada, então o período que o servidor realmente
+ *    trabalhava (a tarde) sumia da folha. Ver `afastamentoParcial.ts` e a migration
+ *    20260904120000.
  * 3. CATEGORIA: `Regular` e `Sobreaviso` são sempre bloqueados. `Plantão` e `Extra`
  *    dependem da configuração global `permitir_plantao_extra_durante_eventos` — que,
  *    pelo próprio nome, nunca foi sobre sobreaviso.
  */
+
+import { afastamentoAnulaTurno, afastamentoBloqueiaEscala, resumoAfastamentoDia } from './afastamentoParcial'
 
 export type CategoriaEscala = 'Regular' | 'Extra' | 'Plantão' | 'Sobreaviso'
 
@@ -34,18 +39,16 @@ export interface AfastamentoEvento {
   [key: string]: any
 }
 
-/**
- * Afastamento por horas não tira o servidor da escala do dia.
- */
-export function afastamentoBloqueiaEscala(evento: AfastamentoEvento): boolean {
-  const tipo = evento.periodo_tipo || 'integral'
-  return tipo !== 'horas' && !evento.hora_inicio
-}
+/** Afastamento por horas não tira o servidor da escala do dia. Definida em `afastamentoParcial`. */
+export { afastamentoBloqueiaEscala } from './afastamentoParcial'
 
 /**
- * Slots do afastamento × slots do turno. Afastamento sem slots é integral: bloqueia tudo.
- * Turno sem slots conhecidos só é barrado por afastamento integral — igual ao SQL, onde
- * `se.slots && v_turno_slots` com array vazio dá falso.
+ * Slots do afastamento × slots do turno — **um evento isolado**.
+ *
+ * ⚠️ Isto responde "alcança?", NÃO "bloqueia?". Desde 04/09/2026 a regra de bloqueio é a
+ * CONTENÇÃO, avaliada sobre a união dos afastamentos do dia (`alcanceNoTurno`): um afastamento
+ * `{M}` alcança um turno `MT` sem anulá-lo — o servidor trabalha a tarde. Continua servindo para
+ * pintar e explicar a célula; para decidir bloqueio, use `encontrarAfastamentosBloqueantes`.
  */
 export function afastamentoConflitaComSlots(
   evento: AfastamentoEvento,
@@ -69,11 +72,38 @@ export function categoriaBloqueadaPorAfastamento(
 }
 
 /**
- * TODOS os afastamentos que impedem lançar este turno neste dia.
+ * Os afastamentos bloqueantes do dia que alcançam este turno — a lista para EXIBIR.
  *
  * ⚠️ Um dia pode ter mais de um evento — uma declaração de comparecimento pela manhã e
- *    outra à tarde, por exemplo. Para BLOQUEAR basta um; para EXIBIR é preciso a lista,
- *    senão a tela nomeia só o primeiro e o coordenador conclui que o segundo se perdeu.
+ *    outra à tarde, por exemplo. Para BLOQUEAR basta que o conjunto anule o turno; para
+ *    EXIBIR é preciso a lista, senão a tela nomeia só o primeiro e o coordenador conclui
+ *    que o segundo se perdeu.
+ */
+export function afastamentosDoDiaNoTurno(params: {
+  eventos: AfastamentoEvento[]
+  servidorId: string
+  dataISO: string
+}): AfastamentoEvento[] {
+  const { eventos, servidorId, dataISO } = params
+  return eventos.filter(ev =>
+    ev.servidor_id === servidorId &&
+    dataISO >= ev.data_inicio &&
+    dataISO <= ev.data_fim &&
+    afastamentoBloqueiaEscala(ev)
+  )
+}
+
+/**
+ * TODOS os afastamentos que impedem lançar este turno neste dia.
+ *
+ * 🚨 A regra é a CONTENÇÃO, não a interseção — mudou em 04/09/2026, junto com a migration
+ *    20260904120000. Antes, um afastamento `{M}` bloqueava um turno `MT` inteiro, e a escala do
+ *    dia era apagada: o período que o servidor de fato trabalhava sumia da folha. Agora só
+ *    bloqueia o que ANULA o turno (integral, ou cobrindo todos os slots dele). Ver
+ *    `alcanceNoTurno` em `afastamentoParcial.ts`, que este módulo apenas aplica.
+ *
+ * ⚠️ A avaliação é sobre a UNIÃO dos afastamentos do dia, nunca evento a evento: duas
+ *    declarações parciais (`{M}` e `{T}`) juntas cobrem um turno `MT` e ali o bloqueio é correto.
  *
  * @param turnoSlots slots do turno que se pretende lançar. Célula vazia entra como `[]`,
  *                   e nesse caso só um afastamento integral bloqueia.
@@ -90,13 +120,11 @@ export function encontrarAfastamentosBloqueantes(params: {
 
   if (!categoriaBloqueadaPorAfastamento(categoria, permitirPlantaoExtra)) return []
 
-  return eventos.filter(ev =>
-    ev.servidor_id === servidorId &&
-    dataISO >= ev.data_inicio &&
-    dataISO <= ev.data_fim &&
-    afastamentoBloqueiaEscala(ev) &&
-    afastamentoConflitaComSlots(ev, turnoSlots)
-  )
+  const doDia = afastamentosDoDiaNoTurno({ eventos, servidorId, dataISO })
+  if (!afastamentoAnulaTurno(resumoAfastamentoDia(doDia), turnoSlots)) return []
+
+  // Anulou: quem é exibido são os que efetivamente alcançam o turno. O integral alcança sempre.
+  return doDia.filter(ev => afastamentoConflitaComSlots(ev, turnoSlots))
 }
 
 /** O primeiro dos bloqueantes. Bloqueio e binario; para EXIBIR use a versao no plural. */

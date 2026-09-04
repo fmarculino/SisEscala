@@ -38,7 +38,7 @@ async function lerVigenciaHorasLiquidas(supabase: any): Promise<string | null> {
 
 import { autorizacaoDoDia, aplicarObservacaoAutorizacao } from '@/utils/folha/autorizacaoPonto'
 import { carregarDecisaoCompensacao, horasNormaisLiquidasVigente } from '@/utils/folha/calculoDia'
-import { afastamentosDoDia, descreverAfastamentos, minutosAbonadosDoDia, isShiftOverlappingAfastamento } from '@/utils/folha/afastamentosDia'
+import { afastamentosDoDia, avaliarAfastamentosNoTurno, descreverAfastamentos, minutosAbonadosDoDia } from '@/utils/folha/afastamentosDia'
 import { conferirPinNovo, mensagemRecusaPin } from '@/utils/pin'
 
 
@@ -1179,7 +1179,10 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
       const scaleChangedForDay = (hadShift !== hasShift) || (hadShift && registroExistente.turno_codigo !== getTurnoCodigo(currentShift?.dicionario_turnos))
 
       const afastamentosDia = afastamentosDoDia(afastamentos, dateStr)
-      const afastamentosAnulantes = afastamentosDia.filter(af => isShiftOverlappingAfastamento(af, currentShift))
+      // Afastamento PARCIAL ({M} num turno MT) NAO anula o dia: o servidor trabalha a tarde,
+      // e a folha precisa continuar aceitando os horarios dele. Ver avaliarAfastamentosNoTurno.
+      const veredictoAfastamento = avaliarAfastamentosNoTurno(afastamentosDia, currentShift, activeJornada?.nome)
+      const afastamentosAnulantes = veredictoAfastamento.anulantes
       const feriadoInfo = feriados?.find(f => f.data === dateStr)
 
       const shouldPreserve = !scaleChangedForDay
@@ -1225,7 +1228,10 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
         feriado: !!feriadoInfo,
         ponto_facultativo: !!pfInfo,
         afastamento: afastamentosAnulantes.length > 0 ? descreverAfastamentos(afastamentosAnulantes) : null,
-        abono_minutos: minutosAbonadosDoDia(afastamentosDia)
+        abono_minutos: minutosAbonadosDoDia(afastamentosDia) + veredictoAfastamento.abonoParcialMinutos,
+        // Preenchido so em dia PARCIAL. E o que impede calcularDia de acusar 5h de atraso em
+        // quem apresentou declaracao de comparecimento pela manha — ver RegistroDia.
+        afastamento_slots: veredictoAfastamento.slotsParciais.length > 0 ? veredictoAfastamento.slotsParciais : null
       }
 
       if (registro.afastamento) {
@@ -1814,7 +1820,10 @@ export async function gerarFolhaPontoServidor(mes: number, ano: number, forcarRa
       const extraShift = escalaDiaria?.find(ed => ed.dia === day && ed.categoria === 'Extra')
       const extraHoursScheduled = getExtraHoursFromShift(extraShift)
       const extraMinutesScheduled = Math.round(extraHoursScheduled * 60)
-      const afastamentosAnulantes = afastamentosDia.filter(af => isShiftOverlappingAfastamento(af, shift))
+      // Afastamento PARCIAL ({M} num turno MT) NAO anula o dia: o servidor trabalha a tarde,
+      // e a folha precisa continuar aceitando os horarios dele. Ver avaliarAfastamentosNoTurno.
+      const veredictoAfastamento = avaliarAfastamentosNoTurno(afastamentosDia, shift, activeJornada?.nome)
+      const afastamentosAnulantes = veredictoAfastamento.anulantes
 
       // Check manual edits in existing record to preserve them
       const registroExistente = registrosExistentes.find((r: any) => r.dia === day)
@@ -1861,7 +1870,10 @@ export async function gerarFolhaPontoServidor(mes: number, ano: number, forcarRa
         feriado: !!feriadoInfo,
         ponto_facultativo: !!pfInfo,
         afastamento: afastamentosAnulantes.length > 0 ? descreverAfastamentos(afastamentosAnulantes) : null,
-        abono_minutos: minutosAbonadosDoDia(afastamentosDia)
+        abono_minutos: minutosAbonadosDoDia(afastamentosDia) + veredictoAfastamento.abonoParcialMinutos,
+        // Preenchido so em dia PARCIAL. E o que impede calcularDia de acusar 5h de atraso em
+        // quem apresentou declaracao de comparecimento pela manha — ver RegistroDia.
+        afastamento_slots: veredictoAfastamento.slotsParciais.length > 0 ? veredictoAfastamento.slotsParciais : null
       }
 
       if (registro.afastamento) {

@@ -19,7 +19,7 @@ import { preservarCampo } from '@/utils/folha/preservacao'
 import { podeReabrirFolha, MENSAGEM_SEM_PERMISSAO_REABRIR } from '@/utils/folha/reabertura'
 import { montarCargaPorJornada, horasNormaisDoDia, horasNormaisDaJornada } from '@/utils/folha/cargaDiaria'
 import { autorizacaoDoDia, aplicarObservacaoAutorizacao } from '@/utils/folha/autorizacaoPonto'
-import { afastamentosDoDia, descreverAfastamentos, isShiftOverlappingAfastamento, minutosAbonadosDoDia } from '@/utils/folha/afastamentosDia'
+import { afastamentosDoDia, avaliarAfastamentosNoTurno, descreverAfastamentos, minutosAbonadosDoDia } from '@/utils/folha/afastamentosDia'
 import { calcularDia, totaisFolha, carregarDecisaoCompensacao, diasPendentesDeCompensacao, extraEfetivaDoDia, regraCompensacaoVigente, horasNormaisLiquidasVigente } from '@/utils/folha/calculoDia'
 
 // Helper: Get user profile with unit/sector permissions
@@ -643,7 +643,10 @@ export async function executeGerarFolhaPonto(
       const extraShift = escalaDiaria?.find((ed: any) => ed.dia === day && ed.categoria === 'Extra')
       const extraHoursScheduled = getExtraHoursFromShift(extraShift)
       const extraMinutesScheduled = Math.round(extraHoursScheduled * 60)
-      const afastamentosAnulantes = afastamentosDia.filter(af => isShiftOverlappingAfastamento(af, shift))
+      // Afastamento PARCIAL ({M} num turno MT) NAO anula o dia: o servidor trabalha a tarde,
+      // e a folha precisa continuar aceitando os horarios dele. Ver avaliarAfastamentosNoTurno.
+      const veredictoAfastamento = avaliarAfastamentosNoTurno(afastamentosDia, shift, activeJornada?.nome)
+      const afastamentosAnulantes = veredictoAfastamento.anulantes
 
       // Check holiday
       const feriadoInfo = feriados?.find((f: any) => f.data === dateStr)
@@ -693,7 +696,10 @@ export async function executeGerarFolhaPonto(
         feriado: !!feriadoInfo,
         ponto_facultativo: !!pfInfo,
         afastamento: afastamentosAnulantes.length > 0 ? descreverAfastamentos(afastamentosAnulantes) : null,
-        abono_minutos: minutosAbonadosDoDia(afastamentosDia),
+        abono_minutos: minutosAbonadosDoDia(afastamentosDia) + veredictoAfastamento.abonoParcialMinutos,
+        // Preenchido so em dia PARCIAL. E o que impede calcularDia de acusar 5h de atraso em
+        // quem apresentou declaracao de comparecimento pela manha — ver RegistroDia.
+        afastamento_slots: veredictoAfastamento.slotsParciais.length > 0 ? veredictoAfastamento.slotsParciais : null,
         jornada_nome: activeJornada?.nome || null,
         jornada_temporaria: !!tempJourney,
       }
@@ -1425,7 +1431,10 @@ export async function sincronizarFolhaPonto(folhaId: string) {
 
       // Check afastamento and holidays
       const afastamentosDia = afastamentosDoDia(afastamentos, dateStr)
-      const afastamentosAnulantes = afastamentosDia.filter(af => isShiftOverlappingAfastamento(af, currentShift))
+      // Afastamento PARCIAL ({M} num turno MT) NAO anula o dia: o servidor trabalha a tarde,
+      // e a folha precisa continuar aceitando os horarios dele. Ver avaliarAfastamentosNoTurno.
+      const veredictoAfastamento = avaliarAfastamentosNoTurno(afastamentosDia, currentShift, activeJornada?.nome)
+      const afastamentosAnulantes = veredictoAfastamento.anulantes
       const feriadoInfo = feriados?.find(f => f.data === dateStr)
 
       // Core logic: If day changed, or if it had no manual edits, we regenerate it.
@@ -1473,7 +1482,10 @@ export async function sincronizarFolhaPonto(folhaId: string) {
         feriado: !!feriadoInfo,
         ponto_facultativo: !!pfInfo,
         afastamento: afastamentosAnulantes.length > 0 ? descreverAfastamentos(afastamentosAnulantes) : null,
-        abono_minutos: minutosAbonadosDoDia(afastamentosDia),
+        abono_minutos: minutosAbonadosDoDia(afastamentosDia) + veredictoAfastamento.abonoParcialMinutos,
+        // Preenchido so em dia PARCIAL. E o que impede calcularDia de acusar 5h de atraso em
+        // quem apresentou declaracao de comparecimento pela manha — ver RegistroDia.
+        afastamento_slots: veredictoAfastamento.slotsParciais.length > 0 ? veredictoAfastamento.slotsParciais : null,
         jornada_nome: activeJornada?.nome || null,
         jornada_temporaria: !!tempJourney,
       }
