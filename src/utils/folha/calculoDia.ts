@@ -64,7 +64,26 @@ import { sequenciarDia, timeToMin, type HorariosDia } from './sequenciaDia'
 export const COMPETENCIA_COMPENSACAO_PADRAO = '2026-09'
 
 /**
- * A competencia da folha esta dentro da vigencia da regra?
+ * Competencia a partir da qual as HORAS NORMAIS deixam de contar o intervalo (decisao do usuario,
+ * 04/09/2026, junto com a regra de atraso).
+ *
+ * ⚠️ Chave propria, e nao a mesma da compensacao, porque sao duas regras diferentes: uma mede
+ * atraso, a outra conta carga. Foram decididas juntas e por isso tem o mesmo padrao — mas o RH
+ * pode precisar mover uma sem a outra.
+ */
+export const COMPETENCIA_HORAS_LIQUIDAS_PADRAO = '2026-09'
+
+/** `YYYY-MM` valido? Config malformada nunca abre a regra para tras. */
+function competenciaAlcancada(mes: number, ano: number, alvoBruto: string, padrao: string): boolean {
+  const bruto = typeof alvoBruto === 'string' ? alvoBruto.trim() : ''
+  const alvo = /^\d{4}-\d{2}$/.test(bruto) ? bruto : padrao
+  const [anoIni, mesIni] = alvo.split('-').map(Number)
+  if (!Number.isFinite(ano) || !Number.isFinite(mes)) return false
+  return ano > anoIni || (ano === anoIni && mes >= mesIni)
+}
+
+/**
+ * A competencia da folha esta dentro da vigencia da regra de atraso/compensacao?
  *
  * @param vigenteDesde formato `YYYY-MM`. Valor invalido cai no padrao — nunca abre a regra para
  *   tras por causa de configuracao malformada.
@@ -74,11 +93,22 @@ export function regraCompensacaoVigente(
   ano: number,
   vigenteDesde?: string | null
 ): boolean {
-  const bruto = typeof vigenteDesde === 'string' ? vigenteDesde.trim() : ''
-  const alvo = /^\d{4}-\d{2}$/.test(bruto) ? bruto : COMPETENCIA_COMPENSACAO_PADRAO
-  const [anoIni, mesIni] = alvo.split('-').map(Number)
-  if (!Number.isFinite(ano) || !Number.isFinite(mes)) return false
-  return ano > anoIni || (ano === anoIni && mes >= mesIni)
+  return competenciaAlcancada(mes, ano, vigenteDesde || '', COMPETENCIA_COMPENSACAO_PADRAO)
+}
+
+/**
+ * A competencia da folha ja conta as horas normais SEM o intervalo?
+ *
+ * 🚨 Antes do corte a folha continua somando o vao da jornada — que e o numero com que o servidor
+ * ASSINOU aquele mes. Reimprimir uma competencia fechada com 168h onde estava 210h muda o
+ * documento depois da assinatura, e o usuario decidiu explicitamente que 08/2026 fica como esta.
+ */
+export function horasNormaisLiquidasVigente(
+  mes: number,
+  ano: number,
+  vigenteDesde?: string | null
+): boolean {
+  return competenciaAlcancada(mes, ano, vigenteDesde || '', COMPETENCIA_HORAS_LIQUIDAS_PADRAO)
 }
 
 /** Art. 7 §3: a compensacao nao pode passar de 2h por dia. */

@@ -2,6 +2,60 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.37.0] - 2026-09-04
+
+Questionamento do RH: a folha mostrava **210h** onde eles esperavam ~160h. O RH estava certo —
+`jornadas.horas_totais` é o **vão do relógio** ("08H ÀS 18H" = 10h), não o tempo de trabalho, e a
+folha somava esse campo por dia. O intervalo de 2h entrava como jornada. Relatório com a base
+legal e as opções entregue ao RH; diário em
+`docs/evolucao/2026-09-04-folha-em-hhmm-e-compensacao-de-atraso.md`.
+
+### Changed
+
+- **As horas normais deixam de contar o intervalo** (`horasNormaisDaJornada`, fonte única em
+  `src/utils/folha/cargaDiaria.ts`), aplicado nos **12 pontos** que somam carga do dia: as 4
+  cópias da geração, os 4 recálculos, e os 2 renderizadores.
+  - Medido em 08/2026 (415 folhas): 65.170h somadas contra 55.953h de trabalho real —
+    **9.217h de intervalo lançadas como jornada normal, 14,1%**.
+  - Confirmado pelas batidas: nos 19 dias completos da folha citada, a servidora trabalhou em
+    média **8h07/dia**. O relógio registrava o que a Portaria descreve.
+  - Base legal: Portaria 382/2019-GAB-MAB/SMS Art. 3º I ("jornada de 8 horas, com intervalo de 2
+    horas"); Lei 17.331/2008 (RJU de Marabá) Art. 17 (teto diário de 8h para 40h semanais);
+    CLT Art. 71 §2º.
+- **RH Geral e RH da Unidade passam a reabrir folha fechada**, além do Administrador Geral e do
+  Diretor (decisão do usuário: "eles vão precisar fazer vários ajustes após os fechamentos").
+  Fonte única em `src/utils/folha/reabertura.ts`, aplicada na tela **e** na Server Action —
+  `coordenador` e `ass_adm` seguem de fora: quem fecha a folha não a reabre sozinho.
+
+### Fixed
+
+- **Três jornadas com `horas_totais` divergente do próprio nome** (migration `20260904110000`):
+  `08H ÀS 17H` guardava 8 (o líquido) e `09H ÀS 18H`/`10H ÀS 19H` guardavam 12 onde o vão é 9h —
+  3h a mais por dia. As duas últimas **não são usadas em 08/2026**; a primeira é (32 folhas).
+  - 🚨 Corrigir `08H ÀS 17H` era necessário: sem isso, 09/2026 contaria **7h/dia** para esses
+    servidores (descontar 1h de um valor que já era líquido).
+
+### Decisões registradas
+
+- **Vale a partir de 09/2026** (chave `horas_normais_liquidas_desde`, separada da chave da
+  compensação porque são duas regras). Competência anterior é documento assinado e continua
+  somando o vão.
+- **08/2026 fica como está.** Se uma folha daquela competência for reaberta e salva, os dias de
+  `08H ÀS 17H` passam de 8h para 9h — mudança visível e explicável, preferida a congelar o total
+  (total que não acompanha a edição é defeito silencioso).
+- O número correto é **168h** (21 dias úteis × 8h), não 160h: 160h é referência contratual fixa
+  (40h × 4 semanas) e todo mês tem 20, 21 ou 22 dias úteis.
+
+### Notas de verificação
+
+- Portões: `node scratchpad/sim_horas_liquidas.js` (33 casos) e `sim_calculo_dia.js` (71),
+  ambos **validados injetando regressões de propósito** — voltar a somar o vão bruto, e dar a
+  reabertura ao coordenador.
+- Conferência em produção: `scratchpad/an_confere_horas_liquidas.mjs`.
+- ⚠️ Duas falhas **silenciosas** achadas na revisão e corrigidas antes do commit: as 4 consultas a
+  `jornadas` não traziam `intervalo_minutos` (o desconto daria zero sem erro nenhum), e o laço de
+  `autoCorrigirTodasFolhasPonto` usava o mapa externo em vez do da própria folha.
+
 ## [2.36.0] - 2026-09-04
 
 Folha de ponto reformatada a pedido do RH — e, medindo produção para planejar isso, apareceu o

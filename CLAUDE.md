@@ -3380,6 +3380,74 @@ banco de horas por outro nome, que segue sem decisão jurídica desde 14/08/2026
 Portão: `node scratchpad/sim_calculo_dia.js` (52 casos), **validado injetando 3 regressões de
 propósito** — compensar sem autorização, `% 24` no total mensal, previsto fabricado.
 
+### 46. `jornadas.horas_totais` é o VÃO do relógio, não o tempo de trabalho (04/09/2026)
+
+🚨 **A folha somava esse campo por dia escalado, então o intervalo entrava como jornada.** O RH
+questionou uma folha de **210h** onde esperava ~160h, e estava certo: `08H ÀS 18H` tem
+`horas_totais = 10` (o vão entre entrar e sair) e `intervalo_minutos = 120`. **Medido em 08/2026,
+415 folhas: 65.170h somadas contra 55.953h de trabalho real — 9.217h de intervalo lançadas como
+jornada normal, 14,1%.** As batidas confirmam a jornada real: nos 19 dias completos daquela folha,
+média de **8h07/dia**.
+
+O número correto é **168h** (21 dias úteis × 8h), **não 160h** — 160h é referência contratual
+(40h × 4 semanas), e todo mês tem 20, 21 ou 22 dias úteis. Relatório ao RH e base legal em
+[`docs/evolucao/2026-09-04-folha-em-hhmm-e-compensacao-de-atraso.md`](docs/evolucao/2026-09-04-folha-em-hhmm-e-compensacao-de-atraso.md).
+
+| fonte | o que diz |
+|---|---|
+| **Portaria 382/2019-GAB-MAB/SMS, Art. 3º I** | *"jornada de 8 (oito) horas, com intervalo de 2 horas"* — a norma do próprio ponto eletrônico separa as duas coisas na mesma frase |
+| Lei 17.331/2008 (RJU de Marabá), Art. 17 | teto **diário** de 8h para quem cumpre 40h semanais |
+| CLT, Art. 71 §2º | *"Os intervalos de descanso não serão computados na duração do trabalho"* |
+
+Fonte única: **`horasNormaisDaJornada`** (`src/utils/folha/cargaDiaria.ts`), aplicada nos **12**
+pontos que somam carga do dia — 4 cópias da geração, 4 recálculos, 2 renderizadores.
+
+⚠️ **O sistema já usava as duas definições ao mesmo tempo, e ninguém notou:** a tela de escala
+(`fn_carga_mensal_servidor`, `calculateTotals`) sempre calculou `horas_totais − intervalo/60`; só
+a folha somava o vão. O mesmo servidor aparecia com dois totais em duas telas.
+
+⚠️ **Vale a partir de 09/2026** (`horas_normais_liquidas_desde`, chave **separada** da
+`compensacao_atraso_vigente_desde` — são duas regras, decididas juntas, que o RH pode precisar
+mover em separado). Competência anterior é documento assinado.
+
+🚨 **Três jornadas tinham `horas_totais` divergente do próprio nome** (`20260904110000`), e uma
+delas seguia a convenção **oposta**: `08H ÀS 17H` guardava **8** (o líquido) enquanto o vão é 9h.
+Descontar o intervalo dali daria **7h/dia** — a correção pioraria o número de 42 servidores. É por
+isso que a migration de cadastro acompanha a mudança de código, e não vem depois.
+`09H ÀS 18H` e `10H ÀS 19H` guardavam 12 onde o vão é 9h: **3h a mais por dia**.
+
+⚠️ **`09H ÀS 18H` e `10H ÀS 19H` não são usadas em 08/2026; `08H ÀS 17H` é (32 folhas).** Reabrir
+e salvar uma dessas folhas move os dias de 8h para 9h — mudança visível, preferida a congelar o
+total, porque total que não acompanha a edição é defeito silencioso.
+
+⚠️ **Duas falhas silenciosas apareceram só na revisão, e o `tsc` não pegaria nenhuma:** as quatro
+consultas a `jornadas` selecionavam `'nome, horas_totais'` sem `intervalo_minutos` (o desconto
+daria **zero**, devolvendo o valor bruto sem erro), e o laço de `autoCorrigirTodasFolhasPonto`
+montava um mapa por folha e continuava usando o externo. Ao mexer em carga, **confira que a
+consulta traz o campo e que o mapa usado é o do escopo certo**.
+
+### 47. Reabrir folha fechada é ato de RH, não só de administrador (04/09/2026)
+
+`Revisada → Gerada` era `admin`/`super_admin`, escrito à mão em **dois** lugares — a tela e
+`salvarFolhaPonto`. É a allowlist que envelhece da armadilha 44. Desde 04/09/2026 **RH Geral e RH
+da Unidade também reabrem** (decisão do usuário: *"eles vão precisar fazer vários ajustes após os
+fechamentos"*), com fonte única em **`src/utils/folha/reabertura.ts`**.
+
+⚠️ **Continua allowlist, e isso é deliberado:** reabrir documento que o servidor já assinou é ato
+de autoridade, não de visibilidade — mesmo critério de `fn_pode_acionar_sobreaviso`.
+`coordenador` e `ass_adm` ficam **de fora**: quem fecha a folha não a reabre sozinho para mudar o
+que fechou.
+
+⚠️ **O escopo não está nesse módulo, e não deve ir para lá.** Quem limita `rh_unidade` às unidades
+dele é o `hasSectorAccess` que já roda antes, em `salvarFolhaPonto`. O módulo responde "tem o
+direito?", nunca "alcança esta folha?".
+
+⚠️ **Competência encerrada continua fechada para todos** — reabrir folha é trabalho de RH;
+reabrir competência descongela dado guardado para auditoria.
+
+Portão: `node scratchpad/sim_horas_liquidas.js` (33 casos, cobre as duas armadilhas), validado
+injetando regressões de propósito — voltar a somar o vão bruto, e dar a reabertura ao coordenador.
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.

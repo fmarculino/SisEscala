@@ -29,14 +29,65 @@
 /** Mapa nome da jornada -> horas normais diarias. */
 export type CargaPorJornada = Map<string, number>
 
-/** Monta o mapa a partir da lista de jornadas do banco. */
+/** So os campos de jornada que este modulo le. */
+export interface JornadaCarga {
+  nome?: string | null
+  horas_totais?: number | null
+  intervalo_minutos?: number | null
+}
+
+/**
+ * Horas normais de UM dia daquela jornada.
+ *
+ * 🚨 `horas_totais` E O VAO DO RELOGIO, NAO O TEMPO DE TRABALHO.
+ *   "08H AS 18H" tem `horas_totais = 10` e `intervalo_minutos = 120` — o vao entre entrar e sair.
+ *   Somar esse campo por dia contava o almoco como jornada: a folha de agosto/2026 de uma
+ *   servidora saiu com **210h** (21 dias x 10h) onde o trabalho foram 168h (21 x 8h). Medido em
+ *   04/09/2026 sobre 415 folhas: **9.217h de intervalo lancadas como jornada normal, 14,1%**.
+ *
+ * BASE LEGAL — o intervalo nao e jornada em nenhuma das tres fontes:
+ *   Portaria 382/2019-GAB-MAB/SMS, Art. 3, I: "jornada de 8 (oito) horas, com intervalo de 2
+ *     horas" — a norma do proprio ponto eletronico separa as duas coisas na mesma frase.
+ *   Lei 17.331/2008 (RJU de Maraba), Art. 17: teto DIARIO de 8h para quem cumpre 40h semanais.
+ *   CLT, Art. 71 §2: "Os intervalos de descanso nao serao computados na duracao do trabalho."
+ *
+ *   Confirmado pelas batidas: nos 19 dias completos daquela folha a servidora trabalhou em media
+ *   8h07/dia. O relogio registrava o que a Portaria descreve; era a soma da folha que nao
+ *   acompanhava.
+ *
+ * ⚠️ `descontarIntervalo` existe porque a regra vale a partir de 09/2026 (decisao do usuario,
+ *   04/09/2026). Competencia anterior e documento ja assinado e continua somando o vao — ver
+ *   horasNormaisLiquidasVigente em calculoDia.ts.
+ */
+export function horasNormaisDaJornada(
+  jornada: JornadaCarga | null | undefined,
+  descontarIntervalo: boolean,
+  padrao = 8
+): number {
+  const bruto = typeof jornada?.horas_totais === 'number' ? jornada.horas_totais : padrao
+  if (!descontarIntervalo) return bruto
+  const intervalo = (Number(jornada?.intervalo_minutos) || 0) / 60
+  // Nunca negativo: cadastro com intervalo maior que a jornada existiria como zero, nao como
+  // desconto na folha de outro dia.
+  return Math.max(0, bruto - intervalo)
+}
+
+/**
+ * Monta o mapa a partir da lista de jornadas do banco.
+ *
+ * ⚠️ `descontarIntervalo` tem de ser o MESMO da competencia sendo calculada. O mapa e montado por
+ * folha, e quem chama sabe o mes/ano — por isso a decisao entra aqui e nao dentro do laco.
+ */
 export function montarCargaPorJornada(
-  jornadas: Array<{ nome?: string | null; horas_totais?: number | null }> | null | undefined
+  jornadas: Array<JornadaCarga> | null | undefined,
+  descontarIntervalo = false
 ): CargaPorJornada {
   const mapa: CargaPorJornada = new Map()
   for (const j of jornadas || []) {
     if (!j?.nome) continue
-    if (typeof j.horas_totais === 'number') mapa.set(j.nome, j.horas_totais)
+    if (typeof j.horas_totais === 'number') {
+      mapa.set(j.nome, horasNormaisDaJornada(j, descontarIntervalo))
+    }
   }
   return mapa
 }

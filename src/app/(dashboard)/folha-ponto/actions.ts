@@ -16,10 +16,11 @@ import { resolverPendenciaRevisao, resolverBatidaNaoAproveitada, carregarDiasCom
 import { normalizarRegistrosFolha } from '@/utils/folha/normalizarHorarios'
 import { sequenciarDia, PASSOS_FOLHA } from '@/utils/folha/sequenciaDia'
 import { preservarCampo } from '@/utils/folha/preservacao'
-import { montarCargaPorJornada, horasNormaisDoDia } from '@/utils/folha/cargaDiaria'
+import { podeReabrirFolha, MENSAGEM_SEM_PERMISSAO_REABRIR } from '@/utils/folha/reabertura'
+import { montarCargaPorJornada, horasNormaisDoDia, horasNormaisDaJornada } from '@/utils/folha/cargaDiaria'
 import { autorizacaoDoDia, aplicarObservacaoAutorizacao } from '@/utils/folha/autorizacaoPonto'
 import { afastamentosDoDia, descreverAfastamentos, isShiftOverlappingAfastamento, minutosAbonadosDoDia } from '@/utils/folha/afastamentosDia'
-import { calcularDia, totaisFolha, carregarDecisaoCompensacao, diasPendentesDeCompensacao, extraEfetivaDoDia, regraCompensacaoVigente } from '@/utils/folha/calculoDia'
+import { calcularDia, totaisFolha, carregarDecisaoCompensacao, diasPendentesDeCompensacao, extraEfetivaDoDia, regraCompensacaoVigente, horasNormaisLiquidasVigente } from '@/utils/folha/calculoDia'
 
 // Helper: Get user profile with unit/sector permissions
 async function getUserProfile(supabase: any): Promise<UserProfile> {
@@ -570,11 +571,15 @@ export async function executeGerarFolhaPonto(
       .lte('data_inicio', endDate)
       .gte('data_fim', startDate)
 
+    // A folha so deixa de contar o intervalo como jornada a partir de 09/2026 — competencia
+    // anterior e documento assinado. Ver horasNormaisDaJornada (cargaDiaria.ts).
+    const descontarIntervalo = horasNormaisLiquidasVigente(resolvedMes, resolvedAno, await lerVigenciaHorasLiquidas(supabase))
+
     // Parse Jornada
     const globalJornadaDetails = escala.jornadas ? (escala.jornadas as any) : null
     const globalJornada = parseJornadaNome(globalJornadaDetails?.nome || '')
     const globalIntervaloMinutos = globalJornadaDetails?.intervalo_minutos ?? 60
-    const globalHorasNormaisDiarias = globalJornadaDetails?.horas_totais ?? 8
+    const globalHorasNormaisDiarias = horasNormaisDaJornada(globalJornadaDetails, descontarIntervalo)
 
     // Fetch existing folha if exists to preserve manual edits and cargo
     const { data: existingFolha } = await supabase
@@ -630,7 +635,7 @@ export async function executeGerarFolhaPonto(
       const activeJornada = tempJourney ? tempJourney.jornadas : globalJornadaDetails
       const { startHour, startMin, endHour, endMin } = activeJornada === globalJornadaDetails ? globalJornada : parseJornadaNome(activeJornada?.nome || '')
       const intervaloMinutos = activeJornada === globalJornadaDetails ? globalIntervaloMinutos : (activeJornada?.intervalo_minutos ?? 60)
-      const horasNormaisDiarias = activeJornada === globalJornadaDetails ? globalHorasNormaisDiarias : (activeJornada?.horas_totais ?? 8)
+      const horasNormaisDiarias = activeJornada === globalJornadaDetails ? globalHorasNormaisDiarias : horasNormaisDaJornada(activeJornada, descontarIntervalo)
 
       // Check afastamento
       const afastamentosDia = afastamentosDoDia(afastamentos, dateStr)
@@ -1327,11 +1332,15 @@ export async function sincronizarFolhaPonto(folhaId: string) {
       .maybeSingle()
     const isSectorEssencial = !!sectorInfo?.essencial
 
+    // A folha so deixa de contar o intervalo como jornada a partir de 09/2026 — competencia
+    // anterior e documento assinado. Ver horasNormaisDaJornada (cargaDiaria.ts).
+    const descontarIntervalo = horasNormaisLiquidasVigente(folha.mes, folha.ano, await lerVigenciaHorasLiquidas(supabase))
+
     // Parse Jornada
     const globalJornadaDetails = escala.jornadas ? (escala.jornadas as any) : null
     const globalJornada = parseJornadaNome(globalJornadaDetails?.nome || '')
     const globalIntervaloMinutos = globalJornadaDetails?.intervalo_minutos ?? 60
-    const globalHorasNormaisDiarias = globalJornadaDetails?.horas_totais ?? 8
+    const globalHorasNormaisDiarias = horasNormaisDaJornada(globalJornadaDetails, descontarIntervalo)
 
     // Prazo (dias uteis apos o FIM DO MES) para justificar um dia sem nenhuma marcacao antes
     // dele virar falta definitiva. Ver src/utils/folha/faltaAutomatica.ts.
@@ -1400,7 +1409,7 @@ export async function sincronizarFolhaPonto(folhaId: string) {
       const activeJornada = tempJourney ? tempJourney.jornadas : globalJornadaDetails
       const { startHour, startMin, endHour, endMin } = activeJornada === globalJornadaDetails ? globalJornada : parseJornadaNome(activeJornada?.nome || '')
       const intervaloMinutos = activeJornada === globalJornadaDetails ? globalIntervaloMinutos : (activeJornada?.intervalo_minutos ?? 60)
-      const horasNormaisDiarias = activeJornada === globalJornadaDetails ? globalHorasNormaisDiarias : (activeJornada?.horas_totais ?? 8)
+      const horasNormaisDiarias = activeJornada === globalJornadaDetails ? globalHorasNormaisDiarias : horasNormaisDaJornada(activeJornada, descontarIntervalo)
 
       const currentShift = currentShifts.find(s => s.dia === day && s.categoria === 'Regular')
       const extraShift = currentShifts.find(s => s.dia === day && s.categoria === 'Extra')
@@ -1945,6 +1954,26 @@ export async function reclassificarPassoPresenca(
 }
 
 /**
+ * Competencia a partir da qual as HORAS NORMAIS deixam de contar o intervalo.
+ *
+ * ⚠️ Chave ausente cai no padrao do modulo (2026-09), que e a decisao tomada em 04/09/2026.
+ * A migration que cria a chave e conveniencia — serve para mover o corte sem deploy.
+ */
+async function lerVigenciaHorasLiquidas(supabase: any): Promise<string | null> {
+  try {
+    const { data } = await supabase
+      .from('configuracoes_globais')
+      .select('valor')
+      .eq('chave', 'horas_normais_liquidas_desde')
+      .maybeSingle()
+    const v = data?.valor
+    return typeof v === 'string' ? v : null
+  } catch {
+    return null
+  }
+}
+
+/**
  * Competencia a partir da qual a regra de atraso/compensacao vale.
  *
  * ⚠️ Chave AUSENTE cai no padrao do modulo (2026-09), que e a decisao tomada — nunca "vale para
@@ -2217,13 +2246,16 @@ export async function salvarFolhaPonto(folhaId: string, registros: any[], status
       }
     }
 
-    // Se a folha estiver Revisada, apenas super_admin e admin podem reabri-la (passando status !== 'Revisada')
+    // Reabertura de folha fechada (Revisada -> Gerada/Rascunho). Fonte unica da regra em
+    // src/utils/folha/reabertura.ts — RH Geral e RH da Unidade entraram em 04/09/2026, porque
+    // e depois do fechamento que eles trabalham. O ESCOPO de rh_unidade ja foi conferido acima
+    // por hasSectorAccess; aqui se decide o direito, nao o alcance.
     if (folha.status === 'Revisada') {
       if (status !== 'Gerada' && status !== 'Rascunho') {
         return { error: 'Esta folha de ponto está fechada (Revisada). Reabra-a antes de fazer edições.' }
       }
-      if (userProfile.role !== 'super_admin' && userProfile.role !== 'admin') {
-        return { error: 'Apenas administradores podem reabrir uma folha de ponto fechada.' }
+      if (!podeReabrirFolha(userProfile.role)) {
+        return { error: MENSAGEM_SEM_PERMISSAO_REABRIR }
       }
     }
 
@@ -2267,16 +2299,20 @@ export async function salvarFolhaPonto(folhaId: string, registros: any[], status
       promoverFaltasPendentes(registros)
     }
 
+    // A folha so deixa de contar o intervalo como jornada a partir de 09/2026 — competencia
+    // anterior e documento assinado. Ver horasNormaisDaJornada (cargaDiaria.ts).
+    const descontarIntervalo = horasNormaisLiquidasVigente(folha.mes, folha.ano, await lerVigenciaHorasLiquidas(supabase))
+
     const jornadaDetails = escala.jornadas ? (escala.jornadas as any) : null
-    const horasNormaisDiarias = jornadaDetails?.horas_totais ?? 8
+    const horasNormaisDiarias = horasNormaisDaJornada(jornadaDetails, descontarIntervalo)
 
     // Carga de cada dia: a jornada do mes e so o PADRAO. Dias cobertos por vigencia
     // (servidores_jornadas_temporarias) valem a carga da jornada que a geracao gravou em
     // registro.jornada_nome. Ver src/utils/folha/cargaDiaria.ts.
     const { data: todasJornadas } = await supabase
       .from('jornadas')
-      .select('nome, horas_totais')
-    const cargaPorJornada = montarCargaPorJornada(todasJornadas)
+      .select('nome, horas_totais, intervalo_minutos')
+    const cargaPorJornada = montarCargaPorJornada(todasJornadas, descontarIntervalo)
 
     // Fetch holidays of the month for overtime classification
     const startDate = `${folha.ano}-${String(folha.mes).padStart(2, '0')}-01`
@@ -2709,7 +2745,7 @@ export async function getFolhasPontoPrintData(folhaIds: string[]) {
 
     // A impressao em lote precisa da vigencia para nao imprimir campo novo em competencia
     // anterior ao corte (documento ja assinado).
-    return { folhas: mappedFolhas, logoUrl, compensacaoVigenteDesde: await lerVigenciaCompensacao(supabase) }
+    return { folhas: mappedFolhas, logoUrl, compensacaoVigenteDesde: await lerVigenciaCompensacao(supabase), horasLiquidasDesde: await lerVigenciaHorasLiquidas(supabase) }
   } catch (error: any) {
     console.error('Erro em getFolhasPontoPrintData:', error)
     return { error: error.message }
@@ -3204,13 +3240,16 @@ export async function autoCorrigirFolhaPonto(folhaId: string) {
     const normalizacao = normalizarRegistrosFolha(folha.registros, folha.mes, folha.ano, jornadaInfo, limitesTolerancia)
 
     // Recalcular totais consolidados da folha
-    const horasNormaisDiarias = jornadaInfo?.horas_totais ?? 8
+    // A folha so deixa de contar o intervalo como jornada a partir de 09/2026 — competencia
+    // anterior e documento assinado. Ver horasNormaisDaJornada (cargaDiaria.ts).
+    const descontarIntervalo = horasNormaisLiquidasVigente(folha.mes, folha.ano, await lerVigenciaHorasLiquidas(supabase))
+    const horasNormaisDiarias = horasNormaisDaJornada(jornadaInfo, descontarIntervalo)
 
     // Mesma regra de carga por dia de salvarFolhaPonto: a jornada do mes e so o padrao.
     const { data: todasJornadasAuto } = await supabase
       .from('jornadas')
-      .select('nome, horas_totais')
-    const cargaPorJornada = montarCargaPorJornada(todasJornadasAuto)
+      .select('nome, horas_totais, intervalo_minutos')
+    const cargaPorJornada = montarCargaPorJornada(todasJornadasAuto, descontarIntervalo)
 
     let totalHorasNormais = 0
     let totalExtra50 = 0
@@ -3289,8 +3328,8 @@ export async function autoCorrigirTodasFolhasPonto(mes?: number, ano?: number) {
     // Fora do laco: a carga por jornada e a mesma para todas as folhas.
     const { data: todasJornadasLote } = await supabase
       .from('jornadas')
-      .select('nome, horas_totais')
-    const cargaPorJornada = montarCargaPorJornada(todasJornadasLote)
+      .select('nome, horas_totais, intervalo_minutos')
+    const vigenciaHorasLiquidas = await lerVigenciaHorasLiquidas(supabase)
     // Fora do laço pelo mesmo motivo: a tolerância é global, não muda por folha.
     const limitesTolerancia = await obterLimitesTolerancia(supabase)
 
@@ -3306,14 +3345,16 @@ export async function autoCorrigirTodasFolhasPonto(mes?: number, ano?: number) {
       const normalizacao = normalizarRegistrosFolha(folha.registros, folha.mes, folha.ano, jornadaInfo, limitesTolerancia)
 
       if (normalizacao.diasCorrigidos > 0) {
-        const horasNormaisDiarias = jornadaInfo?.horas_totais ?? 8
+        const descontarIntervaloFolha = horasNormaisLiquidasVigente(folha.mes, folha.ano, vigenciaHorasLiquidas)
+        const horasNormaisDiarias = horasNormaisDaJornada(jornadaInfo, descontarIntervaloFolha)
+        const cargaPorJornadaFolha = montarCargaPorJornada(todasJornadasLote, descontarIntervaloFolha)
         let totalHorasNormais = 0
         let totalExtra50 = 0
         let totalExtra100 = 0
         let totalFaltas = 0
 
         normalizacao.registros.forEach((r: any) => {
-          if (r.turno_codigo) totalHorasNormais += horasNormaisDoDia(r, cargaPorJornada, horasNormaisDiarias)
+          if (r.turno_codigo) totalHorasNormais += horasNormaisDoDia(r, cargaPorJornadaFolha, horasNormaisDiarias)
           if (isFaltaDefinitiva(r.observacao)) totalFaltas++
           if (r.hora_extra_minutos && r.hora_extra_minutos > 0) {
             if (r.hora_extra_tipo === '100%') totalExtra100 += r.hora_extra_minutos

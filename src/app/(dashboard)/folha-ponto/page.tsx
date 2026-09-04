@@ -12,7 +12,8 @@ import { Modal } from '@/components/ui/Modal'
 import { formatSectorsHierarchy } from '@/utils/sectors'
 import { ocorrenciasDoMes } from '@/utils/folha/ocorrencias'
 import { isFaltaDefinitiva } from '@/utils/folha/faltaAutomatica'
-import { formatarMinutosHHMM, formatarHorasDecimaisHHMM, totaisFolha, regraCompensacaoVigente } from '@/utils/folha/calculoDia'
+import { formatarMinutosHHMM, formatarHorasDecimaisHHMM, totaisFolha, regraCompensacaoVigente, horasNormaisLiquidasVigente } from '@/utils/folha/calculoDia'
+import { horasNormaisDaJornada } from '@/utils/folha/cargaDiaria'
 import { rotularInativo } from '@/utils/opcoesAtivas'
 import { h, raw } from '@/utils/htmlSeguro'
 
@@ -497,7 +498,10 @@ export default function FolhaPontoPage() {
           impressa ainda podia sair desatualizada. Mesma funcao que o editor usa.
         */
         const totais = totaisFolha(parsedRegs as any[], {
-          horasNormaisPorDia: (jornada as any)?.horas_totais || 8,
+          horasNormaisPorDia: horasNormaisDaJornada(
+            jornada as any,
+            horasNormaisLiquidasVigente(folha.mes, folha.ano, (res as any).horasLiquidasDesde)
+          ),
           jornadaNome: (jornada as any)?.nome,
           ano: folha.ano,
           mes: folha.mes,

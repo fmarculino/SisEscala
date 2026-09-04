@@ -18,12 +18,15 @@ import { isFaltaDefinitiva } from '@/utils/folha/faltaAutomatica'
 import { isPendenciaRevisao, resolverPendenciaRevisao } from '@/utils/folha/diaIncompleto'
 import { sequenciarDia, temViradaDeDia } from '@/utils/folha/sequenciaDia'
 import { RelatorioPlantaoSobreavisoAnexo } from '@/components/reports/RelatorioPlantaoSobreavisoAnexo'
+import { horasNormaisDaJornada } from '@/utils/folha/cargaDiaria'
+import { podeReabrirFolha } from '@/utils/folha/reabertura'
 import {
   formatarMinutosHHMM,
   totaisFolha,
   calcularDia,
   statusCompensacaoDoDia,
   regraCompensacaoVigente,
+  horasNormaisLiquidasVigente,
   type CompensacaoStatus,
 } from '@/utils/folha/calculoDia'
 
@@ -86,6 +89,7 @@ export function FolhaPontoEditor({
   const [closedPeriods, setClosedPeriods] = useState<any[]>([])
   // Ausente = padrao do modulo (2026-09), que e a decisao tomada. Ver COMPETENCIA_COMPENSACAO_PADRAO.
   const [vigenciaCompensacao, setVigenciaCompensacao] = useState<string | null>(null)
+  const [vigenciaHorasLiquidas, setVigenciaHorasLiquidas] = useState<string | null>(null)
   const supabase = createClient()
 
   const [isMounted, setIsMounted] = useState(false)
@@ -113,10 +117,13 @@ export function FolhaPontoEditor({
 
       const { data: cfgVigencia } = await supabase
         .from('configuracoes_globais')
-        .select('valor')
-        .eq('chave', 'compensacao_atraso_vigente_desde')
-        .maybeSingle()
-      if (typeof cfgVigencia?.valor === 'string') setVigenciaCompensacao(cfgVigencia.valor)
+        .select('chave, valor')
+        .in('chave', ['compensacao_atraso_vigente_desde', 'horas_normais_liquidas_desde'])
+      for (const c of cfgVigencia || []) {
+        if (typeof c.valor !== 'string') continue
+        if (c.chave === 'compensacao_atraso_vigente_desde') setVigenciaCompensacao(c.valor)
+        if (c.chave === 'horas_normais_liquidas_desde') setVigenciaHorasLiquidas(c.valor)
+      }
 
       const { data: closedData } = await supabase
         .from('configuracoes_globais')
@@ -697,14 +704,19 @@ export function FolhaPontoEditor({
   const totalizers = useMemo(
     () =>
       totaisFolha(registros as any[], {
-        horasNormaisPorDia: jornada?.horas_totais || 8,
+        // ⚠️ Sem o intervalo a partir de 09/2026: `horas_totais` e o VAO do relogio, nao a
+        // jornada. Ver horasNormaisDaJornada (cargaDiaria.ts) e a nota tecnica de 04/09/2026.
+        horasNormaisPorDia: horasNormaisDaJornada(
+          jornada,
+          horasNormaisLiquidasVigente(folha.mes, folha.ano, vigenciaHorasLiquidas)
+        ),
         jornadaNome: jornada?.nome,
         ano: folha.ano,
         mes: folha.mes,
         isFaltaDefinitiva,
         compensacaoVigenteDesde: vigenciaCompensacao,
       }),
-    [registros, jornada, folha.ano, folha.mes, vigenciaCompensacao]
+    [registros, jornada, folha.ano, folha.mes, vigenciaCompensacao, vigenciaHorasLiquidas]
   )
 
   // Ocorrências do verso (Página 2) — regra em src/utils/folha/ocorrencias.ts.
@@ -985,7 +997,7 @@ export function FolhaPontoEditor({
               Revisar/Fechar
             </button>
           )}
-          {!isPortal && status === 'Revisada' && !isCompetenciaEncerrada && (profile?.role === 'admin' || profile?.role === 'super_admin') && (
+          {!isPortal && status === 'Revisada' && !isCompetenciaEncerrada && podeReabrirFolha(profile?.role) && (
             <button 
               onClick={() => handleSave('Gerada')}
               disabled={saving}

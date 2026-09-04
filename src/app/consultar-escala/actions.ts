@@ -13,9 +13,31 @@ import { resolverFaltaAutomatica, isFaltaDefinitiva, diasComFaltaDeclarada } fro
 import { resolverPendenciaRevisao, resolverBatidaNaoAproveitada, carregarDiasComBatidaFisica } from '@/utils/folha/diaIncompleto'
 import { TERMO_ATIVACAO, TERMO_DESATIVACAO, TERMO_VERSAO } from '@/utils/avisoPonto'
 import { preservarCampo } from '@/utils/folha/preservacao'
-import { montarCargaPorJornada, horasNormaisDoDia } from '@/utils/folha/cargaDiaria'
+import { montarCargaPorJornada, horasNormaisDoDia, horasNormaisDaJornada } from '@/utils/folha/cargaDiaria'
+
+/**
+ * Competencia a partir da qual as HORAS NORMAIS deixam de contar o intervalo.
+ *
+ * ⚠️ Chave ausente cai no padrao do modulo (2026-09), que e a decisao tomada em 04/09/2026.
+ * A migration que cria a chave e conveniencia — serve para mover o corte sem deploy.
+ */
+async function lerVigenciaHorasLiquidas(supabase: any): Promise<string | null> {
+  try {
+    const { data } = await supabase
+      .from('configuracoes_globais')
+      .select('valor')
+      .eq('chave', 'horas_normais_liquidas_desde')
+      .maybeSingle()
+    const v = data?.valor
+    return typeof v === 'string' ? v : null
+  } catch {
+    return null
+  }
+}
+
+
 import { autorizacaoDoDia, aplicarObservacaoAutorizacao } from '@/utils/folha/autorizacaoPonto'
-import { carregarDecisaoCompensacao } from '@/utils/folha/calculoDia'
+import { carregarDecisaoCompensacao, horasNormaisLiquidasVigente } from '@/utils/folha/calculoDia'
 import { afastamentosDoDia, descreverAfastamentos, minutosAbonadosDoDia, isShiftOverlappingAfastamento } from '@/utils/folha/afastamentosDia'
 import { conferirPinNovo, mensagemRecusaPin } from '@/utils/pin'
 
@@ -810,15 +832,19 @@ export async function salvarFolhaPontoServidor(folhaId: string, registros: any[]
 
     if (!escala) throw new Error('Escala vinculada não encontrada')
 
+    // A folha so deixa de contar o intervalo como jornada a partir de 09/2026 — competencia
+    // anterior e documento assinado. Ver horasNormaisDaJornada (cargaDiaria.ts).
+    const descontarIntervalo = horasNormaisLiquidasVigente(folha.mes, folha.ano, await lerVigenciaHorasLiquidas(supabase))
+
     const jornadaDetails = escala.jornadas ? (escala.jornadas as any) : null
-    const horasNormaisDiarias = jornadaDetails?.horas_totais ?? 8
+    const horasNormaisDiarias = horasNormaisDaJornada(jornadaDetails, descontarIntervalo)
 
     // Carga de cada dia: a jornada do mes e so o PADRAO; dias cobertos por vigencia valem a
     // carga gravada em registro.jornada_nome. Ver src/utils/folha/cargaDiaria.ts.
     const { data: todasJornadas } = await supabase
       .from('jornadas')
-      .select('nome, horas_totais')
-    const cargaPorJornada = montarCargaPorJornada(todasJornadas)
+      .select('nome, horas_totais, intervalo_minutos')
+    const cargaPorJornada = montarCargaPorJornada(todasJornadas, descontarIntervalo)
 
     // Fetch holidays
     const startDate = `${folha.ano}-${String(folha.mes).padStart(2, '0')}-01`
@@ -1056,11 +1082,15 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
       .lte('data_inicio', endDate)
       .gte('data_fim', startDate)
 
+    // A folha so deixa de contar o intervalo como jornada a partir de 09/2026 — competencia
+    // anterior e documento assinado. Ver horasNormaisDaJornada (cargaDiaria.ts).
+    const descontarIntervalo = horasNormaisLiquidasVigente(folha.mes, folha.ano, await lerVigenciaHorasLiquidas(supabase))
+
     // Parse Jornada
     const globalJornadaDetails = escala.jornadas ? (escala.jornadas as any) : null
     const globalJornada = parseJornadaNome(globalJornadaDetails?.nome || '')
     const globalIntervaloMinutos = globalJornadaDetails?.intervalo_minutos ?? 60
-    const globalHorasNormaisDiarias = globalJornadaDetails?.horas_totais ?? 8
+    const globalHorasNormaisDiarias = horasNormaisDaJornada(globalJornadaDetails, descontarIntervalo)
 
     // Prazo (dias uteis apos o FIM DO MES) para justificar um dia sem nenhuma marcacao antes
     // dele virar falta definitiva. Ver src/utils/folha/faltaAutomatica.ts.
@@ -1135,7 +1165,7 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
       const activeJornada = tempJourney ? tempJourney.jornadas : globalJornadaDetails
       const { startHour, startMin, endHour, endMin } = activeJornada === globalJornadaDetails ? globalJornada : parseJornadaNome(activeJornada?.nome || '')
       const intervaloMinutos = activeJornada === globalJornadaDetails ? globalIntervaloMinutos : (activeJornada?.intervalo_minutos ?? 60)
-      const horasNormaisDiarias = activeJornada === globalJornadaDetails ? globalHorasNormaisDiarias : (activeJornada?.horas_totais ?? 8)
+      const horasNormaisDiarias = activeJornada === globalJornadaDetails ? globalHorasNormaisDiarias : horasNormaisDaJornada(activeJornada, descontarIntervalo)
 
       const currentShift = currentShifts.find(s => s.dia === day && s.categoria === 'Regular')
       const extraShift = currentShifts.find(s => s.dia === day && s.categoria === 'Extra')
@@ -1740,10 +1770,14 @@ export async function gerarFolhaPontoServidor(mes: number, ano: number, forcarRa
       .gte('data_fim', startDate)
 
     // Parse Jornada
+    // A folha so deixa de contar o intervalo como jornada a partir de 09/2026 — competencia
+    // anterior e documento assinado. Ver horasNormaisDaJornada (cargaDiaria.ts).
+    const descontarIntervalo = horasNormaisLiquidasVigente(mes, ano, await lerVigenciaHorasLiquidas(supabase))
+
     const globalJornadaDetails = escala.jornadas ? (escala.jornadas as any) : null
     const globalJornada = parseJornadaNome(globalJornadaDetails?.nome || '')
     const globalIntervaloMinutos = globalJornadaDetails?.intervalo_minutos ?? 60
-    const globalHorasNormaisDiarias = globalJornadaDetails?.horas_totais ?? 8
+    const globalHorasNormaisDiarias = horasNormaisDaJornada(globalJornadaDetails, descontarIntervalo)
 
     const registros: any[] = []
     let totalHorasNormais = 0
@@ -1772,7 +1806,7 @@ export async function gerarFolhaPontoServidor(mes: number, ano: number, forcarRa
       const activeJornada = tempJourney ? tempJourney.jornadas : globalJornadaDetails
       const { startHour, startMin, endHour, endMin } = activeJornada === globalJornadaDetails ? globalJornada : parseJornadaNome(activeJornada?.nome || '')
       const intervaloMinutos = activeJornada === globalJornadaDetails ? globalIntervaloMinutos : (activeJornada?.intervalo_minutos ?? 60)
-      const horasNormaisDiarias = activeJornada === globalJornadaDetails ? globalHorasNormaisDiarias : (activeJornada?.horas_totais ?? 8)
+      const horasNormaisDiarias = activeJornada === globalJornadaDetails ? globalHorasNormaisDiarias : horasNormaisDaJornada(activeJornada, descontarIntervalo)
 
       const afastamentosDia = afastamentosDoDia(afastamentos, dateStr)
       const feriadoInfo = feriados?.find(f => f.data === dateStr)
