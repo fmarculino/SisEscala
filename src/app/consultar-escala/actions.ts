@@ -15,7 +15,8 @@ import { TERMO_ATIVACAO, TERMO_DESATIVACAO, TERMO_VERSAO } from '@/utils/avisoPo
 import { preservarCampo } from '@/utils/folha/preservacao'
 import { montarCargaPorJornada, horasNormaisDoDia } from '@/utils/folha/cargaDiaria'
 import { autorizacaoDoDia, aplicarObservacaoAutorizacao } from '@/utils/folha/autorizacaoPonto'
-import { afastamentosDoDia, descreverAfastamentos, isShiftOverlappingAfastamento } from '@/utils/folha/afastamentosDia'
+import { carregarDecisaoCompensacao } from '@/utils/folha/calculoDia'
+import { afastamentosDoDia, descreverAfastamentos, minutosAbonadosDoDia, isShiftOverlappingAfastamento } from '@/utils/folha/afastamentosDia'
 import { conferirPinNovo, mensagemRecusaPin } from '@/utils/pin'
 
 
@@ -1193,7 +1194,8 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
         origem_saida: null,
         feriado: !!feriadoInfo,
         ponto_facultativo: !!pfInfo,
-        afastamento: afastamentosAnulantes.length > 0 ? descreverAfastamentos(afastamentosAnulantes) : null
+        afastamento: afastamentosAnulantes.length > 0 ? descreverAfastamentos(afastamentosAnulantes) : null,
+        abono_minutos: minutosAbonadosDoDia(afastamentosDia)
       }
 
       if (registro.afastamento) {
@@ -1508,6 +1510,11 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
       // facultativo terem montado a observacao — ela convive com eles, nao os substitui.
       aplicarObservacaoAutorizacao(registro, autorizacaoDoDia(autorizacoesPonto, dateStr))
 
+      // A decisao de compensacao de atraso e DECISAO HUMANA (Portaria 382/2019, Art. 7 §1/§2):
+      // sobrevive a regeracao, como manda a regra de preservacao.ts. O valor em minutos e
+      // recalculado sobre os horarios atuais; o que se preserva e a autorizacao.
+      carregarDecisaoCompensacao(registro, registroExistente)
+
       registrosAtualizados.push(registro)
     }
 
@@ -1819,7 +1826,8 @@ export async function gerarFolhaPontoServidor(mes: number, ano: number, forcarRa
         origem_saida: null,
         feriado: !!feriadoInfo,
         ponto_facultativo: !!pfInfo,
-        afastamento: afastamentosAnulantes.length > 0 ? descreverAfastamentos(afastamentosAnulantes) : null
+        afastamento: afastamentosAnulantes.length > 0 ? descreverAfastamentos(afastamentosAnulantes) : null,
+        abono_minutos: minutosAbonadosDoDia(afastamentosDia)
       }
 
       if (registro.afastamento) {
@@ -2132,6 +2140,11 @@ export async function gerarFolhaPontoServidor(mes: number, ano: number, forcarRa
       // A dispensa autorizada e' acrescentada por ULTIMO, depois de feriado/afastamento/ponto
       // facultativo terem montado a observacao — ela convive com eles, nao os substitui.
       aplicarObservacaoAutorizacao(registro, autorizacaoDoDia(autorizacoesPonto, dateStr))
+
+      // A decisao de compensacao de atraso e DECISAO HUMANA (Portaria 382/2019, Art. 7 §1/§2):
+      // sobrevive a regeracao, como manda a regra de preservacao.ts. O valor em minutos e
+      // recalculado sobre os horarios atuais; o que se preserva e a autorizacao.
+      carregarDecisaoCompensacao(registro, registroExistente)
 
       registros.push(registro)
     }

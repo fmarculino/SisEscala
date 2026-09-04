@@ -18,7 +18,8 @@ import { sequenciarDia, PASSOS_FOLHA } from '@/utils/folha/sequenciaDia'
 import { preservarCampo } from '@/utils/folha/preservacao'
 import { montarCargaPorJornada, horasNormaisDoDia } from '@/utils/folha/cargaDiaria'
 import { autorizacaoDoDia, aplicarObservacaoAutorizacao } from '@/utils/folha/autorizacaoPonto'
-import { afastamentosDoDia, descreverAfastamentos, isShiftOverlappingAfastamento } from '@/utils/folha/afastamentosDia'
+import { afastamentosDoDia, descreverAfastamentos, isShiftOverlappingAfastamento, minutosAbonadosDoDia } from '@/utils/folha/afastamentosDia'
+import { calcularDia, totaisFolha, carregarDecisaoCompensacao, diasPendentesDeCompensacao, extraEfetivaDoDia } from '@/utils/folha/calculoDia'
 
 // Helper: Get user profile with unit/sector permissions
 async function getUserProfile(supabase: any): Promise<UserProfile> {
@@ -687,6 +688,7 @@ export async function executeGerarFolhaPonto(
         feriado: !!feriadoInfo,
         ponto_facultativo: !!pfInfo,
         afastamento: afastamentosAnulantes.length > 0 ? descreverAfastamentos(afastamentosAnulantes) : null,
+        abono_minutos: minutosAbonadosDoDia(afastamentosDia),
         jornada_nome: activeJornada?.nome || null,
         jornada_temporaria: !!tempJourney,
       }
@@ -1011,6 +1013,11 @@ export async function executeGerarFolhaPonto(
       // A dispensa autorizada e' acrescentada por ULTIMO, depois de feriado/afastamento/ponto
       // facultativo terem montado a observacao — ela convive com eles, nao os substitui.
       aplicarObservacaoAutorizacao(registro, autorizacaoDoDia(autorizacoesPonto, dateStr))
+
+      // A decisao de compensacao de atraso e DECISAO HUMANA (Portaria 382/2019, Art. 7 §1/§2):
+      // sobrevive a regeracao, como manda a regra de preservacao.ts. O valor em minutos e
+      // recalculado sobre os horarios atuais; o que se preserva e a autorizacao.
+      carregarDecisaoCompensacao(registro, registroExistente)
 
       registros.push(registro)
     }
@@ -1457,6 +1464,7 @@ export async function sincronizarFolhaPonto(folhaId: string) {
         feriado: !!feriadoInfo,
         ponto_facultativo: !!pfInfo,
         afastamento: afastamentosAnulantes.length > 0 ? descreverAfastamentos(afastamentosAnulantes) : null,
+        abono_minutos: minutosAbonadosDoDia(afastamentosDia),
         jornada_nome: activeJornada?.nome || null,
         jornada_temporaria: !!tempJourney,
       }
@@ -1773,6 +1781,11 @@ export async function sincronizarFolhaPonto(folhaId: string) {
       // facultativo terem montado a observacao — ela convive com eles, nao os substitui.
       aplicarObservacaoAutorizacao(registro, autorizacaoDoDia(autorizacoesPonto, dateStr))
 
+      // A decisao de compensacao de atraso e DECISAO HUMANA (Portaria 382/2019, Art. 7 §1/§2):
+      // sobrevive a regeracao, como manda a regra de preservacao.ts. O valor em minutos e
+      // recalculado sobre os horarios atuais; o que se preserva e a autorizacao.
+      carregarDecisaoCompensacao(registro, registroExistente)
+
       registrosAtualizados.push(registro)
     }
 
@@ -1931,8 +1944,167 @@ export async function reclassificarPassoPresenca(
   }
 }
 
+/**
+ * Decide o que fazer com um dia em que o servidor chegou atrasado E saiu depois do previsto.
+ *
+ * BASE LEGAL — Portaria 382/2019-GAB-MAB/SMS, Art. 7 §1 e §2: o atraso so vira compensacao
+ * MEDIANTE AUTORIZACAO da chefia. Nao existe compensacao automatica, e e por isso que esta action
+ * existe: o sistema mede e propoe, uma pessoa decide.
+ *
+ * ⚠️ ATE ALGUEM DECIDIR, NADA MUDA DE VALOR. O dia fica `pendente` e a hora extra continua a que
+ * era. Medido em 04/09/2026: compensar por padrao tiraria 253h de hora extra de 141 pessoas de uma
+ * vez, numa folha que o servidor assina; nao medir nada mantinha o problema. O meio-termo e este:
+ * o numero so muda por ato humano, e a decisao e cobrada no fechamento da folha.
+ *
+ * ⚠️ Nao existe caminho para o PORTAL chegar aqui — o servidor nao decide sobre a propria
+ * compensacao. Quem autoriza e coordenacao/RH, como em toda a Portaria.
+ */
+export async function decidirCompensacaoDia(
+  folhaId: string,
+  dia: number,
+  decisao: 'autorizada' | 'extra_confirmada' | 'pendente',
+  justificativa?: string
+) {
+  try {
+    const supabase = await createClient()
+    const userProfile = await getUserProfile(supabase)
+
+    const PAPEIS_QUE_DECIDEM = ['coordenador', 'ass_adm', 'admin', 'super_admin', 'rh', 'rh_unidade']
+    if (!PAPEIS_QUE_DECIDEM.includes(userProfile.role)) {
+      return { error: 'Apenas coordenação e RH podem decidir sobre compensação de atraso.' }
+    }
+
+    if (!['autorizada', 'extra_confirmada', 'pendente'].includes(decisao)) {
+      return { error: 'Decisão inválida.' }
+    }
+
+    const { data: folha, error: folhaError } = await supabase
+      .from('folha_ponto')
+      .select('id, escala_mensal_id, mes, ano, servidor_id, status, registros')
+      .eq('id', folhaId)
+      .single()
+
+    if (folhaError || !folha) throw new Error('Folha de ponto não encontrada')
+
+    if (await isCompetencyClosed(folha.mes, folha.ano)) {
+      return { error: 'Esta competência está encerrada e todos os dados estão congelados para auditoria.' }
+    }
+
+    // Mesma regra do editor: folha fechada nao recebe decisao nova sem ser reaberta. Sem isto, a
+    // folha ja assinada mudaria de valor depois de assinada.
+    if (folha.status === 'Revisada') {
+      return { error: 'Esta folha já foi fechada. Reabra a folha para decidir sobre a compensação.' }
+    }
+
+    const { data: escala, error: escError } = await supabase
+      .from('escala_mensal')
+      .select('id, unidade_id, setor_id')
+      .eq('id', folha.escala_mensal_id)
+      .single()
+
+    if (escError || !escala) throw new Error('Escala vinculada não encontrada')
+
+    if (!hasSectorAccess(userProfile, escala.setor_id, escala.unidade_id)) {
+      return { error: 'Acesso negado para decidir sobre esta folha.' }
+    }
+
+    const registros = Array.isArray(folha.registros) ? [...(folha.registros as any[])] : []
+    const indice = registros.findIndex((r: any) => r.dia === dia)
+    if (indice < 0) return { error: `Dia ${dia} não encontrado nesta folha.` }
+
+    const registro = { ...registros[indice] }
+
+    // ⚠️ A elegibilidade e RECALCULADA aqui, nunca aceita do cliente: a tela mostra o botao, mas
+    // quem decide se ha o que compensar e esta funcao (a action e um POST chamavel direto).
+    const calculo = calcularDia(registro, registro.jornada_nome)
+    if (decisao !== 'pendente' && calculo.compensavelMinutos <= 0) {
+      return { error: 'Este dia não tem atraso reposto por saída posterior — não há compensação a decidir.' }
+    }
+
+    const antes = {
+      compensacao_status: registro.compensacao_status || null,
+      compensacao_minutos: registro.compensacao_minutos ?? null,
+    }
+
+    if (decisao === 'pendente') {
+      registro.compensacao_status = 'pendente'
+      registro.compensacao_minutos = null
+      registro.compensacao_autorizado_por_nome = null
+      registro.compensacao_autorizado_em = null
+      registro.compensacao_justificativa = null
+    } else {
+      registro.compensacao_status = decisao
+      registro.compensacao_minutos = calculo.compensavelMinutos
+      // getUserProfile devolve a linha inteira de `profiles` (o tipo UserProfile so declara o
+      // que a checagem de acesso usa), entao `nome`/`email` vem por fora do tipo.
+      registro.compensacao_autorizado_por_nome =
+        (userProfile as any).nome || (userProfile as any).email || null
+      registro.compensacao_autorizado_em = new Date().toISOString()
+      registro.compensacao_justificativa = justificativa?.trim() || null
+    }
+
+    registros[indice] = registro
+
+    const totais = totaisFolha(registros as any[], {
+      horasNormaisPorDia: 8,
+      ano: folha.ano,
+      mes: folha.mes,
+      isFaltaDefinitiva,
+    })
+
+    const { error: updateError } = await supabase
+      .from('folha_ponto')
+      .update({
+        registros,
+        // Os totais de hora extra do banco acompanham a decisao — a tela e a impressao recalculam
+        // dos `registros`, mas a LISTAGEM le estas colunas.
+        total_horas_extras_50: parseFloat((totais.extra50Minutos / 60).toFixed(2)),
+        total_horas_extras_100: parseFloat((totais.extra100Minutos / 60).toFixed(2)),
+        ultima_edicao_por_id: userProfile.id,
+        ultima_edicao_em: new Date().toISOString(),
+      })
+      .eq('id', folhaId)
+
+    if (updateError) return { error: updateError.message }
+
+    await registrarLog({
+      acao: decisao === 'autorizada'
+        ? 'COMPENSACAO_ATRASO_AUTORIZADA'
+        : decisao === 'extra_confirmada'
+          ? 'COMPENSACAO_ATRASO_RECUSADA'
+          : 'COMPENSACAO_ATRASO_REABERTA',
+      entidade: 'folha_ponto',
+      entidadeId: folhaId,
+      userId: userProfile.id,
+      alteracoes: calcularAlteracoes(antes, {
+        compensacao_status: registro.compensacao_status,
+        compensacao_minutos: registro.compensacao_minutos ?? null,
+      }),
+      detalhes: {
+        dia,
+        decisao,
+        minutosCompensaveis: calculo.compensavelMinutos,
+        atrasoEntradaMinutos: calculo.atrasoEntradaMinutos,
+        excedenteSaidaMinutos: calculo.excedenteSaidaMinutos,
+        justificativa: justificativa?.trim() || null,
+        servidorId: folha.servidor_id,
+      },
+      unidadeId: escala.unidade_id,
+      setorId: escala.setor_id,
+    })
+
+    revalidatePath(`/folha-ponto/${folhaId}`)
+    revalidatePath('/folha-ponto')
+
+    return { success: true, registros }
+  } catch (error: any) {
+    console.error('Erro ao decidir compensação de atraso:', error)
+    return { error: error.message }
+  }
+}
+
 // Persist edited timesheet records from the UI editor
-export async function salvarFolhaPonto(folhaId: string, registros: any[], status?: string, cargo?: string, confirmarFaltasPendentes?: boolean) {
+export async function salvarFolhaPonto(folhaId: string, registros: any[], status?: string, cargo?: string, confirmarFaltasPendentes?: boolean, confirmarCompensacaoPendente?: boolean) {
   try {
     const supabase = await createClient()
     const userProfile = await getUserProfile(supabase)
@@ -2044,6 +2216,24 @@ export async function salvarFolhaPonto(folhaId: string, registros: any[], status
       }
     }
 
+    /*
+      GATE DA COMPENSAÇÃO DE ATRASO (04/09/2026, Portaria 382/2019 Art. 7 §1/§2).
+      Mesmo desenho do gate de falta logo acima: NÃO bloqueia, cobra decisão explícita.
+
+      ⚠️ É este gate que torna aceitável o default de "pendente não muda valor nenhum". Sem ele,
+      um dia em que a pessoa chegou atrasada e repôs saindo depois seria fechado como hora extra
+      por inércia — que é exatamente o que a Portaria não admite (a compensação exige autorização,
+      e a hora extra do Art. 8 exige autorização prévia). Medido em 08/2026: 622 dias, 141
+      pessoas, 253h21 de reposição de atraso lançadas como hora extra.
+    */
+    if (status === 'Revisada' && folha.status !== 'Revisada' && !confirmarCompensacaoPendente) {
+      const jornadaFolha: any = Array.isArray((escala as any).jornadas) ? (escala as any).jornadas[0] : (escala as any).jornadas
+      const diasCompensacao = diasPendentesDeCompensacao(registros, jornadaFolha?.nome)
+      if (diasCompensacao.length > 0) {
+        return { requerDecisaoCompensacao: true, diasCompensacaoPendente: diasCompensacao }
+      }
+    }
+
     // Fechar É o prazo: promove aqui, na mesma gravação, para não sobrar texto pendente numa
     // folha que acabou de virar documento definitivo.
     if (status === 'Revisada' && folha.status !== 'Revisada') {
@@ -2112,6 +2302,8 @@ export async function salvarFolhaPonto(folhaId: string, registros: any[], status
     }
 
     // Recalculate totals
+    const jornadaFolhaCalculo: any = Array.isArray((escala as any).jornadas) ? (escala as any).jornadas[0] : (escala as any).jornadas
+    const jornadaNomeParaCalculo = jornadaFolhaCalculo?.nome
     let totalHorasNormais = 0
     let totalExtra50 = 0
     let totalExtra100 = 0
@@ -2127,20 +2319,26 @@ export async function salvarFolhaPonto(folhaId: string, registros: any[], status
       }
 
       // Check extra hours
-      if (r.hora_extra_minutos && r.hora_extra_minutos > 0) {
+      //
+      // ⚠️ `extraEfetivaDoDia` desconta a compensacao JA AUTORIZADA (Portaria 382/2019, Art. 7
+      // §1/§2). Enquanto o dia esta `pendente` ele devolve o valor cheio — nada muda de valor sem
+      // decisao humana. Sem isto, salvar a folha logo depois de autorizar reverteria o abatimento
+      // nas colunas do banco, e a LISTAGEM voltaria a mostrar a hora extra antiga.
+      const extraDoDia = extraEfetivaDoDia(r, calcularDia(r, jornadaNomeParaCalculo))
+      if (extraDoDia > 0) {
         const dateObj = new Date(folha.ano, folha.mes - 1, r.dia)
         const dateStr = `${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(r.dia).padStart(2, '0')}`
         const isSunday = dateObj.getDay() === 0
         const isHoliday = feriadosSet.has(dateStr)
 
         if (isSunday || isHoliday) {
-          totalExtra100 += r.hora_extra_minutos
+          totalExtra100 += extraDoDia
         } else {
           // If night shift or coordinator split, otherwise default to 50% on normal edits unless flag is present
           if (r.hora_extra_tipo === '100%') {
-            totalExtra100 += r.hora_extra_minutos
+            totalExtra100 += extraDoDia
           } else {
-            totalExtra50 += r.hora_extra_minutos
+            totalExtra50 += extraDoDia
           }
         }
       }

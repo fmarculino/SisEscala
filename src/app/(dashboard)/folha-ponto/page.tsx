@@ -11,6 +11,8 @@ import { getServidoresFolhaPonto, gerarFolhaPonto, gerarFolhasEmLote, getFolhasP
 import { Modal } from '@/components/ui/Modal'
 import { formatSectorsHierarchy } from '@/utils/sectors'
 import { ocorrenciasDoMes } from '@/utils/folha/ocorrencias'
+import { isFaltaDefinitiva } from '@/utils/folha/faltaAutomatica'
+import { formatarMinutosHHMM, formatarHorasDecimaisHHMM, totaisFolha } from '@/utils/folha/calculoDia'
 import { rotularInativo } from '@/utils/opcoesAtivas'
 import { h, raw } from '@/utils/htmlSeguro'
 
@@ -145,15 +147,12 @@ export default function FolhaPontoPage() {
     return () => clearTimeout(timer)
   }, [termoBusca, buscaAtiva, mes, ano])
 
-  // Helper for batch printing minutes formatting
-  const formatMinutesToTimeStr = (totalMinutes: number): string => {
-    // ⚠️ `horas`, nao `h`: desde 30/08/2026 este arquivo importa `h` (a tag de HTML seguro) no
-    // escopo do modulo. Um `const h` local o sombreia, e quem escrevesse um literal ``h`...` ``
-    // aqui dentro receberia "h is not a function" em tempo de execucao — sem erro de compilacao.
-    const horas = Math.floor(totalMinutes / 60)
-    const m = totalMinutes % 60
-    return `${String(horas).padStart(2, '0')}:${String(m).padStart(2, '0')}`
-  }
+  // A formatacao HH:MM virou fonte unica em src/utils/folha/calculoDia.ts (04/09/2026), junto
+  // com os totais — esta tela somava por conta propria e ainda lia o decimal gravado no banco.
+  // ⚠️ Nao reintroduza um helper local chamado `h` aqui: desde 30/08/2026 este arquivo importa
+  // `h` (a tag de HTML seguro) no escopo do modulo, e um `const h` local o sombrearia — quem
+  // escrevesse um literal ``h`...` `` receberia "h is not a function" em runtime, sem erro de
+  // compilacao.
 
   // Modal
   const [alertModal, setAlertModal] = useState<{ isOpen: boolean, title: string, message: string, type: 'default' | 'danger' | 'success' | 'warning' }>({
@@ -490,6 +489,21 @@ export default function FolhaPontoPage() {
 
         const parsedRegs = Array.isArray(regs) ? regs : []
 
+        /*
+          ⚠️ OS TOTAIS SAO RECALCULADOS DOS `registros`, NAO LIDOS DE `folha.total_*`.
+          As colunas do banco guardam decimal com 2 casas (`parseFloat((minutos / 60).toFixed(2))`,
+          em oito lugares diferentes): de `0.18h` nao se recupera `11 min`. Lendo dali, a folha
+          impressa e a folha da tela mostrariam numeros diferentes para o MESMO documento — e a
+          impressa ainda podia sair desatualizada. Mesma funcao que o editor usa.
+        */
+        const totais = totaisFolha(parsedRegs as any[], {
+          horasNormaisPorDia: (jornada as any)?.horas_totais || 8,
+          jornadaNome: (jornada as any)?.nome,
+          ano: folha.ano,
+          mes: folha.mes,
+          isFaltaDefinitiva,
+        })
+
         const tableRowsHTML = parsedRegs.map((r: any) => {
           const isWorkDay = !!r.turno_codigo
           const isOffDay = r.feriado || r.afastamento || !isWorkDay
@@ -503,9 +517,8 @@ export default function FolhaPontoPage() {
               <td class="px-3 py-1.5 border-r border-zinc-300 text-center font-mono font-bold">${isWorkDay && r.saida_intervalo && !r.afastamento && !r.feriado ? (r.saida_intervalo || '') : '-'}</td>
               <td class="px-3 py-1.5 border-r border-zinc-300 text-center font-mono font-bold">${isWorkDay && r.retorno_intervalo && !r.afastamento && !r.feriado ? (r.retorno_intervalo || '') : '-'}</td>
               <td class="px-3 py-1.5 border-r border-zinc-300 text-center font-mono font-bold">${isWorkDay && !r.afastamento && !r.feriado ? (r.saida || '') : '-'}</td>
-              <td class="px-3 py-1.5 border-r border-zinc-300 text-center font-mono font-bold text-blue-600">${isWorkDay && r.hora_extra_minutos && r.hora_extra_minutos > 0 ? formatMinutesToTimeStr(r.hora_extra_minutos) : '-'}</td>
-              <td class="px-4 py-1.5 border-r border-zinc-300 font-medium">${r.observacao || ''}</td>
-              <td class="px-2 py-1.5 text-center"></td>
+              <td class="px-3 py-1.5 border-r border-zinc-300 text-center font-mono font-bold text-blue-600">${isWorkDay && r.hora_extra_minutos && r.hora_extra_minutos > 0 ? formatarMinutosHHMM(r.hora_extra_minutos) : '-'}</td>
+              <td class="px-4 py-1.5 font-medium">${r.observacao || ''}</td>
             </tr>
           `
         })
@@ -571,8 +584,7 @@ export default function FolhaPontoPage() {
                    <th class="px-3 py-2 text-center w-24 border-r border-zinc-300">Retorno Int.</th>
                    <th class="px-3 py-2 text-center w-24 border-r border-zinc-300">Saída</th>
                    <th class="px-3 py-2 text-center w-20 border-r border-zinc-300">Extra</th>
-                   <th class="px-4 py-2 border-r border-zinc-300">Observações / Justificativas</th>
-                   <th class="px-3 py-2 text-center w-24">Visto</th>
+                   <th class="px-4 py-2">Observações / Justificativas</th>
                  </tr>
                </thead>
                <tbody class="divide-y divide-zinc-200">
@@ -582,22 +594,34 @@ export default function FolhaPontoPage() {
 
             <!-- Summary / Totals -->
             <div class="mt-6">
-               <div class="grid grid-cols-4 gap-4 text-center mb-8">
+               <div class="grid grid-cols-7 gap-2 text-center mb-8">
                  <div class="bg-white border border-zinc-300 p-3 rounded-xl">
                    <div class="text-[8px] font-black uppercase text-zinc-400 mb-0.5">Horas Normais</div>
-                   <div class="text-lg font-black text-zinc-900">${folha.total_horas_normais || 0}h</div>
+                   <div class="text-base font-black text-zinc-900">${formatarMinutosHHMM(totais.normaisMinutos)}</div>
                  </div>
                  <div class="bg-white border border-zinc-300 p-3 rounded-xl">
-                   <div class="text-[8px] font-black uppercase text-zinc-400 mb-0.5">Horas Extra (50%)</div>
-                   <div class="text-lg font-black text-blue-600">${folha.total_horas_extras_50 || 0}h</div>
+                   <div class="text-[8px] font-black uppercase text-zinc-400 mb-0.5">Horas Noturnas</div>
+                   <div class="text-base font-black text-indigo-600">${formatarMinutosHHMM(totais.noturnoMinutos)}</div>
                  </div>
                  <div class="bg-white border border-zinc-300 p-3 rounded-xl">
-                   <div class="text-[8px] font-black uppercase text-zinc-400 mb-0.5">Horas Extra (100%)</div>
-                   <div class="text-lg font-black text-violet-600">${folha.total_horas_extras_100 || 0}h</div>
+                   <div class="text-[8px] font-black uppercase text-zinc-400 mb-0.5">Dias de Falta</div>
+                   <div class="text-base font-black text-red-500">${totais.faltas}</div>
                  </div>
                  <div class="bg-white border border-zinc-300 p-3 rounded-xl">
-                   <div class="text-[8px] font-black uppercase text-zinc-400 mb-0.5">Total Faltas</div>
-                   <div class="text-lg font-black text-red-500">${folha.total_faltas || 0}</div>
+                   <div class="text-[8px] font-black uppercase text-zinc-400 mb-0.5">Falta e Atraso</div>
+                   <div class="text-base font-black text-orange-600">${formatarMinutosHHMM(totais.atrasoMinutos)}</div>
+                 </div>
+                 <div class="bg-white border border-zinc-300 p-3 rounded-xl">
+                   <div class="text-[8px] font-black uppercase text-zinc-400 mb-0.5">Abono</div>
+                   <div class="text-base font-black text-emerald-600">${formatarMinutosHHMM(totais.abonoMinutos)}</div>
+                 </div>
+                 <div class="bg-white border border-zinc-300 p-3 rounded-xl">
+                   <div class="text-[8px] font-black uppercase text-zinc-400 mb-0.5">Extra Diurna (50%)</div>
+                   <div class="text-base font-black text-blue-600">${formatarMinutosHHMM(totais.extra50Minutos)}</div>
+                 </div>
+                 <div class="bg-white border border-zinc-300 p-3 rounded-xl">
+                   <div class="text-[8px] font-black uppercase text-zinc-400 mb-0.5">Extra Not./Dom. (100%)</div>
+                   <div class="text-base font-black text-violet-600">${formatarMinutosHHMM(totais.extra100Minutos)}</div>
                  </div>
                </div>
 
@@ -1234,12 +1258,14 @@ export default function FolhaPontoPage() {
                       </td>
                       <td className="px-6 py-4 text-center">
                         <span className="font-bold text-zinc-700 dark:text-zinc-300">
-                          {hasFolha ? `${s.total_horas_normais}h` : '---'}
+                          {hasFolha ? formatarHorasDecimaisHHMM(s.total_horas_normais) : '---'}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-center">
                         <span className="font-bold text-zinc-700 dark:text-zinc-300">
-                          {hasFolha ? `${s.total_horas_extras_50}h / ${s.total_horas_extras_100}h` : '---'}
+                          {hasFolha
+                            ? `${formatarHorasDecimaisHHMM(s.total_horas_extras_50)} / ${formatarHorasDecimaisHHMM(s.total_horas_extras_100)}`
+                            : '---'}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-center">

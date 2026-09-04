@@ -10,7 +10,7 @@ import {
   Check, Loader2, Building2, Users, Calendar, Briefcase, 
   Clock, FileText, CheckSquare, X, Unlock, PhoneCall, ShieldCheck, Wand2
 } from 'lucide-react'
-import { salvarFolhaPonto, verificarDivergenciaEscala, sincronizarFolhaPonto, gerarFolhaPonto, reclassificarPassoPresenca, getDadosPlantoesSobreavisosServidor, autoCorrigirFolhaPonto } from '../actions'
+import { salvarFolhaPonto, verificarDivergenciaEscala, sincronizarFolhaPonto, gerarFolhaPonto, reclassificarPassoPresenca, getDadosPlantoesSobreavisosServidor, autoCorrigirFolhaPonto, decidirCompensacaoDia } from '../actions'
 import { Modal } from '@/components/ui/Modal'
 import { ocorrenciasDoMes } from '@/utils/folha/ocorrencias'
 import { createClient } from '@/utils/supabase/client'
@@ -18,12 +18,13 @@ import { isFaltaDefinitiva } from '@/utils/folha/faltaAutomatica'
 import { isPendenciaRevisao, resolverPendenciaRevisao } from '@/utils/folha/diaIncompleto'
 import { sequenciarDia, temViradaDeDia } from '@/utils/folha/sequenciaDia'
 import { RelatorioPlantaoSobreavisoAnexo } from '@/components/reports/RelatorioPlantaoSobreavisoAnexo'
-
-function formatMinutesToTimeStr(totalMinutes: number): string {
-  const h = Math.floor(totalMinutes / 60) % 24
-  const m = totalMinutes % 60
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
-}
+import {
+  formatarMinutosHHMM,
+  totaisFolha,
+  calcularDia,
+  statusCompensacaoDoDia,
+  type CompensacaoStatus,
+} from '@/utils/folha/calculoDia'
 
 /**
  * Marcador de que aquela batida ocorreu no dia seguinte ao da linha da folha.
@@ -54,7 +55,7 @@ interface FolhaPontoEditorProps {
    */
   onSolicitarAjuste?: (dia: number) => void
   onBack?: () => void
-  saveAction?: (folhaId: string, registros: any[], status?: string, cargo?: string, confirmarFaltasPendentes?: boolean) => Promise<{ success?: boolean; error?: string; requerConfirmacaoFaltas?: boolean; diasFaltaPendente?: number[] }>
+  saveAction?: (folhaId: string, registros: any[], status?: string, cargo?: string, confirmarFaltasPendentes?: boolean, confirmarCompensacaoPendente?: boolean) => Promise<{ success?: boolean; error?: string; requerConfirmacaoFaltas?: boolean; diasFaltaPendente?: number[]; requerDecisaoCompensacao?: boolean; diasCompensacaoPendente?: number[] }>
   verifyDivergenceAction?: (folhaId: string) => Promise<{ divergent: boolean; affectedDays?: number[]; error?: string }>
   syncAction?: (folhaId: string) => Promise<{ success?: boolean; error?: string }>
   regenerateAction?: (servidorId: string, mes: number, ano: number, isRascunho: boolean) => Promise<{ success?: boolean; error?: string }>
@@ -214,6 +215,53 @@ export function FolhaPontoEditor({
   const podeReclassificar =
     !isPortal && isEditable &&
     ['coordenador', 'ass_adm', 'admin', 'super_admin', 'rh', 'rh_unidade'].includes(profile?.role)
+
+  /**
+   * Decisao de compensacao de atraso (Portaria 382/2019, Art. 7 §1/§2).
+   *
+   * ⚠️ Mesma regua de `podeReclassificar`: e ato de coordenacao/RH, e NUNCA aparece no Portal —
+   * o servidor nao decide sobre a propria compensacao. A action confere isso de novo no servidor,
+   * porque tela filtrada nao protege Server Action (que e um POST chamavel direto).
+   */
+  const podeDecidirCompensacao = podeReclassificar
+
+  const [compensacaoModal, setCompensacaoModal] = useState<{
+    dia: number
+    atrasoMinutos: number
+    excedenteMinutos: number
+    compensavelMinutos: number
+    justificativa: string
+    submitting: boolean
+  } | null>(null)
+
+  const decidirCompensacao = async (decisao: 'autorizada' | 'extra_confirmada') => {
+    if (!compensacaoModal) return
+    setCompensacaoModal({ ...compensacaoModal, submitting: true })
+    const res = await decidirCompensacaoDia(
+      folha.id,
+      compensacaoModal.dia,
+      decisao,
+      compensacaoModal.justificativa.trim() || undefined
+    )
+    if (res.error) {
+      setCompensacaoModal(null)
+      setAlertModal({ isOpen: true, title: 'Não foi possível registrar a decisão', message: res.error, type: 'danger' })
+      return
+    }
+    // A action devolve os registros ja atualizados: a tela reflete a decisao sem recarregar e sem
+    // recalcular por conta propria (o total do rodape sai da mesma fonte).
+    if ((res as any).registros) setRegistros((res as any).registros)
+    setCompensacaoModal(null)
+    setAlertModal({
+      isOpen: true,
+      title: decisao === 'autorizada' ? 'Compensação autorizada' : 'Registrado como hora extra',
+      message: decisao === 'autorizada'
+        ? 'O tempo que repôs o atraso deixou de contar como hora extra neste dia. A decisão ficou registrada com seu nome na auditoria.'
+        : 'O dia segue com a hora extra integral, e o atraso continua registrado. A decisão ficou na auditoria com seu nome.',
+      type: 'success',
+    })
+    router.refresh()
+  }
 
   const [draggingFrom, setDraggingFrom] = useState<{ dia: number; passo: string } | null>(null)
   const [reclassifyModal, setReclassifyModal] = useState<{
@@ -429,7 +477,7 @@ export function FolhaPontoEditor({
   }
 
   // Save edits
-  const handleSave = async (newStatus?: string, confirmarFaltasPendentes?: boolean) => {
+  const handleSave = async (newStatus?: string, confirmarFaltasPendentes?: boolean, confirmarCompensacaoPendente?: boolean) => {
     // 1. Validação de consistência cronológica
     for (const r of registros) {
       if (!r.turno_codigo || r.afastamento || r.feriado) continue
@@ -474,13 +522,31 @@ export function FolhaPontoEditor({
 
     setSaving(true)
     const targetStatus = newStatus || status
-    const res = await executeSave(folha.id, registros, targetStatus, cargo, confirmarFaltasPendentes)
+    const res = await executeSave(folha.id, registros, targetStatus, cargo, confirmarFaltasPendentes, confirmarCompensacaoPendente)
     setSaving(false)
 
     // Fechar sem justificar É a decisão (usuário, 01/09/2026) — mas pede confirmação explícita
     // antes de virar falta definitiva, porque não existe fila em /justificativas para dia comum
     // (aquela tela só cobre Extra/Plantão/Sobreaviso). Cancelar aqui deixa a folha aberta para o
     // coordenador ajustar o dia (lançar horário real ou uma observação) antes de fechar de novo.
+    /*
+      GATE DA COMPENSAÇÃO (04/09/2026). Mesmo desenho do gate de faltas logo abaixo: não trava,
+      cobra decisão. É ele que torna aceitável o default de "pendente não muda valor nenhum" —
+      sem ele, um dia em que a pessoa chegou atrasada e repôs saindo depois seria fechado como
+      hora extra por inércia, que é o que a Portaria não admite.
+    */
+    if ((res as any).requerDecisaoCompensacao) {
+      const dias = ((res as any).diasCompensacaoPendente || []).map((d: number) => String(d).padStart(2, '0')).join(', ')
+      setConfirmModal({
+        isOpen: true,
+        title: 'Atraso reposto sem decisão',
+        message: `No(s) dia(s) ${dias} o servidor chegou atrasado e saiu depois do previsto. Fechar agora confirma que esse tempo é HORA EXTRA, e não compensação do atraso. Prefere revisar dia a dia?`,
+        type: 'warning',
+        onConfirm: () => { void handleSave(newStatus, confirmarFaltasPendentes, true) }
+      })
+      return
+    }
+
     if (res.requerConfirmacaoFaltas) {
       const dias = (res.diasFaltaPendente || []).map(d => String(d).padStart(2, '0')).join(', ')
       setConfirmModal({
@@ -488,7 +554,7 @@ export function FolhaPontoEditor({
         title: 'Falta(s) Aguardando Justificativa',
         message: `Ainda há falta(s) sem justificativa no(s) dia(s) ${dias}. Fechar a folha agora confirma que não haverá justificativa: esses dias passam a contar como falta definitiva no total do rodapé. Prefere revisar antes?`,
         type: 'warning',
-        onConfirm: () => { void handleSave(newStatus, true) }
+        onConfirm: () => { void handleSave(newStatus, true, confirmarCompensacaoPendente) }
       })
       return
     }
@@ -602,38 +668,23 @@ export function FolhaPontoEditor({
     })
   }
 
-  // UI calculations of dynamic totals
-  const totalizers = useMemo(() => {
-    let normais = 0
-    let extra50 = 0
-    let extra100 = 0
-    let faltas = 0
-
-    registros.forEach(r => {
-      if (r.turno_codigo) {
-        normais += (jornada?.horas_totais || 8)
-      }
-      if (isFaltaDefinitiva(r.observacao)) {
-        faltas++
-      }
-      if (r.hora_extra_minutos && r.hora_extra_minutos > 0) {
-        const isSun = new Date(folha.ano, folha.mes - 1, r.dia).getDay() === 0
-        const isHol = r.feriado
-        if (isSun || isHol || r.hora_extra_tipo === '100%') {
-          extra100 += r.hora_extra_minutos
-        } else {
-          extra50 += r.hora_extra_minutos
-        }
-      }
-    })
-
-    return {
-      horasNormais: normais.toFixed(1),
-      horas50: (extra50 / 60).toFixed(1),
-      horas100: (extra100 / 60).toFixed(1),
-      faltas
-    }
-  }, [registros, jornada, folha.ano, folha.mes])
+  /**
+   * Totais do rodape — fonte unica em src/utils/folha/calculoDia.ts, a MESMA que a impressao em
+   * lote usa. Antes cada tela somava por conta propria e a impressao ainda lia o decimal gravado
+   * no banco (`0.18h`, de onde nao se recupera `11 min`): o mesmo documento saia com numeros
+   * diferentes na tela e no papel.
+   */
+  const totalizers = useMemo(
+    () =>
+      totaisFolha(registros as any[], {
+        horasNormaisPorDia: jornada?.horas_totais || 8,
+        jornadaNome: jornada?.nome,
+        ano: folha.ano,
+        mes: folha.mes,
+        isFaltaDefinitiva,
+      }),
+    [registros, jornada, folha.ano, folha.mes]
+  )
 
   // Ocorrências do verso (Página 2) — regra em src/utils/folha/ocorrencias.ts.
   //
@@ -1073,8 +1124,11 @@ export function FolhaPontoEditor({
                 <th className="px-3 py-2 text-center w-24 border-r border-zinc-200 dark:border-zinc-700">Retorno Int.</th>
                 <th className="px-3 py-2 text-center w-24 border-r border-zinc-200 dark:border-zinc-700">Saída</th>
                 <th className="px-3 py-2 text-center w-20 border-r border-zinc-200 dark:border-zinc-700">Extra</th>
-                <th className="px-4 py-2 border-r border-zinc-200 dark:border-zinc-700">Observações / Justificativas</th>
-                <th className="px-3 py-2 text-center w-24">Visto</th>
+                {/* A coluna "Visto" saiu em 04/09/2026 (pedido do RH): a assinatura e no rodape,
+                    ninguem rubrica dia a dia. "Observacoes" FICA — parece redundante com o verso,
+                    mas e o campo onde moram FALTA, a pendencia de revisao e o texto do qual o
+                    verso e derivado (ocorrenciasDoMes). Tirar a coluna quebraria os tres. */}
+                <th className="px-4 py-2">Observações / Justificativas</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
@@ -1099,6 +1153,16 @@ export function FolhaPontoEditor({
                 // validação de salvarFolhaPonto e com o Auto-Corrigir — as três já divergiram
                 // entre si, pintando vermelho num dia que o save aceitava. Ver sequenciaDia.ts.
                 const seq = sequenciarDia(r, recordJornadaNome)
+
+                /*
+                  Atraso, noturno e a proposta de compensacao do dia — MESMA funcao que o rodape,
+                  a impressao em lote e a Server Action usam (src/utils/folha/calculoDia.ts).
+                  ⚠️ O fallback do nome da jornada nao e zelo: medido em 04/09/2026, 878 dias de
+                  09/2026 (13,7%) tem `jornada_nome` vazio no snapshot. Sem ele, esses dias
+                  ficariam sem previsto — ou, pior, contra um previsto fabricado.
+                */
+                const calc = calcularDia(r, recordJornadaNome)
+                const statusComp = statusCompensacaoDoDia(r, calc)
 
                 const isEntradaInvertida = seq.entradaInvertida
                 const isIntervaloInvertido = seq.intervaloInvertido
@@ -1255,13 +1319,21 @@ export function FolhaPontoEditor({
                       )}
                     </td>
 
-                    {/* Hora Extra */}
+                    {/* Hora Extra — e, quando o dia comecou com atraso, a decisao sobre ele.
+                        O selo mora aqui de proposito: a pergunta e exatamente "estes minutos sao
+                        hora extra ou reposicao do atraso?". Nao ha coluna nova (decisao do RH em
+                        04/09/2026: os indicadores vao para o rodape, a tabela nao alarga). */}
                     <td className="px-2 py-1.5 border-r border-zinc-200 dark:border-zinc-700 text-center font-mono">
                       {isWorkDay && r.hora_extra_minutos && r.hora_extra_minutos > 0 ? (
                         <div className="flex flex-col items-center justify-center print:block">
-                          <span className="font-bold text-blue-600 dark:text-blue-400">
-                            {formatMinutesToTimeStr(r.hora_extra_minutos)}
+                          <span className={`font-bold ${statusComp === 'autorizada' ? 'text-zinc-400 line-through' : 'text-blue-600 dark:text-blue-400'}`}>
+                            {formatarMinutosHHMM(r.hora_extra_minutos)}
                           </span>
+                          {statusComp === 'autorizada' && (
+                            <span className="font-bold text-blue-600 dark:text-blue-400">
+                              {formatarMinutosHHMM(Math.max(0, (r.hora_extra_minutos || 0) - calc.compensavelMinutos))}
+                            </span>
+                          )}
                           <span className="text-[8px] font-black text-zinc-400 mt-0.5 print:hidden">
                             ({r.hora_extra_tipo || '50%'})
                           </span>
@@ -1269,12 +1341,59 @@ export function FolhaPontoEditor({
                       ) : (
                         <span className="text-zinc-300 dark:text-zinc-700">-</span>
                       )}
+
+                      {/* Atraso do dia — informativo, mesmo quando nao ha o que compensar. */}
+                      {isWorkDay && calc.atrasoEntradaMinutos > 0 && calc.compensavelMinutos === 0 && (
+                        <div className="text-[8px] font-bold text-orange-500 mt-0.5 whitespace-nowrap" title={`Entrada ${calc.atrasoEntradaMinutos} min após o previsto`}>
+                          atraso {calc.atrasoEntradaMinutos}min
+                        </div>
+                      )}
+
+                      {/* A decisao. Pendente = nada mudou de valor ainda. */}
+                      {isWorkDay && calc.compensavelMinutos > 0 && (
+                        statusComp === 'pendente' ? (
+                          podeDecidirCompensacao ? (
+                            <button
+                              type="button"
+                              onClick={() => setCompensacaoModal({
+                                dia: r.dia,
+                                atrasoMinutos: calc.atrasoEntradaMinutos,
+                                excedenteMinutos: calc.excedenteSaidaMinutos,
+                                compensavelMinutos: calc.compensavelMinutos,
+                                justificativa: '',
+                                submitting: false,
+                              })}
+                              className="mt-1 px-1.5 py-0.5 text-[8px] font-black uppercase rounded bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-900/80 transition-all whitespace-nowrap print:hidden"
+                              title={`Chegou ${calc.atrasoEntradaMinutos} min atrasado e saiu ${calc.excedenteSaidaMinutos} min depois do previsto. Decida se ${calc.compensavelMinutos} min são compensação do atraso ou hora extra.`}
+                            >
+                              atraso reposto — decidir
+                            </button>
+                          ) : (
+                            <div className="mt-1 text-[8px] font-bold text-amber-600 whitespace-nowrap print:hidden">
+                              atraso {calc.atrasoEntradaMinutos}min reposto
+                            </div>
+                          )
+                        ) : (
+                          <div
+                            className={`mt-1 text-[8px] font-bold whitespace-nowrap ${statusComp === 'autorizada' ? 'text-emerald-600' : 'text-zinc-500'}`}
+                            title={
+                              (statusComp === 'autorizada'
+                                ? `Compensação de ${calc.compensavelMinutos} min autorizada`
+                                : 'Confirmado como hora extra') +
+                              (r.compensacao_autorizado_por_nome ? ` por ${r.compensacao_autorizado_por_nome}` : '') +
+                              (r.compensacao_justificativa ? ` — ${r.compensacao_justificativa}` : '')
+                            }
+                          >
+                            {statusComp === 'autorizada' ? `compensado ${calc.compensavelMinutos}min` : 'extra confirmada'}
+                          </div>
+                        )
+                      )}
                     </td>
 
                     {/* Observações — e, no portal, o atalho para solicitar ajuste.
                         O botão mora aqui de propósito: acrescentar uma coluna própria
                         desalinharia a tabela, que tem cabeçalho fixo e é usada na impressão. */}
-                    <td className="px-3 py-1.5 border-r border-zinc-200 dark:border-zinc-700 font-medium">
+                    <td className="px-3 py-1.5 font-medium">
                       <div className="flex items-center gap-2">
                         <input
                           type="text"
@@ -1300,11 +1419,6 @@ export function FolhaPontoEditor({
                         )}
                       </div>
                     </td>
-
-                    {/* Visto (Assinatura Rubrica) */}
-                    <td className="px-2 py-1.5 text-center text-zinc-300 print-cell-border">
-                      {/* Espaço em branco para rubrica na folha impressa */}
-                    </td>
                   </tr>
                 )
               })}
@@ -1326,29 +1440,58 @@ export function FolhaPontoEditor({
 
         {/* Document Footer (Totalizers) */}
         <div className="p-8 border-t border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 print:bg-white print:border-zinc-300 print:p-4">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 mb-10 text-center print:mb-6">
+          {/*
+            RODAPE NO PADRAO DO CARTAO ANTIGO (04/09/2026, pedido do RH).
+            Tudo em HH:MM — o decimal ("0.8h" para 48 min, "0.18h" para 11 min) era ilegivel para
+            quem confere folha. Ver src/utils/folha/calculoDia.ts.
+          */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-4 mb-10 text-center print:grid-cols-7 print:gap-2 print:mb-6">
             <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl print:border-zinc-300 print:p-2">
               <div className="text-[9px] font-black uppercase text-zinc-400 mb-1">Horas Normais</div>
-              <div className="text-2xl font-black text-zinc-900 dark:text-white print:text-lg">
-                {totalizers.horasNormais}h
+              <div className="text-xl font-black text-zinc-900 dark:text-white print:text-base">
+                {formatarMinutosHHMM(totalizers.normaisMinutos)}
+              </div>
+            </div>
+            {/* ⚠️ Nasce zerado para quase todo mundo, e isso NAO e defeito: medido em 08/2026,
+                76 dias em 6.412. O noturno da SMS esta quase todo em Plantao, que nao entra nas
+                linhas da folha (vai no Anexo Plantoes/Sobreavisos). */}
+            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl print:border-zinc-300 print:p-2">
+              <div className="text-[9px] font-black uppercase text-zinc-400 mb-1" title="Horas trabalhadas entre 22h e 05h no expediente regular (plantões saem no anexo).">Horas Noturnas</div>
+              <div className="text-xl font-black text-indigo-600 dark:text-indigo-400 print:text-base">
+                {formatarMinutosHHMM(totalizers.noturnoMinutos)}
               </div>
             </div>
             <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl print:border-zinc-300 print:p-2">
-              <div className="text-[9px] font-black uppercase text-zinc-400 mb-1">Horas Extra (50%)</div>
-              <div className="text-2xl font-black text-blue-600 dark:text-blue-400 print:text-lg">
-                {totalizers.horas50}h
-              </div>
-            </div>
-            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl print:border-zinc-300 print:p-2">
-              <div className="text-[9px] font-black uppercase text-zinc-400 mb-1">Horas Extra (100%)</div>
-              <div className="text-2xl font-black text-violet-600 dark:text-violet-400 print:text-lg">
-                {totalizers.horas100}h
-              </div>
-            </div>
-            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl print:border-zinc-300 print:p-2">
-              <div className="text-[9px] font-black uppercase text-zinc-400 mb-1">Total Faltas</div>
-              <div className="text-2xl font-black text-red-500 print:text-lg">
+              <div className="text-[9px] font-black uppercase text-zinc-400 mb-1">Dias de Falta</div>
+              <div className="text-xl font-black text-red-500 print:text-base">
                 {totalizers.faltas}
+              </div>
+            </div>
+            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl print:border-zinc-300 print:p-2">
+              <div className="text-[9px] font-black uppercase text-zinc-400 mb-1" title="Atraso na entrada + saída antecipada, já descontadas as compensações autorizadas.">Falta e Atraso</div>
+              <div className="text-xl font-black text-orange-600 dark:text-orange-400 print:text-base">
+                {formatarMinutosHHMM(totalizers.atrasoMinutos)}
+              </div>
+            </div>
+            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl print:border-zinc-300 print:p-2">
+              <div className="text-[9px] font-black uppercase text-zinc-400 mb-1" title="Tempo abonado (declaração de comparecimento e afins). Férias e licenças NÃO entram aqui — têm categoria própria.">Abono</div>
+              <div className="text-xl font-black text-emerald-600 dark:text-emerald-400 print:text-base">
+                {formatarMinutosHHMM(totalizers.abonoMinutos)}
+              </div>
+            </div>
+            {/* ⚠️ O percentual fica no rotulo de proposito. O bucket de 100% mistura noite,
+                domingo e feriado — chama-lo so de "noturna" seria rotulo errado em domingo — e o
+                percentual e o que a folha de pagamento usa. */}
+            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl print:border-zinc-300 print:p-2">
+              <div className="text-[9px] font-black uppercase text-zinc-400 mb-1">Extra Diurna (50%)</div>
+              <div className="text-xl font-black text-blue-600 dark:text-blue-400 print:text-base">
+                {formatarMinutosHHMM(totalizers.extra50Minutos)}
+              </div>
+            </div>
+            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl print:border-zinc-300 print:p-2">
+              <div className="text-[9px] font-black uppercase text-zinc-400 mb-1" title="Hora extra noturna, de domingo ou de feriado — todas remuneradas a 100%.">Extra Not./Dom. (100%)</div>
+              <div className="text-xl font-black text-violet-600 dark:text-violet-400 print:text-base">
+                {formatarMinutosHHMM(totalizers.extra100Minutos)}
               </div>
             </div>
           </div>
@@ -1517,7 +1660,7 @@ export function FolhaPontoEditor({
               <div className="bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200 dark:border-zinc-800 p-3 rounded-xl print:border-zinc-300 print:p-2">
                 <div className="text-[8px] font-black uppercase text-zinc-400 mb-1">Horas Extra Totais</div>
                 <div className="text-lg font-black text-violet-600 dark:text-violet-400 print:text-black">
-                  {(Number(totalizers.horas50) + Number(totalizers.horas100)).toFixed(1)}h
+                  {formatarMinutosHHMM(totalizers.extra50Minutos + totalizers.extra100Minutos)}
                 </div>
               </div>
               <div className="bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200 dark:border-zinc-800 p-3 rounded-xl print:border-zinc-300 print:p-2">
@@ -1627,6 +1770,77 @@ export function FolhaPontoEditor({
           }
         >
           <p className="text-sm text-zinc-600 dark:text-zinc-400">{confirmModal.message}</p>
+        </Modal>
+      )}
+
+      {/* Decisão de compensação de atraso — Portaria 382/2019, Art. 7 §1/§2 */}
+      {compensacaoModal && (
+        <Modal
+          isOpen={true}
+          onClose={() => setCompensacaoModal(null)}
+          title={`Atraso reposto no dia ${String(compensacaoModal.dia).padStart(2, '0')}`}
+          type="warning"
+          footer={
+            <div className="flex flex-col sm:flex-row gap-3 w-full">
+              <button
+                onClick={() => setCompensacaoModal(null)}
+                disabled={compensacaoModal.submitting}
+                className="flex-1 px-4 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-black uppercase tracking-widest text-[10px] disabled:opacity-50"
+              >
+                Decidir depois
+              </button>
+              <button
+                onClick={() => decidirCompensacao('extra_confirmada')}
+                disabled={compensacaoModal.submitting}
+                className="flex-1 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-[10px] uppercase tracking-widest disabled:opacity-50"
+              >
+                É hora extra
+              </button>
+              <button
+                onClick={() => decidirCompensacao('autorizada')}
+                disabled={compensacaoModal.submitting}
+                className="flex-1 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] uppercase tracking-widest disabled:opacity-50"
+              >
+                Autorizar compensação
+              </button>
+            </div>
+          }
+        >
+          <div className="space-y-3">
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              O servidor entrou <strong className="text-orange-600">{compensacaoModal.atrasoMinutos} min</strong> depois
+              do previsto e saiu <strong className="text-blue-600">{compensacaoModal.excedenteMinutos} min</strong> depois
+              do horário de saída.
+            </p>
+            <div className="rounded-xl bg-zinc-50 dark:bg-zinc-800/50 p-3 text-xs text-zinc-600 dark:text-zinc-400 space-y-1.5">
+              <p>
+                <strong className="text-zinc-900 dark:text-white">Autorizar compensação:</strong>{' '}
+                {compensacaoModal.compensavelMinutos} min deixam de contar como hora extra — o tempo
+                repôs o atraso (Art. 7º §1º/§2º da Portaria 382/2019).
+              </p>
+              <p>
+                <strong className="text-zinc-900 dark:text-white">É hora extra:</strong> o dia mantém
+                a hora extra integral, e o atraso continua registrado para desconto ou justificativa.
+              </p>
+              <p className="text-[11px] text-zinc-500 pt-1 border-t border-zinc-200 dark:border-zinc-700">
+                Enquanto ninguém decidir, <strong>nada muda</strong>: o dia segue com a hora extra que
+                já tinha. A folha só cobra a decisão no fechamento.
+              </p>
+            </div>
+            <div>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">
+                Justificativa (opcional)
+              </label>
+              <textarea
+                value={compensacaoModal.justificativa}
+                onChange={(e) => setCompensacaoModal({ ...compensacaoModal, justificativa: e.target.value })}
+                disabled={compensacaoModal.submitting}
+                rows={2}
+                placeholder="Ex.: atraso comunicado previamente, reposto no mesmo dia com minha autorização."
+                className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-white disabled:opacity-50"
+              />
+            </div>
+          </div>
         </Modal>
       )}
 

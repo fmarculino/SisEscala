@@ -54,6 +54,32 @@ export function getAfastamentoObservacao(af: any): string {
 }
 
 /**
+ * Minutos ABONADOS do dia — o campo "Abono" do cartão de ponto.
+ *
+ * ⚠️ ABONO NÃO É "DIA DE AFASTAMENTO", e confundir os dois produz número que engana o RH.
+ *   Medido em produção em 04/09/2026 (competência 08/2026): contar todo dia com afastamento
+ *   daria **1.173 dias de "abono"**, mas eles são Férias (304), Licença Prêmio (206), Licença
+ *   saúde (197), Licença Maternidade (124)... — categorias próprias, que ninguém chama de abono.
+ *
+ *   Abono é o tempo NÃO TRABALHADO QUE FOI RELEVADO: a Declaração de Comparecimento e afins,
+ *   lançadas por HORAS, com `regime_abono` diferente de `'a_compensar'`. É por isso que ele é
+ *   medido em minutos (HH:MM na folha), e não em dias: o que se abona é o tempo.
+ *
+ * `a_compensar` fica de fora de propósito — aquele tempo o servidor ainda deve.
+ */
+export function minutosAbonadosDoDia(afastamentos: AfastamentoDia[] | null | undefined): number {
+  if (!afastamentos?.length) return 0
+  let total = 0
+  for (const af of afastamentos) {
+    const porHoras = af.periodo_tipo === 'horas' || !!af.hora_inicio
+    if (!porHoras) continue
+    if (af.regime_abono === 'a_compensar') continue
+    total += Math.max(0, Number(af.minutos_afastamento) || 0)
+  }
+  return total
+}
+
+/**
  * O afastamento anula este turno? Por horas nunca anula (é declaração de comparecimento:
  * o servidor trabalha o resto do dia). Integral anula qualquer turno. Por slot, anula o
  * turno cujos slots cruzam os dele.

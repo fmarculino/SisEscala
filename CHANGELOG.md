@@ -2,6 +2,80 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.36.0] - 2026-09-04
+
+Folha de ponto reformatada a pedido do RH — e, medindo produção para planejar isso, apareceu o
+motivo real de a folha não fechar com o que eles esperam: **ela nunca mediu atraso**. Diário em
+`docs/evolucao/2026-09-04-folha-em-hhmm-e-compensacao-de-atraso.md`; plano e medições em
+`docs/planos/2026-09-04-ajustes-folha-de-ponto-hhmm-atraso-e-compensacao.md`.
+
+### Added
+
+- **Atraso, saída antecipada e horas noturnas passam a ser medidos.** Fonte única nova em
+  `src/utils/folha/calculoDia.ts` (módulo puro), usada pelo editor, pela impressão em lote, pela
+  Server Action e pelo recálculo ao salvar.
+  - Medido em 08/2026 (547 folhas, 6.412 dias com entrada e saída): **1.363 dias com atraso —
+    646h27**, invisíveis na folha até aqui. 94% deles vêm de batida real de terminal/REP.
+- **Decisão de compensação de atraso** (Portaria 382/2019-GAB-MAB/SMS, Art. 7º §1º/§2º): selo
+  inline na linha do dia, com "autorizar compensação" ou "é hora extra mesmo", gravando autor,
+  data e justificativa na auditoria (`decidirCompensacaoDia`).
+  - **622 dias e 141 pessoas** chegaram atrasadas *e* saíram depois do previsto em 08/2026,
+    gerando **489h09** de hora extra — das quais **253h21 apenas repõem o atraso**. 51% da hora
+    extra da competência nasce em dia que começou com atraso.
+  - Teto de 2h/dia (Art. 7º §3º) e dia incompleto não compensa (Art. 7º §5º).
+  - A decisão é cobrada no **fechamento** da folha, reusando o modal que já existia para falta
+    pendente. A decisão sobrevive a "Sincronizar" (`carregarDecisaoCompensacao`, nas 4 cópias da
+    geração).
+- **Indicador "Abono"**, em HH:MM — tempo relevado (declaração de comparecimento e afins, por
+  horas, sem `a_compensar`), gravado como `abono_minutos` pela geração.
+
+### Changed
+
+- **Todas as horas da folha saem em `HH:MM`**, não mais em decimal. `0.8h` → `0:48`; `0.18h` →
+  `0:11`. Vale para o rodapé, o verso, a célula de extra, a listagem e a impressão em lote.
+- **Rodapé no vocabulário do cartão antigo (Control iD/SISREF)**, de 4 para 7 indicadores: Horas
+  Normais · Horas Noturnas · Dias de Falta · Falta e Atraso · Abono · Extra Diurna (50%) · Extra
+  Not./Dom. (100%).
+- **Coluna "Visto" removida** do editor e da impressão em lote — a assinatura é no rodapé, ninguém
+  rubrica dia a dia. "Observações" ficou: é onde moram FALTA, a pendência de revisão e o texto do
+  qual a página 2 é derivada.
+- **A impressão em lote deixou de ler `folha_ponto.total_horas_*`** e passou a recalcular dos
+  `registros`. As colunas são decimais de 2 casas gravadas em oito lugares: de `0.18h` não se
+  recupera `11 min`, e o mesmo documento saía com número diferente na tela e no papel.
+- `salvarFolhaPonto` honra a compensação já autorizada ao regravar os totais.
+- O **Portal do Servidor** herdou tudo por renderizar o mesmo `FolhaPontoEditor` — inclusive a
+  impressão. O selo de decisão não aparece lá: quem autoriza é coordenação/RH.
+
+### Fixed
+
+- **`previstoDaJornada` devolve `null` quando não sabe, em vez de assumir 08:00–17:00.** O default
+  de `parseJornadaNome` é contido para hora extra, mas para atraso seria desastre: todo servidor
+  que entra depois das 08:00 apareceria atrasado todos os dias.
+- **O regex da jornada passou a aceitar `ÁS` (A agudo).** `08H ÁS 20H` e `09H ÁS 21H` estão no
+  catálogo e não casavam com o padrão original — sem uso por escala ativa hoje (0 dias em 06, 07 e
+  08/2026), mas selecionáveis a qualquer momento.
+
+### Decisões registradas
+
+- 🚨 **A compensação ocorre DENTRO DO PRÓPRIO MÊS — nunca nos meses subsequentes** (decisão do
+  usuário, 04/09/2026). A Portaria 382/2019, Art. 7º caput, *admite* compensar até o fim do mês
+  subsequente, mas isso é teto, não obrigação: a Secretaria optou por não usá-lo. A implementação
+  já é compatível por construção (a compensação é do **mesmo dia**, logo dentro do mês), e o saldo
+  de atraso não compensado morre no fechamento da competência, virando desconto/justificativa.
+  **Não construir saldo que atravessa competência** — seria banco de horas por outro nome.
+- Fora de escopo, registrado: autorização prévia de hora extra (Art. 8º) — 473h em 08/2026
+  nasceram sem gate nenhum.
+
+### Notas de verificação
+
+- **Nenhum valor muda sem decisão humana**, conferido contra produção: **0 de 1.164 folhas**
+  (547 de 08/2026 + 617 de 09/2026) alteram hora extra ou faltas com a mudança aplicada e nenhuma
+  decisão tomada (`scratchpad/an_confere_totais_novos.mjs`).
+- Portão `node scratchpad/sim_calculo_dia.js` — 52 casos, **validado injetando 3 regressões de
+  propósito** (compensar sem autorização, `% 24` no total mensal, previsto fabricado).
+- ⚠️ As 547 folhas de 08/2026 estão todas "Revisada": os indicadores novos só aparecem nelas se
+  alguém reabrir e sincronizar. 09/2026 em diante ganha naturalmente.
+
 ## [2.35.0] - 2026-09-03
 
 Um dia inteiro de trabalho a partir de relatos do usuário sobre a tela em uso real. Diários em

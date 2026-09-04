@@ -3308,6 +3308,78 @@ no-op por diferença de indentação no JS compilado, e o portão "passou". Test
 pior que não ter teste. Diário em
 [`docs/evolucao/2026-09-03-arvore-de-setor-na-selecao-unica.md`](docs/evolucao/2026-09-03-arvore-de-setor-na-selecao-unica.md).
 
+### 45. A folha media o INSTANTE da saída e nunca a entrada — atraso virava hora extra (04/09/2026)
+
+🚨 **Medido em produção em 04/09/2026, competência 08/2026 (547 folhas, 6.412 dias com entrada e
+saída): 622 dias e 141 pessoas chegaram atrasadas E saíram depois do previsto, gerando 489h09 de
+hora extra — das quais 253h21 apenas REPÕEM o atraso.** 51% da hora extra da competência nasce em
+dia que começou com atraso. Caso real: MARIA DE JESUS (mat. 10370), 8 dias, `14:29 → 18:12` numa
+jornada 14H–18H — 12 min pagos como extra num dia em que faltaram 17 min para fechar a jornada.
+E os **1.363 dias de atraso (646h27)** não apareciam em lugar nenhum da folha.
+
+Diário em [`docs/evolucao/2026-09-04-folha-em-hhmm-e-compensacao-de-atraso.md`](docs/evolucao/2026-09-04-folha-em-hhmm-e-compensacao-de-atraso.md).
+
+⚠️ **O modelo de instante NÃO está errado e não deve ser trocado pelo de duração.** Comparar
+"trabalhou × devia" (o que o cartão antigo faz) **compensa sozinho**, e o Art. 7º da Portaria
+382/2019-GAB-MAB/SMS exige autorização da chefia para atraso virar compensação. Fonte única nova:
+**`src/utils/folha/calculoDia.ts`** — mede as duas pontas e **propõe**; a decisão é humana.
+
+| regra | onde |
+|---|---|
+| teto de 2h/dia (Art. 7º §3º) · dia incompleto não compensa (§5º) | `calcularDia` |
+| decisão do coordenador/RH (selo inline na linha do dia) | `decidirCompensacaoDia` |
+| a decisão é cobrada no FECHAMENTO | `requerDecisaoCompensacao` em `salvarFolhaPonto` |
+| a decisão sobrevive a "Sincronizar" | `carregarDecisaoCompensacao`, nas **4 cópias** da geração |
+
+🚨 **`pendente` NÃO PODE ALTERAR VALOR NENHUM, e esse é o coração do desenho.** "É compensação por
+padrão" tiraria 253h de extra de 141 pessoas de uma vez, numa folha que o servidor assina; "é hora
+extra por padrão" mantinha o problema. Conferido contra produção: **0 de 1.164 folhas** (08 e
+09/2026) mudam de valor com a mudança aplicada e nenhuma decisão tomada
+(`scratchpad/an_confere_totais_novos.mjs`).
+
+⚠️ **Previsto que não se sabe é `null`, nunca 08:00–17:00.** `parseJornadaNome` das actions cai
+nesse default quando o nome não parseia — contido para hora extra, desastre para atraso (todo
+mundo que entra depois das 08:00 apareceria atrasado todo dia). `previstoDaJornada` devolve `null`
+e o dia simplesmente não é medido. O regex dela aceita **`ÁS` (A agudo)**: `08H ÁS 20H` e
+`09H ÁS 21H` estão no catálogo e não casavam com o padrão original — sem uso hoje (0 dias em 06,
+07 e 08/2026), mas selecionáveis.
+
+⚠️ **`jornada_nome` vem VAZIO em 13,7% dos registros** (878 dias de 09/2026). O cálculo da geração
+está certo (conferido contra a jornada da escala: 58 de 61 casos com extra batem exatamente), mas
+quem calcular no cliente **precisa do fallback** `r.jornada_nome || jornada?.nome` — sem ele esses
+dias caem sem previsto, ou pior, num previsto fabricado.
+
+⚠️ **"Abono" NÃO é "dia de afastamento".** Contar dia com afastamento dava **1.173 "abonos"** em
+08/2026 — Férias (304), Licença Prêmio (206), Licença saúde (197), Licença Maternidade (124).
+Abono é **tempo relevado**: declaração de comparecimento e afins, por horas, com `regime_abono`
+diferente de `a_compensar` (`minutosAbonadosDoDia`). Sai em HH:MM, e a geração grava
+`abono_minutos` no registro; folha antiga mostra `0:00` — zero honesto, nunca número inventado.
+
+⚠️ **A impressão em lote não pode ler `folha_ponto.total_horas_*`.** São decimais de 2 casas
+(`parseFloat((minutos / 60).toFixed(2))`, gravados em **oito** lugares): de `0.18h` não se recupera
+`11 min`, e o mesmo documento sairia com número diferente na tela e no papel. Os dois
+renderizadores recalculam de `registros` via `totaisFolha`. A **listagem** continua lendo o decimal
+(`formatarHorasDecimaisHHMM`), com erro de até 1 min — aceitável em tela de triagem, não em
+documento.
+
+⚠️ **`formatarMinutosHHMM` não tem `% 24`, e não pode ganhar.** O helper antigo das telas tinha —
+correto para a extra de um dia, e faria `210h` virar `18:00` no total do mês.
+
+⚠️ **O Portal do Servidor renderiza o MESMO `FolhaPontoEditor`** (`ConsultarEscalaClient.tsx`),
+inclusive na impressão (`window.print()` sobre o mesmo DOM). Mudança na folha alcança o portal
+sozinha — mas o selo de decisão não aparece lá: `podeDecidirCompensacao = podeReclassificar`
+(exclui `isPortal`), e a Server Action reconfere o papel.
+
+🚨 **A compensação ocorre DENTRO DO PRÓPRIO MÊS — nunca nos meses subsequentes** (decisão do
+usuário, 04/09/2026). O Art. 7º caput da Portaria *admite* compensar até o fim do mês subsequente,
+mas é teto, não obrigação. A implementação é compatível por construção — a compensação é do
+**mesmo dia** —, e o atraso não compensado **morre no fechamento**, virando desconto ou
+justificativa (Art. 7º §4º / Art. 19º I). **Não construir saldo que atravessa competência**: seria
+banco de horas por outro nome, que segue sem decisão jurídica desde 14/08/2026.
+
+Portão: `node scratchpad/sim_calculo_dia.js` (52 casos), **validado injetando 3 regressões de
+propósito** — compensar sem autorização, `% 24` no total mensal, previsto fabricado.
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.
