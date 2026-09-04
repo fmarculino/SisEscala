@@ -1,10 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { formatarData } from '@/utils/horario'
 import { ArrowRightLeft, Info, CheckCircle2, XCircle, Loader2, User, Calendar, MapPin } from 'lucide-react'
 import { avaliarSolicitacaoTransferencia } from '../actions'
 import { opcoesParaEscolha, rotularInativo } from '@/utils/opcoesAtivas'
+import { SeletorSetorArvore } from '@/components/setores/SeletorSetorArvore'
 
 interface SolicitacaoTransferencia {
   id: string
@@ -40,7 +41,18 @@ interface SolicitacoesTransferenciaSectionProps {
   /** O papel de quem olha avalia transferência (super_admin, RH Geral ou RH da Unidade). */
   avaliador: boolean
   unidades: { id: string; nome: string; ativo?: boolean | null }[]
-  setores: { id: string; unidade_id: string | null; nome: string; ativo?: boolean }[]
+  /**
+   * `nome` é o CAMINHO completo ("SHL \ BLOCO A"); `nomeFolha` e `parent_id` são o que a árvore
+   * de seleção usa (`formatSectorPaths` devolve os três).
+   */
+  setores: {
+    id: string
+    unidade_id: string | null
+    parent_id?: string | null
+    nome: string
+    nomeFolha?: string
+    ativo?: boolean
+  }[]
 }
 
 export function SolicitacoesTransferenciaSection({
@@ -105,7 +117,18 @@ function LinhaSolicitacao({
   solicitacao: SolicitacaoTransferencia
   avaliador: boolean
   unidades: { id: string; nome: string; ativo?: boolean | null }[]
-  setores: { id: string; unidade_id: string | null; nome: string; ativo?: boolean }[]
+  /**
+   * `nome` é o CAMINHO completo ("SHL \ BLOCO A"); `nomeFolha` e `parent_id` são o que a árvore
+   * de seleção usa (`formatSectorPaths` devolve os três).
+   */
+  setores: {
+    id: string
+    unidade_id: string | null
+    parent_id?: string | null
+    nome: string
+    nomeFolha?: string
+    ativo?: boolean
+  }[]
   onResolvida: () => void
 }) {
   const isDestinoIndefinido = !solicitacao.unidadeDestinoId
@@ -119,13 +142,30 @@ function LinhaSolicitacao({
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
 
-  // Destino de transferência é escolha NOVA — setor inativo fica fora (mesma regra da promoção
-  // de pendência). Exceção: o destino que a própria solicitação já trazia continua selecionável,
-  // senão aprovar um pedido antigo passaria a ser impossível sem ninguém entender por quê.
-  const filteredSetores = (selectedUnidade
-    ? setores.filter(s => s.unidade_id === selectedUnidade)
-    : setores
-  ).filter(s => s.ativo !== false || s.id === solicitacao.setorDestinoId)
+  /**
+   * Destino de transferência é escolha NOVA — setor inativo fica fora (mesma regra da promoção
+   * de pendência). Exceção: o destino que a própria solicitação já trazia continua selecionável,
+   * senão aprovar um pedido antigo passaria a ser impossível sem ninguém entender por quê.
+   *
+   * ⚠️ O recorte por unidade é feito AQUI, não dentro da árvore: um setor cujo pai é de outra
+   * unidade vira raiz na montagem (`arvoreSetores.ts`) em vez de sumir, que é o que se quer.
+   *
+   * `nome` da árvore é a FOLHA (a hierarquia já aparece no recuo); o caminho completo vai para o
+   * resumo do escolhido, que é onde ele faz falta depois de recolher um ramo.
+   */
+  const filteredSetores = useMemo(
+    () =>
+      (selectedUnidade ? setores.filter(s => s.unidade_id === selectedUnidade) : setores)
+        .filter(s => s.ativo !== false || s.id === solicitacao.setorDestinoId)
+        .map(s => ({
+          id: s.id,
+          parent_id: s.parent_id ?? null,
+          nome: s.nomeFolha || s.nome,
+          caminho: s.nome,
+          ativo: s.ativo,
+        })),
+    [setores, selectedUnidade, solicitacao.setorDestinoId]
+  )
 
   async function aprovar() {
     if (mostrarSelecaoDestino || isDestinoIndefinido) {
@@ -228,8 +268,10 @@ function LinhaSolicitacao({
               {isDestinoIndefinido ? 'Defina a nova lotação do servidor para aprovar:' : 'Confirmar/Alterar lotação de destino:'}
             </p>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
+          {/* Empilhado, não lado a lado: a árvore de setores é alta (busca + lista rolável) e
+              ao lado de um <select> de uma linha deixava metade da caixa vazia. */}
+          <div className="space-y-3">
+            <div className="sm:max-w-sm">
               <label className="block text-[11px] font-semibold text-zinc-500 uppercase">Unidade de Destino *</label>
               <select
                 value={selectedUnidade}
@@ -251,16 +293,18 @@ function LinhaSolicitacao({
             </div>
             <div>
               <label className="block text-[11px] font-semibold text-zinc-500 uppercase">Setor de Destino *</label>
-              <select
-                value={selectedSetor}
-                onChange={(e) => setSelectedSetor(e.target.value)}
-                className="mt-1 block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-900 dark:text-white"
-              >
-                <option value="">Selecione o Setor...</option>
-                {filteredSetores.map(s => (
-                  <option key={s.id} value={s.id}>{s.nome}</option>
-                ))}
-              </select>
+              {/* Árvore, não <select> plano: o HMM tem 196 setores em 40 raízes e 3 níveis, e a
+                  lista plana obrigava a caçar o ramo dentro de um dropdown rolando. Seleção
+                  ÚNICA e sem cascata — a lotação é um setor só (ver SeletorSetorArvore). */}
+              <div className="mt-1">
+                <SeletorSetorArvore
+                  setores={filteredSetores}
+                  selecionado={selectedSetor}
+                  onChange={setSelectedSetor}
+                  placeholder={selectedUnidade ? 'Selecione o setor de destino…' : 'Selecione a unidade primeiro'}
+                  disabled={salvando}
+                />
+              </div>
             </div>
           </div>
           <div className="flex justify-end gap-2 pt-1">

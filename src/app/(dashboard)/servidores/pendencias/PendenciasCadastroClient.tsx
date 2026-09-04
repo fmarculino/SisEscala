@@ -73,8 +73,19 @@ interface PendenciasCadastroClientProps {
    * `nome` já vem como CAMINHO COMPLETO ("SHL \ BLOCO A", `formatSectorPaths`) — as duas seções
    * mostram setor como texto solto e em <select> longo, e o nome da folha sozinho não diz de
    * qual pai ele é. `ativo` é o que os dois <select> usam pra não oferecer setor desativado.
+   *
+   * `parent_id` e `nomeFolha` (também de `formatSectorPaths`) alimentam a ÁRVORE de seleção do
+   * setor de destino em Solicitações de Transferência — lá a hierarquia é desenhada, então o
+   * rótulo de cada linha é a folha e o caminho fica no resumo do escolhido.
    */
-  setores: { id: string; unidade_id: string | null; nome: string; ativo?: boolean }[]
+  setores: {
+    id: string
+    unidade_id: string | null
+    parent_id?: string | null
+    nome: string
+    nomeFolha?: string
+    ativo?: boolean
+  }[]
   cargos: { id: string; nome: string }[]
   solicitacoesTransferencia: {
     id: string

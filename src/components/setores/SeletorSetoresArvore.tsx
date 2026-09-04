@@ -3,6 +3,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronRight, Search } from 'lucide-react'
 
+import {
+  idsComFilhos as calcularIdsComFilhos,
+  idsDaSubarvore,
+  idsQueCasam,
+  montarArvore,
+  type No,
+  type SetorNo,
+} from './arvoreSetores'
+
 /**
  * Seleção de setores em ÁRVORE, com marcação em cascata.
  *
@@ -22,46 +31,11 @@ import { ChevronRight, Search } from 'lucide-react'
  * desmarcá-lo é a forma de tirá-lo.
  */
 
-export interface SetorNo {
-  id: string
-  parent_id?: string | null
-  nome: string
-  ativo?: boolean | null
-}
-
-interface No extends SetorNo {
-  filhos: No[]
-  profundidade: number
-}
-
-function montarArvore(setores: SetorNo[]): No[] {
-  const porId = new Map(setores.map((s) => [s.id, { ...s, filhos: [] as No[], profundidade: 0 }]))
-  const raizes: No[] = []
-
-  for (const s of setores) {
-    const no = porId.get(s.id)!
-    // Pai fora da lista (outra unidade, inativo escondido) ou auto-referência viram raiz — senão
-    // o setor sumiria da tela inteira.
-    const pai = s.parent_id && s.parent_id !== s.id ? porId.get(s.parent_id) : undefined
-    if (pai) pai.filhos.push(no)
-    else raizes.push(no)
-  }
-
-  const porNome = (a: No, b: No) => a.nome.localeCompare(b.nome)
-  const aprofundar = (nos: No[], nivel: number) => {
-    nos.sort(porNome)
-    for (const n of nos) {
-      n.profundidade = nivel
-      aprofundar(n.filhos, nivel + 1)
-    }
-  }
-  aprofundar(raizes, 0)
-  return raizes
-}
-
-function idsDaSubarvore(no: No): string[] {
-  return [no.id, ...no.filhos.flatMap(idsDaSubarvore)]
-}
+// A montagem da árvore, o filtro por texto e a lista de nós recolhíveis vivem em
+// `./arvoreSetores` desde 03/09/2026 — são compartilhados com `SeletorSetorArvore` (seleção
+// única). Duas cópias divergiriam no primeiro ajuste de ordenação ou de tratamento de órfão, e a
+// mesma unidade passaria a desenhar hierarquias diferentes em duas telas.
+export type { SetorNo } from './arvoreSetores'
 
 /** Caixa com os três estados — o "parcial" precisa ser escrito via DOM, não existe em JSX. */
 function Caixa({
@@ -119,31 +93,12 @@ export function SeletorSetoresArvore({
   // Filtro por texto: o nó casa se o nome dele casa OU se algum descendente casa (senão o ramo
   // inteiro sumiria e o resultado ficaria sem contexto de onde está).
   const termo = busca.trim().toLowerCase()
-  const casa = useMemo(() => {
-    const set = new Set<string>()
-    if (!termo) return set
-    const visitar = (no: No): boolean => {
-      const filhoCasa = no.filhos.map(visitar).some(Boolean)
-      const proprio = no.nome.toLowerCase().includes(termo)
-      if (proprio || filhoCasa) set.add(no.id)
-      return proprio || filhoCasa
-    }
-    raizes.forEach(visitar)
-    return set
-  }, [raizes, termo])
+  const casa = useMemo(() => idsQueCasam(raizes, termo), [raizes, termo])
 
   const todosIds = useMemo(() => visiveis.map((s) => s.id), [visiveis])
 
   // Só nó COM filho pode ser recolhido — recolher folha não faz nada e deixaria o estado sujo.
-  const idsComFilhos = useMemo(() => {
-    const ids: string[] = []
-    const visitar = (no: No) => {
-      if (no.filhos.length > 0) ids.push(no.id)
-      no.filhos.forEach(visitar)
-    }
-    raizes.forEach(visitar)
-    return ids
-  }, [raizes])
+  const idsComFilhos = useMemo(() => calcularIdsComFilhos(raizes), [raizes])
 
   function alternar(no: No, marcar: boolean) {
     const alvo = new Set(idsDaSubarvore(no))

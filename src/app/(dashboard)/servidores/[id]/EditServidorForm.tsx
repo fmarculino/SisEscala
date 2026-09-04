@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Save, User, Layers, Eye, EyeOff, MessageCircle, Info, Briefcase, Search, Check, ChevronsUpDown, FileText, Printer, Camera, ZoomIn, Loader2, Calendar, MapPin, ExternalLink, Clock, Mail } from 'lucide-react'
 import { updateServidor } from '../actions'
+import type { AcaoEscalaTransferencia } from '@/utils/transferenciaEscala'
 import { DadosComplementaresSection } from '@/components/servidores/DadosComplementaresSection'
 import { WebcamPhotoCaptureModal } from '@/components/servidores/WebcamPhotoCaptureModal'
 import { FichaServidorPrintView } from '@/components/servidores/FichaServidorPrintView'
@@ -126,6 +127,16 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
       return status !== 'fechada' && status !== 'arquivada'
     })
   }, [escalas])
+
+  /**
+   * A pergunta "e a escala?" da transferência de setor. `useRef` e não `useState` para a escolha
+   * porque `handleSubmit` a lê no mesmo tick em que o modal a define — o setState só chegaria no
+   * render seguinte, e o formulário sairia sem a escolha (é o mesmo erro do contador dentro do
+   * updater do `setState`, armadilha 22).
+   */
+  const [perguntaEscala, setPerguntaEscala] = useState(false)
+  const acaoEscalaRef = useRef<AcaoEscalaTransferencia | null>(null)
+  const formDataPendente = useRef<FormData | null>(null)
 
   const [showPin, setShowPin] = useState(false)
   const [currentPin, setCurrentPin] = useState(
@@ -265,10 +276,44 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
       return
     }
 
+    /**
+     * Mudou de setor e a pessoa TEM escala aberta: pergunta antes de gravar.
+     *
+     * ⚠️ Até 03/09/2026 ninguém perguntava — a rotina de transferência APAGAVA os dias
+     * posteriores no setor de origem e nunca criava nada no destino. Quem transferia via
+     * "salvo com sucesso" e descobria a escala sumida (ou parada no setor antigo) depois.
+     * Ver `src/utils/transferenciaEscala.ts`.
+     */
+    const mudouLotacao =
+      selectedUnidade !== (servidor.unidade_id || '') || selectedSetor !== (servidor.setor_id || '')
+
+    if (mudouLotacao && escalasAtivas.length > 0 && !acaoEscalaRef.current) {
+      formDataPendente.current = formData
+      setPerguntaEscala(true)
+      setLoading(false)
+      return
+    }
+
+    if (acaoEscalaRef.current) formData.set('acao_escala', acaoEscalaRef.current)
+
     const result = await updateServidor(id, formData)
     if (result?.error) {
       setError(result.error)
       setLoading(false)
+      // A escolha não se repete sozinha: se a escala falhou, quem lê o motivo decide de novo.
+      acaoEscalaRef.current = null
+    }
+  }
+
+  /** Confirma a escolha do modal e reenvia o formulário que ficou esperando. */
+  const confirmarAcaoEscala = async (acao: AcaoEscalaTransferencia) => {
+    acaoEscalaRef.current = acao
+    setPerguntaEscala(false)
+    const pendente = formDataPendente.current
+    formDataPendente.current = null
+    if (pendente) {
+      setLoading(true)
+      await handleSubmit(pendente)
     }
   }
 
@@ -286,6 +331,75 @@ export function EditServidorForm({ id, servidor, unidades, setores, cargos, isSu
         setores={setores}
         cargos={cargos}
       />
+
+      {/* A escala vai junto? — pergunta obrigatória da transferência de setor */}
+      {perguntaEscala && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-2xl border border-zinc-200 dark:border-zinc-800 w-full max-w-lg">
+            <div className="p-5 border-b border-zinc-100 dark:border-zinc-800">
+              <h3 className="font-bold text-zinc-900 dark:text-white">E a escala deste servidor?</h3>
+              <p className="text-xs text-zinc-500 mt-1">
+                {servidor.nome} tem {escalasAtivas.length} escala{escalasAtivas.length === 1 ? '' : 's'} aberta{escalasAtivas.length === 1 ? '' : 's'} no
+                setor de origem. A transferência não move a escala sozinha — escolha o que fazer.
+              </p>
+            </div>
+
+            <div className="p-5 space-y-2">
+              <button
+                type="button"
+                onClick={() => confirmarAcaoEscala('mover')}
+                className="w-full text-left rounded-lg border border-zinc-200 dark:border-zinc-700 p-3 hover:border-blue-400 hover:bg-blue-50/50 dark:hover:bg-blue-950/20 transition-colors"
+              >
+                <p className="text-sm font-semibold text-zinc-900 dark:text-white">Mover a escala inteira</p>
+                <p className="text-xs text-zinc-500 mt-0.5">
+                  A escala do mês da transferência e a dos meses seguintes passam para o setor novo,
+                  com os turnos e a presença já registrada. Use quando a lotação estava errada desde
+                  o começo do mês.
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => confirmarAcaoEscala('dividir')}
+                className="w-full text-left rounded-lg border border-zinc-200 dark:border-zinc-700 p-3 hover:border-blue-400 hover:bg-blue-50/50 dark:hover:bg-blue-950/20 transition-colors"
+              >
+                <p className="text-sm font-semibold text-zinc-900 dark:text-white">Dividir na data da transferência</p>
+                <p className="text-xs text-zinc-500 mt-0.5">
+                  Os dias até a véspera ficam no setor de origem; a partir da data, passam para o
+                  novo — duas escalas parciais no mês, e duas folhas de ponto. Use quando ele
+                  realmente trabalhou nos dois lugares.
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => confirmarAcaoEscala('nao_mexer')}
+                className="w-full text-left rounded-lg border border-zinc-200 dark:border-zinc-700 p-3 hover:border-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
+              >
+                <p className="text-sm font-semibold text-zinc-900 dark:text-white">Não mexer na escala agora</p>
+                <p className="text-xs text-zinc-500 mt-0.5">
+                  Só a lotação muda. A escala continua no setor de origem e pode ser movida depois
+                  pelo botão “Transferir Escala” na grade.
+                </p>
+              </button>
+
+              <p className="text-[11px] text-zinc-500 pt-1">
+                Nenhuma das opções apaga turno ou presença: os dias existentes são movidos, nunca recriados.
+              </p>
+            </div>
+
+            <div className="p-4 border-t border-zinc-100 dark:border-zinc-800 flex justify-end bg-zinc-50 dark:bg-zinc-900/50 rounded-b-xl">
+              <button
+                type="button"
+                onClick={() => { setPerguntaEscala(false); formDataPendente.current = null }}
+                className="rounded-lg bg-zinc-100 dark:bg-zinc-800 px-4 py-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Webcam Photo Capture Modal */}
       <WebcamPhotoCaptureModal

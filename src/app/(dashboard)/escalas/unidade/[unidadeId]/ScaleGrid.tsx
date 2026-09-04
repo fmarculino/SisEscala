@@ -15,7 +15,7 @@ import {
   Save, Loader2, Info, Zap, Lock, Unlock, FileText, Plus, UserPlus, Users, 
   CheckCircle, Trash2, Globe, X, Copy, Check, Clock, Navigation2, Send, CheckSquare,
   Shield, ShieldCheck, ShieldAlert, AlertTriangle, LayoutTemplate,
-  ChevronLeft, ChevronRight, Sparkles, ExternalLink
+  ChevronLeft, ChevronRight, Sparkles, ExternalLink, ArrowRightLeft
 } from 'lucide-react'
 import { gerarFolhaPonto } from '@/app/(dashboard)/folha-ponto/actions'
 import { ScalePrintView } from '@/components/ScalePrintView'
@@ -43,6 +43,9 @@ import {
 } from '@/utils/autorizacaoCarga'
 import { buildSectorPathMap, formatSectorsHierarchy } from '@/utils/sectors'
 import { decomporPlantao } from '@/utils/plantaoUnidades'
+import { SeletorSetorArvore } from '@/components/setores/SeletorSetorArvore'
+import { moverEscalasParaSetor } from './escalaMovimentoActions'
+import { opcoesParaEscolha, rotularInativo } from '@/utils/opcoesAtivas'
 import { celulaTemPassosDeIntervalo } from '@/utils/intervaloIntrajornada'
 import { statusAcionamento } from '@/utils/sobreaviso/statusAcionamento'
 import {
@@ -513,6 +516,25 @@ export function ScaleGrid({
   const [allUnidades, setAllUnidades] = useState<any[]>([])
   const [allSetores, setAllSetores] = useState<any[]>([])
   const [isExternalModalOpen, setIsExternalModalOpen] = useState(false)
+  /**
+   * "Transferir Escala": mover a escala mensal de um ou mais servidores para outro setor.
+   *
+   * ⚠️ Alcance é **só a competência da tela** (decisão do usuário, 03/09/2026). Meses seguintes
+   * se resolvem abrindo a grade deles — mover o que não está na tela é o tipo de efeito que
+   * ninguém confere.
+   */
+  const [moverModal, setMoverModal] = useState<{
+    isOpen: boolean
+    escalaIds: string[]
+    unidadeDestinoId: string
+    setorDestinoId: string
+    justificativa: string
+    salvando: boolean
+    erro: string | null
+  }>({
+    isOpen: false, escalaIds: [], unidadeDestinoId: '', setorDestinoId: '',
+    justificativa: '', salvando: false, erro: null,
+  })
   const [jornadas, setJornadas] = useState<any[]>([])
   const [externalData, setExternalData] = useState({
     unidadeId: '',
@@ -4601,6 +4623,27 @@ export function ScaleGrid({
               Limpar Escala
             </button>
 
+            {/* Transferir a escala inteira de um ou mais servidores para outro setor. Existe
+                porque transferir alguém de setor no cadastro NUNCA moveu a escala junto — a
+                rotina antiga apagava os dias posteriores e não criava nada no destino. */}
+            <button
+              onClick={() => {
+                if (escalaMensal.length === 0) {
+                  setAlertModal({ isOpen: true, title: 'Sem Servidores', message: 'Não há escala nesta grade para transferir.', type: 'warning' })
+                  return
+                }
+                setMoverModal({
+                  isOpen: true, escalaIds: [], unidadeDestinoId: unidadeId, setorDestinoId: '',
+                  justificativa: '', salvando: false, erro: null,
+                })
+              }}
+              disabled={loading || isClosed}
+              className="inline-flex items-center rounded-md border border-amber-200 text-amber-700 bg-amber-50/50 px-3 py-2 text-sm font-medium hover:bg-amber-100 dark:border-amber-800 dark:text-amber-400 dark:bg-amber-950/20 transition-colors disabled:opacity-50"
+            >
+              <ArrowRightLeft className="h-4 w-4 mr-2" />
+              Transferir Escala
+            </button>
+
             <button
               onClick={() => {
                 if (escalaMensal.length === 0) {
@@ -6064,6 +6107,210 @@ export function ScaleGrid({
           </div>
         </div>
       )}
+      {/* Modal Transferir Escala — move a escala mensal para outro setor */}
+      {moverModal.isOpen && (() => {
+        const setoresDestino = allSetores
+          .filter(s => s.unidade_id === moverModal.unidadeDestinoId)
+          .map(s => ({
+            id: s.id,
+            parent_id: s.parent_id ?? null,
+            nome: s.nome,
+            caminho: buildSectorPathMap(allSetores.filter(x => x.unidade_id === moverModal.unidadeDestinoId)).get(s.id) || s.nome,
+            ativo: s.ativo,
+          }))
+          // O setor da própria grade não é destino: a escala já está nele.
+          .filter(s => !(moverModal.unidadeDestinoId === unidadeId && s.id === setorId))
+
+        const podeConfirmar =
+          moverModal.escalaIds.length > 0 &&
+          !!moverModal.setorDestinoId &&
+          !!moverModal.justificativa.trim() &&
+          !moverModal.salvando
+
+        return (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-2xl border border-zinc-200 dark:border-zinc-800 w-full max-w-2xl max-h-[90vh] flex flex-col">
+              <div className="p-5 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between bg-zinc-50 dark:bg-zinc-900/50 rounded-t-xl">
+                <div>
+                  <h3 className="font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+                    <ArrowRightLeft className="h-4 w-4 text-amber-500" />
+                    Transferir Escala de Setor
+                  </h3>
+                  <p className="text-xs text-zinc-500 mt-0.5">
+                    Move a escala de {String(mes).padStart(2, '0')}/{ano} — com os turnos e a presença já registrada — para outro setor.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setMoverModal(p => ({ ...p, isOpen: false }))}
+                  className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4 overflow-y-auto">
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-[11px] font-semibold text-zinc-500 uppercase">
+                      Servidores ({moverModal.escalaIds.length} de {escalaMensal.length})
+                    </label>
+                    <div className="flex gap-1.5 text-[11px]">
+                      <button
+                        type="button"
+                        onClick={() => setMoverModal(p => ({ ...p, escalaIds: escalaMensal.map(em => em.id) }))}
+                        className="rounded border border-zinc-300 dark:border-zinc-700 px-2 py-0.5 font-semibold hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                      >
+                        Marcar todos
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMoverModal(p => ({ ...p, escalaIds: [] }))}
+                        className="rounded border border-zinc-300 dark:border-zinc-700 px-2 py-0.5 font-semibold hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                      >
+                        Limpar
+                      </button>
+                    </div>
+                  </div>
+                  <div className="max-h-44 overflow-y-auto rounded-md border border-zinc-300 dark:border-zinc-700 p-2 space-y-0.5">
+                    {escalaMensal.map(em => {
+                      const marcado = moverModal.escalaIds.includes(em.id)
+                      const dias = (gridData[em.id] ? Object.keys(gridData[em.id]).length : 0)
+                      return (
+                        <label key={em.id} className="flex items-center gap-2 text-xs cursor-pointer py-0.5 px-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800">
+                          <input
+                            type="checkbox"
+                            checked={marcado}
+                            onChange={() => setMoverModal(p => ({
+                              ...p,
+                              escalaIds: marcado ? p.escalaIds.filter(id => id !== em.id) : [...p.escalaIds, em.id],
+                            }))}
+                          />
+                          <span className="flex-1 truncate">{em.servidores?.nome || 'Servidor'}</span>
+                          <span className="text-[10px] text-zinc-400">{dias} dia{dias === 1 ? '' : 's'}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div className="sm:max-w-sm">
+                  <label className="block text-[11px] font-semibold text-zinc-500 uppercase">Unidade de Destino</label>
+                  <select
+                    value={moverModal.unidadeDestinoId}
+                    onChange={(e) => setMoverModal(p => ({ ...p, unidadeDestinoId: e.target.value, setorDestinoId: '' }))}
+                    className="mt-1 block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2.5 py-1.5 text-xs"
+                  >
+                    <option value="">Selecione a Unidade...</option>
+                    {opcoesParaEscolha(allUnidades, moverModal.unidadeDestinoId).map(u => (
+                      <option key={u.id} value={u.id}>{rotularInativo(u, ' (inativa)')}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-zinc-500 uppercase mb-1">Setor de Destino</label>
+                  <SeletorSetorArvore
+                    setores={setoresDestino}
+                    selecionado={moverModal.setorDestinoId}
+                    onChange={(id) => setMoverModal(p => ({ ...p, setorDestinoId: id }))}
+                    placeholder={moverModal.unidadeDestinoId ? 'Selecione o setor de destino…' : 'Selecione a unidade primeiro'}
+                    disabled={moverModal.salvando}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-zinc-500 uppercase">Motivo *</label>
+                  <textarea
+                    value={moverModal.justificativa}
+                    onChange={(e) => setMoverModal(p => ({ ...p, justificativa: e.target.value }))}
+                    rows={2}
+                    placeholder="Ex.: transferência de setor efetivada no cadastro; a escala foi lançada no setor errado."
+                    className="mt-1 block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2.5 py-1.5 text-xs"
+                  />
+                </div>
+
+                {/* O que muda, dito antes de acontecer — e o que NÃO muda, que é o que costuma
+                    assustar quem aperta o botão. */}
+                <div className="rounded-md bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/40 p-3 text-[11px] text-blue-900 dark:text-blue-200 space-y-1">
+                  <p><strong>Nada é apagado.</strong> Os turnos e a presença já registrada vão junto, na mesma linha — nenhum horário é recriado.</p>
+                  <p>As batidas do relógio e do terminal continuam registradas no setor onde aconteceram: isso é o fato, e não se move.</p>
+                  <p>Só esta competência ({String(mes).padStart(2, '0')}/{ano}) é afetada. Meses seguintes se resolvem na grade deles.</p>
+                </div>
+
+                {moverModal.erro && (
+                  <p className="text-xs text-red-600 dark:text-red-400 whitespace-pre-line">{moverModal.erro}</p>
+                )}
+              </div>
+
+              <div className="p-4 border-t border-zinc-100 dark:border-zinc-800 flex justify-end gap-2 bg-zinc-50 dark:bg-zinc-900/50 rounded-b-xl">
+                <button
+                  onClick={() => setMoverModal(p => ({ ...p, isOpen: false }))}
+                  disabled={moverModal.salvando}
+                  className="rounded-lg bg-zinc-100 dark:bg-zinc-800 px-4 py-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={async () => {
+                    setMoverModal(p => ({ ...p, salvando: true, erro: null }))
+                    const res = await moverEscalasParaSetor({
+                      escalaIds: moverModal.escalaIds,
+                      unidadeDestinoId: moverModal.unidadeDestinoId,
+                      setorDestinoId: moverModal.setorDestinoId,
+                      justificativa: moverModal.justificativa,
+                      unidadeOrigemId: unidadeId,
+                    })
+
+                    if (res.error || !res.resultado) {
+                      setMoverModal(p => ({ ...p, salvando: false, erro: res.error || 'Erro desconhecido.' }))
+                      return
+                    }
+
+                    const { movidas, falhas, folhaSincronizar } = res.resultado
+
+                    // Relata O QUE MUDOU, servidor por servidor — e nomeia quem NÃO mudou e por
+                    // quê (armadilha 22: "111 turnos preenchidos" com zero células alteradas).
+                    if (movidas.length === 0) {
+                      setMoverModal(p => ({
+                        ...p,
+                        salvando: false,
+                        erro: `Nenhuma escala foi movida.\n\n${falhas.map(f => `• ${f.servidorNome}: ${f.motivo}`).join('\n')}`,
+                      }))
+                      return
+                    }
+
+                    setMoverModal(p => ({ ...p, isOpen: false, salvando: false }))
+                    const linhas = [
+                      `${movidas.length} escala(s) movida(s):`,
+                      ...movidas.map(m => `• ${m.servidorNome} — ${m.dias} dia(s)${m.diasComPonto > 0 ? `, ${m.diasComPonto} com ponto` : ''}`),
+                    ]
+                    if (falhas.length > 0) {
+                      linhas.push('', `${falhas.length} não foi/foram movida(s):`)
+                      linhas.push(...falhas.map(f => `• ${f.servidorNome}: ${f.motivo}`))
+                    }
+                    if (folhaSincronizar) {
+                      linhas.push('', 'Sincronize a folha de ponto desta competência.')
+                    }
+                    setAlertModal({
+                      isOpen: true,
+                      title: falhas.length > 0 ? 'Transferência parcial' : 'Escala transferida',
+                      message: linhas.join('\n'),
+                      type: falhas.length > 0 ? 'warning' : 'success',
+                    })
+                    router.refresh()
+                  }}
+                  disabled={!podeConfirmar}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-4 py-2 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+                >
+                  {moverModal.salvando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowRightLeft className="h-3.5 w-3.5" />}
+                  Transferir {moverModal.escalaIds.length > 0 ? `(${moverModal.escalaIds.length})` : ''}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
       {/* Modal Servidor Externo */}
       {isExternalModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">

@@ -3209,6 +3209,105 @@ batida mudando de passo: FABIANA (29316) tinha **uma só** batida (19:21), grava
 bloco errado; com o bloco certo ela virou **entrada**, e a saída passou a ser a pendência que
 sempre foi. Ler linha a linha é o que separa isso de apagar ponto.
 
+### 47. Transferir de setor APAGAVA a escala em vez de movê-la (03/09/2026)
+
+🚨 **`registrarTransferenciaEfetivada` (`servidores/actions.ts`) fazia quatro coisas, e as quatro
+eram `DELETE`:** apagava os dias ≥ data da transferência na **origem**, os dias anteriores no
+**destino** (só se a escala de destino já existisse), e as escalas inteiras dos meses seguintes na
+origem e anteriores no destino.
+
+O sistema **dividia por data** — intenção certa — mas a metade "depois da transferência" era
+**destruída, nunca movida**, e a escala do setor novo **nunca era criada**. Não existia "escala
+parcial no setor novo": existia um buraco.
+
+Caso real medido: 4 servidores transferidos `AMBULATÓRIO CLÍNICO → MAIS MEDICOS` (data 09/09/2026)
+ficaram com 08 e 09/2026 inteiramente no setor antigo, os dias ≥ 9 apagados, e MAIS MEDICOS sem
+escala nenhuma. Diário em
+[`docs/evolucao/2026-09-03-transferencia-de-setor-apagava-a-escala.md`](docs/evolucao/2026-09-03-transferencia-de-setor-apagava-a-escala.md).
+
+⚠️ **E falhava em silêncio:** o bloco inteiro rodava num `try/catch` que só fazia `console.error`.
+A transferência "dava certo" sem ter tocado em escala alguma. É a armadilha 22 na forma pior —
+relatar sucesso sem ter mudado nada.
+
+⚠️ **O `DELETE` não respeitava competência encerrada.** `trg_escala_diaria_guard_competencia` é
+`BEFORE UPDATE` e só olha colunas de presença — `DELETE` passava.
+
+✅ **`escala_diaria` NÃO tem setor nem unidade próprios — herda de `escala_mensal`.** É isso que
+torna a correção barata: **mover** é `UPDATE escala_mensal SET setor_id, unidade_id` (uma linha, e
+todos os dias vão junto); **dividir** é criar a segunda `escala_mensal` e repontar
+`escala_diaria.escala_mensal_id` dos dias a partir do corte. Nos dois casos **nada é fabricado e
+nada é apagado**: a presença viaja na própria linha, e `marcacoes_ponto` mantém o `setor_id` onde
+a batida aconteceu.
+
+| peça (`20260903120000`) | o que faz |
+|---|---|
+| `fn_validar_destino_escala` | **fonte única das recusas** — mover e dividir precisam das mesmas, e duas cópias divergiriam |
+| `fn_mover_escala_mensal` | move a competência inteira |
+| `fn_dividir_escala_mensal` | os dias ≥ corte vão para uma `escala_mensal` nova |
+| `fn_pode_mover_escala_mensal` | exige poder lançar escala **nos dois lados** (reusa `fn_pode_solicitar_excecao_carga`) |
+| `escala_mensal_movimentos` | histórico append-only; **sem policy de escrita**, só as RPCs gravam |
+| `src/utils/transferenciaEscala.ts` | a regra de qual competência é movida e qual é dividida |
+
+⚠️ **O default de `registrarTransferenciaEfetivada` é `'nao_mexer'`.** Quem chamar sem escolher
+não apaga mês de trabalho por omissão. A tela **pergunta** (mover inteira / dividir na data / não
+mexer) quando a lotação muda e há escala aberta.
+
+⚠️ **A folha segue sozinha no MOVER e não segue no DIVIDIR.** `folha_ponto` aponta para
+`escala_mensal_id` e **não guarda setor** — mover leva a folha junto sem regerar. Dividir deixa a
+folha de origem cobrindo dias que foram embora, então a RPC **recusa** se houver folha fora de
+Rascunho e devolve `folha_sincronizar`.
+
+⚠️ **Dividir produz DUAS folhas parciais no mês** (decisão do usuário, 03/09/2026 — cada chefia
+assina o período que chefiou). Já acontecia com 1 servidor em 08/2026.
+
+⚠️ **Mês Fechado ou competência encerrada: recusa sempre.** A porta é reabrir em Configurações,
+que já é ato registrado — e isso fecha de lado o defeito do `DELETE` acima.
+
+⚠️ **Alcance é diferente nos dois caminhos, de propósito:** na **grade** é só a competência da tela
+(o que se vê é o que muda); na **transferência** é o mês da transferência **e os posteriores**
+(deixar escala futura no setor antigo seria o mesmo defeito de novo). Meses **anteriores** nunca
+são tocados.
+
+⚠️ **Não bloqueie a operação "porque tem ponto".** Mover preserva a presença na própria linha; é
+justamente o dia com ponto que não pode ser apagado — e era o que o `DELETE` antigo poupava só por
+acaso (`.is('presenca_entrada_em', null)`).
+
+Portão: `node scratchpad/sim_transferencia_escala.js` (18 casos). Transpile antes com
+`npx tsc src/utils/transferenciaEscala.ts --outDir scratchpad/_sim --module commonjs --target es2020`.
+**Validado injetando três regressões** (`nao_mexer` voltando a planejar operação, divisão no dia 1
+criando escala de origem vazia, relato deixando de citar o que não mudou) — as três reprovam.
+
+### 48. Árvore de setor: seleção ÚNICA não é a múltipla com um item (03/09/2026)
+
+⚠️ **`SeletorSetoresArvore` marca em CASCATA** — clicar num pai marca todos os descendentes. É o
+certo para "este relógio atende a ALA - PSICOSSOCIAL inteira" (armadilha 29) e o **oposto** do que
+se quer ao escolher a lotação de destino de uma transferência, que é **um** setor: cascata ali
+transferiria a pessoa para um setor que ninguém escolheu.
+
+São dois componentes com a **mesma árvore por baixo**:
+
+| arquivo | papel |
+|---|---|
+| `src/components/setores/arvoreSetores.ts` | montagem, filtro por texto, nós recolhíveis, trilha até um nó |
+| `SeletorSetoresArvore.tsx` | múltipla, **em cascata** (Dispositivo REP) |
+| `SeletorSetorArvore.tsx` | **única**, sem cascata (destino de transferência, grade) |
+
+⚠️ **O pai é selecionável** — há servidor lotado no setor-pai; desabilitar nó com filho tiraria da
+tela lotação que existe no cadastro.
+
+⚠️ **O caminho completo vai no RESUMO, não em cada linha.** A árvore já mostra a hierarquia pelo
+recuo. Para isso `formatSectorPaths` passou a devolver **`nomeFolha`** junto com o caminho —
+recortar o caminho pelo separador truncaria um setor cujo nome contenha a mesma sequência.
+
+⚠️ **O ramo do já escolhido nasce aberto**, senão a tela abre sem mostrar em lugar nenhum o valor
+que o formulário vai enviar.
+
+Portão: `node scratchpad/sim_arvore_setores.js` (22 casos). ⚠️ **Ao injetar regressão em código
+transpilado, confirme que a substituição foi APLICADA** — a primeira injeção foi um `replace`
+no-op por diferença de indentação no JS compilado, e o portão "passou". Teste do teste que mente é
+pior que não ter teste. Diário em
+[`docs/evolucao/2026-09-03-arvore-de-setor-na-selecao-unica.md`](docs/evolucao/2026-09-03-arvore-de-setor-na-selecao-unica.md).
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.

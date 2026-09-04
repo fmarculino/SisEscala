@@ -3,6 +3,15 @@
 import { createClient, createAdminClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
+import {
+  competenciasAlcancadas,
+  planejarCompetencias,
+  relatoVazio,
+  rotuloCompetencia,
+  type AcaoEscalaTransferencia,
+  descreverRelato,
+  type RelatoEscalaTransferencia,
+} from '@/utils/transferenciaEscala'
 import { registrarLog, calcularAlteracoes } from '@/utils/auditoria'
 import { erroDocumento, normalizarDoc } from '@/utils/documentos'
 import { validarDataTransferencia } from '@/utils/transferValidation'
@@ -206,8 +215,14 @@ async function registrarTransferenciaEfetivada(supabase: any, params: {
   dataTransferencia: string
   motivo: string
   criadoPorId: string | null
-}): Promise<{ error?: string; historicoId?: string }> {
+  /**
+   * O que fazer com a escala que a pessoa já tem no setor de origem. Ver `AcaoEscalaTransferencia`
+   * em `src/utils/transferenciaEscala.ts` — o default é `'nao_mexer'` de propósito.
+   */
+  acaoEscala?: AcaoEscalaTransferencia
+}): Promise<{ error?: string; historicoId?: string; escala?: RelatoEscalaTransferencia }> {
   const { servidorId, unidadeOrigemId, setorOrigemId, unidadeDestinoId, setorDestinoId, dataTransferencia, motivo, criadoPorId } = params
+  const acaoEscala: AcaoEscalaTransferencia = params.acaoEscala || 'nao_mexer'
 
   const { data: histRow, error: histError } = await supabase
     .from('historico_transferencias')
@@ -228,126 +243,89 @@ async function registrarTransferenciaEfetivada(supabase: any, params: {
     return { error: `Erro ao salvar histórico de transferência: ${histError.message}` }
   }
 
-  // Limpa turnos concorrentes nos dois setores para o mês/ano da transferência e períodos
-  // subsequentes/precedentes. Best-effort: falha aqui não desfaz a transferência, só loga.
-  try {
-    const dateParts = dataTransferencia.split('-')
-    const transferYear = parseInt(dateParts[0], 10)
-    const transferMonth = parseInt(dateParts[1], 10)
-    const transferDay = parseInt(dateParts[2], 10)
+  // ---------------------------------------------------------------------------------------
+  // A ESCALA: mover, dividir ou não mexer -- nunca apagar
+  // ---------------------------------------------------------------------------------------
+  // Até 03/09/2026 este trecho eram quatro DELETE: apagava os dias a partir da transferência na
+  // origem, os anteriores no destino, e as escalas inteiras dos meses seguintes/anteriores. A
+  // metade "depois da transferência" era destruída e nunca aparecia no setor novo. Ver
+  // `src/utils/transferenciaEscala.ts` para o diagnóstico completo.
+  //
+  // Agora quem decide é quem transfere, e o default (`nao_mexer`) não toca em nada.
+  const relato = relatoVazio(acaoEscala)
 
-    if (!isNaN(transferYear) && !isNaN(transferMonth) && !isNaN(transferDay)) {
-      // A. Origin Scale (Transfer Month): Clear shifts on and after the transfer day (without presence)
-      if (unidadeOrigemId && setorOrigemId) {
-        const { data: originScale } = await supabase
-          .from('escala_mensal')
-          .select('id')
-          .eq('servidor_id', servidorId)
-          .eq('unidade_id', unidadeOrigemId)
-          .eq('setor_id', setorOrigemId)
-          .eq('mes', transferMonth)
-          .eq('ano', transferYear)
-          .maybeSingle()
+  if (acaoEscala !== 'nao_mexer' && unidadeOrigemId && setorOrigemId && unidadeDestinoId && setorDestinoId) {
+    const [anoStr, mesStr, diaStr] = dataTransferencia.split('-')
+    const transferAno = parseInt(anoStr, 10)
+    const transferMes = parseInt(mesStr, 10)
+    const transferDia = parseInt(diaStr, 10)
 
-        if (originScale) {
-          await supabase
-            .from('escala_diaria')
-            .delete()
-            .eq('escala_mensal_id', originScale.id)
-            .gte('dia', transferDay)
-            .is('presenca_entrada_em', null)
-            .is('presenca_saida_em', null)
+    if (!isNaN(transferAno) && !isNaN(transferMes) && !isNaN(transferDia)) {
+      const { data: escalasOrigem } = await supabase
+        .from('escala_mensal')
+        .select('id, mes, ano, status')
+        .eq('servidor_id', servidorId)
+        .eq('unidade_id', unidadeOrigemId)
+        .eq('setor_id', setorOrigemId)
+
+      const alcancadas = competenciasAlcancadas(
+        (escalasOrigem || []).map((e: any) => ({ mes: e.mes, ano: e.ano })),
+        { mes: transferMes, ano: transferAno }
+      )
+      const plano = planejarCompetencias(alcancadas, acaoEscala, {
+        dia: transferDia, mes: transferMes, ano: transferAno,
+      })
+
+      for (const passo of plano) {
+        const escala = (escalasOrigem || []).find((e: any) => e.mes === passo.mes && e.ano === passo.ano)
+        if (!escala) continue
+        const competencia = rotuloCompetencia(passo.mes, passo.ano)
+
+        // As RPCs recusam competência encerrada, escala Fechada, setor inativo, destino de outra
+        // unidade, colisão com escala já existente no destino e falta de permissão nos dois
+        // lados. Não se repete nenhuma dessas regras aqui (uma cópia divergiria).
+        const { data, error } = passo.operacao === 'dividir'
+          ? await supabase.rpc('fn_dividir_escala_mensal', {
+              p_escala_id: escala.id,
+              p_dia_corte: passo.diaCorte,
+              p_unidade_destino: unidadeDestinoId,
+              p_setor_destino: setorDestinoId,
+              p_justificativa: `Transferência de setor em ${dataTransferencia}. ${motivo || ''}`.trim(),
+            })
+          : await supabase.rpc('fn_mover_escala_mensal', {
+              p_escala_id: escala.id,
+              p_unidade_destino: unidadeDestinoId,
+              p_setor_destino: setorDestinoId,
+              p_justificativa: `Transferência de setor em ${dataTransferencia}. ${motivo || ''}`.trim(),
+            })
+
+        // ⚠️ Falha NÃO é engolida (antes, um try/catch com console.error escondia tudo). A
+        // transferência em si já foi efetivada e não se desfaz por causa da escala -- mas o
+        // relato diz exatamente o que ficou para trás e por quê.
+        if (error) {
+          relato.naoMexidas.push({
+            competencia,
+            motivo: (error.message || 'erro desconhecido').replace(/^.*?ERROR:\s*/i, ''),
+          })
+          continue
         }
-      }
 
-      // B. Destination Scale (Transfer Month): Clear shifts before the transfer day (without presence)
-      if (unidadeDestinoId && setorDestinoId) {
-        const { data: destScale } = await supabase
-          .from('escala_mensal')
-          .select('id')
-          .eq('servidor_id', servidorId)
-          .eq('unidade_id', unidadeDestinoId)
-          .eq('setor_id', setorDestinoId)
-          .eq('mes', transferMonth)
-          .eq('ano', transferYear)
-          .maybeSingle()
-
-        if (destScale) {
-          await supabase
-            .from('escala_diaria')
-            .delete()
-            .eq('escala_mensal_id', destScale.id)
-            .lt('dia', transferDay)
-            .is('presenca_entrada_em', null)
-            .is('presenca_saida_em', null)
-        }
-      }
-
-      // C. Subsequent Months (Origin Sector): Delete all monthly scales and daily shifts without presence
-      if (unidadeOrigemId && setorOrigemId) {
-        const { data: futureOriginScales } = await supabase
-          .from('escala_mensal')
-          .select('id, mes, ano')
-          .eq('servidor_id', servidorId)
-          .eq('unidade_id', unidadeOrigemId)
-          .eq('setor_id', setorOrigemId)
-
-        if (futureOriginScales) {
-          const futureScaleIds = futureOriginScales
-            .filter((em: any) => em.ano > transferYear || (em.ano === transferYear && em.mes > transferMonth))
-            .map((em: any) => em.id)
-
-          if (futureScaleIds.length > 0) {
-            await supabase
-              .from('escala_diaria')
-              .delete()
-              .in('escala_mensal_id', futureScaleIds)
-              .is('presenca_entrada_em', null)
-              .is('presenca_saida_em', null)
-
-            await supabase
-              .from('escala_mensal')
-              .delete()
-              .in('id', futureScaleIds)
-          }
-        }
-      }
-
-      // D. Preceding Months (Destination Sector): Delete any monthly scales and daily shifts without presence
-      if (unidadeDestinoId && setorDestinoId) {
-        const { data: pastDestScales } = await supabase
-          .from('escala_mensal')
-          .select('id, mes, ano')
-          .eq('servidor_id', servidorId)
-          .eq('unidade_id', unidadeDestinoId)
-          .eq('setor_id', setorDestinoId)
-
-        if (pastDestScales) {
-          const pastScaleIds = pastDestScales
-            .filter((em: any) => em.ano < transferYear || (em.ano === transferYear && em.mes < transferMonth))
-            .map((em: any) => em.id)
-
-          if (pastScaleIds.length > 0) {
-            await supabase
-              .from('escala_diaria')
-              .delete()
-              .in('escala_mensal_id', pastScaleIds)
-              .is('presenca_entrada_em', null)
-              .is('presenca_saida_em', null)
-
-            await supabase
-              .from('escala_mensal')
-              .delete()
-              .in('id', pastScaleIds)
-          }
+        const r = (data || {}) as any
+        if (r.folha_sincronizar) relato.folhaSincronizar = true
+        if (passo.operacao === 'dividir') {
+          relato.divididas.push({
+            competencia,
+            diaCorte: passo.diaCorte as number,
+            dias: Number(r.dias_movidos || 0),
+          })
+        } else {
+          relato.movidas.push(competencia)
         }
       }
     }
-  } catch (cleanError: any) {
-    console.error('Erro ao limpar escalas na transferência:', cleanError)
   }
 
-  return { historicoId: histRow?.id }
+  return { historicoId: histRow?.id, escala: relato }
 }
 
 function extractDadosComplementares(formData: FormData) {
@@ -913,6 +891,11 @@ export async function updateServidor(id: string, formData: FormData) {
   const vinculo = formData.get('vinculo') as any
   const unidade_id = formData.get('unidade_id') as string
   const setor_id = formData.get('setor_id') as string
+  /**
+   * O que fazer com a escala do setor de origem. O formulário pergunta quando há escala; se
+   * vier vazio, `registrarTransferenciaEfetivada` cai em 'nao_mexer' — nunca em apagar.
+   */
+  const acaoEscala = (formData.get('acao_escala') as AcaoEscalaTransferencia | null) || 'nao_mexer'
   const email = formData.get('email') as string
   const telefone = formData.get('telefone') as string
   const pin_acesso = formData.get('pin_acesso') as string
@@ -1272,9 +1255,22 @@ export async function updateServidor(id: string, formData: FormData) {
       dataTransferencia,
       motivo: motivoTransferencia,
       criadoPorId: usuarioEditor?.id || null,
+      acaoEscala,
     })
     if (resultadoTransferencia.error) {
       return { error: resultadoTransferencia.error }
+    }
+
+    // A transferência JÁ foi efetivada; o que pode ter falhado é só o movimento da escala.
+    // Antes isso morria num console.error e quem transferiu ia embora achando que a escala tinha
+    // ido junto. Volta como texto legível em vez de redirecionar em silêncio.
+    const relatoEscala = resultadoTransferencia.escala
+    if (relatoEscala && relatoEscala.naoMexidas.length > 0) {
+      return {
+        error: `Transferência efetivada, mas a escala não foi movida por inteiro.
+
+${descreverRelato(relatoEscala)}`,
+      }
     }
   } else if (transferenciaPendente) {
     // Nada muda em servidores nem em escala — só registra o pedido. `unidadeIdGravar`/
@@ -1903,8 +1899,11 @@ export async function avaliarSolicitacaoTransferencia(params: {
   unidadeDestinoId?: string
   setorDestinoId?: string
   parecer?: string
+  /** O que fazer com a escala do setor de origem. Sem escolha, nao se toca em escala nenhuma. */
+  acaoEscala?: AcaoEscalaTransferencia
 }) {
   const { solicitacaoId, acao, unidadeDestinoId: paramUnidadeDestinoId, setorDestinoId: paramSetorDestinoId, parecer } = params
+  const acaoEscala: AcaoEscalaTransferencia = params.acaoEscala || 'nao_mexer'
   const supabase = await createClient()
 
   const { data: { user: avaliador } } = await supabase.auth.getUser()
@@ -2010,6 +2009,7 @@ export async function avaliarSolicitacaoTransferencia(params: {
     dataTransferencia: solicitacao.data_transferencia_sugerida,
     motivo: solicitacao.motivo,
     criadoPorId: avaliador?.id || null,
+    acaoEscala,
   })
   if (resultadoTransferencia.error) {
     return { error: resultadoTransferencia.error }
@@ -2035,6 +2035,10 @@ export async function avaliarSolicitacaoTransferencia(params: {
   revalidatePath('/servidores/pendencias')
   revalidatePath(`/servidores/${solicitacao.servidor_id}`)
   revalidatePath('/servidores')
-  return { success: true }
+  revalidatePath('/escalas')
+
+  // Relata o que aconteceu com a ESCALA -- inclusive quando nada aconteceu. Sem isto, quem
+  // aprova ve so "transferencia efetivada" e descobre a escala no setor antigo semanas depois.
+  return { success: true, escala: resultadoTransferencia.escala, avisoEscala: resultadoTransferencia.escala ? descreverRelato(resultadoTransferencia.escala) : null }
 }
 

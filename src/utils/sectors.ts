@@ -125,15 +125,21 @@ export function buildSectorPathMap(
  * Generica de proposito: `ativo`, `parent_id` e o que mais vier junto no objeto sobrevivem. A
  * tela que filtra por `ativo` depende disso (`.filter(s => s.ativo !== false)` em
  * ImportacaoRhSection e SolicitacoesTransferenciaSection).
+ *
+ * `nomeFolha` guarda o nome ORIGINAL (so a folha). Quem desenha ARVORE precisa dele: ali a
+ * hierarquia ja aparece no recuo, e repetir o caminho inteiro em cada linha e ruido -- o
+ * caminho fica no resumo do que foi escolhido, que e onde ele realmente faz falta. Sem este
+ * campo a arvore teria de recortar o caminho pelo separador, e um setor cujo NOME contenha a
+ * mesma sequencia sairia truncado.
  */
 export function formatSectorPaths<T extends Sector>(
   sectors: T[],
   separator: string = SECTOR_PATH_SEPARATOR,
-): T[] {
+): (T & { nomeFolha: string })[] {
   if (!sectors || sectors.length === 0) return [];
   const caminhos = buildSectorPathMap(sectors, separator);
   return sectors
-    .map(s => ({ ...s, nome: caminhos.get(s.id) || s.nome }))
+    .map(s => ({ ...s, nomeFolha: s.nome, nome: caminhos.get(s.id) || s.nome }))
     .sort((a, b) => a.nome.localeCompare(b.nome));
 }
 

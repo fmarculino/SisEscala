@@ -2,6 +2,71 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.35.0] - 2026-09-03
+
+Um dia inteiro de trabalho a partir de relatos do usuário sobre a tela em uso real. Diários em
+`docs/evolucao/2026-09-03-*.md`.
+
+### Fixed
+
+- **Transferir alguém de setor APAGAVA a escala em vez de movê-la.**
+  `registrarTransferenciaEfetivada` fazia quatro coisas e as quatro eram `DELETE`: apagava os dias
+  a partir da data da transferência no setor de origem, os anteriores no destino, e as escalas
+  inteiras dos meses seguintes/anteriores. O sistema dividia por data — intenção certa — mas a
+  metade "depois da transferência" era **destruída, nunca movida**, e a escala do setor novo
+  **nunca era criada**.
+  - Caso real medido: 4 servidores transferidos `AMBULATÓRIO CLÍNICO → MAIS MEDICOS` (data
+    09/09/2026) ficaram com 08 e 09/2026 inteiramente no setor antigo, os dias ≥ 9 apagados, e
+    MAIS MEDICOS sem escala nenhuma.
+  - Agravava que o bloco rodava num `try/catch` com `console.error`: a transferência "dava certo"
+    sem ter tocado em escala alguma, e a tela não dizia nada.
+  - E o `DELETE` não respeitava competência encerrada — `trg_escala_diaria_guard_competencia` é
+    `BEFORE UPDATE` e só olha colunas de presença.
+  - Migration `20260903120000`: `fn_mover_escala_mensal`, `fn_dividir_escala_mensal`,
+    `fn_validar_destino_escala` (fonte única das recusas) e a tabela append-only
+    `escala_mensal_movimentos`. `escala_diaria` herda o setor de `escala_mensal`, então mover é um
+    `UPDATE` de uma linha e dividir é repontar os dias — **nada é fabricado e nada é apagado**.
+  - As 4 escalas de 09/2026 corrigidas na própria migration, por id explícito, com histórico.
+  - Documentado em `docs/evolucao/2026-09-03-transferencia-de-setor-apagava-a-escala.md`.
+
+- **O Diretor autorizava carga extraordinária da rede inteira.** A `20260831120000` escopou o RH
+  da Unidade por `profile_unidades` e deixou `admin` (Diretor) no mesmo ramo de `super_admin`/`rh`
+  — sem escopo nenhum. Medido: os 3 diretores têm uma única unidade cada, e os dois da SMS
+  decidiam os 5 pedidos pendentes do HMI.
+  - `20260903110000` move `admin` para o ramo escopado. Sem escopo continuam só `super_admin` e
+    `rh` — a autorização é uma por (servidor, mês, ano) e vale para a rede toda, então alguém
+    precisa enxergar as duas unidades quando elas disputam o mesmo número.
+  - Documentado em `docs/evolucao/2026-09-03-escopo-de-unidade-para-o-diretor-autorizar-carga.md`.
+
+- **Plantão noturno nascia em cima do expediente** e o modal de validação manual não mostrava a
+  data da batida (`20260903100000`). Documentado em
+  `docs/evolucao/2026-09-03-plantao-noturno-empilhado-e-virada-de-dia.md`.
+
+### Added
+
+- **"Transferir Escala" na grade.** Marca um ou mais servidores, escolhe unidade e setor de
+  destino, justifica — e a escala da competência da tela vai junto com turnos e presença. Relata
+  servidor por servidor o que moveu **e o que não moveu, com o motivo**.
+
+- **A transferência de setor no cadastro agora PERGUNTA.** Quando a lotação muda e há escala
+  aberta, o modal oferece *mover a escala inteira* · *dividir na data da transferência* (duas
+  escalas parciais e duas folhas) · *não mexer na escala*. O default de
+  `registrarTransferenciaEfetivada` passou a ser `'nao_mexer'`: quem chamar sem escolher não apaga
+  mês de trabalho por omissão.
+
+- **Seleção de setor em árvore onde a escolha é ÚNICA** (`SeletorSetorArvore`), na avaliação de
+  transferência e no modal de transferir escala. Não é o `SeletorSetoresArvore` com um item: aquele
+  marca em cascata, e cascata na lotação transferiria a pessoa para um setor que ninguém escolheu.
+  A montagem da árvore virou fonte única em `src/components/setores/arvoreSetores.ts`.
+  - `formatSectorPaths` passou a devolver `nomeFolha` junto com o caminho completo.
+  - Documentado em `docs/evolucao/2026-09-03-arvore-de-setor-na-selecao-unica.md`.
+
+### Changed
+
+- Novos portões: `scratchpad/sim_arvore_setores.js` (22 casos) e
+  `scratchpad/sim_transferencia_escala.js` (18 casos), ambos validados injetando regressões de
+  propósito.
+
 ## [2.34.1] - 2026-09-02
 
 ### Fixed
