@@ -451,6 +451,22 @@ em `/marcacoes` (`importarPendriveAfd` em `marcacoes/actions.ts`, que chama a me
   na máquina de quem escreveu o código, onde o CWD por acaso também tinha um `config.yaml` de
   teste, mascarando o problema.
 - `login.fcgi` e `get_afd.fcgi?mode=671` **validados contra o relógio real** (10.110.2.89).
+- 🚨 **O handshake TLS do equipamento custa ~1,1s de CPU DELE, e ele serializa os handshakes**
+  (medido em 05/09/2026 na USF José Manoel, `192.168.0.200`). Escalando a concorrência: 1,4 → 2,7
+  → 4,2 → 5,4 → 8,3 → 9,2 → **16,3s**, e a **8ª conexão simultânea falha em 21s sem conectar**. As
+  duas mensagens de erro do coletor são o mesmo fenômeno em dois estágios — `Client.Timeout
+  exceeded while awaiting headers` é entrar na fila e não ser atendido em 30s;
+  `connectex: o componente conectado não respondeu` é a fila cheia descartando o SYN. **Não é
+  rede**: TCP conecta em 41ms (60/60) e a porta 80 responde em 14ms (301 → força HTTPS).
+  ⚠️ **A interface web do relógio aberta num navegador triplica o custo** (4,2s errático × 1,1s
+  estável) — **não deixe aberta**, e é fácil de esquecer durante uma instalação.
+  ⚠️ **Mas ela não é a causa raiz.** Um monitor de outra máquina, com **uma** requisição a cada
+  29s, viu o equipamento ficar surdo na 443 por **4 minutos** com o navegador já fechado. Para
+  separar "reinicia" de "só o servidor web trava" **não é preciso credencial**: durante o
+  episódio, ping respondendo = firmware (chamado na Control iD); ping caindo junto = fonte/hardware.
+  ℹ️ Reusar a conexão é ~50× mais barato (0,02s contra 1,1s), e o coletor hoje cria **três**
+  `rep.Client` por ciclo (`Sync`, `Heartbeat`, `SincronizarCadastros`), cada um com `Transport`
+  próprio, login próprio e nenhum `CloseIdleConnections`. Reduzir isso está pendente.
 - **Windows Smart App Control bloqueia o `.exe` recém-compilado** (sem assinatura/reputação) —
   e em 11/08/2026 bloqueou também `go run` do `cmd/tray`, sem determinismo aparente (`go run`
   do `cmd/cli` tinha funcionado antes, na mesma máquina). Sem opção de exceção por app quando
@@ -841,6 +857,33 @@ Nenhuma tela respondia isso antes: "Biometria Pendente" só lista quem **já tem
 "Higiene do Relógio" olha a direção inversa (quem está no relógio e não no SisEscala). A ponta que
 faltava — escala → relógio — virou a aba **Cobertura da Escala** (`fn_cobertura_ponto_dispositivo`
 classifica; `fn_cobertura_ponto_resumo` é envelope LATERAL dela; a tela não reclassifica nada).
+
+✅ **A aba virou "Cobertura de Ponto" em 05/09/2026 (`20260905100000`) e o universo agora é
+`lotados ∪ escalados`.** Listar só escalados escondia o caso dominante: medido no parque,
+**1.257 pessoas cadastradas no relógio SEM BIOMETRIA** (348 no HMM-01, 57 no CAPS III, ~82 em cada
+relógio do HMI) — gente que não consegue bater e não aparecia em tela nenhuma. O caso que motivou
+foi a USF José Manoel: 4 lotados, os 4 no relógio com biometria, a aba mostrava 1. **Os dois
+números estavam certos; a tela respondia outra pergunta.** Diário em
+[`docs/evolucao/2026-09-05-cobertura-de-ponto-inclui-lotados.md`](docs/evolucao/2026-09-05-cobertura-de-ponto-inclui-lotados.md).
+
+⚠️ **União, nunca substituição** — trocar escala por lotação quebraria o "Servidor Externo"
+(v1.2.4). Conferido em produção: **22 externos preservados**. E `escalados` no resumo **continua
+contando só quem tem escala**; o denominador novo é `total_pessoas`, somado ao lado. `dias_com_escala = 0`
+identifica quem entrou por lotação, sem coluna nova.
+
+⚠️ **O número de escalados varia de 640 a 1.785 conforme o mês** (implantação em andamento: o HMI
+tinha 6 escalados em 08/2026 e 390 em 09/2026); a união fica **estável em ~3,4 mil**. É isso que faz
+a aba parar de depender de a escala ter sido lançada — reconfira contra produção antes de decidir
+com base nestes números.
+
+🚨 **O enfileiramento ao relógio era 100% MANUAL até 05/09/2026** — `fn_enfileirar_cadastros_rep`
+(lotação) e `fn_enfileirar_cadastros_por_escala` (escala) só rodavam no clique de "Sincronizar
+cadastros"; **não havia trigger nem cron**, então servidor novo com lotação definida nunca chegava
+ao equipamento sozinho. Hoje o cron diário roda **as duas** por dispositivo ativo
+(`src/utils/rep/enfileirarCadastrosParque.ts`). Só popula `rep_cadastros_fila` — quem grava no
+relógio continua sendo o coletor, com teto de 20 por ciclo. ⚠️ Roda com **`service_role`**: as duas
+RPCs só aplicam os guards quando `auth.uid() IS NOT NULL`, então com `createClient()` a rotina veria
+zero.
 
 ⚠️ **`CREATE OR REPLACE FUNCTION` não altera a lista de colunas de um `RETURNS TABLE`.** Reaplicar
 uma migration depois de acrescentar uma coluna de saída morre com `42P13: cannot change return

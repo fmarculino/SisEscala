@@ -183,7 +183,7 @@ export function MarcacoesClient({ isAdmin, podeAutorizar, opcoes }: { isAdmin: b
   const abas: { id: Aba; label: string; icon: any; visivel: boolean; alerta?: number | null }[] = [
     { id: 'terminais', label: 'Terminais Locais', icon: Monitor, visivel: isAdmin },
     { id: 'dispositivos', label: 'Dispositivos REP', icon: Fingerprint, visivel: isAdmin },
-    { id: 'cobertura', label: 'Cobertura da Escala', icon: HeartPulse, visivel: true, alerta: alertaCobertura },
+    { id: 'cobertura', label: 'Cobertura de Ponto', icon: HeartPulse, visivel: true, alerta: alertaCobertura },
     { id: 'pendencias', label: 'Pendências', icon: ListChecks, visivel: true },
     { id: 'biometria', label: 'Biometria Pendente', icon: Fingerprint, visivel: true },
     { id: 'higiene', label: 'Higiene do Relógio', icon: ShieldCheck, visivel: isAdmin },

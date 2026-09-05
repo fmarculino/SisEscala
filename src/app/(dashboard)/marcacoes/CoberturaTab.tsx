@@ -235,7 +235,10 @@ export function CoberturaTab({ isAdmin }: { isAdmin: boolean }) {
   }
 
   const totalNaoBatem = resumo.reduce((s, d) => s + d.nao_conseguem_bater, 0)
-  const totalEscalados = resumo.reduce((s, d) => s + d.escalados, 0)
+  // Denominador é o total de pessoas listadas (lotados ∪ escalados), não só os escalados: desde
+  // 20260905100000 a aba mostra também quem está lotado sem escala no mês, que era o caso
+  // dominante de "cadastrado no relógio e sem biometria" invisível na tela.
+  const totalPessoas = resumo.reduce((s, d) => s + d.total_pessoas, 0)
   const totalPerdidas = resumo.reduce((s, d) => s + d.batidas_perdidas, 0)
 
   return (
@@ -285,7 +288,7 @@ export function CoberturaTab({ isAdmin }: { isAdmin: boolean }) {
             <div className={`p-4 rounded-2xl border ${totalNaoBatem > 0 ? 'border-red-200 bg-red-50 dark:bg-red-900/10 dark:border-red-900/40' : 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900'}`}>
               <p className="text-2xl font-black text-zinc-900 dark:text-white">{totalNaoBatem}</p>
               <p className="text-xs font-bold text-zinc-600 dark:text-zinc-300">não conseguem bater</p>
-              <p className="text-[11px] text-zinc-400">de {totalEscalados} escalado(s) no mês</p>
+              <p className="text-[11px] text-zinc-400">de {totalPessoas} pessoa(s) lotada(s) ou escalada(s)</p>
             </div>
             <div className={`p-4 rounded-2xl border ${totalPerdidas > 0 ? 'border-red-200 bg-red-50 dark:bg-red-900/10 dark:border-red-900/40' : 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900'}`}>
               <p className="text-2xl font-black text-zinc-900 dark:text-white">{totalPerdidas}</p>
@@ -321,7 +324,7 @@ export function CoberturaTab({ isAdmin }: { isAdmin: boolean }) {
                         {!d.ativo && <span className="text-[10px] font-bold text-red-600 bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full">DESATIVADO</span>}
                         {d.nao_conseguem_bater > 0 && (
                           <span className="text-[10px] font-bold text-red-600 bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
-                            <AlertTriangle className="h-3 w-3" /> {d.nao_conseguem_bater} de {d.escalados}
+                            <AlertTriangle className="h-3 w-3" /> {d.nao_conseguem_bater} de {d.total_pessoas}
                           </span>
                         )}
                         {/* Unidade com mais de um relógio: separa quem não registra ponto em lugar
@@ -434,7 +437,13 @@ export function CoberturaTab({ isAdmin }: { isAdmin: boolean }) {
                                       <span className="text-zinc-400 font-normal"> · {s.matricula || 'sem matrícula'}</span>
                                     </p>
                                     <p className="text-[11px] text-zinc-500">
-                                      {s.dias_com_escala} dia(s) de escala no mês
+                                      {/* dias_com_escala = 0 significa que a pessoa entrou pela
+                                          LOTAÇÃO, não pela escala — dizer "0 dia(s) de escala"
+                                          soaria como erro de lançamento em vez de ausência de
+                                          escala, que é o caso normal aqui. */}
+                                      {s.dias_com_escala > 0
+                                        ? `${s.dias_com_escala} dia(s) de escala no mês`
+                                        : 'lotado(a) aqui · sem escala no mês'}
                                       {s.nome_no_device ? ` · no relógio como "${s.nome_no_device}"` : ''}
                                       {s.batidas_perdidas > 0 && (
                                         <span className="text-red-600 font-bold"> · {s.batidas_perdidas} batida(s) perdida(s) em 30 dias</span>

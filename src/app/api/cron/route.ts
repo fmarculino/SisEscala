@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { conferirSegredoCron } from '@/utils/segredoCron'
 import { autoCloseExpiredScalesAndTimesheets, autoGenerateMissingTimesheets } from '@/utils/autoClose'
+import { enfileirarCadastrosDoParque } from '@/utils/rep/enfileirarCadastrosParque'
 
 export async function GET(request: Request) {
   try {
@@ -25,7 +26,13 @@ export async function GET(request: Request) {
     }
     
     const genRes = await autoGenerateMissingTimesheets(prevMes, prevAno)
-    
+
+    // 3. Envia ao ponto quem já tem unidade/setor definidos e ainda não está no relógio.
+    //    Até 05/09/2026 isso dependia de alguém clicar "Sincronizar cadastros" na tela de
+    //    Marcações — não havia trigger nem cron, então servidor novo nunca chegava ao
+    //    equipamento sozinho. Só popula a fila; quem grava no relógio é o coletor da unidade.
+    const repRes = await enfileirarCadastrosDoParque()
+
     return NextResponse.json({
       success: true,
       timestamp: new Date().toISOString(),
@@ -34,7 +41,8 @@ export async function GET(request: Request) {
         mes: prevMes,
         ano: prevAno,
         result: genRes
-      }
+      },
+      enfileirarCadastrosRep: repRes
     })
   } catch (error: any) {
     console.error('Erro na rota de Cron:', error)

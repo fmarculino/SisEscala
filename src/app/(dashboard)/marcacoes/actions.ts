@@ -468,6 +468,12 @@ export interface CoberturaResumo {
   ativo: boolean
   ultimo_contato_em: string | null
   snapshot_em: string | null
+  // Quantas pessoas a aba lista neste relógio: lotados na unidade/setores dele UNIÃO escalados no
+  // mês. É o denominador da tela desde 20260905100000.
+  total_pessoas: number
+  // ⚠️ CONTINUA sendo só quem tem escala no mês — não é o total. Preservado de propósito quando o
+  // universo foi ampliado: mudar o significado de um número que já está na tela é pior que somar
+  // um número novo ao lado dele (mesma regra de `cobertos_em_outro`).
   escalados: number
   ok: number
   sem_vinculo: number
@@ -489,6 +495,8 @@ export interface CoberturaServidor {
   servidor_id: string
   servidor_nome: string
   matricula: string | null
+  // 0 = esta pessoa entrou na lista por LOTAÇÃO, não por escala. Não é ambíguo: a CTE de
+  // escalados agrupa sobre `escala_diaria`, então quem tem escala tem sempre >= 1 dia.
   dias_com_escala: number
   identificador_afd: string | null
   nome_no_device: string | null
