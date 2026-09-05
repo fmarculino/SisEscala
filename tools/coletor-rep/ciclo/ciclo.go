@@ -13,6 +13,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sms-maraba/sisescala-coletor-rep/config"
@@ -21,7 +22,7 @@ import (
 	"github.com/sms-maraba/sisescala-coletor-rep/sisescala"
 )
 
-const Versao = "0.14.0"
+const Versao = "0.15.0"
 
 // LimiteCadastrosPorCiclo e' o teto do ciclo AUTOMATICO. O clique manual no menu passa 0 (sem
 // teto, envia todos).
@@ -422,6 +423,16 @@ func SincronizarCadastros(cfg *config.Config, d *config.DispositivoRepConfig, li
 	// re-resolver identidade por CPF **ou** PIS via fn_registrar_snapshot_usuarios_dispositivo -
 	// a fonte unica. E' o que torna o fluxo autocorretivo: mesmo que o identificador reportado no
 	// ConfirmarCadastro acima falte, o snapshot conserta em seguida.
+	//
+	// Mas ela NAO precisa rodar a cada ciclo, e rodava. Medido em 05/09/2026: load_users pede
+	// `templates: true`, entao no HMI sao ~500 cadastros com ~418 DIGITAIS baixados a cada 5 min,
+	// 288 vezes por dia, quase sempre com "0 pendente(s)" - ou seja, para nao fazer nada. Num
+	// equipamento cujo handshake TLS sozinho custa 1,1s de CPU DELE, essa e' a maior carga
+	// continua que o coletor impoe. Ver docs/evolucao/2026-09-05-cobertura-de-ponto-inclui-lotados.md
+	if !deveListarCadastros(d.ID, limite, resultado.Enviados) {
+		return resultado, nil
+	}
+
 	usuarios, err := rc.ListarUsuarios()
 	if err != nil {
 		log.Printf("aviso: nao foi possivel listar usuarios do rele: %v", err)
@@ -446,6 +457,52 @@ func SincronizarCadastros(cfg *config.Config, d *config.DispositivoRepConfig, li
 		log.Printf("aviso: falha ao reportar biometria ao SisEscala: %v", err)
 	}
 	return resultado, nil
+}
+
+// intervaloListagemCadastros e' de quanto em quanto tempo o ciclo AUTOMATICO relista o cadastro do
+// relogio quando nada mudou. Uma hora, contra os 5 min de antes: corta 11 de cada 12 listagens.
+//
+// Por que uma hora e nao "so quando muda": o snapshot e' o que torna o fluxo autocorretivo (o
+// SisEscala re-resolve identidade por CPF ou PIS a partir dele, e reconcilia vinculos), e ele
+// tambem detecta o que muda FORA do SisEscala - alguem cadastrado ou apagado na telinha do
+// equipamento, e sobretudo BIOMETRIA cadastrada presencialmente, que e' hoje o gargalo real do
+// parque. Zerar a relistagem deixaria a tela de Cobertura envelhecer em silencio; uma hora e' bem
+// mais rapido que a operacao humana que ela acompanha.
+const intervaloListagemCadastros = time.Hour
+
+// ultimaListagemCadastros guarda, por dispositivo, quando a listagem foi feita pela ultima vez.
+//
+// Em memoria de proposito: reiniciar o coletor faz ele listar uma vez, que e' exatamente o que se
+// quer depois de uma atualizacao ou de uma maquina que voltou. Persistir isso em disco so
+// acrescentaria um arquivo de estado para economizar UMA listagem por reinicio.
+var (
+	ultimaListagemMu     sync.Mutex
+	ultimaListagemPorDev = map[string]time.Time{}
+)
+
+// deveListarCadastros decide se vale relistar o cadastro do equipamento nesta passada.
+//
+// limite == 0 e' o clique manual no menu e os subcomandos da CLI: ali a listagem e' o proprio
+// motivo de a pessoa ter clicado, entao sempre roda. enviados > 0 significa que ESTE ciclo
+// escreveu no relogio - o snapshot mudou por acao nossa e precisa subir agora, senao a tela de
+// Cobertura contradiz o que acabou de ser feito.
+func deveListarCadastros(dispositivoID string, limite, enviados int) bool {
+	if limite == 0 || enviados > 0 {
+		return true
+	}
+
+	ultimaListagemMu.Lock()
+	defer ultimaListagemMu.Unlock()
+
+	ultima, visto := ultimaListagemPorDev[dispositivoID]
+	if visto && time.Since(ultima) < intervaloListagemCadastros {
+		return false
+	}
+	// Marca ANTES de listar: se a listagem falhar, nao adianta tentar de novo em 5 minutos contra
+	// um equipamento que ja nao respondeu - e' justamente o relogio sobrecarregado que nao pode
+	// receber insistencia. A proxima janela normal resolve.
+	ultimaListagemPorDev[dispositivoID] = time.Now()
+	return true
 }
 
 // ehFalhaDeTransporte separa "nao consegui falar com o relogio" de "o relogio respondeu e recusou".

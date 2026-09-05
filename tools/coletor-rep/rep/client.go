@@ -115,7 +115,17 @@ func NovoClient(endereco string, porta int, usaHTTPS bool, usuario, senha, certF
 		}
 	}
 
-	transporte := &http.Transport{TLSClientConfig: tlsConfig}
+	// IdleConnTimeout EXPLICITO. O zero-value de http.Transport significa "sem limite": a conexao
+	// keep-alive ociosa nunca se fecha sozinha, e como a goroutine de leitura dela mantem o
+	// Transport vivo, nem o GC a recolhe. Cada rep.Client monta o seu Transport e o ciclo cria
+	// tres por rodada (Sync, Heartbeat, SincronizarCadastros), entao o processo ia acumulando
+	// conexoes penduradas num equipamento que, medido em 05/09/2026, PARA DE ACEITAR conexao por
+	// volta de 7-8 simultaneas. Medido em campo o acumulo nao estava ocorrendo (o proprio device
+	// derruba as ociosas), mas depender disso e' contar com sorte alheia.
+	transporte := &http.Transport{
+		TLSClientConfig: tlsConfig,
+		IdleConnTimeout: 90 * time.Second,
+	}
 
 	return &Client{
 		baseURL:       baseURL,
