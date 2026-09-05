@@ -885,6 +885,21 @@ relógio continua sendo o coletor, com teto de 20 por ciclo. ⚠️ Roda com **`
 RPCs só aplicam os guards quando `auth.uid() IS NOT NULL`, então com `createClient()` a rotina veria
 zero.
 
+🚨 **Guard de `auth.getUser()` transforma função em no-op dentro de rota de máquina — e já
+transformou.** Medido em 05/09/2026, na primeira execução manual de `/api/cron`:
+`{"autoClose":{"success":false,"error":"Não autorizado"}}`. `autoCloseExpiredScalesAndTimesheets`
+exigia sessão do Supabase Auth, e **`CRON_SECRET` autentica a requisição, não cria usuário** — o
+fechamento automático pelo cron nunca rodou uma vez. Hoje a função aceita
+`{ origemDeMaquina: true }`, passado **só** pela rota de cron; as 4 telas continuam pelo guard de
+sessão. ⚠️ O 5º chamador é o **Portal do Servidor**, que autentica por PIN com cookie HMAC
+(armadilha 32) e por isso também é no-op ali — **deliberado**: quem abre o Portal é o servidor, não
+alguém com autoridade para fechar competência. Ao escrever rotina de máquina, confira se o que ela
+chama depende de sessão de usuário: o modo de falha é silencioso e o chamador recebe 200.
+
+⚠️ **E `success` da rota tem que refletir as PARTES.** Ele era `true` fixo, então o cron devolvia
+200 com o `autoClose` reprovado dentro — agendado diariamente, esconderia a falha para sempre
+(armadilha 22). Hoje há um campo `falhas` e o `success` só é `true` quando as três etapas passam.
+
 ⚠️ **`CREATE OR REPLACE FUNCTION` não altera a lista de colunas de um `RETURNS TABLE`.** Reaplicar
 uma migration depois de acrescentar uma coluna de saída morre com `42P13: cannot change return
 type of existing function` — aconteceu em 13/08/2026 com `fn_cobertura_ponto_dispositivo`. Quem

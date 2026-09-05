@@ -115,13 +115,39 @@ async function converterPendentesEmFaltaPorDecurso(
   }
 }
 
-export async function autoCloseExpiredScalesAndTimesheets() {
+/**
+ * Fecha escalas e folhas vencidas.
+ *
+ * 🚨 **`origemDeMaquina` NÃO é uma escotilha de conveniência — sem ela esta função é um no-op na
+ * rota de cron, e era.** Medido em 05/09/2026, na primeira execução manual de `/api/cron`:
+ * `{"autoClose":{"success":false,"error":"Não autorizado"}}`. O guard abaixo exige sessão do
+ * Supabase Auth, e rota de máquina não tem nenhuma — o `CRON_SECRET` autentica a REQUISIÇÃO, não
+ * cria usuário. O fechamento automático pelo cron nunca funcionou.
+ *
+ * ℹ️ O fechamento em si não estava parado: dos 5 chamadores, 4 são telas (`/escalas`,
+ * `/escalas/unidade/[id]`, folha-ponto), e ali há sessão — escala vencida fechava **de carona**
+ * quando alguém abria a tela. O que não existia era o caminho automático.
+ *
+ * ⚠️ O 5º chamador é o **Portal do Servidor**, que autentica por PIN com cookie HMAC e também
+ * **não tem sessão Supabase Auth** (armadilha 32) — lá a chamada continua sendo um no-op, e isso
+ * é deliberado: quem abre o Portal é o servidor, não alguém com autoridade para fechar
+ * competência. Não passe `origemDeMaquina` de lá.
+ *
+ * @param origemDeMaquina só para chamadores já autenticados por segredo de máquina
+ *        (`CRON_SECRET`), que é uma credencial mais forte que "existe alguém logado". As telas
+ *        continuam passando pelo guard de sessão, inalteradas.
+ */
+export async function autoCloseExpiredScalesAndTimesheets(
+  { origemDeMaquina = false }: { origemDeMaquina?: boolean } = {}
+) {
   try {
     // 1. Garantir que a requisição vem de um usuário autenticado
-    const userSupabase = await createClient()
-    const { data: { user } } = await userSupabase.auth.getUser()
-    if (!user) {
-      return { success: false, error: 'Não autorizado' }
+    if (!origemDeMaquina) {
+      const userSupabase = await createClient()
+      const { data: { user } } = await userSupabase.auth.getUser()
+      if (!user) {
+        return { success: false, error: 'Não autorizado' }
+      }
     }
 
     const supabase = await createAdminClient()
