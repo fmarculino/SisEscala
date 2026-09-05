@@ -3612,6 +3612,46 @@ da mesclagem entrando no relato) — as três reprovam. A migration foi validada
 com ensaio revertido: mesclagem completa, recusa por escala sobreposta, recusa por CPF divergente,
 imutabilidade da marcação mantida com o GUC ligado, e os 13 índices reais exercitados.
 
+### 51. Turno de duração livre precisa da HORA junto, e ela vive noutro estado (04/09/2026)
+
+⚠️ **Escrever `gridData` sem escrever `gridHoras` produz lançamento incompleto — e o `tsc` não vê.**
+São dois estados paralelos em `ScaleGrid.tsx` (`gridData` = turnoId, `gridHoras` = a hora informada,
+que vira `escala_diaria.hora_inicio_prevista`, o **nível 1** da cascata de precedência, que vence
+todos os outros). Quem lança pela célula nunca esquece, porque `handleCellChange` **abre um modal**
+pedindo a hora sempre que `precisaHoraInicio` é verdadeiro (turno cujo `dicionario_turnos.horario_inicio`
+é nulo — ex.: `1N`, `1`, todos os de hora extra avulsa). Todo caminho em massa esquece por
+construção.
+
+Achado ao escrever o Revezamento de Vigias (v2.40.0): a 1h extra de passagem de turno saía sem
+hora, a célula ficava **`?h`** na grade e a coluna ia **nula** ao banco — o previsto daquela hora
+deixava de ser o fim da jornada (06:00 na jornada `18H ÀS 06H`, que é o que o coordenador informa
+hoje) e passava a sair da cascata legada, que é o que alimenta terminal e reconciliação.
+
+| regra | por quê |
+|---|---|
+| caminho em massa que lança turno **não ancorado** grava a hora junto | senão a tela mostra `?h` e o banco recebe NULL — e o coordenador teria que abrir dezenas de células à mão, anulando a automação |
+| ao **reescrever** um dia, limpe `gridHoras` das mesmas categorias antes | o upsert manda `hora_inicio_prevista` para toda categoria que aceita hora (Plantão e Extra), então hora órfã de um turno anterior **sobrepõe a âncora** do turno novo |
+| hora que não dá para derivar fica **vazia**, nunca inventada | `?h` é visível e o coordenador resolve; horário fabricado não |
+| confira o `tipo` do turno contra a linha (`Normal`/`Plantão`/`Extra`) | o input da célula só aceita código com o `tipo` da linha; caminho em massa que não confere escreve o que a própria tela recusaria na digitação |
+
+⚠️ **E o CÓDIGO da hora extra decide o percentual pago** — `calculateTotals` classifica por
+`codigo.includes('N')`, então `1N` é HE 100% e `1` é 50%. Não fixe isso no código-fonte de uma
+automação: deixe quem escala escolher. A hora de passagem de turno da portaria (06:00→07:00) está
+**fora** da faixa noturna legal (22h–05h), então nem a leitura jurídica resolve sozinha qual é o
+certo — é o que a unidade pratica que manda.
+
+ℹ️ Ao checar afastamento/sobreposição num caminho em massa, use os slots **daquele dia**, não a
+união de todos. O Revezamento confere `['N']` no dia normal e `['M','T','N']` no de 24h: a união
+faria uma declaração de comparecimento **só de manhã** esvaziar um dia em que a pessoa só
+trabalharia à noite (armadilha 21/49 pelo avesso — bloquear demais também é defeito).
+
+Portão: `node scratchpad/sim_revezamento_vigias.js` (15 blocos). Transpile antes com
+`npx tsc src/utils/vigiaRevezamento.ts --outDir scratchpad/_sim --module commonjs --target es2020`.
+**Validado injetando regressões em duas rodadas**; a última desfez as três correções de uma vez
+(slots voltando à união, hora da extra nunca resolvida, validação sem conferir `tipo`) e reprova em
+7 asserções. Diário em
+[`docs/evolucao/2026-09-04-revezamento-de-vigias-na-portaria.md`](docs/evolucao/2026-09-04-revezamento-de-vigias-na-portaria.md).
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.

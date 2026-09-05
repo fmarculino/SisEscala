@@ -25,6 +25,19 @@ import React from 'react'
 import { canEditScale, podeEditarForaDoPrazo, UserRole } from '@/utils/governance'
 import { runComplianceCheck, getViolationsForCell, type ComplianceViolation } from '@/utils/complianceEngine'
 import { generateTemplate, TEMPLATE_OPTIONS, type TemplateType, countWorkDays } from '@/utils/scaleTemplates'
+import {
+  gerarRevezamentoVigias,
+  sugerirTurnosVigia,
+  validarTurnosVigia,
+  turnoServeParaCategoria,
+  slotsDoDiaVigia,
+  horaExtraPassagemTurno,
+  mesclarRevezamentoNoGrid,
+  construirContextoCalendarioVigia,
+  contarDiasVigia,
+  type DiaVigiaGerado,
+  type ClassificacaoDiaVigia
+} from '@/utils/vigiaRevezamento'
 import { encontrarConflitoExterno, diasComConflitoExterno } from '@/utils/conflitoEscala'
 import {
   avaliarCarga,
@@ -759,6 +772,28 @@ export function ScaleGrid({
     startDay: number
     startWorking: boolean
     validatePastDays?: boolean
+  } | null>(null)
+
+  /**
+   * "Revezamento de Vigias": gera a escala de 2+ agentes de portaria que revezam a portaria um
+   * por dia civil, com a "forma" do turno decidida pelo calendário (dia normal = 12h+1h extra;
+   * sem equipe/sem equipe = 24h; sem equipe/normal = 24h+1h extra). Ver src/utils/vigiaRevezamento.ts.
+   */
+  const [revezamentoModal, setRevezamentoModal] = useState<{
+    isOpen: boolean
+    servidorIds: string[]
+    servidorInicialId: string
+    startDay: number
+    /**
+     * Os três turnos ficam EDITÁVEIS de propósito. Qual código de hora extra a unidade usa
+     * (`1` diurna ou `1N` noturna) muda o percentual pago — é decisão de quem escala, não algo
+     * para ficar fixo no código. Os defaults só pré-preenchem.
+     */
+    turnoRegularId: string
+    turnoPlantaoId: string
+    turnoExtraId: string
+    carregando: boolean
+    preview: DiaVigiaGerado[] | null
   } | null>(null)
 
   // Intelligent Generator Modal State
@@ -2453,6 +2488,335 @@ export function ScaleGrid({
     })
   }
 
+  /**
+   * Um dia é elegível para o revezamento de vigias se não tiver presença já confirmada (em
+   * NENHUMA das 3 categorias que o revezamento escreve), nem afastamento, nem sobreposição com
+   * outro setor.
+   *
+   * Os slots conferidos são os do TIPO DE DIA (`slotsDoDiaVigia`): dia normal é só a noite, dia
+   * sem equipe é o dia inteiro mais a noite. Conferir sempre a união M+T+N faria um afastamento
+   * parcial de manhã (declaração de comparecimento) esvaziar um dia em que o agente só
+   * trabalharia à noite.
+   */
+  const podeEscalarDiaVigia = (
+    servidorId: string,
+    dia: number,
+    classificacao: ClassificacaoDiaVigia
+  ): { permitido: true } | { permitido: false; motivo: string } => {
+    const em = escalaMensal.find(x => x.servidor_id === servidorId)
+    if (!em) return { permitido: false, motivo: 'servidor não está nesta escala' }
+
+    if (
+      hasPresenceForDay(servidorId, em.id, 'Regular', dia) ||
+      hasPresenceForDay(servidorId, em.id, 'Plantão', dia) ||
+      hasPresenceForDay(servidorId, em.id, 'Extra', dia)
+    ) {
+      return { permitido: false, motivo: 'presença já confirmada' }
+    }
+
+    const slots = slotsDoDiaVigia(classificacao)
+
+    const afastamento = getAfastamentoBloqueante(servidorId, dia, 'Regular', slots)
+    if (afastamento) return { permitido: false, motivo: 'afastamento' }
+
+    const conflito = encontrarConflitoExterno(externalOccupancy, servidorId, em.id, dia, slots)
+    if (conflito) return { permitido: false, motivo: conflito.descricao }
+
+    return { permitido: true }
+  }
+
+  /**
+   * Busca pontos_facultativos no intervalo do mês (±1 dia, para a classificação do dia 1 e do
+   * último dia do mês poder olhar 1 dia além de cada ponta) e gera a prévia do revezamento.
+   *
+   * ⚠️ Não filtra por `ponto_facultativo_setores` — essa tabela responde se AQUELE setor libera
+   * o próprio pessoal, não se a administração/equipe diurna da unidade está de folga (ver
+   * src/utils/vigiaRevezamento.ts). É por isso que a prévia existe: o coordenador confere linha
+   * a linha antes de aplicar.
+   */
+  const handlePreVisualizarRevezamento = async () => {
+    if (!revezamentoModal) return
+    if (revezamentoModal.servidorIds.length < 2) {
+      setAlertModal({ isOpen: true, title: 'Selecione ao menos 2 servidores', message: 'O revezamento de vigias precisa de pelo menos 2 servidores.', type: 'warning' })
+      return
+    }
+    if (!revezamentoModal.servidorInicialId) {
+      setAlertModal({ isOpen: true, title: 'Escolha quem começa', message: 'Escolha qual servidor está de plantão no dia de início.', type: 'warning' })
+      return
+    }
+
+    setRevezamentoModal(prev => prev ? { ...prev, carregando: true } : null)
+
+    const toISO = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    const inicioRange = toISO(new Date(ano, mes - 1, 0))
+    const fimRange = toISO(new Date(ano, mes - 1, daysInMonth + 1))
+
+    const { data: pontosFacultativos, error } = await supabase
+      .from('pontos_facultativos')
+      .select('data, inicio_liberacao_em, fim_liberacao_em')
+      .gte('data', inicioRange)
+      .lte('data', fimRange)
+
+    if (error) {
+      setRevezamentoModal(prev => prev ? { ...prev, carregando: false } : null)
+      setAlertModal({ isOpen: true, title: 'Erro ao buscar pontos facultativos', message: error.message, type: 'danger' })
+      return
+    }
+
+    const resolvido = validarTurnosVigia(turnos, {
+      regular: revezamentoModal.turnoRegularId,
+      plantao: revezamentoModal.turnoPlantaoId,
+      extra: revezamentoModal.turnoExtraId
+    })
+    if (!resolvido.ok) {
+      setRevezamentoModal(prev => prev ? { ...prev, carregando: false } : null)
+      setAlertModal({
+        isOpen: true,
+        title: 'Turnos do revezamento',
+        message: resolvido.erros.join('\n'),
+        type: 'danger'
+      })
+      return
+    }
+
+    const calendario = construirContextoCalendarioVigia(feriados, pontosFacultativos || [])
+
+    const preview = gerarRevezamentoVigias({
+      servidorIds: revezamentoModal.servidorIds,
+      servidorInicialId: revezamentoModal.servidorInicialId,
+      startDay: revezamentoModal.startDay,
+      daysInMonth,
+      ano,
+      mes,
+      calendario,
+      turnos: resolvido.turnos,
+      podeEscalarDia: podeEscalarDiaVigia
+    })
+
+    setRevezamentoModal(prev => prev ? { ...prev, carregando: false, preview } : null)
+  }
+
+  /**
+   * Monta como a grade FICARIA se a prévia fosse aplicada — sem gravar nada.
+   *
+   * Existe como função própria para a prévia mostrar exatamente o que a aplicação vai fazer
+   * (inclusive as horas projetadas contra o teto). Duas contas separadas para a mesma pergunta
+   * é como a tela passa a discordar de si mesma.
+   */
+  const montarGradeRevezamento = (preview: DiaVigiaGerado[], selecionados: string[]) => {
+    const merge = mesclarRevezamentoNoGrid(preview)
+
+    /**
+     * Os dias que o revezamento REESCREVE (todos, menos os pulados). Neles, as 3 categorias de
+     * TODOS os agentes selecionados são limpas antes de gravar — só acrescentar deixaria o
+     * lançamento anterior no lugar: um `MT` antigo transformaria um dia normal em 24h, e o turno
+     * do outro agente no mesmo dia deixaria dois vigias escalados ao mesmo tempo.
+     *
+     * Dia pulado (presença/afastamento/conflito) não é tocado por ninguém — é o que a prévia
+     * promete, e apagar ali destruiria o dia que a proteção existe para preservar.
+     * `Sobreaviso` nunca é tocado: não faz parte deste revezamento.
+     */
+    const diasReescritos = new Set(preview.filter(d => !d.pulado).map(d => d.dia))
+
+    const gridFinalPorServidor: Record<string, Record<RowCategory, Record<number, string>>> = {}
+    /**
+     * As horas informadas por célula (`escala_diaria.hora_inicio_prevista`) andam junto com os
+     * turnos, e por dois motivos:
+     *
+     * 1. O código de 1 hora extra NÃO é ancorado (`horario_inicio` nulo no dicionário). Sem a
+     *    hora, a célula fica "?h" na grade e a coluna vai NULA ao banco — o previsto daquela
+     *    hora passa a sair da cascata legada (armadilha 4) em vez de ser o fim da jornada, que é
+     *    o que o coordenador informa hoje à mão (06:00 na jornada "18H ÀS 06H").
+     * 2. Hora que sobrou de um turno anterior no mesmo dia precisa SAIR. O upsert manda
+     *    `hora_inicio_prevista` para toda categoria que aceita hora (Plantão e Extra), então uma
+     *    hora órfã sobreporia a âncora do turno novo — o nível 1 da cascata vence todos os
+     *    outros. `handleCellChange` já limpa nesse caso (turno ancorado); aqui é a mesma regra.
+     */
+    const gridHorasFinalPorServidor: Record<string, Record<RowCategory, Record<number, string>>> = {}
+
+    for (const servidorId of selecionados) {
+      const base = gridData[servidorId] || { 'Regular': {}, 'Extra': {}, 'Plantão': {}, 'Sobreaviso': {} }
+      const final: Record<RowCategory, Record<number, string>> = {
+        'Regular': { ...base['Regular'] },
+        'Extra': { ...base['Extra'] },
+        'Plantão': { ...base['Plantão'] },
+        'Sobreaviso': { ...base['Sobreaviso'] }
+      }
+      const baseHoras = gridHoras[servidorId] || { 'Regular': {}, 'Extra': {}, 'Plantão': {}, 'Sobreaviso': {} }
+      const finalHoras: Record<RowCategory, Record<number, string>> = {
+        'Regular': { ...(baseHoras['Regular'] || {}) },
+        'Extra': { ...(baseHoras['Extra'] || {}) },
+        'Plantão': { ...(baseHoras['Plantão'] || {}) },
+        'Sobreaviso': { ...(baseHoras['Sobreaviso'] || {}) }
+      }
+
+      diasReescritos.forEach(dia => {
+        delete final['Regular'][dia]
+        delete final['Extra'][dia]
+        delete final['Plantão'][dia]
+        delete finalHoras['Regular'][dia]
+        delete finalHoras['Extra'][dia]
+        delete finalHoras['Plantão'][dia]
+      })
+
+      const doServidor = merge[servidorId] || {}
+      Object.assign(final['Regular'], doServidor['Regular'] || {})
+      Object.assign(final['Extra'], doServidor['Extra'] || {})
+      Object.assign(final['Plantão'], doServidor['Plantão'] || {})
+
+      // A hora da passagem de turno é o fim da jornada do próprio agente. Quando o nome da
+      // jornada não diz a hora, a célula fica "?h" — visível para o coordenador resolver, em vez
+      // de um horário inventado.
+      const em = escalaMensal.find(x => x.servidor_id === servidorId)
+      const nomeJornada = jornadas.find(j => j.id === em?.jornada_id)?.nome
+      const horaExtra = horaExtraPassagemTurno(nomeJornada)
+      if (horaExtra) {
+        Object.keys(doServidor['Extra'] || {}).forEach(diaStr => {
+          finalHoras['Extra'][Number(diaStr)] = horaExtra
+        })
+      }
+
+      gridFinalPorServidor[servidorId] = final
+      gridHorasFinalPorServidor[servidorId] = finalHoras
+    }
+
+    // O que MUDOU de verdade — célula a célula, comparando com a grade viva. Contar o que o
+    // gerador CALCULOU daria "31 dias preenchidos" numa aplicação que não alterou nada, que é
+    // exatamente o defeito da armadilha 22. A hora informada entra na conta: mudar só a hora de
+    // uma célula é uma alteração real na escala, e relatar "nada mudou" ali seria a mesma
+    // mentira em escala menor.
+    let celulasAlteradas = 0
+    for (const servidorId of selecionados) {
+      const base = gridData[servidorId] || { 'Regular': {}, 'Extra': {}, 'Plantão': {}, 'Sobreaviso': {} }
+      const baseHoras = gridHoras[servidorId] || { 'Regular': {}, 'Extra': {}, 'Plantão': {}, 'Sobreaviso': {} }
+      const final = gridFinalPorServidor[servidorId]
+      const finalHoras = gridHorasFinalPorServidor[servidorId]
+      ;(['Regular', 'Extra', 'Plantão'] as RowCategory[]).forEach(categoria => {
+        diasReescritos.forEach(dia => {
+          const mudouTurno = (base[categoria]?.[dia] || '') !== (final[categoria]?.[dia] || '')
+          const mudouHora = (baseHoras[categoria]?.[dia] || '') !== (finalHoras[categoria]?.[dia] || '')
+          if (mudouTurno || mudouHora) celulasAlteradas++
+        })
+      })
+    }
+
+    return { gridFinalPorServidor, gridHorasFinalPorServidor, celulasAlteradas }
+  }
+
+  /**
+   * Grava a prévia já calculada, num único setGridData mesclando Regular/Plantão/Extra de
+   * todos os servidores afetados de uma vez — a mesma razão de `handleCellChange` combinar tudo
+   * antes de chamar o updater (armadilha 22).
+   */
+  const handleAplicarRevezamento = () => {
+    if (!revezamentoModal?.preview) return
+    const preview = revezamentoModal.preview
+    const selecionados = revezamentoModal.servidorIds
+    const { gridFinalPorServidor, gridHorasFinalPorServidor, celulasAlteradas } =
+      montarGradeRevezamento(preview, selecionados)
+
+    for (const servidorId of selecionados) {
+      const em = escalaMensal.find(x => x.servidor_id === servidorId)
+      if (!em) continue
+      const simulado = calculateTotals(servidorId, gridFinalPorServidor[servidorId])
+      const carga = avaliarCargaDoServidor(servidorId, simulado.totalPlanejado, simulado.p_soQtd)
+
+      if (carga.excede) {
+        const nome = em.servidores?.nome || 'Servidor'
+        const detalhe = descreverExcesso(carga, nome)
+        const pedidoAberto = pedidosPendentes[servidorId]
+        const aviso = mensagemTetoExcedido(detalhe, userProfile?.role, pedidoAberto)
+        const semAplicar = 'O revezamento NÃO foi aplicado.'
+
+        if (aviso.acao === 'autorizar' && !pedidoAberto) {
+          setConfirmModal({
+            isOpen: true,
+            title: '⚠️ Teto Mensal Excedido (revezamento não aplicado)',
+            message: `${detalhe}\n\n${semAplicar} Você pode conceder uma Autorização Extraordinária e aplicar de novo. Deseja abrir a tela de autorização?`,
+            type: 'warning',
+            onConfirm: () => {
+              setRevezamentoModal(null)
+              setAutorizacaoModalState({
+                isOpen: true,
+                servidorId,
+                servidorNome: nome,
+                horasAtuais: calculateTotals(servidorId).totalPlanejado,
+                sobreavisosAtuais: calculateTotals(servidorId).p_soQtd
+              })
+            }
+          })
+        } else if (aviso.acao === 'solicitar' && !pedidoAberto) {
+          setConfirmModal({
+            isOpen: true,
+            title: '⚠️ Teto Mensal Excedido (revezamento não aplicado)',
+            message: `${detalhe}\n\n${semAplicar} Você pode solicitar ao RH uma Autorização Extraordinária. Deseja abrir o pedido agora?`,
+            type: 'warning',
+            onConfirm: () => {
+              setRevezamentoModal(null)
+              setSolicitacaoModalState({
+                isOpen: true,
+                servidorId,
+                servidorNome: nome,
+                horasAtuais: calculateTotals(servidorId).totalPlanejado,
+                sobreavisosAtuais: calculateTotals(servidorId).p_soQtd
+              })
+            }
+          })
+        } else {
+          setAlertModal({
+            isOpen: true,
+            title: '⚠️ Teto Mensal Excedido (revezamento não aplicado)',
+            message: `${detalhe}\n\n${semAplicar} ${aviso.mensagem.split('\n\n').slice(1).join('\n\n')}`,
+            type: 'warning'
+          })
+        }
+        return
+      }
+    }
+
+    setGridData(prev => {
+      const next = { ...prev }
+      for (const servidorId of selecionados) {
+        next[servidorId] = gridFinalPorServidor[servidorId]
+      }
+      return next
+    })
+
+    setGridHoras(prev => {
+      const next = { ...prev }
+      for (const servidorId of selecionados) {
+        next[servidorId] = gridHorasFinalPorServidor[servidorId]
+      }
+      return next
+    })
+
+    const { porServidor, pulados } = contarDiasVigia(preview)
+    const resumoPorServidor = Array.from(porServidor.entries())
+      .map(([sId, qtd]) => `${escalaMensal.find(x => x.servidor_id === sId)?.servidores?.nome || sId}: ${qtd} dia(s)`)
+      .join(' · ')
+
+    logAction('APLICAR_REVEZAMENTO_VIGIAS', {
+      servidor_ids: revezamentoModal.servidorIds,
+      dia_inicio: revezamentoModal.startDay,
+      dias_pulados: pulados,
+      celulas_alteradas: celulasAlteradas
+    })
+
+    const diasPulados = preview.filter(d => d.pulado)
+    const detalhePulados = diasPulados.length > 0
+      ? ` ${diasPulados.length} dia(s) não preenchido(s) e mantido(s) como estavam: ${diasPulados.map(d => `${d.dia} (${d.motivoPulado})`).join(', ')}.`
+      : ''
+
+    setRevezamentoModal(null)
+    setAlertModal({
+      isOpen: true,
+      title: celulasAlteradas === 0 ? 'Nada foi alterado' : 'Revezamento Aplicado',
+      message: celulasAlteradas === 0
+        ? `A grade já estava exatamente como o revezamento geraria — nenhuma célula mudou.${detalhePulados}`
+        : `${celulasAlteradas} célula(s) alterada(s). ${resumoPorServidor}.${detalhePulados} Lembre-se de salvar a escala.`,
+      type: celulasAlteradas === 0 ? 'warning' : 'success'
+    })
+  }
 
 
   // confirmTriggerSobreaviso foi removida na Fase 8 do plano
@@ -4697,6 +5061,32 @@ export function ScaleGrid({
               Aplicar Template
             </button>
 
+            <button
+              onClick={() => {
+                if (escalaMensal.length < 2) {
+                  setAlertModal({ isOpen: true, title: 'Servidores insuficientes', message: 'O revezamento de vigias precisa de pelo menos 2 servidores nesta escala.', type: 'warning' })
+                  return
+                }
+                const sugestao = sugerirTurnosVigia(turnos)
+                setRevezamentoModal({
+                  isOpen: true,
+                  servidorIds: [],
+                  servidorInicialId: '',
+                  startDay: 1,
+                  turnoRegularId: sugestao.regular || '',
+                  turnoPlantaoId: sugestao.plantao || '',
+                  turnoExtraId: sugestao.extra || '',
+                  carregando: false,
+                  preview: null
+                })
+              }}
+              disabled={loading || isClosed}
+              className="inline-flex items-center rounded-md border border-teal-200 text-teal-700 px-3 py-2 text-sm font-medium hover:bg-teal-50 dark:border-teal-800 dark:text-teal-400 transition-colors disabled:opacity-50"
+            >
+              <Users className="h-4 w-4 mr-2" />
+              Revezamento de Vigias
+            </button>
+
             {!isComum && (
               <button
                 onClick={() => {
@@ -6813,6 +7203,282 @@ export function ScaleGrid({
           </div>
         </div>
       )}
+
+      {/* Modal de Revezamento de Vigias/Agentes de Portaria — ver src/utils/vigiaRevezamento.ts */}
+      {revezamentoModal && (() => {
+        const NOME_DIA_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+        const nomeServidor = (id: string) => escalaMensal.find(x => x.servidor_id === id)?.servidores?.nome || 'Servidor'
+        const nomeTurno = (turnoId: string) => turnos.find(t => t.id === turnoId)?.codigo || '?'
+        // A hora da extra é o fim da jornada do próprio agente — mostrada aqui porque é ela que
+        // vai para hora_inicio_prevista, e "?h" na prévia avisa antes de aplicar que aquela
+        // célula vai precisar da hora informada à mão.
+        const horaExtraDoServidor = (servidorId: string) => {
+          const em = escalaMensal.find(x => x.servidor_id === servidorId)
+          return horaExtraPassagemTurno(jornadas.find(j => j.id === em?.jornada_id)?.nome) || '?h'
+        }
+        const rotuloTurnos = (d: DiaVigiaGerado) => d.turnos
+          .map(t => t.categoria === 'Extra'
+            ? `Extra=${nomeTurno(t.turnoId)} ${horaExtraDoServidor(d.servidorId)}`
+            : `${t.categoria}=${nomeTurno(t.turnoId)}`)
+          .join(' · ')
+
+        return (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-2xl border border-zinc-200 dark:border-zinc-800 w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+              <div className="p-6 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between bg-zinc-50 dark:bg-zinc-900/50 shrink-0">
+                <h2 className="text-xl font-bold flex items-center gap-2 text-zinc-900 dark:text-white">
+                  <Users className="h-5 w-5 text-teal-600" />
+                  Revezamento de Vigias
+                </h2>
+                <button onClick={() => setRevezamentoModal(null)} className="text-zinc-400 hover:text-zinc-600">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-4 overflow-y-auto">
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                      Agentes ({revezamentoModal.servidorIds.length} de {escalaMensal.length}) — a ordem de marcação é a ordem do revezamento
+                    </label>
+                  </div>
+                  <div className="max-h-40 overflow-y-auto rounded-lg border border-zinc-200 dark:border-zinc-700 p-2 space-y-0.5">
+                    {sortedEscalaMensal.map(em => {
+                      const posicao = revezamentoModal.servidorIds.indexOf(em.servidor_id)
+                      const marcado = posicao !== -1
+                      return (
+                        <label key={em.servidor_id} className="flex items-center gap-2 text-sm cursor-pointer py-1 px-1.5 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800">
+                          <input
+                            type="checkbox"
+                            checked={marcado}
+                            onChange={() => setRevezamentoModal(prev => {
+                              if (!prev) return prev
+                              const novosIds = marcado
+                                ? prev.servidorIds.filter(id => id !== em.servidor_id)
+                                : [...prev.servidorIds, em.servidor_id]
+                              // Se quem estava de início saiu da seleção, limpa a escolha —
+                              // manter um id fora da lista quebraria o revezamento em silêncio.
+                              const servidorInicialId = novosIds.includes(prev.servidorInicialId) ? prev.servidorInicialId : ''
+                              return { ...prev, servidorIds: novosIds, servidorInicialId, preview: null }
+                            })}
+                          />
+                          <span className="flex-1 truncate text-zinc-900 dark:text-white">{em.servidores?.nome}</span>
+                          {marcado && (
+                            <span className="text-[10px] font-bold text-teal-600 dark:text-teal-400 shrink-0">#{posicao + 1}</span>
+                          )}
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Dia de Início</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={daysInMonth}
+                      value={revezamentoModal.startDay}
+                      onChange={(e) => setRevezamentoModal(prev => prev ? {
+                        ...prev,
+                        startDay: Math.max(1, Math.min(daysInMonth, parseInt(e.target.value) || 1)),
+                        preview: null
+                      } : null)}
+                      className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-teal-500 text-zinc-900 dark:text-white"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Quem está de plantão nesse dia</label>
+                    <select
+                      className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-teal-500 text-zinc-900 dark:text-white"
+                      value={revezamentoModal.servidorInicialId}
+                      onChange={(e) => setRevezamentoModal(prev => prev ? { ...prev, servidorInicialId: e.target.value, preview: null } : null)}
+                      disabled={revezamentoModal.servidorIds.length === 0}
+                    >
+                      <option value="">Selecione...</option>
+                      {revezamentoModal.servidorIds.map(id => (
+                        <option key={id} value={id}>{nomeServidor(id)}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  {([
+                    { campo: 'turnoRegularId' as const, categoria: 'Regular' as const, rotulo: 'Noite (Regular)' },
+                    { campo: 'turnoPlantaoId' as const, categoria: 'Plantão' as const, rotulo: 'Dia inteiro (Plantão)' },
+                    { campo: 'turnoExtraId' as const, categoria: 'Extra' as const, rotulo: 'Passagem de turno (Extra)' }
+                  ]).map(({ campo, categoria, rotulo }) => (
+                    <div key={campo} className="space-y-1.5">
+                      <label className="text-[11px] font-medium text-zinc-700 dark:text-zinc-300">{rotulo}</label>
+                      <select
+                        className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2 text-xs outline-none focus:ring-2 focus:ring-teal-500 text-zinc-900 dark:text-white"
+                        value={revezamentoModal[campo]}
+                        onChange={(e) => setRevezamentoModal(prev => prev ? { ...prev, [campo]: e.target.value, preview: null } : null)}
+                      >
+                        <option value="">Selecione...</option>
+                        {turnos
+                          .filter(t => turnoServeParaCategoria(t, categoria))
+                          .map(t => (
+                            <option key={t.id} value={t.id}>{t.codigo} — {t.descricao}</option>
+                          ))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="bg-teal-50 dark:bg-teal-900/20 border border-teal-200 dark:border-teal-800 p-3 rounded-lg space-y-1">
+                  <p className="text-[10px] text-teal-800 dark:text-teal-300">
+                    Dia normal (com equipe do dia): 12h + 1h extra. Sábado/domingo/feriado/ponto
+                    facultativo seguido de outro dia sem equipe: 24h sem extra. Seguido de dia
+                    normal (virada): 24h + 1h extra.
+                  </p>
+                  <p className="text-[10px] text-teal-800 dark:text-teal-300">
+                    ⚠️ O código da <strong>hora extra</strong> define o percentual pago (noturna
+                    = 100%, diurna = 50%). Confira se é o mesmo que a unidade já usa. A hora dela
+                    é o fim da jornada do agente, como a grade sugere ao lançar à mão.
+                  </p>
+                  <p className="text-[10px] text-teal-800 dark:text-teal-300">
+                    ⚠️ Ponto facultativo <strong>parcial</strong> (saída antecipada/entrada
+                    tardia) não conta como sem-equipe. Confira a prévia abaixo antes de aplicar —
+                    dias com presença já confirmada, afastamento ou conflito de setor não são
+                    preenchidos.
+                  </p>
+                </div>
+
+                <div className="flex justify-end">
+                  <button
+                    onClick={handlePreVisualizarRevezamento}
+                    disabled={revezamentoModal.carregando}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-teal-300 dark:border-teal-700 text-teal-700 dark:text-teal-400 px-3 py-1.5 text-xs font-semibold hover:bg-teal-50 dark:hover:bg-teal-950/30 disabled:opacity-50"
+                  >
+                    {revezamentoModal.carregando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                    Pré-visualizar
+                  </button>
+                </div>
+
+                {revezamentoModal.preview && (() => {
+                  // Projeção de carga por agente, calculada pelo MESMO caminho que a aplicação
+                  // usa. Sem isto, o coordenador só descobre que o teto estoura ao clicar em
+                  // "Aplicar" — e aí a operação inteira é recusada, sem ele ter como prever.
+                  const { gridFinalPorServidor } = montarGradeRevezamento(revezamentoModal.preview, revezamentoModal.servidorIds)
+                  const projecao = revezamentoModal.servidorIds.map(sId => {
+                    const totais = calculateTotals(sId, gridFinalPorServidor[sId])
+                    const carga = avaliarCargaDoServidor(sId, totais.totalPlanejado, totais.p_soQtd)
+                    return { sId, horas: totais.totalPlanejado, excede: carga.excede }
+                  })
+
+                  /**
+                   * Quem NÃO foi marcado mas tem, nos dias que o revezamento reescreve, um dos
+                   * turnos do próprio revezamento. A limpeza só alcança os agentes marcados,
+                   * então um vigia esquecido continuaria escalado junto com quem está na vez —
+                   * dois na portaria no mesmo dia, sem nada reclamar (a sobreposição que o banco
+                   * barra é a do MESMO servidor em setores diferentes, não esta).
+                   */
+                  const turnosDoRevezamento = new Set([
+                    revezamentoModal.turnoRegularId,
+                    revezamentoModal.turnoPlantaoId,
+                    revezamentoModal.turnoExtraId
+                  ].filter(Boolean))
+                  const diasReescritos = new Set(revezamentoModal.preview.filter(d => !d.pulado).map(d => d.dia))
+                  const foraDaSelecao = escalaMensal
+                    .filter(em => !revezamentoModal.servidorIds.includes(em.servidor_id))
+                    .map(em => {
+                      const dados = gridData[em.servidor_id] || {}
+                      const dias = new Set<number>()
+                      ;(['Regular', 'Extra', 'Plantão'] as RowCategory[]).forEach(cat => {
+                        Object.entries(dados[cat] || {}).forEach(([diaStr, turnoId]) => {
+                          const dia = Number(diaStr)
+                          if (diasReescritos.has(dia) && turnosDoRevezamento.has(turnoId)) dias.add(dia)
+                        })
+                      })
+                      return { nome: em.servidores?.nome || 'Servidor', dias: [...dias].sort((a, b) => a - b) }
+                    })
+                    .filter(x => x.dias.length > 0)
+
+                  return (
+                    <>
+                      <div className={`rounded-lg border p-2.5 text-[11px] space-y-0.5 ${projecao.some(p => p.excede) ? 'border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/20' : 'border-zinc-200 dark:border-zinc-700'}`}>
+                        {projecao.map(p => (
+                          <div key={p.sId} className="flex justify-between gap-2">
+                            <span className="truncate text-zinc-700 dark:text-zinc-300">{nomeServidor(p.sId)}</span>
+                            <span className={`shrink-0 font-semibold ${p.excede ? 'text-amber-700 dark:text-amber-400' : 'text-zinc-600 dark:text-zinc-400'}`}>
+                              {formatarHoras(p.horas)} no mês{p.excede ? ' — acima do teto, precisa de autorização' : ''}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+
+                      {foraDaSelecao.length > 0 && (
+                        <div className="rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/20 p-2.5 text-[11px] text-amber-800 dark:text-amber-300">
+                          <strong>Fora da seleção, mas escalado nos mesmos dias:</strong>{' '}
+                          {foraDaSelecao.map(x => `${x.nome} (dia${x.dias.length > 1 ? 's' : ''} ${x.dias.join(', ')})`).join(' · ')}.
+                          Esses lançamentos <strong>não serão removidos</strong> — se essas pessoas
+                          fazem parte do revezamento, marque-as também.
+                        </div>
+                      )}
+                    </>
+                  )
+                })()}
+
+                {revezamentoModal.preview && (
+                  <div className="rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden">
+                    <div className="max-h-64 overflow-y-auto">
+                      <table className="w-full text-[11px]">
+                        <thead className="bg-zinc-100 dark:bg-zinc-800 sticky top-0">
+                          <tr>
+                            <th className="text-left px-2 py-1.5 font-semibold text-zinc-600 dark:text-zinc-300">Dia</th>
+                            <th className="text-left px-2 py-1.5 font-semibold text-zinc-600 dark:text-zinc-300">Tipo</th>
+                            <th className="text-left px-2 py-1.5 font-semibold text-zinc-600 dark:text-zinc-300">Agente</th>
+                            <th className="text-left px-2 py-1.5 font-semibold text-zinc-600 dark:text-zinc-300">Turnos</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {revezamentoModal.preview.map(d => (
+                            <tr key={d.dia} className={`border-t border-zinc-100 dark:border-zinc-800 ${d.pulado ? 'bg-red-50 dark:bg-red-950/20' : d.classificacao === 'sem_equipe' ? 'bg-amber-50 dark:bg-amber-950/10' : ''}`}>
+                              <td className="px-2 py-1 whitespace-nowrap text-zinc-700 dark:text-zinc-300">
+                                {String(d.dia).padStart(2, '0')} {NOME_DIA_SEMANA[new Date(ano, mes - 1, d.dia).getDay()]}
+                              </td>
+                              <td className="px-2 py-1 whitespace-nowrap text-zinc-600 dark:text-zinc-400">
+                                {d.classificacao === 'normal' ? 'normal (12h+extra)' : d.viradaParaNormal ? 'sem equipe — virada (24h+extra)' : 'sem equipe (24h)'}
+                              </td>
+                              <td className="px-2 py-1 whitespace-nowrap text-zinc-900 dark:text-white font-medium">
+                                {nomeServidor(d.servidorId)}
+                              </td>
+                              <td className="px-2 py-1 whitespace-nowrap">
+                                {d.pulado
+                                  ? <span className="text-red-600 dark:text-red-400 font-semibold">pulado — {d.motivoPulado}, revise manualmente</span>
+                                  : rotuloTurnos(d)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-6 bg-zinc-50 dark:bg-zinc-900/50 border-t border-zinc-100 dark:border-zinc-800 flex justify-end gap-3 shrink-0">
+                <button
+                  onClick={() => setRevezamentoModal(null)}
+                  className="px-4 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleAplicarRevezamento}
+                  disabled={!revezamentoModal.preview || revezamentoModal.preview.length === 0}
+                  className="px-6 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-bold rounded-lg transition-all shadow-lg shadow-teal-500/20 min-w-[140px] disabled:opacity-50"
+                >
+                  Aplicar
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Modal de Gerador Inteligente de Escala.
           O motor vive em src/utils/intelligentScaleGenerator.ts — inclusive os limiares de

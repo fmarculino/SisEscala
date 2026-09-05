@@ -2,6 +2,41 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.40.0] - 2026-09-04
+
+Relato do usuário: a escala dos vigias/agentes de portaria é "muito confusa pra maioria das
+pessoas" e montada célula a célula. A rotina real é uma regra de calendário — 12h + 1h extra em
+dia normal, 24h em sábado/domingo/feriado/ponto facultativo, e 24h + 1h extra na virada de volta
+para o dia normal — com os agentes revezando **um por dia civil**. Diário em
+`docs/evolucao/2026-09-04-revezamento-de-vigias-na-portaria.md`.
+
+### Added
+
+- **Revezamento de Vigias** — novo botão na grade de escala, ao lado de "Aplicar Template" (que
+  continua existindo para escala de um servidor só). Gera o mês inteiro para 2 ou mais agentes,
+  decidindo a forma de cada dia pelo calendário e quem está na vez pela alternância simples.
+  - Suporta **mais de 2 agentes** (unidades grandes têm 3 ou 4): a rotação é round-robin, um por
+    dia civil, e nada na regra de calendário muda com o tamanho do grupo.
+  - **Nenhum turno novo e nenhuma migration** — usa os códigos já cadastrados e a mesma combinação
+    (`Regular = N` + `Plantão = MT` + `Extra` de 1h) que o coordenador já lança à mão hoje.
+  - Os três turnos são **escolhidos na tela**, com `N`/`MT`/`1N` apenas pré-marcados: o código da
+    hora extra define o percentual pago (noturna 100%, diurna 50%), e essa é decisão de quem
+    escala. É também o que torna o modelo reutilizável em unidade que use outros códigos.
+  - **Prévia obrigatória dia a dia** antes de aplicar — tipo do dia, agente, turnos e a hora da
+    extra —, com a projeção de horas de cada agente contra o teto mensal e um aviso quando existe
+    vigia **fora da seleção** escalado nos mesmos dias (a limpeza só alcança quem foi marcado).
+  - Feriado e ponto facultativo **de dia inteiro** contam como "sem equipe do dia"; facultativo
+    **parcial** (saída antecipada/entrada tardia) não conta.
+  - Dia com presença confirmada, afastamento ou sobreposição com outro setor **não é preenchido
+    nem apagado**, e o revezamento avança normalmente para o próximo agente — sem redistribuir a
+    vaga perdida, que seria uma segunda regra de rodízio.
+  - Reaproveita os guards existentes (`hasPresenceForDay`, `encontrarAfastamentosBloqueantes`,
+    `encontrarConflitoExterno`, `avaliarCarga`) e mantém o "Salvar Previsão" como barreira final.
+  - Relata **o que mudou** (célula a célula, turno e hora) e não o que foi calculado: zero
+    alterações vira aviso, não "aplicado com sucesso".
+  - Portão: `node scratchpad/sim_revezamento_vigias.js` (15 blocos), validado injetando regressões
+    de propósito em duas rodadas.
+
 ## [2.39.1] - 2026-09-04
 
 ### Fixed
