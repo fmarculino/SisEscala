@@ -1680,6 +1680,59 @@ export function ScaleGrid({
     setExternalEncontrado(null)
   }
 
+  /**
+   * Completa a linha de `escala_mensal` recem-inserida com o cadastro do servidor.
+   *
+   * O `.select('*, servidores(*)')` de um INSERT devolve `servidores: null` para todo papel que
+   * nao seja `super_admin`/`rh` — era isso que fazia a linha do Servidor Externo aparecer na
+   * grade sem nome, sem cargo e com "Origem: ...", e o log de auditoria sair sem o nome (medido
+   * em producao em 05/09/2026: as adicoes do coordenador nao tem o campo `nome`; as do
+   * super_admin tem). Com administrador "funciona" so porque ele passa pelo ramo de acesso total
+   * da policy.
+   *
+   * A policy `Users can view relevant servers` (`20260818100000`) autoriza quem escala a enxergar
+   * o servidor de fora do proprio escopo PORQUE EXISTE uma `escala_mensal` dele ali — e a linha
+   * que cria essa autorizacao e exatamente a que esta sendo inserida. Numa mesma statement
+   * (`WITH ins AS (INSERT ... RETURNING *) SELECT ... LEFT JOIN servidores`) a subconsulta da
+   * policy usa o snapshot do INICIO do comando e nao enxerga a linha nova. Reproduzido em
+   * homologacao: o mesmo SELECT, na requisicao seguinte, devolve o nome.
+   *
+   * Nao e caso de mexer na policy: nenhuma redacao dela resolve o snapshot. A saida e reler
+   * depois de a linha estar gravada — e e isto que esta funcao faz.
+   *
+   * O ultimo recurso NAO inventa dado: reaproveita o cadastro que o proprio modal ja exibiu
+   * (`fn_buscar_servidor_para_escala` / `get_external_servers_for_scale`, ambas SECURITY
+   * DEFINER). Linha identificada com o que se sabe e melhor que linha anonima; se nem isso
+   * houver, ela volta como veio e o F5 continua resolvendo como antes.
+   */
+  const completarServidorDaLinha = async (linha: any, servidorId: string) => {
+    if (linha?.servidores) return linha
+
+    const { data: relida } = await supabase
+      .from('escala_mensal')
+      .select('*, servidores(*)')
+      .eq('id', linha.id)
+      .single()
+    if (relida?.servidores) return relida
+
+    const doModal =
+      externalAchadosRef.current.find((s: any) => s.id === servidorId) ||
+      externalServers.find((s: any) => s.id === servidorId)
+    if (!doModal) return linha
+
+    return {
+      ...linha,
+      servidores: {
+        id: doModal.id,
+        nome: doModal.nome,
+        matricula: doModal.matricula ?? null,
+        cargo: doModal.cargo ?? null,
+        unidade_id: doModal.unidade_id ?? null,
+        setor_id: doModal.setor_id ?? null,
+      }
+    }
+  }
+
   const handleAddExternalServer = async () => {
     if (!externalData.servidorId) return
 
@@ -1712,10 +1765,12 @@ export function ScaleGrid({
 
       if (error) throw error
 
-      setEscalaMensal(prev => [...prev, data])
+      const linha = await completarServidorDaLinha(data, externalData.servidorId)
+
+      setEscalaMensal(prev => [...prev, linha])
       logAction('ADICIONAR_SERVIDOR_EXTERNO', { 
         servidor_id: externalData.servidorId,
-        nome: data.servidores?.nome 
+        nome: linha.servidores?.nome 
       })
       fecharModalExterno()
 
@@ -1724,7 +1779,7 @@ export function ScaleGrid({
       const { cargas, tetos } = await fetchCargaMensal(
         [...escalaMensal.map(em => em.servidor_id), externalData.servidorId]
       )
-      const nome = data.servidores?.nome || 'Servidor'
+      const nome = linha.servidores?.nome || 'Servidor'
       const aviso = avisoAoAdicionar(nome, cargas[externalData.servidorId], tetos[externalData.servidorId])
 
       setAlertModal({
