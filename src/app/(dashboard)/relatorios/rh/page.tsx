@@ -4,7 +4,9 @@ import { AcessoNegado } from '@/components/AcessoNegado'
 import Link from 'next/link'
 
 import { applyAccessFilters, type UserProfile } from '@/utils/permissions'
+import { buscarTodasPaginas } from '@/utils/paginacao'
 import { ReportActions } from '@/app/(dashboard)/relatorios/_components/ReportActions'
+import { AvisoDadosIncompletos } from '@/app/(dashboard)/relatorios/_components/AvisoDadosIncompletos'
 
 interface Props {
   searchParams: Promise<{
@@ -48,24 +50,6 @@ export default async function RelatorioRHPage({ searchParams }: Props) {
     return <AcessoNegado />
   }
 
-  // Fetch closed scales data for RH
-  let query = supabase
-    .from('escala_mensal')
-    .select(`
-      *,
-      servidores!inner(nome, cargo),
-      unidades!inner(nome),
-      escala_diaria(
-        dia,
-        categoria,
-        dicionario_turnos(codigo, horas_computadas, tipo)
-      )
-    `)
-
-  if (!previsao) {
-    query = query.eq('status', 'Fechada')
-  }
-
   const { data: jornadas } = await supabase.from('jornadas').select('*')
   const { data: feriados } = await supabase.from('feriados').select('*')
 
@@ -80,13 +64,43 @@ export default async function RelatorioRHPage({ searchParams }: Props) {
     permitted_setores: (profile as any).setores_no_escopo || []
   } as UserProfile : null
 
-  query = applyAccessFilters(query, userProfile)
+  // Fetch closed scales data for RH
+  // ⚠️ PAGINADO (armadilha 8). Sem isto o PostgREST devolvia 1000 linhas e o relatório somava
+  // como se fosse tudo, sem erro nenhum. A medição de cada tela está em src/utils/paginacao.ts.
+  //
+  // 🚨 ESTA TELA NÃO FILTRA PERÍODO: lista TODAS as competências, uma linha por (servidor,
+  //   mês). Sem paginar e sem ORDER BY, o corte de 1000 pegava um recorte ARBITRÁRIO de
+  //   2.362 escalas — 58% ausente, e sem garantia de ser o mesmo recorte a cada
+  //   carregamento. A ordenação por (ano, mês) estabiliza a paginação e de quebra deixa a
+  //   tabela legível, que é o motivo de alguém abrir este relatório.
+  const montarQuery = (from: number, to: number) => {
+    let query = supabase
+      .from('escala_mensal')
+      .select(`
+        *,
+        servidores!inner(nome, cargo),
+        unidades!inner(nome),
+        escala_diaria(
+          dia,
+          categoria,
+          dicionario_turnos(codigo, horas_computadas, tipo)
+        )
+      `)
 
-  const { data } = await query
+    if (!previsao) {
+      query = query.eq('status', 'Fechada')
+    }
+
+    query = applyAccessFilters(query, userProfile)
+    return query.order('ano', { ascending: false }).order('mes', { ascending: false }).order('id').range(from, to)
+  }
+
+  const { linhas: data, completo: dadosCompletos } = await buscarTodasPaginas<any>(montarQuery, 500)
   const reportData = (data || []) as RHReportItem[]
 
   return (
     <div className="space-y-8">
+      <AvisoDadosIncompletos completo={dadosCompletos} />
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">

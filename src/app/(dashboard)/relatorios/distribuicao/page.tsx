@@ -3,8 +3,10 @@ import { PieChart, ArrowLeft, Printer, AlertTriangle, CheckCircle2, Users } from
 import Link from 'next/link'
 import { AcessoNegado } from '@/components/AcessoNegado'
 import { applyAccessFilters, type UserProfile } from '@/utils/permissions'
+import { buscarTodasPaginas } from '@/utils/paginacao'
 import { ReportFiltersWrapper } from '@/app/(dashboard)/relatorios/_components/ReportFiltersWrapper'
 import { ReportActions } from '@/app/(dashboard)/relatorios/_components/ReportActions'
+import { AvisoDadosIncompletos } from '@/app/(dashboard)/relatorios/_components/AvisoDadosIncompletos'
 
 interface Props {
   searchParams: Promise<{
@@ -58,32 +60,40 @@ export default async function DistribuicaoPage({ searchParams }: Props) {
   }) || []
 
   // Fetch all Plantão shifts for the period
-  let query = supabase
-    .from('escala_diaria')
-    .select(`
-      dia,
-      categoria,
-      dicionario_turnos(codigo, horas_computadas, tipo),
-      escala_mensal!inner(
-        unidade_id,
-        setor_id,
-        status,
-        servidores(nome)
-      )
-    `)
-    .eq('escala_mensal.mes', mes)
-    .eq('escala_mensal.ano', ano)
-    .eq('categoria', 'Plantão')
+  // ⚠️ PAGINADO (armadilha 8). Sem isto o PostgREST devolvia 1000 linhas e o relatório somava
+  // como se fosse tudo, sem erro nenhum. A medição de cada tela está em src/utils/paginacao.ts.
+  // Em 09/2026 são 2.338 plantões: a tela via 1000 e o mapa de distribuição por dia ficava
+  // com 57% dos plantões faltando, sem nada indicando isso.
+  const montarQuery = (from: number, to: number) => {
+    let query = supabase
+      .from('escala_diaria')
+      .select(`
+        id,
+        dia,
+        categoria,
+        dicionario_turnos(codigo, horas_computadas, tipo),
+        escala_mensal!inner(
+          unidade_id,
+          setor_id,
+          status,
+          servidores(nome)
+        )
+      `)
+      .eq('escala_mensal.mes', mes)
+      .eq('escala_mensal.ano', ano)
+      .eq('categoria', 'Plantão')
 
-  if (!previsao) {
-    query = query.eq('escala_mensal.status', 'Fechada')
+    if (!previsao) {
+      query = query.eq('escala_mensal.status', 'Fechada')
+    }
+
+    if (unidadeId) query = query.eq('escala_mensal.unidade_id', unidadeId)
+    if (setorId) query = query.eq('escala_mensal.setor_id', setorId)
+
+    // Apply access filters manually to the joined table
+    query = applyAccessFilters(query, userProfile, { unidadeField: 'escala_mensal.unidade_id', setorField: 'escala_mensal.setor_id' })
+    return query.order('id').range(from, to)
   }
-
-  if (unidadeId) query = query.eq('escala_mensal.unidade_id', unidadeId)
-  if (setorId) query = query.eq('escala_mensal.setor_id', setorId)
-
-  // Apply access filters manually to the joined table
-  query = applyAccessFilters(query, userProfile, { unidadeField: 'escala_mensal.unidade_id', setorField: 'escala_mensal.setor_id' })
   
   interface DistributionItem {
     dia: number;
@@ -94,7 +104,7 @@ export default async function DistribuicaoPage({ searchParams }: Props) {
     };
   }
 
-  const { data: rawData } = await query
+  const { linhas: rawData, completo: dadosCompletos } = await buscarTodasPaginas<any>(montarQuery)
 
   // Process data for the grid
   const daysInMonth = new Date(ano, mes, 0).getDate()
@@ -114,6 +124,7 @@ export default async function DistribuicaoPage({ searchParams }: Props) {
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8">
+      <AvisoDadosIncompletos completo={dadosCompletos} />
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-4">

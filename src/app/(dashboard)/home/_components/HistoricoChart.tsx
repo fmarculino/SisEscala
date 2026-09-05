@@ -19,7 +19,11 @@ export function HistoricoChart({ data }: Props) {
   const categories = [
     { key: 'regular' as const, label: 'Regular', color: 'bg-blue-500', darkColor: 'dark:bg-blue-400', textColor: 'text-blue-600 dark:text-blue-400' },
     { key: 'plantao' as const, label: 'Plantão', color: 'bg-emerald-500', darkColor: 'dark:bg-emerald-400', textColor: 'text-emerald-600 dark:text-emerald-400' },
-    { key: 'sobreaviso' as const, label: 'Sobreaviso', color: 'bg-amber-500', darkColor: 'dark:bg-amber-400', textColor: 'text-amber-600 dark:text-amber-400' },
+    // ⚠️ Sobreaviso é PRONTIDÃO, não trabalho presencial: não entra na carga do servidor
+    // (fn_carga_mensal_servidor e calculateTotals o excluem) e tem ciclo próprio em
+    // logs_sobreaviso. Fica no gráfico porque é informação operacional, com rótulo que o
+    // separa — nunca somado às horas trabalhadas.
+    { key: 'sobreaviso' as const, label: 'Sobreaviso', nota: 'prontidão', color: 'bg-amber-500', darkColor: 'dark:bg-amber-400', textColor: 'text-amber-600 dark:text-amber-400' },
     { key: 'extra' as const, label: 'Extra', color: 'bg-purple-500', darkColor: 'dark:bg-purple-400', textColor: 'text-purple-600 dark:text-purple-400' },
   ]
 
@@ -82,8 +86,12 @@ export function HistoricoChart({ data }: Props) {
           <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
             Comparativo Histórico de Horas
           </h3>
+          {/* ⚠️ ISTO É ESCALA LANÇADA (previsão), NÃO HORA TRABALHADA. Sem dizer isso, a
+              variação percentual entre meses é lida como aumento de trabalho quando na maior
+              parte é implantação: o HMI saiu de 6 escalados em 08/2026 para 390 em 09/2026, e
+              sozinho respondeu por 89% das horas de plantão do mês. Hora realizada é a folha. */}
           <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
-            Clique nos meses para alternar os dados exibidos nos cartões
+            Horas de escala <span className="font-semibold">prevista</span> — não é hora trabalhada. Clique nos meses para alternar os cartões.
           </p>
         </div>
         
@@ -140,13 +148,20 @@ export function HistoricoChart({ data }: Props) {
                   <div className="flex items-end gap-1 w-full h-full">
                     {categories.map(cat => {
                       const val = month[cat.key]
+                      // 🚨 A ALTURA TINHA PISO DE 4%, ENTÃO A BARRA NÃO ERA PROPORCIONAL.
+                      //   Em JUL/2026, Sobreaviso (156h) e Regular (13.218h) — 85x maior —
+                      //   saíam praticamente da mesma altura, e é assim que se lê o gráfico
+                      //   antes de ler os cartões. Num painel de decisão, barra que não
+                      //   respeita a escala é pior que barra nenhuma.
+                      //   O piso agora é de 2px (via min-h), só para um valor pequeno mas
+                      //   existente não desaparecer por completo — não infla o percentual.
                       const pctHeight = maxValue > 0 ? (val / maxValue) * 100 : 0
                       return (
                         <div key={cat.key} className="flex-1 flex flex-col justify-end h-full">
                           <div
-                            className={`w-full ${cat.color} ${cat.darkColor} rounded-t transition-all duration-700 ease-out group-hover:brightness-110 min-h-[3px] shadow-sm`}
-                            style={{ height: `${Math.max(pctHeight, val > 0 ? 4 : 2)}%` }}
-                            title={`${month.label.toUpperCase()} - ${cat.label}: ${val}h`}
+                            className={`w-full ${cat.color} ${cat.darkColor} rounded-t transition-all duration-700 ease-out group-hover:brightness-110 shadow-sm ${val > 0 ? 'min-h-[2px]' : ''}`}
+                            style={{ height: `${pctHeight}%` }}
+                            title={`${month.label.toUpperCase()} — ${cat.label}: ${val.toLocaleString('pt-BR')}h`}
                           />
                         </div>
                       )
@@ -171,7 +186,7 @@ export function HistoricoChart({ data }: Props) {
           <span>Detalhamento: <span className="uppercase font-black text-blue-600 dark:text-blue-400">{selectedMonth.label}</span></span>
         </div>
         {previousMonth && (
-          <span className="text-[10px] text-zinc-400">
+          <span className="text-[10px] text-zinc-400" title="A variação inclui setores que passaram a lançar escala no sistema — não é só aumento de jornada.">
             Comparado com {previousMonth.label.toUpperCase()}
           </span>
         )}
@@ -187,10 +202,10 @@ export function HistoricoChart({ data }: Props) {
               <div className={`w-3 h-3 rounded-full ${cat.color} shrink-0`} />
               <div className="flex-1 min-w-0">
                 <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 truncate">
-                  {cat.label}
+                  {cat.label}{cat.nota ? <span className="normal-case font-semibold"> ({cat.nota})</span> : null}
                 </p>
                 <p className="text-base font-black text-zinc-900 dark:text-white">
-                  {val}h
+                  {val.toLocaleString('pt-BR')}h
                 </p>
               </div>
               {previousMonth && (

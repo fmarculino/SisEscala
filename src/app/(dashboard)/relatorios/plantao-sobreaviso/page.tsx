@@ -3,9 +3,11 @@ import { Activity, ArrowLeft, BarChart3, AlertTriangle, ShieldCheck, HeartPulse 
 import Link from 'next/link'
 import { AcessoNegado } from '@/components/AcessoNegado'
 import { applyAccessFilters, type UserProfile } from '@/utils/permissions'
+import { buscarTodasPaginas } from '@/utils/paginacao'
 import { DiagnosticsFilters } from './_components/DiagnosticsFilters'
 import { DiagnosticsCharts, type MonthData, type CargoData } from './_components/DiagnosticsCharts'
 import { DiagnosticsTable } from './_components/DiagnosticsTable'
+import { AvisoDadosIncompletos } from '@/app/(dashboard)/relatorios/_components/AvisoDadosIncompletos'
 
 interface Props {
   searchParams: Promise<{
@@ -93,6 +95,12 @@ export default async function PlantaoSobreavisoPage({ searchParams }: Props) {
   // 2. Fetch scales data for selected year(s)
   const yearsToFetch = Array.from(new Set([anoInicio, anoFim]))
   
+  // ⚠️ PAGINADO (armadilha 8). Sem isto o PostgREST devolvia 1000 linhas e o relatório somava
+  // como se fosse tudo, sem erro nenhum. A medição de cada tela está em src/utils/paginacao.ts.
+  // Aqui o filtro de MESES é aplicado depois, em JS (`filteredScales`), então sem paginar o
+  // corte de 1000 acontecia sobre o ANO inteiro — 2.362 escalas em 2026 — e o período pedido
+  // era recortado de uma amostra arbitrária.
+  const montarScaleQuery = (from: number, to: number) => {
   let scaleQuery = supabase
     .from('escala_mensal')
     .select(`
@@ -123,7 +131,9 @@ export default async function PlantaoSobreavisoPage({ searchParams }: Props) {
 
   // Apply access filters for coordinator or admin restriction
   scaleQuery = applyAccessFilters(scaleQuery, userProfile)
-  const { data: rawScales } = await scaleQuery
+    return scaleQuery.order('ano').order('mes').order('id').range(from, to)
+  }
+  const { linhas: rawScales, completo: dadosCompletos } = await buscarTodasPaginas<any>(montarScaleQuery, 500)
 
   // Filter range of months in JavaScript
   const startVal = anoInicio * 12 + (mesInicio - 1)
@@ -432,6 +442,7 @@ export default async function PlantaoSobreavisoPage({ searchParams }: Props) {
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8">
+      <AvisoDadosIncompletos completo={dadosCompletos} />
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-200 dark:border-zinc-800 pb-6">
         <div className="flex items-center gap-4">

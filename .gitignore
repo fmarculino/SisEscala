@@ -74,6 +74,9 @@ scratchpad/reconciliar_agosto.json
 scratchpad/_*.json
 
 scratchpad/backup_folhas_*.json
+# CSV de relacao nominal gerado para o RH (nome, matricula, unidade, dias trabalhados).
+# Entregue direto ao usuario, nunca pelo repo — mesma regra dos despejos acima.
+scratchpad/*.csv
 
 # Relatorio de auditoria de seguranca: documenta vulnerabilidades REAIS ainda abertas
 # (localizacao de segredos, rotas sem protecao, IDORs). O repositorio e PUBLICO (armadilha 18) -

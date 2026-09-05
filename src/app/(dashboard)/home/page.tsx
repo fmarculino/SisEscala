@@ -8,6 +8,7 @@ import {
 import Link from 'next/link'
 import { applyAccessFilters } from '@/utils/permissions'
 import { HistoricoChart } from './_components/HistoricoChart'
+import { horasDaLinhaEscala, horasProntidaoSobreaviso } from '@/utils/escala/horasLinha'
 import { SobreavisoPanel } from './_components/SobreavisoPanel'
 import {
   getPainelSobreaviso,
@@ -71,6 +72,12 @@ export default async function DashboardHome() {
   servidoresAtivosQuery = applyAccessFilters(servidoresAtivosQuery, userProfile)
   let servidoresInativosQuery = supabase.from('servidores').select('id', { count: 'exact', head: true }).eq('status', 'Inativo')
   servidoresInativosQuery = applyAccessFilters(servidoresInativosQuery, userProfile)
+  // ⚠️ O CADASTRO TEM MAIS DE DOIS STATUS. Medido em 05/09/2026: 2.065 Ativo, 5 Inativo e 10
+  // "Afastado" — e esses 10 não apareciam em NENHUM dos dois números do card, some de um lado
+  // sem entrar no outro. O total serve para derivar o resto sem precisar enumerar os status
+  // (um status novo no cadastro passaria a ser somado sozinho, em vez de sumir em silêncio).
+  let servidoresTotalQuery = supabase.from('servidores').select('id', { count: 'exact', head: true })
+  servidoresTotalQuery = applyAccessFilters(servidoresTotalQuery, userProfile)
 
   // 2. Setores count (total possible scales)
   let sectorsQuery = supabase.from('setores').select('id', { count: 'exact', head: true }).eq('ativo', true)
@@ -93,15 +100,24 @@ export default async function DashboardHome() {
   })
 
   // 3b. Em serviço hoje. "Ontem" saiu daqui junto com o painel de sobreaviso: quem cobre
-  // o turno noturno que atravessa a meia-noite agora é fn_painel_sobreaviso_dia. Só o NÚMERO
-  // importa aqui (exclui Sobreaviso) — head:true evita buscar e paginar linha nenhuma.
-  let emServicoQuery = supabase.from('escala_diaria')
-    .select('id, escala_mensal!inner(id, unidade_id, setor_id, mes, ano)', { count: 'exact', head: true })
-    .eq('dia', todayDay)
-    .eq('escala_mensal.mes', currentMonth)
-    .eq('escala_mensal.ano', currentYear)
-    .neq('categoria', 'Sobreaviso')
-  emServicoQuery = applyAccessFilters(emServicoQuery, userProfile, { unidadeField: 'escala_mensal.unidade_id', setorField: 'escala_mensal.setor_id' })
+  // o turno noturno que atravessa a meia-noite agora é fn_painel_sobreaviso_dia.
+  //
+  // ⚠️ ISTO CONTA PESSOAS, NÃO LINHAS DE ESCALA. Era uma contagem exata sobre escala_diaria,
+  // e quem tem Regular + Plantão no mesmo dia contava DUAS vezes: medido em produção em
+  // 05/09/2026, o card exibia 207 onde havia 188 servidores (+10%). O rótulo diz "em serviço",
+  // e isso é gente. Por isso deixou de ser head:true e passou a buscar servidor_id — paginado,
+  // porque agora traz LINHAS e o PostgREST corta em 1000 em silêncio (armadilha 8).
+  const emServicoPromise = buscarTodasPaginas<any>((from, to) => {
+    const q = supabase.from('escala_diaria')
+      .select('id, escala_mensal!inner(servidor_id, unidade_id, setor_id, mes, ano)')
+      .eq('dia', todayDay)
+      .eq('escala_mensal.mes', currentMonth)
+      .eq('escala_mensal.ano', currentYear)
+      .neq('categoria', 'Sobreaviso')
+      .order('id')
+      .range(from, to)
+    return applyAccessFilters(q, userProfile, { unidadeField: 'escala_mensal.unidade_id', setorField: 'escala_mensal.setor_id' })
+  })
 
   // NOTA (08/08/2026): as consultas de sobreaviso saíram daqui.
   // O painel passou a ser global — todo coordenador/admin vê o sobreaviso de toda a secretaria,
@@ -158,8 +174,8 @@ export default async function DashboardHome() {
     const data = await buscarTodasPaginas<any>((from, to) => {
       const q = supabase.from('escala_diaria').select(`
         id, categoria,
-        dicionario_turnos(horas_computadas),
-        escala_mensal!inner(mes, ano, status, unidade_id, setor_id)
+        dicionario_turnos(codigo, horas_computadas),
+        escala_mensal!inner(mes, ano, status, unidade_id, setor_id, jornadas(horas_totais, intervalo_minutos))
       `)
         .eq('escala_mensal.mes', m.mes)
         .eq('escala_mensal.ano', m.ano)
@@ -175,19 +191,21 @@ export default async function DashboardHome() {
   const [
     { count: servidoresAtivosCount },
     { count: servidoresInativosCount },
+    { count: servidoresTotalCount },
     { count: setoresCount },
     { count: unidadesCount },
     escalasData,
-    { count: emServicoHojeCount },
+    emServicoData,
     afastamentosData,
     ...historicalResults
   ] = await Promise.all([
     servidoresAtivosQuery,
     servidoresInativosQuery,
+    servidoresTotalQuery,
     sectorsQuery,
     unitsQuery,
     escalasPromise,
-    emServicoQuery,
+    emServicoPromise,
     afastamentosPromise,
     ...historicalPromises
   ])
@@ -210,13 +228,30 @@ export default async function DashboardHome() {
   // --- KPIs ---
   const servidoresAtivos = servidoresAtivosCount || 0
   const servidoresInativos = servidoresInativosCount || 0
+  const servidoresOutrosStatus = Math.max(0, (servidoresTotalCount || 0) - servidoresAtivos - servidoresInativos)
 
-  const escalasAbertas = escalas.filter((e: any) => e.status !== 'Fechada').length
-  const escalasFechadas = escalas.filter((e: any) => e.status === 'Fechada').length
-  const totalEscalasCriadas = new Set(escalas.map((e: any) => `${e.unidade_id}|${e.setor_id}`)).size
+  // ⚠️ O CARD MISTURAVA DUAS GRANDEZAS NA MESMA FRASE. O número grande conta GRADES (pares
+  // unidade|setor); o subtítulo contava LINHAS de escala_mensal, que é uma por SERVIDOR. Medido
+  // em produção em 05/09/2026, competência 08/2026: o card dizia "113 Escalas Ativas" e, logo
+  // abaixo, "694 fechadas" — 694 de 113. As duas contagens estavam certas e respondiam
+  // perguntas diferentes. Agora as duas são de grades, e uma grade só conta como fechada quando
+  // TODAS as escalas dela estão Fechadas: fechar 3 servidores de 40 não fecha o setor.
+  const gradesPorSetor = new Map<string, { total: number; fechadas: number }>()
+  escalas.forEach((e: any) => {
+    const k = `${e.unidade_id}|${e.setor_id}`
+    const a = gradesPorSetor.get(k) || { total: 0, fechadas: 0 }
+    a.total++
+    if (e.status === 'Fechada') a.fechadas++
+    gradesPorSetor.set(k, a)
+  })
+  const totalEscalasCriadas = gradesPorSetor.size
+  const escalasFechadas = Array.from(gradesPorSetor.values()).filter(a => a.total === a.fechadas).length
+  const servidoresEscalados = new Set(escalas.map((e: any) => e.servidor_id)).size
 
-  // Em serviço hoje (todos escalados para turnos ativos/regulares/plantão/extra hoje, excluindo sobreaviso)
-  const emServicoHoje = emServicoHojeCount || 0
+  // Em serviço hoje: SERVIDORES distintos, nunca linhas de escala (ver a consulta acima).
+  const emServicoHoje = new Set(
+    ((emServicoData || []) as any[]).map((l: any) => l.escala_mensal?.servidor_id).filter(Boolean)
+  ).size
 
   // Afastamentos ativos count
   const afastamentosAtivos = afastamentos.length
@@ -271,14 +306,30 @@ export default async function DashboardHome() {
   }).sort((a, b) => a.diasRestantes - b.diasRestantes)
 
   // --- HISTORICAL CHART DATA ---
+  // 🚨 O REGULAR SOMAVA O VÃO DO RELÓGIO, CONTANDO O INTERVALO COMO JORNADA (armadilha 46).
+  //   Este painel era o ÚLTIMO lugar do sistema a fazer isso: a grade (calculateTotals), o
+  //   /relatorios/consolidado e a folha (desde 09/2026) já descontam. Medido em produção em
+  //   05/09/2026, competência 09/2026: o painel exibia 163.392h de Regular contra 126.169h das
+  //   outras três telas — 37.223h (22,8%) de diferença na mesma competência, com o número maior
+  //   justamente na tela usada para decidir. A conta agora tem fonte única em
+  //   src/utils/escala/horasLinha.ts, compartilhada com o consolidado.
+  //
+  // ⚠️ Sobreaviso é PRONTIDÃO, não trabalho: sai por horasProntidaoSobreaviso e é exibido com
+  //   rótulo próprio. horasDaLinhaEscala devolve 0 para ele de propósito, para que ninguém o
+  //   some ao lado das horas trabalhadas por descuido.
   const chartData = (historicalResults as any[]).map((result: any) => {
     let regular = 0, plantao = 0, sobreaviso = 0, extra = 0
     ;(result.data || []).forEach((d: any) => {
-      const horas = Number(d.dicionario_turnos?.horas_computadas || 0)
+      const turno = d.dicionario_turnos
+      const jornada = d.escala_mensal?.jornadas
       const cat = d.categoria
+      if (cat === 'Sobreaviso') {
+        sobreaviso += horasProntidaoSobreaviso(turno?.horas_computadas, turno?.codigo)
+        return
+      }
+      const horas = horasDaLinhaEscala(cat, turno?.horas_computadas, jornada)
       if (cat === 'Regular') regular += horas
       else if (cat === 'Plantão') plantao += horas
-      else if (cat === 'Sobreaviso') sobreaviso += horas
       else if (cat === 'Extra') extra += horas
     })
     return { label: result.label, regular: Math.round(regular), plantao: Math.round(plantao), sobreaviso: Math.round(sobreaviso), extra: Math.round(extra) }
@@ -349,8 +400,8 @@ export default async function DashboardHome() {
       {!isCoord && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
           {[
-            { label: 'Servidores', value: servidoresAtivos, icon: Users, color: 'text-purple-600', bg: 'bg-purple-50 dark:bg-purple-900/20', sub: `Hoje: ${emServicoHoje} em serviço | Inativos: ${servidoresInativos}` },
-            { label: 'Escalas Ativas', value: totalEscalasCriadas, icon: Calendar, color: 'text-amber-600', bg: 'bg-amber-50 dark:bg-amber-900/20', sub: `De ${setoresCount} setores | ${escalasFechadas} fechadas` },
+            { label: 'Servidores', value: servidoresAtivos, icon: Users, color: 'text-purple-600', bg: 'bg-purple-50 dark:bg-purple-900/20', sub: `Hoje: ${emServicoHoje} em serviço | Inativos: ${servidoresInativos}${servidoresOutrosStatus > 0 ? ` | Outros status: ${servidoresOutrosStatus}` : ''}` },
+            { label: 'Escalas Ativas', value: totalEscalasCriadas, icon: Calendar, color: 'text-amber-600', bg: 'bg-amber-50 dark:bg-amber-900/20', sub: `${totalEscalasCriadas} de ${setoresCount} setores | ${escalasFechadas} com tudo fechado | ${servidoresEscalados} servidores escalados` },
             { label: 'Afastados Agora', value: afastamentosAtivos, icon: CalendarDays, color: 'text-rose-600', bg: 'bg-rose-50 dark:bg-rose-900/20', sub: 'Ausências registradas' },
             { label: 'Sobreaviso Hoje', value: sobreavisoAtivosCount, icon: Phone, color: 'text-orange-600', bg: 'bg-orange-50 dark:bg-orange-900/20', sub: `${sobreavisoAtivosCount} ativo(s) agora | ${sobreavisoItens.length} total` },
             { label: 'Unidades', value: unidadesCount || 0, icon: Building2, color: 'text-blue-600', bg: 'bg-blue-50 dark:bg-blue-900/20', sub: 'Unidades cadastradas' },

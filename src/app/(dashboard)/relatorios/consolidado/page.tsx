@@ -3,8 +3,11 @@ import { BarChart3, Download, ArrowLeft, Printer, FileSpreadsheet, AlertTriangle
 import Link from 'next/link'
 import { AcessoNegado } from '@/components/AcessoNegado'
 import { applyAccessFilters, type UserProfile } from '@/utils/permissions'
+import { buscarTodasPaginas } from '@/utils/paginacao'
+import { horasDaLinhaEscala, horasProntidaoSobreaviso } from '@/utils/escala/horasLinha'
 import { ReportFiltersWrapper } from '@/app/(dashboard)/relatorios/_components/ReportFiltersWrapper'
 import { ReportActions } from '@/app/(dashboard)/relatorios/_components/ReportActions'
+import { AvisoDadosIncompletos } from '@/app/(dashboard)/relatorios/_components/AvisoDadosIncompletos'
 
 interface Props {
   searchParams: Promise<{
@@ -80,31 +83,37 @@ export default async function ConsolidadoPage({ searchParams }: Props) {
   const currentYear = today.getFullYear()
 
   // Main Query
-  let query = supabase
-    .from('escala_mensal')
-    .select(`
-      id, mes, ano, status, jornada_id,
-      servidores(nome, matricula, cargo, vinculo),
-      unidades(nome),
-      setores(dicionario_setores(nome)),
-      escala_diaria(
-        dia,
-        categoria,
-        dicionario_turnos(codigo, horas_computadas)
-      )
-    `)
-    .eq('mes', mes)
-    .eq('ano', ano)
-  
-  if (!previsao) {
-    query = query.eq('status', 'Fechada')
-  }
-  
-  if (unidadeId) query = query.eq('unidade_id', unidadeId)
-  if (setorId) query = query.eq('setor_id', setorId)
+  // ⚠️ PAGINADO (armadilha 8). Sem isto o PostgREST devolvia 1000 linhas e o relatório somava
+  // como se fosse tudo, sem erro nenhum. A medição de cada tela está em src/utils/paginacao.ts.
+  // 500 por página porque cada escala traz ~30 linhas de escala_diaria embutidas.
+  const montarQuery = (from: number, to: number) => {
+    let query = supabase
+      .from('escala_mensal')
+      .select(`
+        id, mes, ano, status, jornada_id,
+        servidores(nome, matricula, cargo, vinculo),
+        unidades(nome),
+        setores(dicionario_setores(nome)),
+        escala_diaria(
+          dia,
+          categoria,
+          dicionario_turnos(codigo, horas_computadas)
+        )
+      `)
+      .eq('mes', mes)
+      .eq('ano', ano)
 
-  query = applyAccessFilters(query, userProfile)
-  const { data: reportData } = await query
+    if (!previsao) {
+      query = query.eq('status', 'Fechada')
+    }
+
+    if (unidadeId) query = query.eq('unidade_id', unidadeId)
+    if (setorId) query = query.eq('setor_id', setorId)
+
+    query = applyAccessFilters(query, userProfile)
+    return query.order('id').range(from, to)
+  }
+  const { linhas: reportData, completo: dadosCompletos } = await buscarTodasPaginas<any>(montarQuery, 500)
 
   // Processing Data
   const processedData: ProcessedConsolidatedData[] = (reportData as any[])?.map((item: any) => {
@@ -116,7 +125,6 @@ export default async function ConsolidadoPage({ searchParams }: Props) {
     }
 
     const jornada = jornadas?.find(j => j.id === item.jornada_id)
-    const intervaloHoras = (jornada?.intervalo_minutos || 0) / 60
 
     item.escala_diaria?.forEach((ed: any) => {
       const t = ed.dicionario_turnos
@@ -132,24 +140,17 @@ export default async function ConsolidadoPage({ searchParams }: Props) {
       // For now, matching ScaleGrid's base logic for closed/validated:
       if (!isPast && (item.mes === currentMonth && item.ano === currentYear)) return
 
+      // Fonte única em src/utils/escala/horasLinha.ts — a mesma que o painel usa. A fórmula
+      // do Regular (teto líquido da jornada) estava correta aqui e ERRADA lá; unificar é o que
+      // impede as duas telas de responderem coisas diferentes sobre a mesma competência.
       if (cat === 'Regular') {
-        let liquidHours = horas
-        if (jornada && Number(jornada.horas_totais) > 0) {
-          const journeyMaxLiquid = Math.max(0, Number(jornada.horas_totais) - intervaloHoras)
-          liquidHours = Math.min(horas, journeyMaxLiquid)
-        }
-        totals.regular += liquidHours
+        totals.regular += horasDaLinhaEscala(cat, t.horas_computadas, jornada)
       } else if (cat === 'Extra') {
-        // Extras in this report are usually simplified, but let's sum them
-        totals.extra += horas
+        totals.extra += horasDaLinhaEscala(cat, t.horas_computadas, jornada)
       } else if (cat === 'Plantão') {
-        totals.plantao += horas
+        totals.plantao += horasDaLinhaEscala(cat, t.horas_computadas, jornada)
       } else if (cat === 'Sobreaviso') {
-        let val = Number(t.horas_computadas) || 0
-        if (val === 0) {
-          val = (t.codigo === 'MTN') ? 24 : (t.codigo === 'MT' || t.codigo === 'N' ? 12 : 0)
-        }
-        totals.sobreaviso += val
+        totals.sobreaviso += horasProntidaoSobreaviso(t.horas_computadas, t.codigo)
       }
     })
 
@@ -168,6 +169,7 @@ export default async function ConsolidadoPage({ searchParams }: Props) {
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8">
+      <AvisoDadosIncompletos completo={dadosCompletos} />
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
