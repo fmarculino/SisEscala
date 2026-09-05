@@ -900,6 +900,38 @@ chama depende de sessão de usuário: o modo de falha é silencioso e o chamador
 200 com o `autoClose` reprovado dentro — agendado diariamente, esconderia a falha para sempre
 (armadilha 22). Hoje há um campo `falhas` e o `success` só é `true` quando as três etapas passam.
 
+🚨 **E aí o `autoClose` reportou `closedScales: 562` tendo fechado ZERO** (05/09/2026, primeira
+execução em que ele de fato rodou). Duas provas no banco na mesma hora: **202** escalas `Fechada`
+no total e **nenhum** log `Escala Fechada Automaticamente`. Três defeitos somados, e os três são
+padrões que voltam:
+
+| defeito | onde |
+|---|---|
+| `.update().in('id', <562 uuids>)` monta URL de ~20 KB e o PostgREST recusa | update em lote sem fatiar |
+| o erro caía em `console.error` e a função seguia | falha engolida, invisível na resposta |
+| `closedScales: expiredScales.length` — o que **achou**, não o que mudou | armadilha 22 |
+
+Corrigido em 05/09/2026: update em lotes de 100 com `.select('id')` (a contagem passa a vir do que
+**voltou**), erro propagado para o retorno, e `encontradasEscalas`/`encontradasFolhas` ao lado —
+achar muito e fechar pouco vira sintoma visível em vez de silêncio. ⚠️ **As duas buscas também não
+paginavam** (armadilha 8): são **2.160** escalas abertas contra o teto de 1.000, então o
+fechamento nunca enxergou metade da base.
+
+🚨 **A fila de cadastro insistia para sempre com quem o equipamento recusou.** Medido em
+05/09/2026: **2.463** linhas `falhou`, o mesmo par (dispositivo, servidor) até **83 vezes**, e 25
+dos 51 pendentes já haviam falhado antes no mesmo relógio. `status = 'falhou'` **já significa
+definitivo** (`fn_confirmar_cadastro_rep` devolve falha transitória para `pendente`) — faltava o
+enfileiramento respeitar isso. Grave porque o coletor aplica no máximo **20 cadastros por ciclo**:
+entrada condenada consome a vaga de quem é novo de verdade.
+
+⚠️ **O critério de `fn_cadastro_rep_reprovado` (`20260905110000`) não é janela de tempo.** Reprova
+quem falhou e **cujo cadastro não mudou desde a falha** (`servidores.updated_at <= processado_em`)
+— corrigir o CPF/PIS libera a retentativa na hora, que é justamente a ação com chance de mudar o
+resultado. O teto de 30 dias existe só para quando quem muda é o **outro lado** (firmware, coletor
+novo com formato diferente de `add_users.fcgi`). Vale nos **dois** caminhos (lotação e escala) e
+para os **dois** chamadores: o laço nasceu dos cliques na tela, então proteger só o cron não
+resolveria.
+
 ⚠️ **`CREATE OR REPLACE FUNCTION` não altera a lista de colunas de um `RETURNS TABLE`.** Reaplicar
 uma migration depois de acrescentar uma coluna de saída morre com `42P13: cannot change return
 type of existing function` — aconteceu em 13/08/2026 com `fn_cobertura_ponto_dispositivo`. Quem
