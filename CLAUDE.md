@@ -337,6 +337,100 @@ cadastrado` e `Matrícula já cadastrada`** — recusa de duplicidade, exatament
 desejado. ⚠️ **A primeira defesa depende do snapshot já ter chegado**: enfileirar antes da
 primeira leitura do equipamento passa por baixo dela, e aí só resta a recusa do device.
 
+### Contagem igual entre relógios da mesma unidade NÃO é o objetivo (06/09/2026)
+
+⚠️ **"O relógio A tem 476 cadastros e o B tem 349, logo eles estão dessincronizados" é leitura
+errada, e a tela do equipamento convida a ela.** Medido no HMM em 06/09/2026, com os três relógios
+do prédio principal na **mesma máquina** (`DESKTOP-9NJ3JAJ`, `10.110.4.93`):
+
+| relógio | cadastros | com digital | pendências de cópia |
+|---|---|---|---|
+| HMM-01 · HMM-02 | 349 | 235 | **0** |
+| HMM-03 | 476 | 307 | 2, e as duas vêm do CCE-01 (outra máquina) |
+
+**A biometria estava 100% replicada**: 467 cópias `aplicada` em 24h, **zero falhas**, todas por
+`update_users:[{pis,name,registration,templates}]` — e o HMM-03, que era o "atrasado", foi
+**origem** de 232 delas. Dos servidores presentes nos dois, **nenhum** tinha digital num e não no
+outro, nos dois sentidos.
+
+🚨 **Comparar por `servidor_id` SUPERESTIMA a diferença, por causa do duplo vínculo.** ELZENIR
+(mat 1013 × 68151) e PAULINO (65562 × 67469) têm dois cadastros no SisEscala com **o mesmo CPF e o
+mesmo PIS** — a mesma pessoa, o mesmo `identificador_afd` no device, contada como "só no A" por uma
+matrícula e "só no B" pela outra. **Compare por pessoa (CPF)**, e a diferença real cai de 3 × 130
+para **1 × 128**.
+
+⚠️ **E "mandar os cadastros do relógio cheio para os outros dois" beneficiaria ZERO pessoas.** Dos
+128 exclusivos do HMM-03, **nenhum** é lotado em setor que os relógios do prédio principal atendem:
+
+| quem são os 128 | o que fazer |
+|---|---|
+| **58** de outras 13 unidades (HMI 23, SMS 14, CEI 5…) | bagagem do relógio reaproveitado — sai por **higiene**, nunca copiando para mais equipamentos |
+| **35** lotados em setores do **CCE** | outro prédio, outra rede — não devem estar em relógio nenhum do prédio principal |
+| **35** do HMM em setor **sem relógio vinculado** | copiar cadastro não resolve nenhum deles — ver a checagem de sítio logo abaixo, que é o que decide caso a caso |
+
+Copiar os 128 espalharia 93 cadastros de fora do escopo por mais dois equipamentos — e pela
+resolução por CPF/PIS (armadilha 13) **quem está cadastrado e encosta o dedo ganha ponto ali**.
+A contagem do relógio reaproveitado deveria **cair** para perto da dos outros, nunca o contrário.
+
+🚨 **E "vincular o setor que está sem relógio" NÃO é regra geral — foi a minha própria recomendação
+antes de olhar a hierarquia, e ela estava errada.** Dos 36 lotados ativos do HMM em setor sem
+relógio vinculado (medido em 06/09/2026), o caminho certo é diferente em cada grupo:
+
+| setor | lotados | o que fazer |
+|---|---|---|
+| **ALA - PSICOSSOCIAL** (a raiz e seus 6 ramos) | **28** | **NÃO vincular ao prédio principal.** É o terceiro sítio físico e aguarda relógio próprio — vinculá-los ao HMM-01/02/03 repetiria exatamente o erro que o HMM-03 cometeu com o CCE |
+| **CSST** (raiz solta) | 5 | **duplicata de cadastro**: existe `CORPO CLÍNICO \ CSST` já vinculado aos três e com **0 lotados**. É caso de `fn_fundir_setor`, não de vincular |
+| **SAME \ APOIO** | 2 | **vincular aos três** — o pai `SAME` e os irmãos (`PRODUÇÃO` 11p, `ESCRITURÁRIOS`) já estão lá; ficou de fora por engano |
+| `CCE \ MÉDICOS ESPECIALISTAS` | 1 | vincular ao **CCE-01** |
+| 5 setores inativos | 0 | ignorar |
+
+⚠️ **O nome do setor não diz o sítio; o CAMINHO diz.** `PORTARIA`, `ADMINISTRATIVO`, `ASG` e
+`SUPERIOR` parecem prédio principal e são todos ramos da ALA. No HMM **37 nomes de setor se
+repetem** sob pais diferentes (`SUPERIOR` existe em `PMEC` e na ALA; `PORTARIA` na raiz, na ALA e
+no CCE). Decidir vínculo de relógio pela folha do nome erra o sítio — use `fn_setor_caminho` /
+`buildSectorPathMap` (armadilha 25).
+
+ℹ️ Sinal barato para separar os casos: **batidas reais dos últimos 60 dias**. Nenhuma das 28
+pessoas da ALA bateu em relógio nenhum, o que é coerente com "o equipamento delas ainda não
+existe" — e não com "estão no prédio principal e não conseguem bater".
+
+ℹ️ Inconsistência achada de passagem: `ALA - PSICOSSOCIAL \ ENFERMAGEM` está **inativo** e tem
+1 servidor ativo lotado nele.
+
+ℹ️ **A defesa de duplicidade do device funcionou no mesmo dia**: EUDES (mat 54364), a única pessoa
+realmente ausente do HMM-03, teve o cadastro recusado com `Matrícula já cadastrada` — alguém do
+sistema anterior já ocupa aquela matrícula no equipamento. Recusar é o modo de falha desejado;
+o conserto é achar o cadastro antigo, não insistir na fila.
+
+### O status de ADMINISTRADOR não viaja com a biometria — e nunca viajou (06/09/2026)
+
+🚨 **Nenhum caminho do SisEscala promove alguém a administrador do equipamento.** Os três que
+escrevem cadastro mandam `admin` fixo em falso, ou não mandam o campo:
+
+| caminho | payload |
+|---|---|
+| cópia de biometria (`rep.GravarTemplates`) | `{name, pis, registration, templates}` — **não existe campo `admin`** |
+| criação de cadastro (`add_users.fcgi`) | `"admin": false`, literal |
+| CSV do pendrive (`cadastros-exportar`) | coluna `administrador` sempre `0` |
+
+`rep.UsuarioDispositivo` **nem lê** o flag de admin do relógio de origem, então não há de onde
+copiar. Administrador se define **na interface do próprio equipamento**, à mão, um a um.
+⚠️ Relógio sem nenhum administrador cadastrado costuma deixar o menu de configuração aberto a
+quem encostar — confira isso ao ligar um equipamento novo, antes de liberar o uso.
+
+🚨 **E o administrador do parque não chega a relógio nenhum sozinho.** Medido em 06/09/2026: ele
+está em **13 dos 30** relógios ativos e em **nenhum dos 4 do HMM**. As duas RPCs de enfileiramento
+escolhem por **lotação** (ele é SMS / TECNOLOGIA DA INFORMAÇÃO) ou por **escala** (ele não tem
+escala fora dali) — nenhuma o alcança em unidade alguma. Nos 12 relógios onde o nome está gravado
+como **`FERNANDO`** (curto) o cadastro foi manual; só onde aparece o nome completo foi o SisEscala
+que gravou. **Ao instalar um relógio novo, cadastrar o administrador é passo manual da instalação**,
+e a cópia automática de biometria **não** o substitui — ela nunca cria usuário, só grava digital em
+quem já está no destino.
+
+✅ A exceção de ponto dele, essa sim, é automática e estava correta: **29 exceções para os 30
+relógios ativos**, faltando só o dele (`Reg/TI/TFD`). O gatilho criou a do HMM-03 no dia em que o
+equipamento nasceu.
+
 ⚠️ **O que travava não era o formato do template, era o COMANDO: `add_users.fcgi` é CRIAÇÃO, não
 atualização.** Nas 45 cópias que falharam ele respondeu `PIS já cadastrado: <n>` — recusa de
 **duplicidade**, nunca de formato. Contra quem já está no relógio (que é *sempre* o caso desta

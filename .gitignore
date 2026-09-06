@@ -84,3 +84,7 @@ scratchpad/*.csv
 # (localizacao de segredos, rotas sem protecao, IDORs). O repositorio e PUBLICO (armadilha 18) -
 # publicar isso e entregar o mapa de ataque pronto. Nao commitar sem revisao manual.
 docs/security-audit/
+
+# cache da CLI do Supabase ("qual e a ultima versao") - regravado sozinho, nao e do projeto.
+# project-ref, ao lado dele, E versionado de proposito: identifica a instancia.
+supabase/.temp/cli-latest
