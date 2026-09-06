@@ -1,0 +1,404 @@
+import type { Capitulo } from '../tipos'
+
+export const ponto: Capitulo = {
+  id: 'ponto',
+  titulo: 'Ponto e Folha',
+  icone: 'Fingerprint',
+  descricao: 'Como a batida vira folha, o que fazer com pendências e como fechar o mês.',
+  secoes: [
+    {
+      id: 'como-bate',
+      titulo: 'As formas de bater ponto',
+      resumo: 'Relógio biométrico, terminal na tela e o que acontece depois da batida.',
+      papeis: ['Todos'],
+      blocos: [
+        {
+          tipo: 'p',
+          texto: 'Uma unidade pode ter relógio, terminal, ou os dois. Para o servidor, muda pouco:',
+        },
+        {
+          tipo: 'tabela',
+          colunas: ['Forma', 'Como o servidor usa', 'O que é preciso'],
+          linhas: [
+            [
+              'Relógio biométrico (REP)',
+              'Encosta o dedo no equipamento.',
+              'Estar cadastrado **naquele** relógio, com a digital coletada presencialmente.',
+            ],
+            [
+              'Terminal da unidade',
+              'Digita matrícula e PIN na tela.',
+              'Ter matrícula e PIN, e estar lotado na unidade daquele terminal.',
+            ],
+          ],
+        },
+        { tipo: 'titulo', texto: 'Os quatro passos do dia' },
+        {
+          tipo: 'p',
+          texto:
+            'O sistema entende sozinho qual passo você está registrando, pela hora da batida: **entrada**, **saída para o intervalo**, **retorno do intervalo** e **saída**. Não existe botão de escolher.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'Jornada de até 6 horas registra só entrada e saída',
+          texto:
+            'O intervalo só é exigido acima de 6 horas de trabalho contínuo. Em jornada curta, os dois passos do meio não existem — e isso não é falta de registro.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'cuidado',
+          titulo: 'Duas batidas seguidas no mesmo minuto contam como uma',
+          texto:
+            'Se a pessoa encostar o dedo duas vezes em menos de um minuto, a segunda é descartada como repetição. Ao trocar de turno no mesmo dia, espere alguns minutos entre uma batida e outra.',
+        },
+      ],
+    },
+
+    {
+      id: 'cores-terminal',
+      titulo: 'As cores do terminal (importante)',
+      resumo: 'Verde, âmbar e vermelho querem dizer coisas bem diferentes.',
+      papeis: ['Todos'],
+      blocos: [
+        {
+          tipo: 'tabela',
+          colunas: ['Cor', 'Significa', 'O servidor deve'],
+          linhas: [
+            ['Verde', 'Registrado, dentro do horário previsto.', 'Seguir o dia.'],
+            [
+              'Âmbar',
+              '**Registrado**, mas fora do horário previsto. Vai para revisão do coordenador.',
+              'Seguir o dia. A batida foi guardada — não precisa bater de novo.',
+            ],
+            [
+              'Vermelho',
+              '**Nada foi registrado.** Matrícula ou PIN errados.',
+              'Conferir a matrícula e o PIN e tentar de novo.',
+            ],
+          ],
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'Âmbar não é erro',
+          texto:
+            'Muita gente vê o âmbar, acha que falhou e bate de novo. A batida foi aceita e está guardada; ela só precisa que o coordenador confirme depois. Só o **vermelho** exige repetir.',
+        },
+      ],
+    },
+
+    {
+      id: 'nao-apareceu',
+      titulo: 'Bati o ponto e não apareceu',
+      resumo: 'As causas reais, na ordem em que devem ser conferidas.',
+      papeis: ['Coordenador', 'Ass. Administrativo', 'RH da Unidade', 'RH Geral', 'Administrador Geral'],
+      blocos: [
+        {
+          tipo: 'p',
+          texto:
+            'É a queixa mais comum, e quase nunca é o equipamento. Confira nesta ordem — as duas primeiras respondem a maioria dos casos:',
+        },
+        {
+          tipo: 'passos',
+          itens: [
+            {
+              titulo: 'A pessoa está vinculada àquele relógio?',
+              texto:
+                'Em Marcações → **Cobertura de Ponto**, procure pelo nome. Se aparecer como fora do relógio ou sem biometria, o equipamento aceita a digital mas o sistema não sabe de quem é. Este é o caso mais frequente, e é silencioso dos dois lados.',
+            },
+            {
+              titulo: 'A batida chegou, mas ficou pendente?',
+              texto:
+                'Em Marcações → **Pendências**, veja se existe registro daquele dia esperando revisão. Se existir, é só aceitar — o horário real está lá.',
+            },
+            {
+              titulo: 'A escala do dia existe?',
+              texto:
+                'Sem turno lançado, o sistema não tem onde encaixar a batida. Ela fica guardada, mas não aparece na folha. Lance o turno e a batida se encaixa.',
+            },
+            {
+              titulo: 'A escala foi lançada depois da batida?',
+              texto:
+                'Se o turno foi lançado depois de a pessoa bater, pode ser preciso reprocessar aquele dia. Fale com quem administra o sistema — o horário não se perdeu.',
+            },
+            {
+              titulo: 'A folha já foi gerada antes da correção?',
+              texto:
+                'A folha é uma fotografia. Corrigiu depois de gerar? Clique em **Sincronizar** na folha.',
+            },
+          ],
+        },
+        {
+          tipo: 'aviso',
+          tom: 'dica',
+          titulo: 'A batida nunca é jogada fora',
+          texto:
+            'Batida sem escala, fora do horário, duplicada ou de alguém que o sistema não reconheceu — todas ficam gravadas. Recuperar é sempre possível; o que muda é quanto trabalho dá.',
+        },
+      ],
+    },
+
+    {
+      id: 'folha',
+      titulo: 'A Folha de Ponto',
+      resumo: 'O que ela mostra, como gerar, o que é preservado ao sincronizar.',
+      papeis: ['Coordenador', 'Ass. Administrativo', 'RH da Unidade', 'RH Geral', 'Diretor'],
+      blocos: [
+        { tipo: 'caminho', itens: ['OPERAÇÃO', 'Folha de Ponto'], href: '/folha-ponto' },
+        {
+          tipo: 'p',
+          texto:
+            'A folha é o documento do mês: um servidor, uma competência, dia a dia, com previsto e realizado lado a lado. É o que se imprime e se assina.',
+        },
+        { tipo: 'titulo', texto: 'Gerar e sincronizar' },
+        {
+          tipo: 'tabela',
+          colunas: ['Ação', 'O que faz'],
+          linhas: [
+            ['Gerar', 'Cria a folha a partir da escala e do ponto registrado.'],
+            [
+              'Sincronizar',
+              'Atualiza uma folha existente com o que mudou na escala depois de ela ter sido gerada.',
+            ],
+          ],
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'O que sobrevive ao Sincronizar',
+          texto:
+            'Sincronizar **preserva** o que uma pessoa decidiu — horário digitado pelo coordenador, ajuste aprovado do servidor. E **regera** o que veio do ponto, para que a folha receba a correção de uma batida mal encaixada. Sincronizar não desfaz o seu trabalho.',
+        },
+        { tipo: 'titulo', texto: 'Os status' },
+        {
+          tipo: 'tabela',
+          colunas: ['Status', 'Significa', 'Pode editar?'],
+          linhas: [
+            ['Rascunho', 'Está sendo montada.', 'Sim.'],
+            ['Gerada', 'Pronta para conferência.', 'Sim.'],
+            ['Revisada', 'Conferida e fechada.', 'Só depois de reaberta por RH ou Administrador.'],
+          ],
+        },
+        {
+          tipo: 'aviso',
+          tom: 'cuidado',
+          titulo: 'Horário de batida real é protegido',
+          texto:
+            'Alterar à mão um horário que veio do relógio ou do terminal é recusado — só o Administrador Geral consegue. Não é burocracia: é o que impede que o registro original de ponto seja reescrito.',
+        },
+      ],
+    },
+
+    {
+      id: 'atraso-compensacao',
+      titulo: 'Atraso, hora extra e compensação',
+      resumo: 'Por que o sistema pergunta, e o que cada resposta significa na folha.',
+      papeis: ['Coordenador', 'RH da Unidade', 'RH Geral', 'Diretor'],
+      blocos: [
+        {
+          tipo: 'p',
+          texto:
+            'A folha mede as **duas pontas** do dia: a entrada e a saída. Quando alguém chega atrasado e sai depois do previsto, aparecem as duas coisas no mesmo dia — um atraso e um tempo a mais no fim.',
+        },
+        {
+          tipo: 'p',
+          texto:
+            'O sistema **não decide sozinho** o que fazer com isso. Ele mostra o dia e pede a sua decisão:',
+        },
+        {
+          tipo: 'tabela',
+          colunas: ['Decisão', 'Efeito na folha'],
+          linhas: [
+            [
+              'É compensação',
+              'O tempo a mais no fim do dia cobre o atraso da manhã. Não vira hora extra.',
+            ],
+            [
+              'É hora extra',
+              'O atraso permanece como atraso e o tempo a mais é pago como hora extra.',
+            ],
+            [
+              'Pendente',
+              'Nada muda ainda. A folha continua exatamente como está, e o fechamento cobra a decisão.',
+            ],
+          ],
+        },
+        {
+          tipo: 'aviso',
+          tom: 'legal',
+          titulo: 'Por que precisa de decisão humana',
+          texto:
+            'Compensar atraso depende de autorização da chefia — não é automático. Por isso o sistema pergunta em vez de decidir, e por isso "pendente" não altera valor nenhum: enquanto ninguém decide, a folha não muda.',
+        },
+        {
+          tipo: 'lista',
+          itens: [
+            'A compensação acontece **dentro do próprio dia** — não existe saldo que atravessa o mês.',
+            'Há um teto diário para o que pode ser compensado.',
+            'Dia incompleto (faltando entrada ou saída) não compensa.',
+          ],
+        },
+      ],
+    },
+
+    {
+      id: 'marcacoes',
+      titulo: 'A tela Marcações',
+      resumo: 'As nove abas do módulo de ponto e para que serve cada uma.',
+      papeis: ['Coordenador', 'RH da Unidade', 'RH Geral', 'Administrador Geral', 'Diretor'],
+      blocos: [
+        { tipo: 'caminho', itens: ['OPERAÇÃO', 'Marcações'], href: '/marcacoes' },
+        {
+          tipo: 'p',
+          texto:
+            'É o centro de controle do ponto. Você não usa todas as abas todo dia — a maioria serve na instalação e na manutenção dos equipamentos.',
+        },
+        {
+          tipo: 'tabela',
+          colunas: ['Aba', 'Para que serve', 'Com que frequência'],
+          linhas: [
+            [
+              'Entrada',
+              'Visão geral do que está chegando dos relógios e terminais.',
+              'Sempre que quiser conferir se o ponto está fluindo.',
+            ],
+            [
+              'Terminais Locais',
+              'Cadastrar e ativar o terminal de ponto de uma unidade, e revogar o acesso dele.',
+              'Na instalação, e quando um computador é trocado.',
+            ],
+            [
+              'Dispositivos REP',
+              'Cadastro dos relógios biométricos: endereço, setores atendidos, download do aplicativo coletor.',
+              'Na instalação de um relógio novo.',
+            ],
+            [
+              'Cobertura de Ponto',
+              'Quem consegue e quem **não consegue** bater ponto, com o motivo.',
+              'A mais útil no dia a dia. Confira mensalmente.',
+            ],
+            [
+              'Pendências',
+              'Batidas que precisam de revisão do coordenador.',
+              'Durante o mês, para não acumular no fechamento.',
+            ],
+            [
+              'Biometria Pendente',
+              'Quem já está cadastrado no relógio mas ainda não coletou a digital.',
+              'Enquanto a unidade está implantando.',
+            ],
+            [
+              'Higiene do Relógio',
+              'Quem está cadastrado no equipamento e não deveria estar — típico de relógio reaproveitado de outro sistema.',
+              'Uma vez, na implantação.',
+            ],
+            [
+              'Importar por Pendrive',
+              'Trazer as batidas de um relógio sem rede até o servidor, por arquivo.',
+              'Só em unidade sem rede até o sistema.',
+            ],
+            [
+              'Autorizações do RH',
+              'O RH libera, por servidor e período, quais passos o coordenador pode declarar em massa na grade — sem justificar dia a dia.',
+              'Quando houver ofício autorizando.',
+            ],
+          ],
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'Autorização do RH não dispensa a batida',
+          texto:
+            'Mesmo com a autorização, a saída continua vindo do relógio. O que é declarado sai na folha como **manual**, com a justificativa e o número do ofício — nunca como se fosse batida. A autorização vale por um período (até 12 meses) e é renovável por novo ato.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'dica',
+          titulo: 'Se você for olhar só uma aba, olhe Cobertura de Ponto',
+          texto:
+            'É a única tela que responde "todo mundo do meu setor consegue registrar ponto?" antes de o mês acabar. Todas as outras respondem depois.',
+        },
+      ],
+    },
+
+    {
+      id: 'cobertura-ponto',
+      titulo: 'Cobertura de Ponto',
+      resumo: 'A tela que mostra quem não consegue bater — e por quê.',
+      papeis: ['Coordenador', 'RH da Unidade', 'RH Geral', 'Administrador Geral', 'Diretor'],
+      blocos: [
+        {
+          tipo: 'p',
+          texto:
+            'Estar cadastrado no sistema **não é** estar apto a bater ponto. Falta o cadastro no equipamento e a biometria coletada. Esta aba mostra a situação de cada pessoa, com o que fazer em cada caso.',
+        },
+        {
+          tipo: 'tabela',
+          colunas: ['Situação', 'O que quer dizer', 'O que fazer'],
+          linhas: [
+            ['Pronto', 'Cadastrado no relógio, com biometria, e vinculado.', 'Nada.'],
+            [
+              'Sem biometria',
+              'Está no relógio, mas a digital nunca foi coletada. **Não consegue bater.**',
+              'Levar a pessoa até o equipamento para coletar a digital.',
+            ],
+            [
+              'Fora do relógio',
+              'Nem chegou a ser cadastrado no equipamento.',
+              'Usar "Sincronizar cadastros" na tela do dispositivo, ou verificar se falta CPF/PIS na ficha.',
+            ],
+            [
+              'Sem vínculo',
+              'A batida chega, mas o sistema não consegue dizer de quem é.',
+              'Criar o vínculo pela própria tela.',
+            ],
+          ],
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'A cobertura é por relógio',
+          texto:
+            'Numa unidade com mais de um equipamento, a mesma pessoa aparece uma vez por relógio — e isso está certo: para bater num relógio é preciso ter digital **naquele**. A tela distingue quem não bate em lugar nenhum de quem usa outra entrada da unidade.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'dica',
+          titulo: 'A lista inclui quem está lotado, não só quem está escalado',
+          texto:
+            'Assim você enxerga também quem ainda não foi escalado neste mês mas já precisa estar apto — que é justamente quem costuma passar despercebido.',
+        },
+      ],
+    },
+
+    {
+      id: 'justificativas',
+      titulo: 'Justificativas',
+      resumo: 'Registrar por escrito o motivo de uma falta ou ocorrência.',
+      papeis: ['Coordenador', 'Ass. Administrativo', 'RH da Unidade', 'RH Geral', 'Diretor'],
+      blocos: [
+        { tipo: 'caminho', itens: ['OPERAÇÃO', 'Justificativas'], href: '/justificativas' },
+        {
+          tipo: 'p',
+          texto:
+            'A justificativa é o texto que explica uma ocorrência do mês — uma falta, uma alteração de turno, um dia atípico. Ela acompanha a folha e sai nos relatórios.',
+        },
+        {
+          tipo: 'lista',
+          itens: [
+            'Pode nascer aqui, lançada pelo coordenador.',
+            'Pode nascer de uma alteração de turno em dia com ponto — nesse caso o motivo que você escreveu entra automaticamente na justificativa do dia.',
+            'Pode nascer de um pedido do servidor pelo Portal.',
+          ],
+        },
+        {
+          tipo: 'aviso',
+          tom: 'dica',
+          texto:
+            'Justificativa não é afastamento. Se a pessoa ficou fora por atestado, férias ou licença, lance em **Afastamentos** ou **Férias e Licenças** — esses sim mudam a escala e a folha.',
+        },
+      ],
+    },
+  ],
+}

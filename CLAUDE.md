@@ -3899,6 +3899,56 @@ inclusive o embed `escala_mensal!inner(jornadas(...))`, que só se prova executa
 número parece grande demais, a primeira pergunta não é "a conta bate?" — é **"esse número responde
 a pergunta que o rótulo faz?"**.
 
+## O manual do usuário — atualizar JUNTO, no mesmo commit (06/09/2026)
+
+🚨 **`SUPORTE → Ajuda` (`src/app/(dashboard)/ajuda/`) é parte do sistema, não um anexo.** Toda
+mudança que altera **o que o usuário vê ou faz** — tela nova, aba nova, botão que sai, regra que
+passa a recusar algo, mensagem que muda de sentido — entra no manual **no mesmo commit**.
+Decisão do usuário em 06/09/2026, ao pedir o manual: *"estamos fazendo constantes atualizações
+aqui e essa documentação precisa entrar no radar de atualizações"*.
+Diário em
+[`docs/evolucao/2026-09-06-manual-do-usuario.md`](docs/evolucao/2026-09-06-manual-do-usuario.md).
+
+⚠️ **Manual desatualizado é pior que manual nenhum**: ele ensina o caminho errado com a
+autoridade de documentação oficial, e quem o segue conclui que o sistema está quebrado — e abre
+chamado sobre um defeito que não existe.
+
+| peça | o quê |
+|---|---|
+| `ajuda/tipos.ts` | os tipos de bloco e a busca (`normalizar` tira acento e caixa) |
+| `ajuda/Blocos.tsx` | a aparência de cada tipo de bloco |
+| `ajuda/conteudo/` | **o manual**, como dados: 8 capítulos, 45 seções |
+| `ajuda/ManualClient.tsx` | sumário, busca, navegação anterior/próxima |
+
+⚠️ **O conteúdo é DADO, nunca JSX.** Três coisas dependem disso: a busca indexa o texto dos
+blocos sozinha (com JSX seria uma lista de palavras-chave à mão, que envelhece na primeira
+edição); um aviso tem a mesma aparência no manual inteiro; e editar um objeto é mais barato que
+editar markup. Precisa de um formato novo? Acrescente um **tipo de bloco**, não HTML solto.
+
+⚠️ **O público é o coordenador da unidade.** Nome de tabela, função ou migration não entram —
+nem em nota de rodapé. O portão reprova: ele varre o texto procurando `fn_`, `escala_diaria`,
+`trigger`, `rpc`, `supabase` e afins. Fale do que se vê na tela ("a célula fica protegida"),
+nunca da implementação.
+
+⚠️ **Explique o PORQUÊ junto com o como.** Quem entende a razão da trava para de tentar
+contorná-la — e é a razão que faz a regra ser lembrada. Aviso de `cuidado` sem consequência
+concreta ensina o leitor a ignorar os avisos.
+
+Portão: `node scratchpad/sim_manual.js` (607 asserções) — ids únicos, link `veja` apontando para
+seção existente, tabela com linhas do tamanho do cabeçalho, `**` e crase balanceados, a busca
+achando os 12 termos que o manual promete, jargão técnico ausente e **cobertura das 23 telas do
+menu**. `node scratchpad/val_sim_manual.js` injeta 5 defeitos de conteúdo e exige reprovação nos
+5. Transpile antes:
+
+```bash
+npx tsc "src/app/(dashboard)/ajuda/tipos.ts" "src/app/(dashboard)/ajuda/conteudo/index.ts" \
+  --outDir scratchpad/_sim_manual --module commonjs --target es2020 --skipLibCheck
+```
+
+⚠️ **A checagem de cobertura é o que impede o manual de envelhecer por omissão.** Tela nova que
+não é citada em lugar nenhum **reprova o portão** — some do radar justamente quem não está
+escrito. Ao criar uma tela, acrescente o nome dela à lista `TELAS` do portão junto com o texto.
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.
