@@ -260,6 +260,19 @@ A e não no B. O que faltava era o **transporte** — `fn_biometria_faltante_dis
 diário em [`docs/evolucao/2026-08-26-sincronia-de-biometria-entre-relogios.md`](docs/evolucao/2026-08-26-sincronia-de-biometria-entre-relogios.md)).
 O parágrafo que existia aqui dizia o contrário — está superado.
 
+🚨 **A cópia move SÓ A DIGITAL — cartão RFID, código e senha não vão junto** (06/09/2026).
+`formatosTemplate` manda apenas `name`, `pis`/`cpf`, `registration` e `templates`; `ListarUsuarios`
+nem lê o `rfid` que o equipamento devolve, e `rep_usuarios_dispositivo` só guarda `tem_biometria`.
+Consequência: quem bate por **cartão** entra na fila como faltando digital, a cópia falha com
+*"o relógio de origem não tem digital cadastrada"* e **repete para sempre** — e "Sincronizar
+cadastros" entrega essa pessoa no relógio novo **sem nenhum meio de bater**. Pendência aberta, a
+testar no **HMM** (os três cenários convivem lá): plano, ordem do diagnóstico e as duas armadilhas
+já conhecidas em
+[`docs/planos/2026-09-06-copia-de-cartao-codigo-e-senha-entre-relogios.md`](docs/planos/2026-09-06-copia-de-cartao-codigo-e-senha-entre-relogios.md).
+⚠️ **A conferência por relistagem NÃO protege esse caso**: ela olha biometria ganha e tamanho do
+cadastro, nunca os **campos de quem ficou**. Antes de escrever cartão em cadastro real, a
+conferência precisa comparar os campos do alvo antes/depois.
+
 ⚠️ **Relógio de OUTRA máquina não replica, e o que fica de fora é silencioso.** Pendência cuja
 origem não está no `config.yaml` daquele computador vira `SemOrigemLocal` (`ciclo/biometria.go`)
 — contado à parte de propósito, **não reportado ao SisEscala** (reportar a deixaria 24h fora da

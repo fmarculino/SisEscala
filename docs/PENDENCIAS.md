@@ -73,6 +73,21 @@ Nem a coleta (`afd-exportar`) nem o envio de cadastros por esse canal foram exer
 hardware real em ciclo completo. Falta também decidir como higienizar um relógio que só recebe
 pendrive.
 
+### 6b. Cartão RFID, código e senha não são copiados entre relógios 🟡
+
+**06/09/2026.** A sincronização automática move **só o template biométrico**. Cartão, código e
+senha não são copiados — e nem são lidos do equipamento (`ListarUsuarios` descarta o `rfid` que o
+relógio devolve; o banco só guarda `tem_biometria`).
+
+Efeito: quem bate por **cartão** vira pendência de biometria que **falha para sempre**, e
+"Sincronizar cadastros" entrega essa pessoa num relógio novo **sem nenhum meio de bater**.
+
+Ambiente de teste escolhido: **HMM** (os três cenários convivem lá). Adiado até estar no local
+(decisão do usuário, 06/09/2026). Primeiro passo é diagnóstico **sem escrever nada**: ler a
+resposta crua de `load_users.fcgi` para um usuário de cartão e um de senha.
+
+Plano: [`docs/planos/2026-09-06-copia-de-cartao-codigo-e-senha-entre-relogios.md`](planos/2026-09-06-copia-de-cartao-codigo-e-senha-entre-relogios.md)
+
 ---
 
 ## Operacional — não é software
