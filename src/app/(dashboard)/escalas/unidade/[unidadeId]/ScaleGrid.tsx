@@ -15,7 +15,7 @@ import {
   Save, Loader2, Info, Zap, Lock, Unlock, FileText, Plus, UserPlus, Users, 
   CheckCircle, Trash2, Globe, X, Copy, Check, Clock, Navigation2, Send, CheckSquare,
   Shield, ShieldCheck, ShieldAlert, AlertTriangle, LayoutTemplate,
-  ChevronLeft, ChevronRight, Sparkles, ExternalLink, ArrowRightLeft
+  ChevronLeft, ChevronRight, ChevronDown, Sparkles, ExternalLink, ArrowRightLeft, Wrench
 } from 'lucide-react'
 import { gerarFolhaPonto } from '@/app/(dashboard)/folha-ponto/actions'
 import { ScalePrintView } from '@/components/ScalePrintView'
@@ -530,6 +530,35 @@ export function ScaleGrid({
   const [allUnidades, setAllUnidades] = useState<any[]>([])
   const [allSetores, setAllSetores] = useState<any[]>([])
   const [isExternalModalOpen, setIsExternalModalOpen] = useState(false)
+  /**
+   * Menu "Ferramentas" da barra superior.
+   *
+   * A barra tem 6 ferramentas de escala + 3 acoes principais (PDF/Salvar/Fechar). Numa tela
+   * menor a linha nao cabe e os botoes da DIREITA — justamente Salvar Previsao e Fechar
+   * Escala — saiam da area visivel. A largura que decide nao e a da janela: a barra encolhe
+   * quando a barra lateral esta aberta, entao o corte usa container query (`@container`),
+   * medindo a largura REAL disponivel para a barra.
+   */
+  const [ferramentasAbertas, setFerramentasAbertas] = useState(false)
+  const ferramentasRef = useRef<HTMLDivElement | null>(null)
+
+  // Fecha o menu de ferramentas ao clicar fora ou apertar Esc. Sem isso o painel fica aberto
+  // por cima da grade e o proximo clique numa celula so serviria para fecha-lo.
+  useEffect(() => {
+    if (!ferramentasAbertas) return
+    const aoClicarFora = (e: MouseEvent) => {
+      if (ferramentasRef.current && !ferramentasRef.current.contains(e.target as Node)) {
+        setFerramentasAbertas(false)
+      }
+    }
+    const aoTeclar = (e: KeyboardEvent) => { if (e.key === 'Escape') setFerramentasAbertas(false) }
+    document.addEventListener('mousedown', aoClicarFora)
+    document.addEventListener('keydown', aoTeclar)
+    return () => {
+      document.removeEventListener('mousedown', aoClicarFora)
+      document.removeEventListener('keydown', aoTeclar)
+    }
+  }, [ferramentasAbertas])
   /**
    * "Transferir Escala": mover a escala mensal de um ou mais servidores para outro setor.
    *
@@ -4961,6 +4990,158 @@ export function ScaleGrid({
     return sortedEscalaMensal
   }, [isComum, linkedServidorId, sortedEscalaMensal])
 
+  /**
+   * As 6 ferramentas de escala da barra superior, definidas UMA vez e renderizadas de duas
+   * formas: botoes lado a lado quando a barra tem largura, e itens de um menu "Ferramentas"
+   * quando nao tem. Duas listas escritas a mao divergiriam — uma ferramenta nova entraria so
+   * na barra larga e sumiria justamente na tela pequena, que e o caso que motivou o menu.
+   */
+  const ferramentasEscala = useMemo(() => {
+    const abrirGerador = () => {
+      if (escalaMensal.length === 0) {
+        setAlertModal({ isOpen: true, title: 'Sem Servidores', message: 'Adicione pelo menos um servidor à grade antes de usar o Gerador Inteligente.', type: 'warning' })
+        return
+      }
+      setIntelligentModal({
+        isOpen: true,
+        respectContinuity: true,
+        respectEvents: true,
+        respectPreferences: true,
+        // Regular e Plantão vêm marcados; Extra e Sobreaviso não. O backtest de
+        // 25/08/2026 mediu 57,5% de precisão no Extra — 43% da hora extra que ele
+        // sugeriria nunca aconteceu — e 33,3% no Sobreaviso. Sugerir sobrejornada
+        // por padrão é o tipo de erro que ninguém revisa.
+        categorias: ['Regular', 'Plantão'],
+        mesesHistorico: MESES_HISTORICO_PADRAO,
+        quantidadeMeses: 1
+      })
+    }
+
+    const abrirTemplate = () => {
+      if (escalaMensal.length === 0) {
+        setAlertModal({ isOpen: true, title: 'Sem Servidores', message: 'Adicione pelo menos um servidor à grade antes de aplicar um template.', type: 'warning' })
+        return
+      }
+      const normalTurnos = turnos.filter(t => t.ativo !== false && t.tipo && t.tipo.split(',').map((s: string) => s.trim()).includes('Normal'))
+      const defaultTurnId = normalTurnos.find(t => t.codigo === 'MT')?.id || normalTurnos[0]?.id || turnos[0]?.id || ''
+      setTemplateModal({
+        isOpen: true,
+        servidorId: escalaMensal[0]?.servidor_id || '',
+        templateType: '12x36',
+        turnoId: defaultTurnId,
+        startDay: 1,
+        startWorking: true,
+        validatePastDays: false
+      })
+    }
+
+    const abrirRevezamento = () => {
+      if (escalaMensal.length < 2) {
+        setAlertModal({ isOpen: true, title: 'Servidores insuficientes', message: 'O revezamento de vigias precisa de pelo menos 2 servidores nesta escala.', type: 'warning' })
+        return
+      }
+      const sugestao = sugerirTurnosVigia(turnos)
+      setRevezamentoModal({
+        isOpen: true,
+        servidorIds: [],
+        servidorInicialId: '',
+        startDay: 1,
+        turnoRegularId: sugestao.regular || '',
+        turnoPlantaoId: sugestao.plantao || '',
+        turnoExtraId: sugestao.extra || '',
+        carregando: false,
+        preview: null
+      })
+    }
+
+    // Transferir a escala inteira de um ou mais servidores para outro setor. Existe porque
+    // transferir alguem de setor no cadastro NUNCA moveu a escala junto — a rotina antiga
+    // apagava os dias posteriores e nao criava nada no destino.
+    const abrirTransferir = () => {
+      if (escalaMensal.length === 0) {
+        setAlertModal({ isOpen: true, title: 'Sem Servidores', message: 'Não há escala nesta grade para transferir.', type: 'warning' })
+        return
+      }
+      setMoverModal({
+        isOpen: true, escalaIds: [], unidadeDestinoId: unidadeId, setorDestinoId: '',
+        justificativa: '', salvando: false, erro: null,
+      })
+    }
+
+    const abrirValidacaoEmMassa = () => {
+      if (escalaMensal.length === 0) {
+        setAlertModal({ isOpen: true, title: 'Sem Servidores', message: 'Adicione pelo menos um servidor à grade antes de realizar a validação em massa.', type: 'warning' })
+        return
+      }
+      setBulkGlobalModal({
+        isOpen: true,
+        selectedServidorIds: escalaMensal.map(em => em.servidor_id),
+        startDay: 1,
+        endDay: Math.min(daysInMonth, maxValidDay || 1),
+        modo: 'completo',
+        categorias: ['Regular', 'Plantão'],
+        justificativa: ''
+      })
+    }
+
+    return [
+      {
+        chave: 'limpar',
+        rotulo: 'Limpar Escala',
+        descricao: 'Apaga os lançamentos previstos desta competência',
+        Icone: Trash2,
+        onClick: handleClearScale,
+        botao: 'border-red-200 text-red-600 hover:bg-red-50 dark:border-red-900/30 dark:text-red-400 dark:hover:bg-red-950/30',
+        item: 'text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30',
+      },
+      {
+        chave: 'transferir',
+        rotulo: 'Transferir Escala',
+        descricao: 'Move a escala de um ou mais servidores para outro setor',
+        Icone: ArrowRightLeft,
+        onClick: abrirTransferir,
+        botao: 'border-amber-200 text-amber-700 bg-amber-50/50 hover:bg-amber-100 dark:border-amber-800 dark:text-amber-400 dark:bg-amber-950/20',
+        item: 'text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/20',
+      },
+      {
+        chave: 'gerador',
+        rotulo: 'Gerador Inteligente',
+        descricao: 'Sugere a escala a partir do histórico do setor',
+        Icone: Sparkles,
+        onClick: abrirGerador,
+        botao: 'border-indigo-200 text-indigo-700 bg-indigo-50/50 hover:bg-indigo-100 dark:border-indigo-800 dark:text-indigo-400 dark:bg-indigo-950/20',
+        item: 'text-indigo-700 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/20',
+      },
+      {
+        chave: 'template',
+        rotulo: 'Aplicar Template',
+        descricao: 'Preenche um padrão fixo (12x36, 24x72, …)',
+        Icone: LayoutTemplate,
+        onClick: abrirTemplate,
+        botao: 'border-purple-200 text-purple-700 hover:bg-purple-50 dark:border-purple-800 dark:text-purple-400 dark:hover:bg-purple-950/20',
+        item: 'text-purple-700 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950/20',
+      },
+      {
+        chave: 'vigias',
+        rotulo: 'Revezamento de Vigias',
+        descricao: 'Monta o rodízio da portaria entre 2 ou mais agentes',
+        Icone: Users,
+        onClick: abrirRevezamento,
+        botao: 'border-teal-200 text-teal-700 hover:bg-teal-50 dark:border-teal-800 dark:text-teal-400 dark:hover:bg-teal-950/20',
+        item: 'text-teal-700 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-950/20',
+      },
+      {
+        chave: 'validar',
+        rotulo: 'Validar em Massa',
+        descricao: 'Atesta a jornada de vários servidores de uma vez',
+        Icone: CheckSquare,
+        onClick: abrirValidacaoEmMassa,
+        botao: 'border-emerald-300 text-emerald-700 bg-emerald-50/50 hover:bg-emerald-100 dark:border-emerald-800 dark:text-emerald-400 dark:bg-emerald-950/20',
+        item: 'text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/20',
+      },
+    ]
+  }, [escalaMensal, turnos, unidadeId, daysInMonth, maxValidDay, handleClearScale])
+
   return (
     <>
       <div className="flex flex-col h-full bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-xl overflow-hidden print:hidden">
@@ -4990,11 +5171,19 @@ export function ScaleGrid({
         gradeAlterada={gradeAlterada}
       />
 
-      {/* Toolbar */}
+      {/* Toolbar
+          ⚠️ `@container` + `@min-[...]` (container query, nao media query): a barra encolhe
+          quando a barra lateral esta aberta, entao o que decide o corte e a largura REAL da
+          barra, nunca a da janela. Com media query, fechar a lateral nao devolveria os botoes.
+          E o `flex-wrap` e a rede de seguranca: se ainda assim nao couber, o grupo da direita
+          desce para a linha de baixo, alinhado a direita — nunca sai da tela.
+          ⚠️ `relative z-30` na barra nao e enfeite: `container-type` implica `contain`, que
+          cria stacking context — sem z-index proprio a barra ficaria ABAIXO do cabecalho
+          sticky da grade (`z-20`) e o menu de ferramentas abriria por tras dele. */}
       {!isComum && (
-        <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 flex justify-between items-center bg-zinc-50 dark:bg-zinc-800/50">
-          <div className="flex items-center space-x-4">
-            <select 
+        <div className="@container relative z-30 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50">
+          <div className="p-4 flex flex-wrap items-center gap-2">
+            <select
               onChange={(e) => {
                 const val = e.target.value
                 if (val === 'all') {
@@ -5011,10 +5200,10 @@ export function ScaleGrid({
               }}
               value=""
               disabled={loading || isClosed}
-              className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
+              className="shrink-0 max-w-[15rem] rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
             >
               <option value="">+ Adicionar Servidor...</option>
-              
+
               <optgroup label="Ações Rápidas">
                 <option value="all" disabled={servidoresElegiveisParaEscala.every(s => escalaMensal.some(em => em.servidor_id === s.id))}>
                   👥 Adicionar Todos do Setor
@@ -5033,174 +5222,98 @@ export function ScaleGrid({
                 }
               </optgroup>
             </select>
-            
-            <button
-              onClick={handleClearScale}
-              disabled={loading || isClosed}
-              className="inline-flex items-center rounded-md border border-red-200 text-red-600 px-3 py-2 text-sm font-medium hover:bg-red-50 dark:border-red-900/30 dark:hover:bg-red-950/30 transition-colors disabled:opacity-50"
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              Limpar Escala
-            </button>
 
-            {/* Transferir a escala inteira de um ou mais servidores para outro setor. Existe
-                porque transferir alguém de setor no cadastro NUNCA moveu a escala junto — a
-                rotina antiga apagava os dias posteriores e não criava nada no destino. */}
-            <button
-              onClick={() => {
-                if (escalaMensal.length === 0) {
-                  setAlertModal({ isOpen: true, title: 'Sem Servidores', message: 'Não há escala nesta grade para transferir.', type: 'warning' })
-                  return
-                }
-                setMoverModal({
-                  isOpen: true, escalaIds: [], unidadeDestinoId: unidadeId, setorDestinoId: '',
-                  justificativa: '', salvando: false, erro: null,
-                })
-              }}
-              disabled={loading || isClosed}
-              className="inline-flex items-center rounded-md border border-amber-200 text-amber-700 bg-amber-50/50 px-3 py-2 text-sm font-medium hover:bg-amber-100 dark:border-amber-800 dark:text-amber-400 dark:bg-amber-950/20 transition-colors disabled:opacity-50"
-            >
-              <ArrowRightLeft className="h-4 w-4 mr-2" />
-              Transferir Escala
-            </button>
+            {/* Barra larga: as 6 ferramentas lado a lado, como sempre foram. */}
+            <div className="hidden @min-[1800px]:flex items-center gap-2">
+              {ferramentasEscala.map(f => (
+                <button
+                  key={f.chave}
+                  onClick={f.onClick}
+                  disabled={loading || isClosed}
+                  className={`inline-flex items-center whitespace-nowrap rounded-md border px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${f.botao}`}
+                >
+                  <f.Icone className="h-4 w-4 mr-2" />
+                  {f.rotulo}
+                </button>
+              ))}
+            </div>
 
-            <button
-              onClick={() => {
-                if (escalaMensal.length === 0) {
-                  setAlertModal({ isOpen: true, title: 'Sem Servidores', message: 'Adicione pelo menos um servidor à grade antes de usar o Gerador Inteligente.', type: 'warning' })
-                  return
-                }
-                setIntelligentModal({
-                  isOpen: true,
-                  respectContinuity: true,
-                  respectEvents: true,
-                  respectPreferences: true,
-                  // Regular e Plantão vêm marcados; Extra e Sobreaviso não. O backtest de
-                  // 25/08/2026 mediu 57,5% de precisão no Extra — 43% da hora extra que ele
-                  // sugeriria nunca aconteceu — e 33,3% no Sobreaviso. Sugerir sobrejornada
-                  // por padrão é o tipo de erro que ninguém revisa.
-                  categorias: ['Regular', 'Plantão'],
-                  mesesHistorico: MESES_HISTORICO_PADRAO,
-                  quantidadeMeses: 1
-                })
-              }}
-              disabled={loading || isClosed}
-              className="inline-flex items-center rounded-md border border-indigo-200 text-indigo-700 bg-indigo-50/50 px-3 py-2 text-sm font-medium hover:bg-indigo-100 dark:border-indigo-800 dark:text-indigo-400 dark:bg-indigo-950/20 transition-colors disabled:opacity-50"
-            >
-              <Sparkles className="h-4 w-4 mr-2 text-indigo-500 animate-pulse" />
-              Gerador Inteligente
-            </button>
-
-            <button
-              onClick={() => {
-                if (escalaMensal.length === 0) {
-                  setAlertModal({ isOpen: true, title: 'Sem Servidores', message: 'Adicione pelo menos um servidor à grade antes de aplicar um template.', type: 'warning' })
-                  return
-                }
-                const normalTurnos = turnos.filter(t => t.ativo !== false && t.tipo && t.tipo.split(',').map((s: string) => s.trim()).includes('Normal'))
-                const defaultTurnId = normalTurnos.find(t => t.codigo === 'MT')?.id || normalTurnos[0]?.id || turnos[0]?.id || ''
-                setTemplateModal({
-                  isOpen: true,
-                  servidorId: escalaMensal[0]?.servidor_id || '',
-                  templateType: '12x36',
-                  turnoId: defaultTurnId,
-                  startDay: 1,
-                  startWorking: true,
-                  validatePastDays: false
-                })
-              }}
-              disabled={loading || isClosed}
-              className="inline-flex items-center rounded-md border border-purple-200 text-purple-700 px-3 py-2 text-sm font-medium hover:bg-purple-50 dark:border-purple-800 dark:text-purple-400 transition-colors disabled:opacity-50"
-            >
-              <LayoutTemplate className="h-4 w-4 mr-2" />
-              Aplicar Template
-            </button>
-
-            <button
-              onClick={() => {
-                if (escalaMensal.length < 2) {
-                  setAlertModal({ isOpen: true, title: 'Servidores insuficientes', message: 'O revezamento de vigias precisa de pelo menos 2 servidores nesta escala.', type: 'warning' })
-                  return
-                }
-                const sugestao = sugerirTurnosVigia(turnos)
-                setRevezamentoModal({
-                  isOpen: true,
-                  servidorIds: [],
-                  servidorInicialId: '',
-                  startDay: 1,
-                  turnoRegularId: sugestao.regular || '',
-                  turnoPlantaoId: sugestao.plantao || '',
-                  turnoExtraId: sugestao.extra || '',
-                  carregando: false,
-                  preview: null
-                })
-              }}
-              disabled={loading || isClosed}
-              className="inline-flex items-center rounded-md border border-teal-200 text-teal-700 px-3 py-2 text-sm font-medium hover:bg-teal-50 dark:border-teal-800 dark:text-teal-400 transition-colors disabled:opacity-50"
-            >
-              <Users className="h-4 w-4 mr-2" />
-              Revezamento de Vigias
-            </button>
-
-            {!isComum && (
+            {/* Barra estreita: as mesmas 6 ferramentas num menu, para o grupo da direita
+                (Salvar Previsão / Fechar Escala) nunca ser empurrado para fora da tela. */}
+            <div className="relative @min-[1800px]:hidden" ref={ferramentasRef}>
               <button
-                onClick={() => {
-                  if (escalaMensal.length === 0) {
-                    setAlertModal({ isOpen: true, title: 'Sem Servidores', message: 'Adicione pelo menos um servidor à grade antes de realizar a validação em massa.', type: 'warning' })
-                    return
-                  }
-                  setBulkGlobalModal({
-                    isOpen: true,
-                    selectedServidorIds: escalaMensal.map(em => em.servidor_id),
-                    startDay: 1,
-                    endDay: Math.min(daysInMonth, maxValidDay || 1),
-                    modo: 'completo',
-                    categorias: ['Regular', 'Plantão'],
-                    justificativa: ''
-                  })
-                }}
+                type="button"
+                onClick={() => setFerramentasAbertas(v => !v)}
                 disabled={loading || isClosed}
-                className="inline-flex items-center rounded-md border border-emerald-300 text-emerald-700 bg-emerald-50/50 px-3 py-2 text-sm font-bold hover:bg-emerald-100 dark:border-emerald-800 dark:text-emerald-400 dark:bg-emerald-950/20 transition-all disabled:opacity-50"
+                aria-haspopup="menu"
+                aria-expanded={ferramentasAbertas}
+                className="inline-flex items-center whitespace-nowrap rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700/50 transition-colors disabled:opacity-50"
               >
-                <CheckSquare className="h-4 w-4 mr-2 text-emerald-600" />
-                ⚡ Validar em Massa
+                <Wrench className="h-4 w-4 mr-2" />
+                Ferramentas
+                <ChevronDown className={`h-4 w-4 ml-2 transition-transform ${ferramentasAbertas ? 'rotate-180' : ''}`} />
               </button>
-            )}
-          </div>
-          
-          <div className="flex items-center space-x-3">
-            {complianceCount > 0 && (
-              <div className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400 text-xs font-bold animate-in fade-in">
-                <AlertTriangle className="h-3.5 w-3.5" />
-                {complianceCount} {complianceCount === 1 ? 'alerta' : 'alertas'} de compliance
-              </div>
-            )}
-            <button onClick={() => window.print()} className="inline-flex items-center rounded-md bg-white dark:bg-zinc-800 px-3 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-50">
-              <FileText className="mr-2 h-4 w-4" /> Gerar PDF
-            </button>
-            
-            <button onClick={handleSave} disabled={loading || isCompetenciaEncerrada || escalaMensal[0]?.status === 'Fechada' || (isClosed && !podeEditarForaDoPrazo(userProfile?.role))} className="inline-flex items-center rounded-md bg-green-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-700 transition-all disabled:opacity-50">
-              {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-              Salvar Previsão
-            </button>
-            {!isStatusFechada && !isCompetenciaEncerrada && (
-              <button 
-                onClick={handleCloseScale} 
-                disabled={loading || escalaMensal.length === 0} 
-                className="inline-flex items-center rounded-md bg-zinc-900 dark:bg-zinc-100 px-4 py-2 text-sm font-semibold text-white dark:text-zinc-900 shadow-sm hover:bg-black dark:hover:bg-white transition-all cursor-pointer disabled:opacity-50"
-              >
-                <Lock className="mr-2 h-4 w-4" /> Fechar Escala
+
+              {ferramentasAbertas && (
+                <div
+                  role="menu"
+                  className="absolute left-0 top-full z-40 mt-2 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-xl ring-1 ring-black/5 py-1 animate-in fade-in"
+                >
+                  {ferramentasEscala.map(f => (
+                    <button
+                      key={f.chave}
+                      role="menuitem"
+                      onClick={() => { setFerramentasAbertas(false); f.onClick() }}
+                      className={`w-full text-left flex items-start gap-3 px-3 py-2.5 text-sm font-medium transition-colors ${f.item}`}
+                    >
+                      <f.Icone className="h-4 w-4 mt-0.5 shrink-0" />
+                      <span className="min-w-0">
+                        {f.rotulo}
+                        <span className="block text-xs font-normal text-zinc-500 dark:text-zinc-400">{f.descricao}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Ações principais. `ml-auto` mantém o grupo colado à direita mesmo quando ele
+                cai para a linha de baixo. */}
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+              {complianceCount > 0 && (
+                <div className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400 text-xs font-bold animate-in fade-in">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  {complianceCount} {complianceCount === 1 ? 'alerta' : 'alertas'} de compliance
+                </div>
+              )}
+              <button onClick={() => window.print()} title="Gerar PDF" className="inline-flex items-center whitespace-nowrap rounded-md bg-white dark:bg-zinc-800 px-3 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-700/50">
+                <FileText className="h-4 w-4" />
+                <span className="ml-2 hidden @min-[880px]:inline">Gerar PDF</span>
               </button>
-            )}
-            {isStatusFechada && !isCompetenciaEncerrada && podeEditarForaDoPrazo(userProfile?.role) && (
-              <button 
-                onClick={handleReopenScale} 
-                disabled={loading} 
-                className="inline-flex items-center rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-700 transition-all cursor-pointer"
-              >
-                <Unlock className="mr-2 h-4 w-4" /> Reabrir Escala
+
+              <button onClick={handleSave} disabled={loading || isCompetenciaEncerrada || escalaMensal[0]?.status === 'Fechada' || (isClosed && !podeEditarForaDoPrazo(userProfile?.role))} className="inline-flex items-center whitespace-nowrap rounded-md bg-green-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-700 transition-all disabled:opacity-50">
+                {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                Salvar Previsão
               </button>
-            )}
+              {!isStatusFechada && !isCompetenciaEncerrada && (
+                <button
+                  onClick={handleCloseScale}
+                  disabled={loading || escalaMensal.length === 0}
+                  className="inline-flex items-center whitespace-nowrap rounded-md bg-zinc-900 dark:bg-zinc-100 px-4 py-2 text-sm font-semibold text-white dark:text-zinc-900 shadow-sm hover:bg-black dark:hover:bg-white transition-all cursor-pointer disabled:opacity-50"
+                >
+                  <Lock className="mr-2 h-4 w-4" /> Fechar Escala
+                </button>
+              )}
+              {isStatusFechada && !isCompetenciaEncerrada && podeEditarForaDoPrazo(userProfile?.role) && (
+                <button
+                  onClick={handleReopenScale}
+                  disabled={loading}
+                  className="inline-flex items-center whitespace-nowrap rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-700 transition-all cursor-pointer"
+                >
+                  <Unlock className="mr-2 h-4 w-4" /> Reabrir Escala
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
