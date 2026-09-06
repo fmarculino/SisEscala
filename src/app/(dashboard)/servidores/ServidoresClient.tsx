@@ -163,11 +163,13 @@ export function ServidoresClient({ initialServidores, unidades, setores }: Servi
       const reportTitle = "Relatório de Servidores"
       const generationDate = formatarDataHoraComSegundos(new Date())
       
+      // `?.nome` sem fallback imprime a palavra "undefined" no papel quando a unidade/setor do
+      // filtro nao esta na lista carregada (ela vem filtrada por `ativo = true`).
       const unidadeName = selectedUnidade 
-        ? unidades.find(u => u.id === selectedUnidade)?.nome 
+        ? (unidades.find(u => u.id === selectedUnidade)?.nome || 'UNIDADE NAO IDENTIFICADA')
         : 'Todas'
       const setorName = selectedSetor
-        ? setores.find(s => s.id === selectedSetor)?.nome 
+        ? (setores.find(s => s.id === selectedSetor)?.nome || 'SETOR NAO IDENTIFICADO')
         : 'Todos'
       const cargoName = selectedCargo || 'Todos'
       const vinculoName = selectedVinculo || 'Todos'

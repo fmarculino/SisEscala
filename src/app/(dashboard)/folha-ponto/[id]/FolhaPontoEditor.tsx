@@ -1119,7 +1119,7 @@ export function FolhaPontoEditor({
             <div>
               <div className="text-[9px] font-black uppercase text-zinc-400 mb-0.5">Unidade</div>
               <div className="font-bold text-zinc-900 dark:text-white uppercase">{unidade.nome}</div>
-              <div className="text-[10px] text-zinc-500 truncate">{unidade.endereco || '---'}</div>
+              <div className="text-[10px] text-zinc-500 truncate print:whitespace-normal print:overflow-visible print:text-clip">{unidade.endereco || '---'}</div>
             </div>
             <div>
               <div className="text-[9px] font-black uppercase text-zinc-400 mb-0.5">Setor / Jornada</div>
@@ -1616,13 +1616,13 @@ export function FolhaPontoEditor({
             </div>
             <div>
               <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">Unidade</span>
-              <div className="font-bold text-zinc-900 dark:text-white uppercase print:text-black truncate" title={unidade.nome}>
+              <div className="font-bold text-zinc-900 dark:text-white uppercase print:text-black truncate print:whitespace-normal print:overflow-visible print:text-clip" title={unidade.nome}>
                 {unidade.nome}
               </div>
             </div>
             <div>
               <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">Setor / Jornada</span>
-              <div className="font-bold text-zinc-900 dark:text-white uppercase print:text-black truncate" title={setor?.nome}>
+              <div className="font-bold text-zinc-900 dark:text-white uppercase print:text-black truncate print:whitespace-normal print:overflow-visible print:text-clip" title={setor?.nome}>
                 {setor?.nome}
               </div>
               <div className="text-zinc-500 uppercase text-[10px]">{jornada?.nome || 'Jornada Padrão'}</div>

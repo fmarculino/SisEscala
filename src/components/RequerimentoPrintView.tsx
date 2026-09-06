@@ -23,7 +23,10 @@ function formatDate(dateStr: string | null | undefined): string {
 
 export function RequerimentoPrintView({ solicitacao, servidor, logoUrl }: RequerimentoPrintViewProps) {
   const tipoLabel = solicitacao.tipo_beneficio === 'ferias' ? 'FÉRIAS' : 'LICENÇA PRÊMIO'
-  const unidadeNome = (servidor.unidades as any)?.nome || 'Hospital Municipal de Marabá'
+  // ⚠️ Nunca cair para o nome de OUTRA unidade real: o fallback anterior era
+  // 'Hospital Municipal de Marabá', que sai no requerimento indistinguivel do dado verdadeiro e
+  // lota a pessoa, em documento assinado, num lugar onde ela nao trabalha.
+  const unidadeNome = (servidor.unidades as any)?.nome || 'UNIDADE NAO INFORMADA'
   const setorNome = (servidor.setores as any)?.dicionario_setores?.nome || '—'
 
   const endereco = [

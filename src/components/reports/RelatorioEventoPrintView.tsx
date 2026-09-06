@@ -34,8 +34,11 @@ export function RelatorioEventoPrintView({
 }: RelatorioEventoPrintViewProps) {
   const [mounted, setMounted] = useState(false)
   const [headerLogoUrl, setHeaderLogoUrl] = useState<string>('')
-  const [unidadeNome, setUnidadeNome] = useState<string>('Unidade de Saúde')
-  const [setorNome, setSetorNome] = useState<string>('Todos os Setores')
+  // Comeca VAZIO de proposito. Um rotulo plausivel ('Unidade de Saúde', 'Todos os Setores')
+  // impresso antes do fetch chegar sai em papel indistinguivel do nome real -- e "Todos os
+  // Setores" num relatorio filtrado por UM setor e afirmacao falsa dentro de documento oficial.
+  const [unidadeNome, setUnidadeNome] = useState<string>('')
+  const [setorNome, setSetorNome] = useState<string>('')
   const [reportEventos, setReportEventos] = useState<any[]>(eventos || [])
   const [loadingEventos, setLoadingEventos] = useState(true)
   const supabase = createClient()
@@ -130,12 +133,16 @@ export function RelatorioEventoPrintView({
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Imprimir so depois que unidade, setor e eventos chegaram: o botao estava liberado
+              desde o primeiro paint e `loadingEventos` nao era lido em lugar nenhum, entao dava
+              para imprimir cabecalho sem nome e lista vazia. */}
           <button
             onClick={() => window.print()}
-            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 font-bold text-xs uppercase tracking-wider rounded-xl flex items-center gap-2 transition-all shadow-lg shadow-indigo-600/30"
+            disabled={loadingEventos}
+            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed font-bold text-xs uppercase tracking-wider rounded-xl flex items-center gap-2 transition-all shadow-lg shadow-indigo-600/30"
           >
-            <Printer className="h-4 w-4" />
-            Imprimir / Salvar PDF
+            {loadingEventos ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
+            {loadingEventos ? 'Carregando…' : 'Imprimir / Salvar PDF'}
           </button>
           <button
             onClick={onClose}
@@ -157,7 +164,9 @@ export function RelatorioEventoPrintView({
           )}
           <h2 className="text-base font-bold uppercase tracking-wider">Prefeitura Municipal de Marabá</h2>
           <h3 className="text-sm uppercase tracking-wider">Secretaria Municipal de Saúde</h3>
-          <h4 className="text-xs uppercase font-bold text-zinc-800">{unidadeNome} — {setorNome}</h4>
+          <h4 className="text-xs uppercase font-bold text-zinc-800">
+            {unidadeNome || 'UNIDADE NAO IDENTIFICADA'} — {setorId ? (setorNome || 'SETOR NAO IDENTIFICADO') : 'Todos os Setores'}
+          </h4>
         </div>
 
         {/* Título do Relatório */}

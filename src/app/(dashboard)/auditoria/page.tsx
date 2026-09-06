@@ -1270,7 +1270,7 @@ export default function AuditoriaPage() {
                           <Building2 className="h-3 w-3" /> Unidade / Setor
                         </p>
                         <p className="text-xs text-zinc-600 dark:text-zinc-400 truncate">
-                          {log.unidades?.nome || 'Geral'} / {log.setores?.nome || 'Dashboard'}
+                          {log.unidades?.nome || 'Geral'} / {(log.setores as any)?.dicionario_setores?.nome || 'Dashboard'}
                         </p>
                       </div>
 
@@ -1357,7 +1357,7 @@ export default function AuditoriaPage() {
                           <div className="flex justify-between text-sm">
                             <span className="text-zinc-500">Unidade/Setor:</span>
                             <span className="font-medium text-right">
-                              {log.unidades?.nome ? `${log.unidades.nome} / ${log.setores?.nome || 'Geral'}` : 'Sistema / Global'}
+                              {log.unidades?.nome ? `${log.unidades.nome} / ${(log.setores as any)?.dicionario_setores?.nome || 'Geral'}` : 'Sistema / Global'}
                             </span>
                           </div>
                           <div className="flex justify-between text-sm">

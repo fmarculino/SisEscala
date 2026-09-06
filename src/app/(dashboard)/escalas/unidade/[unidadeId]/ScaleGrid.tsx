@@ -89,6 +89,17 @@ import { AlterarJornadaModal, type AlterarJornadaAlvo } from '@/components/escal
 interface ScaleGridProps {
   unidadeId: string
   setorId: string
+  /**
+   * Unidade e setor JA RESOLVIDOS no servidor (page.tsx), com o caminho completo do setor.
+   *
+   * O cabecalho do PDF depende deles, e depender do fetch do cliente ja imprimiu "SETOR" /
+   * "UNIDADE DE SAUDE" (os textos de fallback) em papel: aquele fetch filtra por `ativo = true`,
+   * passa pela RLS de quem abriu a tela e so termina depois do primeiro paint. Qualquer um dos
+   * tres falha em silencio -- a tela continua util e a folha impressa sai sem identificar o setor.
+   * O servidor ja tem os dois (a pagina nem renderiza sem eles), entao a fonte passa a ser ele.
+   */
+  unidadeInfo?: any
+  setorInfo?: any
   mes: number
   ano: number
   todosServidoresSetor: any[]
@@ -152,6 +163,8 @@ function assinaturaDaGrade(
 export function ScaleGrid({
   unidadeId,
   setorId,
+  unidadeInfo,
+  setorInfo,
   mes,
   ano,
   todosServidoresSetor,
@@ -936,10 +949,13 @@ export function ScaleGrid({
    * fallback e imprime só a folha, como antes. Nunca fica sem nome.
    */
   const setorAtualComCaminho = useMemo(() => {
+    // `setorInfo` vem do servidor JA com o caminho completo (buscarCaminhosDeSetor em page.tsx) e
+    // sem filtro de `ativo` -- e a unica fonte disponivel no primeiro paint, entao ela vem antes.
+    if (setorInfo?.nome) return setorInfo
     const atual = allSetores.find(s => s.id === setorId)
     if (!atual) return atual
     return { ...atual, nome: buildSectorPathMap(allSetores).get(setorId) || atual.nome }
-  }, [allSetores, setorId])
+  }, [allSetores, setorId, setorInfo])
 
   // Fetch sectors when unit changes in modal
   useEffect(() => {
@@ -6382,7 +6398,7 @@ export function ScaleGrid({
 
       {/* Actual Print View Hidden component */}
       <ScalePrintView 
-        unidade={allUnidades.find(u => u.id === unidadeId)}
+        unidade={unidadeInfo || allUnidades.find(u => u.id === unidadeId)}
         setor={setorAtualComCaminho}
         mes={mes}
         ano={ano}

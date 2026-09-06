@@ -202,15 +202,15 @@ export function ScalePrintView({
               )}
             </div>
             <div className="text-center">
-              <span className="text-sm font-black tracking-widest block uppercase" style={{ fontSize: '11pt' }}>{setor?.nome || 'SETOR'}</span>
-              <span className="text-[7pt] font-bold uppercase">{unidade?.nome || 'Unidade de Saúde'}</span>
+              <span className="text-sm font-black tracking-widest block uppercase" style={{ fontSize: '11pt' }}>{setor?.nome || 'SETOR NAO IDENTIFICADO'}</span>
+              <span className="text-[7pt] font-bold uppercase">{unidade?.nome || 'UNIDADE NAO IDENTIFICADA'}</span>
             </div>
             <div className="text-[7pt] font-black italic uppercase">Escala de Serviço</div>
           </div>
 
           {/* Green/Gray Meta Bar */}
           <div className="bg-green flex justify-between px-3 py-1 text-[8.5pt]" style={{ fontSize: '8.5pt', padding: '4px 8px', marginBottom: '6px' }}>
-            <div className="font-bold">{setor?.nome || 'SETOR'} — {unidade?.nome || 'UNIDADE'}</div>
+            <div className="font-bold">{setor?.nome || 'SETOR NAO IDENTIFICADO'} — {unidade?.nome || 'UNIDADE NAO IDENTIFICADA'}</div>
             <div className="uppercase font-black tracking-wider">01 A {daysInMonth} DE {new Intl.DateTimeFormat('pt-BR', { month: 'long' }).format(new Date(ano, mes - 1))} DE {ano}</div>
             <div className="flex gap-2">
               <div className="bg-white text-black px-3 font-black rounded-sm" style={{ letterSpacing: '0.05em', border: '0.5pt solid #000' }}>OFICIAL</div>

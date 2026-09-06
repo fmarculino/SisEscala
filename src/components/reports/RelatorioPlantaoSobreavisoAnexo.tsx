@@ -118,8 +118,10 @@ export function RelatorioPlantaoSobreavisoAnexo({ dados, onClose }: Props) {
   }
 
   const nomeMes = new Date(ano, mes - 1, 1).toLocaleString('pt-BR', { month: 'long' }).toUpperCase()
-  const unidadeNome = servidor?.unidades?.nome || 'SECRETARIA MUNICIPAL DE SAÚDE'
-  const setorNome = servidor?.setores?.dicionario_setores?.nome || 'SETOR GERAL'
+  // Fallback que PARECE dado real ('SECRETARIA MUNICIPAL DE SAUDE', 'SETOR GERAL') sai no anexo
+  // comprobatorio indistinguivel da lotacao verdadeira. Faltando o dado, o papel diz que falta.
+  const unidadeNome = servidor?.unidades?.nome || 'UNIDADE NAO INFORMADA'
+  const setorNome = servidor?.setores?.dicionario_setores?.nome || 'SETOR NAO INFORMADO'
 
   // Resumo agrupado por tipo individual de plantão
   // ⚠️ O RESUMO CONTA SÓ O QUE FOI CUMPRIDO (24/08/2026).

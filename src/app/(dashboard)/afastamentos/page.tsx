@@ -1090,11 +1090,13 @@ export default function AfastamentosPage() {
       const reportTitle = "Relatório de Afastamentos"
       const generationDate = formatarDataHoraComSegundos(new Date())
       
+      // `?.nome` sem fallback imprime a palavra "undefined" no papel quando a unidade/setor do
+      // filtro nao esta na lista carregada (ela vem filtrada por `ativo = true`).
       const unidadeName = filterUnidade !== 'todas' 
-        ? unidades.find(u => u.id === filterUnidade)?.nome 
+        ? (unidades.find(u => u.id === filterUnidade)?.nome || 'UNIDADE NAO IDENTIFICADA')
         : 'Todas'
       const setorName = filterSetor !== 'todos'
-        ? setores.find(s => s.id === filterSetor)?.nome 
+        ? (setores.find(s => s.id === filterSetor)?.nome || 'SETOR NAO IDENTIFICADO')
         : 'Todos'
       const motivoName = filterTipo !== 'todos'
         ? tiposEventos.find(t => t.id === filterTipo)?.nome

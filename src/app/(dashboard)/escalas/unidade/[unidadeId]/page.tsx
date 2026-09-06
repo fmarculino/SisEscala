@@ -159,6 +159,8 @@ export default async function UnidadeEscalaPage({
         key={`${unidadeId}-${setor}-${mes}-${ano}`}
         unidadeId={unidadeId}
         setorId={setor}
+        unidadeInfo={unidade}
+        setorInfo={setorInfo}
         mes={parseInt(mes)}
         ano={parseInt(ano)}
         todosServidoresSetor={todosServidores || []}
