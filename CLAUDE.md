@@ -270,14 +270,19 @@ ninguém saber. Medido no HMM em 06/09/2026: HMM-01 e HMM-02 estão na mesma má
 equipamento; o **CCE-01** roda noutra (`HMM-CCE-NI`, outra faixa de rede) e **não replica com
 nenhum dos dois**.
 
-🚨 **E o ponto cego do HMM está ABERTO desde 06/09/2026, 17:15.** Um **HMM-03** entrou no ar
-naquela hora, na máquina do HMM-01/02, **sem nenhum setor vinculado — ou seja, atendendo a unidade
-inteira**, o que inclui os 10 setores do CCE-01. Os dois estão em máquinas diferentes, então
-**ninguém desses 10 setores recebe cópia automática**: quem cadastrar a digital num vai precisar
-cadastrar no outro presencialmente, e **nada reclama** (a pendência vira `SemOrigemLocal`). No dia
-da medição as 4 filas estavam zeradas — o custo aparece na primeira digital nova do CCE. Fecha-se
-de duas formas: vincular os setores reais do HMM-03 (se ele não for mesmo um relógio geral), ou
-pôr o CCE-01 no mesmo computador.
+🚨 **Relógio "geral" numa unidade que já tem setoriais cria ponto cego na hora.** Aconteceu no
+HMM em 06/09/2026: o **HMM-03** entrou no ar às 17:15 **sem nenhum setor vinculado — ou seja,
+atendendo a unidade inteira**, o que passou a incluir os 10 setores do CCE-01. Os dois estão em
+máquinas diferentes, então **ninguém desses 10 setores receberia cópia automática**, e **nada
+reclamaria** (a pendência vira `SemOrigemLocal`). ✅ **Fechado no mesmo dia**, dando ao HMM-03 os
+**mesmos 173 setores** do HMM-01/02 — sobreposição com o CCE-01 voltou a **0**, conferido depois de
+aplicar. A outra saída seria pôr o CCE-01 no mesmo computador.
+
+⚠️ **O preço de escopar um relógio já povoado: 122 dos 452 cadastrados no HMM-03 ficaram fora dos
+173 setores** (64 do HMM, 58 de outras unidades — relógio reaproveitado). **Eles continuam no
+equipamento e continuam batendo ponto**; o que muda é que deixam de ser enfileirados e de aparecer
+na Cobertura de Ponto por aquele relógio. HMM-01/02 já viviam assim (349 cadastros para os mesmos
+173 setores), então o ajuste igualou o comportamento em vez de criar um novo.
 
 ⚠️ **Nessa conta, `0 setores vinculados` é sobreposição MÁXIMA, nunca "desconhecido".** Foi o erro
 da primeira versão de `scratchpad/an_biometria_hmm.mjs`, que classificou o par CCE-01 × HMM-03
@@ -291,6 +296,16 @@ HMM-01/02 identificam por **CPF** (287 de 349) e o HMM-03, reaproveitado, por **
 `origem_identificador_afd` e `destino_identificador_afd` **separados**, então `ciclo/biometria.go`
 lê na origem por um e grava no destino pelo outro. Ao ligar relógio reaproveitado numa unidade que
 já tem outros, confira o tipo de identificador — mas não espere que ele impeça a replicação.
+
+✅ **E o cadastro por CPF sobre relógio povoado por PIS NÃO duplicou ninguém — duas defesas
+seguraram** (medido no HMM em 06/09/2026: **0 duplicados** nos 4 relógios, 452 cadastros para 452
+servidores distintos). A primeira é `fn_enfileirar_cadastros_rep`, que pula por
+**`servidor_id` presente no snapshot**, não por identificador — quem já estava sob PIS não foi
+reenfileirado por CPF. A segunda é o **próprio equipamento**: das 165 entradas da fila, 118 foram
+gravadas (gente que realmente não estava lá), 45 ficaram pendentes e **2 falharam com `PIS já
+cadastrado` e `Matrícula já cadastrada`** — recusa de duplicidade, exatamente o modo de falha
+desejado. ⚠️ **A primeira defesa depende do snapshot já ter chegado**: enfileirar antes da
+primeira leitura do equipamento passa por baixo dela, e aí só resta a recusa do device.
 
 ⚠️ **O que travava não era o formato do template, era o COMANDO: `add_users.fcgi` é CRIAÇÃO, não
 atualização.** Nas 45 cópias que falharam ele respondeu `PIS já cadastrado: <n>` — recusa de
