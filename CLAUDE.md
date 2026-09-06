@@ -254,10 +254,43 @@ A e não no B. O que faltava era o **transporte** — `fn_biometria_faltante_dis
 | **a cópia não cria usuário** — só alcança quem já está no destino sem digital | quem não está é a fila de identidade (`rep_cadastros_fila`); é isso que torna impossível duplicar cadastro |
 | depois de escrever, **só o alvo pode ter ganhado biometria E o cadastro não pode ter crescido** | a 2ª conferência pega o formato que "funciona" criando usuário novo — passaria pela 1ª e seria pior que falhar |
 | falha de **transporte** não queima a pendência; **recusa** do equipamento fica 24h fora da fila | mesma distinção de `transitorio` nos cadastros |
+| a cópia só acontece entre relógios que a **mesma máquina** atende | origem e destino saem do mesmo `config.yaml`; o coletor não tem rota até um equipamento que não é dele |
 
 ✅ **CONFIRMADA em campo em 26/08/2026 e JÁ NO CICLO AUTOMÁTICO** (piloto Almox-Pat-CAF-01 → 02;
 diário em [`docs/evolucao/2026-08-26-sincronia-de-biometria-entre-relogios.md`](docs/evolucao/2026-08-26-sincronia-de-biometria-entre-relogios.md)).
 O parágrafo que existia aqui dizia o contrário — está superado.
+
+⚠️ **Relógio de OUTRA máquina não replica, e o que fica de fora é silencioso.** Pendência cuja
+origem não está no `config.yaml` daquele computador vira `SemOrigemLocal` (`ciclo/biometria.go`)
+— contado à parte de propósito, **não reportado ao SisEscala** (reportar a deixaria 24h fora da
+fila por um impedimento que o tempo não muda) e por isso **invisível em tela nenhuma**. Numa
+unidade com equipamentos divididos entre computadores, a pendência fica parada para sempre sem
+ninguém saber. Medido no HMM em 06/09/2026: HMM-01 e HMM-02 estão na mesma máquina
+(`DESKTOP-9NJ3JAJ`) e replicaram uma digital nova em **1 min**, confirmada pela releitura do
+equipamento; o **CCE-01** roda noutra (`HMM-CCE-NI`, outra faixa de rede) e **não replica com
+nenhum dos dois**.
+
+🚨 **E o ponto cego do HMM está ABERTO desde 06/09/2026, 17:15.** Um **HMM-03** entrou no ar
+naquela hora, na máquina do HMM-01/02, **sem nenhum setor vinculado — ou seja, atendendo a unidade
+inteira**, o que inclui os 10 setores do CCE-01. Os dois estão em máquinas diferentes, então
+**ninguém desses 10 setores recebe cópia automática**: quem cadastrar a digital num vai precisar
+cadastrar no outro presencialmente, e **nada reclama** (a pendência vira `SemOrigemLocal`). No dia
+da medição as 4 filas estavam zeradas — o custo aparece na primeira digital nova do CCE. Fecha-se
+de duas formas: vincular os setores reais do HMM-03 (se ele não for mesmo um relógio geral), ou
+pôr o CCE-01 no mesmo computador.
+
+⚠️ **Nessa conta, `0 setores vinculados` é sobreposição MÁXIMA, nunca "desconhecido".** Foi o erro
+da primeira versão de `scratchpad/an_biometria_hmm.mjs`, que classificou o par CCE-01 × HMM-03
+como indeterminado e imprimiu **"nenhum ponto cego hoje"** — a checagem escondeu exatamente o pior
+caso que existia para achar. Relógio sem setor em `dispositivos_rep_setores` atende **tudo**.
+
+ℹ️ **A cópia atravessa tipos de identificador diferentes, e isso é por construção.** No mesmo HMM,
+HMM-01/02 identificam por **CPF** (287 de 349) e o HMM-03, reaproveitado, por **PIS** (314 de 432)
+— armadilha 10 dentro de uma unidade só. Não é problema para a biometria:
+`fn_biometria_faltante_dispositivo` casa por `servidor_id` **resolvido** e devolve
+`origem_identificador_afd` e `destino_identificador_afd` **separados**, então `ciclo/biometria.go`
+lê na origem por um e grava no destino pelo outro. Ao ligar relógio reaproveitado numa unidade que
+já tem outros, confira o tipo de identificador — mas não espere que ele impeça a replicação.
 
 ⚠️ **O que travava não era o formato do template, era o COMANDO: `add_users.fcgi` é CRIAÇÃO, não
 atualização.** Nas 45 cópias que falharam ele respondeu `PIS já cadastrado: <n>` — recusa de
