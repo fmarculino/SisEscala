@@ -48,6 +48,7 @@ export function SeletorSetorArvore({
   placeholder = 'Nenhum setor selecionado',
   alturaMax = 'max-h-56',
   disabled = false,
+  mensagemVazia = 'Selecione a unidade primeiro.',
 }: {
   setores: SetorNoUnico[]
   selecionado: string
@@ -55,6 +56,13 @@ export function SeletorSetorArvore({
   placeholder?: string
   alturaMax?: string
   disabled?: boolean
+  /**
+   * O que dizer quando não há setor nenhum para oferecer. O default cobre o caso dominante
+   * (a unidade ainda não foi escolhida), mas lista vazia também acontece com a unidade JÁ
+   * escolhida e sem setor ativo — e aí "selecione a unidade primeiro" manda fazer o que já
+   * foi feito, que é pior que não dizer nada.
+   */
+  mensagemVazia?: string
 }) {
   const [busca, setBusca] = useState('')
   const [recolhidos, setRecolhidos] = useState<Set<string>>(new Set())
@@ -237,7 +245,7 @@ export function SeletorSetorArvore({
       )}
 
       {setores.length === 0 && (
-        <p className="text-[11px] text-zinc-400">Selecione a unidade primeiro.</p>
+        <p className="text-[11px] text-zinc-400">{mensagemVazia}</p>
       )}
     </div>
   )

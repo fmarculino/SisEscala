@@ -6794,6 +6794,11 @@ export function ScaleGrid({
                     selecionado={moverModal.setorDestinoId}
                     onChange={(id) => setMoverModal(p => ({ ...p, setorDestinoId: id }))}
                     placeholder={moverModal.unidadeDestinoId ? 'Selecione o setor de destino…' : 'Selecione a unidade primeiro'}
+                    mensagemVazia={
+                      moverModal.unidadeDestinoId
+                        ? 'Esta unidade não tem outro setor ativo para receber a escala.'
+                        : 'Escolha a unidade de destino acima para ver os setores dela.'
+                    }
                     disabled={moverModal.salvando}
                   />
                 </div>

@@ -150,12 +150,18 @@ function LinhaSolicitacao({
    * ⚠️ O recorte por unidade é feito AQUI, não dentro da árvore: um setor cujo pai é de outra
    * unidade vira raiz na montagem (`arvoreSetores.ts`) em vez de sumir, que é o que se quer.
    *
+   * ⚠️ **Sem unidade escolhida, a lista é VAZIA — nunca "todos os setores".** O fallback
+   * anterior despejava os setores da rede inteira, e como o rótulo exibido é a FOLHA, o mesmo
+   * nome aparecia dezenas de vezes ("ACS AGENTE DE SAÚDE" uma por unidade) sem nada distinguindo
+   * um do outro — escolher ali era escolher às cegas a lotação de um servidor. É o mesmo motivo
+   * pelo qual o modal "Transferir Escala" (`ScaleGrid`) sempre filtrou estrito por unidade.
+   *
    * `nome` da árvore é a FOLHA (a hierarquia já aparece no recuo); o caminho completo vai para o
    * resumo do escolhido, que é onde ele faz falta depois de recolher um ramo.
    */
   const filteredSetores = useMemo(
     () =>
-      (selectedUnidade ? setores.filter(s => s.unidade_id === selectedUnidade) : setores)
+      (selectedUnidade ? setores.filter(s => s.unidade_id === selectedUnidade) : [])
         .filter(s => s.ativo !== false || s.id === solicitacao.setorDestinoId)
         .map(s => ({
           id: s.id,
@@ -302,6 +308,11 @@ function LinhaSolicitacao({
                   selecionado={selectedSetor}
                   onChange={setSelectedSetor}
                   placeholder={selectedUnidade ? 'Selecione o setor de destino…' : 'Selecione a unidade primeiro'}
+                  mensagemVazia={
+                    selectedUnidade
+                      ? 'Esta unidade não tem setor ativo cadastrado.'
+                      : 'Escolha a unidade de destino acima para ver os setores dela.'
+                  }
                   disabled={salvando}
                 />
               </div>
