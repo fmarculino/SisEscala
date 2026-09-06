@@ -3948,6 +3948,67 @@ npx tsc "src/app/(dashboard)/ajuda/tipos.ts" "src/app/(dashboard)/ajuda/conteudo
 ⚠️ **A checagem de cobertura é o que impede o manual de envelhecer por omissão.** Tela nova que
 não é citada em lugar nenhum **reprova o portão** — some do radar justamente quem não está
 escrito. Ao criar uma tela, acrescente o nome dela à lista `TELAS` do portão junto com o texto.
+### 53. Relógio trocado: o SisEscala afirmava que 35 pessoas estavam num equipamento em branco (06/09/2026)
+
+🚨 O REP do **CCE** (HMM) queimou e foi trocado por um equipamento **inteiramente novo**, mesmo IP e
+mesma senha web. O SisEscala não percebeu nada: a tela continuou dizendo que os 35 servidores
+estavam no relógio (34 `sem_biometria` + 1 `ok`) e "Sincronizar cadastros" devolvia **0 enfileirados
+— para sempre**. Plano em
+[`docs/planos/2026-09-06-troca-de-relogio-e-ciclo-de-vida-do-cadastro-rep.md`](docs/planos/2026-09-06-troca-de-relogio-e-ciclo-de-vida-do-cadastro-rep.md),
+diário em
+[`docs/evolucao/2026-09-06-troca-de-relogio-no-cce.md`](docs/evolucao/2026-09-06-troca-de-relogio-no-cce.md).
+
+⚠️ **A causa é a guarda `IF v_total > 0 THEN` de `fn_registrar_snapshot_usuarios_dispositivo`.**
+Relógio zerado publica lista vazia; o `DELETE` do snapshot roda **antes** da guarda, então o
+snapshot esvazia e **nenhum vínculo é encerrado**. Daí os dois lados mentirem juntos:
+`fn_enfileirar_cadastros_rep` pula quem tem vínculo vigente, e `fn_cobertura_ponto_dispositivo`,
+sem snapshot, **classifica pelo vínculo**.
+
+⚠️ **Não tire a guarda.** A rota cai para `[]` com corpo malformado, e encerrar os vínculos de uma
+unidade inteira por um POST torto é pior que o defeito. ✅ **A informação que separa os dois casos
+existe no coletor e é jogada fora no transporte**: `ListarUsuarios()` que falha faz `return` e nunca
+posta; quem posta `[]` leu o equipamento e achou zero. A correção é o payload dizer isso
+(`leitura_ok`), não afrouxar a guarda.
+
+🚨 **E o pior não estava no relato: o cursor de NSR trava e a batida do relógio novo não chega.**
+`fn_cursor_afd_dispositivo` devolvia **111509** (fim do trecho contíguo do equipamento ANTIGO + 1)
+contra um relógio cujo AFD recomeça no NSR 1 — `get_afd.fcgi` devolve nada, e a sincronização
+aparece como **"concluída"** em todo ciclo. Se chegasse seria pior: `ON CONFLICT (dispositivo_id,
+nsr) DO NOTHING` e `uq_marcacao_rep_nsr` fariam os NSR 1..N do relógio novo colidirem com os do
+antigo e serem **descartados como duplicados, sem erro em lugar nenhum**. Nada se perde (o AFD fica
+no equipamento), mas o sintoma é invisível. **Ao trocar um REP, confira `fn_cursor_afd_dispositivo`
+contra o `last_nsr` do equipamento antes de considerar a instalação pronta.**
+
+A correção decidida (usuário, 06/09/2026) é **coluna `geracao`** em `rep_afd_registros`,
+`marcacoes_ponto` e `dispositivos_rep`, com unicidade `(dispositivo_id, geracao, nsr)` — mantém
+token, `config.yaml`, vínculos e histórico num lugar só. ⚠️ **`nsr_offset` foi considerado e
+descartado**: evitaria mexer em 2,49M + 2,39M linhas, mas falsificaria um campo do artefato legal.
+
+⚠️ **`fn_enfileirar_remocao_usuarios_dispositivo` bloqueia exatamente quem precisa sair.** Ela
+recusa todo `servidor_status = 'Ativo'` — e quem mudou de unidade ou setor **continua Ativo**. Só
+`Inativo` e `Afastado` passam hoje, e nada enfileira remoção sozinho.
+
+🚨 **O critério de remoção tem que ser lotação ∪ escala.** Medido em 06/09/2026: **15** candidatos
+reais no parque. Por lotação pura seriam **140** — os outros 125 são **Servidor Externo** (escalado
+ali, lotado em outra unidade) mais o administrador do parque, e removê-los tiraria do ponto gente
+que bate todo dia. É a mesma união que a aba Cobertura de Ponto adotou em 05/09/2026.
+
+⚠️ **`Afastado` não é removido automaticamente** (decisão do usuário, 06/09/2026): só sinalizado.
+Remover apaga a biometria, e afastamento é temporário — a volta exigiria recadastro presencial, que
+é o gargalo real do parque.
+
+🚨 **O laço que ainda não existe e é fácil de criar:** nada distingue "sumiu do relógio" de "o
+SisEscala mandou tirar". Hoje não vira laço só por acidente (a higiene não alcança quem é `Ativo` e
+o enfileiramento só pega `Ativo`). **No instante em que a remoção alcançar quem é Ativo, o cron do
+dia seguinte recoloca a pessoa** — a defesa (pular quem tem remoção `removido` e ainda não pertence)
+precisa entrar na **mesma** migration.
+
+ℹ️ Destravamento manual do CCE em 06/09/2026 (`scratchpad/fix_cce_recarga.mjs`, com pré-condição que
+aborta se o snapshot não estiver vazio): 35 vínculos encerrados → 35 enfileirados → **35 gravados no
+relógio, 0 falhas**. As criações terem sido aceitas confirma por fora que o equipamento estava em
+branco — num relógio que já os tivesse, `add_users.fcgi` responderia `PIS já cadastrado`. **A
+biometria não volta com isso**: 0 de 35 têm digital, e o CCE-01 é o único relógio da unidade
+naqueles setores, então a cópia automática entre relógios não alcança.
 
 ## Convenções
 
