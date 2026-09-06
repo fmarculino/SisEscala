@@ -4,13 +4,13 @@ import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
   AlertTriangle, UserX, Copy, Hash, CheckCircle2, Search, Users,
-  ChevronDown, ChevronUp, ExternalLink, Info, UserPlus, ArrowRightLeft,
+  ChevronDown, ChevronUp, ExternalLink, Info, UserPlus, ArrowRightLeft, Merge,
 } from 'lucide-react'
 import { ImportacaoRhSection } from './ImportacaoRhSection'
 import { ImportacaoPlanilhaSection } from './ImportacaoPlanilhaSection'
 import { SolicitacoesTransferenciaSection } from './SolicitacoesTransferenciaSection'
-import { CadastrosDuplicadosSection } from './CadastrosDuplicadosSection'
-import type { GrupoDuplicado } from '@/utils/mesclagemCadastro'
+import { CadastrosDuplicadosSection, ancoraGrupoDuplicado } from './CadastrosDuplicadosSection'
+import { mesclagemDoGrupoDuplicidade, type GrupoDuplicado } from '@/utils/mesclagemCadastro'
 
 interface DocumentoInvalido {
   tabela: string
@@ -414,7 +414,8 @@ export function PendenciasCadastroClient({
             <Copy className="h-4 w-4 text-amber-500" /> Possíveis duplicidades
           </h2>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-            Agrupado por CPF, nome, telefone e e-mail. Diagnóstico — homônimo parcial não é duplicata; confira antes de mexer.
+            Agrupado por CPF, nome, telefone e e-mail. Homônimo parcial não é duplicata; confira antes de mexer.
+            Onde os cadastros têm o mesmo CPF, o grupo traz o botão que leva à mesclagem.
           </p>
         </div>
         <div className="p-5">
@@ -427,6 +428,8 @@ export function PendenciasCadastroClient({
               {duplicidades.map(grupo => {
                 const chaveUnica = `${grupo.criterio}:${grupo.chave}`
                 const aberto = gruposAbertos.has(chaveUnica)
+                const mesclagem = mesclagemDoGrupoDuplicidade(grupo, cadastrosDuplicados)
+                const podeMesclarAqui = podeMesclarCadastros && 'cpf' in mesclagem
                 return (
                   <div key={chaveUnica} className="border border-zinc-200 dark:border-zinc-800 rounded-lg overflow-hidden">
                     <button
@@ -437,7 +440,14 @@ export function PendenciasCadastroClient({
                         <span className="font-semibold text-zinc-900 dark:text-white">{CRITERIO_LABEL[grupo.criterio]}</span>
                         <span className="text-zinc-500 dark:text-zinc-400"> — {grupo.chave} · {grupo.quantidade} servidores</span>
                       </span>
-                      {aberto ? <ChevronUp className="h-4 w-4 text-zinc-400" /> : <ChevronDown className="h-4 w-4 text-zinc-400" />}
+                      <span className="flex items-center gap-2 shrink-0">
+                        {podeMesclarAqui && (
+                          <span className="rounded bg-blue-100 dark:bg-blue-500/20 px-2 py-0.5 text-[11px] font-semibold text-blue-700 dark:text-blue-300">
+                            dá para mesclar
+                          </span>
+                        )}
+                        {aberto ? <ChevronUp className="h-4 w-4 text-zinc-400" /> : <ChevronDown className="h-4 w-4 text-zinc-400" />}
+                      </span>
                     </button>
                     {aberto && (
                       <div className="overflow-x-auto">
@@ -469,6 +479,36 @@ export function PendenciasCadastroClient({
                             ))}
                           </tbody>
                         </table>
+                        {/* A saída fica JUNTO do grupo, não numa seção distante: é aqui que
+                            quem olhou os dois cadastros decide que são a mesma pessoa. */}
+                        <div className="border-t border-zinc-100 dark:border-zinc-800 px-4 py-3">
+                          {podeMesclarAqui && 'cpf' in mesclagem ? (
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                                É a mesma pessoa? Mesclar move ponto, escala e folha do cadastro errado para o
+                                correto e inativa o errado — nada é apagado.
+                              </p>
+                              <a
+                                href={`#${ancoraGrupoDuplicado(mesclagem.cpf)}`}
+                                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
+                              >
+                                <Merge className="h-3.5 w-3.5" /> Mesclar cadastros
+                              </a>
+                            </div>
+                          ) : (
+                            /* Sem botão, com o motivo escrito: botão cinza sem explicação ensina a
+                               contornar a tela, e prometer ação que não existe é o defeito que a
+                               própria mesclagem veio corrigir. */
+                            <p className="text-xs text-zinc-500 dark:text-zinc-400 flex items-start gap-1.5">
+                              <Info className="h-3.5 w-3.5 mt-0.5 shrink-0 text-zinc-400" />
+                              <span>
+                                {'motivo' in mesclagem
+                                  ? mesclagem.motivo
+                                  : 'Só o Administrador Geral pode mesclar cadastros.'}
+                              </span>
+                            </p>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>

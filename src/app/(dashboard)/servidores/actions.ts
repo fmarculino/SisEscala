@@ -21,7 +21,10 @@ import { MOTIVO_OBRIGATORIO, traduzirErroVigencia } from '@/utils/vigenciaJornad
 import { mensagemRecusaPin, gerarPin } from '@/utils/pin'
 import { gerarMensagemAcessoPortal } from '@/utils/servidorMensagens'
 import { sendPinEmailAction } from '@/app/actions/communication'
-import { descreverMovimentacao, type GrupoDuplicado } from '@/utils/mesclagemCadastro'
+import {
+  descreverEscalasFundidas, descreverMovimentacao,
+  type EscalaFundida, type GrupoDuplicado,
+} from '@/utils/mesclagemCadastro'
 
 const normalizarCpf = (cpf?: string | null) => (cpf || '').replace(/\D/g, '')
 
@@ -2154,13 +2157,22 @@ export async function mesclarCadastrosServidor(
 
   if (error) return { error: error.message }
 
-  const resultado = (data || {}) as { movidos?: Record<string, number>; campos_completados?: string[] }
+  const resultado = (data || {}) as {
+    movidos?: Record<string, number>
+    campos_completados?: string[]
+    escalas_fundidas?: EscalaFundida[]
+  }
 
   // Relata o que MUDOU, não o que foi calculado (armadilha 22 do CLAUDE.md): quando o cadastro
   // duplicado estava vazio — o caso mais simples e o mais comum de encontrar cedo — não houve
   // vínculo nenhum a mover, e dizer "mesclado" sem dizer isso deixaria quem clicou procurando
   // por um efeito que não existe.
   const movimentos = descreverMovimentacao(resultado.movidos)
+
+  // A escala que mudou de LUGAR sai separada: quando os dois cadastros tinham escala no mesmo
+  // setor e mês, os dias do duplicado passaram para a escala do que fica, e "N escalas movidas"
+  // não deixa isso visível para quem for procurar na grade depois.
+  const escalasFundidas = descreverEscalasFundidas(resultado.escalas_fundidas)
 
   revalidatePath('/servidores/pendencias')
   revalidatePath('/servidores')
@@ -2173,6 +2185,7 @@ export async function mesclarCadastrosServidor(
     success: true,
     resultado,
     movimentos,
+    escalasFundidas,
     camposCompletados: resultado.campos_completados || [],
   }
 }

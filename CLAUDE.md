@@ -2728,6 +2728,20 @@ que não casava com o termo, e o laço da árvore promove a raiz todo setor cujo
 lista — a busca respondia "onde está" tirando a resposta. Os **ancestrais de quem casou** entram
 na lista mesmo sem casar; ao mexer nesse filtro, não recorte o ramo pelo meio.
 
+🚨 **A árvore sem unidade escolhida NÃO pode cair para "todos os setores" (06/09/2026, v2.43.0).**
+`filteredSetores` da avaliação de transferência (`SolicitacoesTransferenciaSection`) tinha o
+fallback `: setores` — sem unidade, os **646 setores da rede**. E como o rótulo exibido é a
+**folha** (a hierarquia sai no recuo), o mesmo nome aparecia dezenas de vezes ("ACS AGENTE DE
+SAÚDE", uma por unidade) sem nada distinguindo um do outro: escolher ali era escolher às cegas a
+**lotação de um servidor**. O `placeholder` já dizia "Selecione a unidade primeiro" e a árvore
+aparecia do mesmo jeito. O modal "Transferir Escala" (`ScaleGrid`) sempre filtrou estrito — era a
+tela de pendências que tinha o furo.
+
+⚠️ **Lista vazia tem DOIS significados, e a mensagem era fixa.** `"Selecione a unidade primeiro."`
+era literal dentro de `SeletorSetorArvore`; com a unidade **já escolhida** e sem setor ativo, ela
+manda fazer o que a pessoa acabou de fazer. Virou a prop `mensagemVazia` (default = o texto
+antigo), e cada consumidor passa a mensagem do estado em que está.
+
 ### 31. O histórico de sobreaviso oferecia acionar plantão vencido (29/08/2026)
 
 ⚠️ **O modal "Histórico de Acionamentos" trazia "Novo Acionamento neste Dia" sempre habilitado**,
@@ -3680,6 +3694,56 @@ separa nada quando as duas são temporárias** — existe assim na base (ANA LUC
 
 ⚠️ **A escala movida continua no setor onde foi lançada** — a mesclagem não adivinha qual escala é
 a "de verdade". Quem resolve é a grade ou mover/dividir a escala (`20260903120000`). A tela avisa.
+
+⚠️ **E quando o destino JÁ TEM escala na mesma competência/unidade/setor, a mesclagem funde as
+duas — desde `20260906100000`.** Antes, a unique de `escala_mensal` caía na varredura genérica de
+unicidade e travava a mesclagem inteira: **5 dos 16 grupos**, medidos em 05/09/2026. A mensagem
+(`escala_mensal: 2 registro(s)... resolva esses registros antes`) não dizia competência, setor
+nem dia — armadilha 44 outra vez. Diário em
+[`docs/evolucao/2026-09-06-mesclar-pela-lista-e-fundir-escala-do-mesmo-setor.md`](docs/evolucao/2026-09-06-mesclar-pela-lista-e-fundir-escala-do-mesmo-setor.md).
+
+**A fusão é barata porque `escala_diaria` não tem `servidor_id`** (herda de `escala_mensal`,
+armadilha 47): repontar `escala_mensal_id` e apagar a escala vazia. A presença **viaja na própria
+linha do dia** — ponto batido acompanha sem ser tocado.
+
+⚠️ **A fusão roda ANTES do laço genérico**, por necessidade: é ele que faria
+`UPDATE escala_mensal SET servidor_id`, e a unique derrubaria a transação inteira. O gerador
+**aborta** se a ordem inverter.
+
+⚠️ **O que continua recusado não é limitação técnica, é decisão de escala.** Dos 5 travados, 4 têm
+o **mesmo dia com turnos diferentes** — `MT` num cadastro e `N` no outro, categoria Regular
+(YSLLENE 24 dias, ELAYNE 18, LETÍCIA 8, EDILEUZA 2). 🚨 **Isso NÃO passa por `escala_sobreposta`**:
+aquela checagem exige `dto.slots && dtd.slots`, e `{M,T}` não cruza com `{N}` — dois lançamentos
+legítimos isoladamente que, juntos, dizem que a pessoa faz 24h em dias alternados. Escolher qual
+sobrevive é do coordenador; a recusa agora nomeia setor, competência, dia e o turno de cada lado.
+Os outros dois motivos novos são `competencia_encerrada`/`escala_fechada` (mesma regra de
+`fn_validar_destino_escala`) e `folha_na_escala_fundida` (`folha_ponto.escala_mensal_id` é único e
+o destino tem a folha dele na mesma competência — juntar dois documentos de folha é outra
+decisão).
+
+⚠️ **A escala fundida é relatada SEPARADA na tela** (`descreverEscalasFundidas`). Diluída na
+contagem de vínculos movidos, ninguém a encontraria depois na grade — é a armadilha 22 aplicada à
+mudança mais visível que a operação produz.
+
+✅ **Conferido em produção em 06/09/2026, depois de aplicar:** 11 → **12** grupos sem impedimento
+(nenhum regrediu), **0** `escala_mensal` órfã de servidor em 2.373, **0** `escala_diaria`
+apontando para escala inexistente em 35.566, e **0** triplas `(escala_mensal_id, dia, categoria)`
+repetidas.
+
+🚨 **A ferramenta existia e ninguém a achava.** A ação vive na seção "Cadastros duplicados"; o
+problema é nomeado em "Possíveis duplicidades", **duas seções longas abaixo**. Desde a v2.43.0 o
+grupo do diagnóstico traz selo, botão que ancora no grupo da ação (`ancoraGrupoDuplicado`, que
+abre e rola até ele) e, quando não dá, **o motivo escrito** — botão cinza sem explicação ensina a
+contornar a tela (armadilha 31).
+
+⚠️ **O critério do botão é o CPF, NUNCA o do agrupamento** (`mesclagemDoGrupoDuplicidade`).
+Medido em 05/09/2026 nos 40 grupos do diagnóstico: os **16 agrupados por nome** têm o mesmo CPF
+dos dois lados e são mescláveis; **3 dos 6 por telefone e 2 dos 5 por e-mail têm CPF diferente** —
+um dos de e-mail é um endereço compartilhado por **12 pessoas**. Recusar pelo rótulo esconderia os
+16; aceitar pelo telefone mesclaria duas pessoas, e o ponto de uma viraria ponto da outra.
+
+Portão: `node scratchpad/sim_mesclagem_da_lista.js` (21 asserções) +
+`node scratchpad/val_sim_mesclagem_da_lista.js`, que injeta 3 regressões e exige reprovação nas 3.
 
 🚨 **INATIVAR em vez de excluir tem um preço, e ele apareceu no primeiro uso real:** o cadastro
 mesclado continuava sendo enxergado pelas duas checagens de CPF, e **`fn_cpf_ja_cadastrado` é o

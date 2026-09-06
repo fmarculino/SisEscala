@@ -35,6 +35,61 @@ export interface GrupoDuplicado {
   cadastros: CadastroDuplicado[]
 }
 
+/** Um grupo da lista de diagnóstico ("Possíveis duplicidades"), agrupado por CPF/nome/tel/e-mail. */
+export interface GrupoSuspeito {
+  criterio: 'cpf' | 'nome' | 'telefone' | 'email'
+  servidores: { cpf: string | null }[]
+}
+
+export type MesclagemDoGrupo = { cpf: string } | { motivo: string }
+
+const soDigitos = (v: string | null | undefined) => (v || '').replace(/\D/g, '')
+
+/**
+ * Liga o DIAGNÓSTICO à AÇÃO: este grupo suspeito tem mesclagem disponível?
+ *
+ * A mesclagem já existia, na seção "Cadastros duplicados" — mas ela fica acima de duas seções
+ * longas, e quem chega na lista de possíveis duplicidades, onde o problema tem nome, não tinha o
+ * que fazer com a informação (armadilha 44 do CLAUDE.md: apontar o problema sem dar a saída).
+ *
+ * ⚠️ O critério é o CPF, nunca o do agrupamento. Um grupo por NOME cujos dois cadastros tenham o
+ * mesmo CPF é mesclável — medido em 05/09/2026: os 16 grupos por nome são assim. Um por telefone
+ * ou e-mail com CPFs diferentes NÃO é: podem ser duas pessoas no mesmo telefone (3 dos 6 grupos
+ * por telefone medidos), e mesclar pessoas diferentes é o pior erro que essa ferramenta comete —
+ * o ponto de uma vira ponto da outra, e não há desfazer.
+ *
+ * ⚠️ Devolve o MOTIVO quando não dá, e a tela escreve o motivo em vez de mostrar botão cinza:
+ * botão desabilitado sem explicação ensina a contornar a tela (mesma lição da armadilha 31).
+ */
+export function mesclagemDoGrupoDuplicidade(
+  grupo: GrupoSuspeito,
+  gruposComAcao: GrupoDuplicado[],
+): MesclagemDoGrupo {
+  const cpfs = new Set(grupo.servidores.map(s => soDigitos(s.cpf)))
+
+  if (cpfs.size === 1 && cpfs.has('')) {
+    return {
+      motivo: 'Nenhum destes cadastros tem CPF — sem CPF não dá para afirmar que são a mesma '
+        + 'pessoa. Preencha o CPF na ficha antes de mesclar.',
+    }
+  }
+  if (cpfs.size > 1) {
+    return {
+      motivo: 'Os cadastros deste grupo têm CPF diferente entre si — pode não ser a mesma pessoa. '
+        + 'Confira as fichas; a mesclagem exige o mesmo CPF nos dois lados.',
+    }
+  }
+
+  const cpf = [...cpfs][0]
+  if (!gruposComAcao.some(g => soDigitos(g.cpf) === cpf)) {
+    return {
+      motivo: 'Não há mais de um cadastro ativo com este CPF — nada a mesclar (um dos lados já foi '
+        + 'mesclado ou não está mais ativo).',
+    }
+  }
+  return { cpf }
+}
+
 /** Nome de tabela → o que aquilo significa para quem está na tela. */
 const ROTULOS_VINCULO: Record<string, string> = {
   escala_mensal: 'escalas mensais',
@@ -92,6 +147,29 @@ export function descreverMovimentacao(movidos: Record<string, number> | null | u
     .filter(([chave]) => chave !== 'servidores.mesclado_em_servidor_id')
     .sort((a, b) => b[1] - a[1])
     .map(([chave, qtd]) => `${qtd} ${rotularVinculo(chave)}`)
+}
+
+/** Uma escala mensal que a mesclagem fundiu com a do cadastro que ficou. */
+export interface EscalaFundida {
+  competencia: string
+  setor: string
+  dias_movidos: number
+}
+
+/**
+ * A escala que MUDOU DE LUGAR, dita em português.
+ *
+ * ⚠️ Isto não é detalhe de log. Quando os dois cadastros tinham escala no mesmo setor e mês, a
+ * mesclagem funde as duas — os dias do cadastro duplicado passam para a escala do que fica. É a
+ * mudança mais visível que a operação produz na grade, e a que alguém procuraria depois sem
+ * saber onde. Contar só "N escalas movidas" esconderia justamente a fusão (armadilha 22).
+ */
+export function descreverEscalasFundidas(fundidas: EscalaFundida[] | null | undefined): string[] {
+  if (!fundidas?.length) return []
+  return fundidas.map(
+    f => `${f.competencia} em ${f.setor}: ${f.dias_movidos} dia${f.dias_movidos === 1 ? '' : 's'}` +
+      ' passaram para a escala do cadastro que fica'
+  )
 }
 
 /** Matrícula temporária do RH: "T2600103". Vira número no relógio removendo o T (convenção da Fase 7). */

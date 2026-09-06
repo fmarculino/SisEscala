@@ -133,9 +133,15 @@ function CartaoCadastro({
   )
 }
 
+/** Âncora estável do grupo — é para cá que a lista de "Possíveis duplicidades" aponta. */
+export function ancoraGrupoDuplicado(cpf: string): string {
+  return `dup-${(cpf || '').replace(/D/g, '')}`
+}
+
 function Grupo({ grupo }: { grupo: GrupoDuplicado }) {
   const router = useRouter()
   const sugestao = useMemo(() => sugerirDestino(grupo), [grupo])
+  const ancora = ancoraGrupoDuplicado(grupo.cpf)
 
   const [aberto, setAberto] = useState(false)
   const [destinoId, setDestinoId] = useState<string>('')
@@ -147,10 +153,28 @@ function Grupo({ grupo }: { grupo: GrupoDuplicado }) {
   const [erro, setErro] = useState<string | null>(null)
   const [motivo, setMotivo] = useState('')
   const [feito, setFeito] = useState<string[] | null>(null)
+  const [escalasFundidas, setEscalasFundidas] = useState<string[]>([])
 
   // Com DOIS cadastros, escolher quem fica já diz quem é o duplicado. Com três ou mais, o resto
   // continua na lista e a mesclagem é feita um par por vez - juntar três de uma vez esconderia
   // qual foi para onde no log.
+  /**
+   * Chegou por link da lista de diagnóstico: abre o grupo e rola até ele. `hashchange` é
+   * obrigatório porque clicar duas vezes no MESMO link não navega — sem ele, quem fecha o
+   * grupo e clica de novo no botão de lá não vê reação nenhuma.
+   */
+  useEffect(() => {
+    function conferirHash() {
+      if (typeof window === 'undefined') return
+      if (window.location.hash.slice(1) !== ancora) return
+      setAberto(true)
+      document.getElementById(ancora)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+    conferirHash()
+    window.addEventListener('hashchange', conferirHash)
+    return () => window.removeEventListener('hashchange', conferirHash)
+  }, [ancora])
+
   useEffect(() => {
     if (!destinoId) { setOrigemId(''); return }
     const outros = grupo.cadastros.filter(c => c.id !== destinoId)
@@ -185,6 +209,7 @@ function Grupo({ grupo }: { grupo: GrupoDuplicado }) {
     setMesclando(false)
     if ('error' in res && res.error) { setErro(res.error); return }
     setConfirmando(false)
+    setEscalasFundidas(('escalasFundidas' in res ? res.escalasFundidas : []) || [])
     setFeito(('movimentos' in res ? res.movimentos : []) || [])
     router.refresh()
   }
@@ -193,7 +218,7 @@ function Grupo({ grupo }: { grupo: GrupoDuplicado }) {
 
   if (feito) {
     return (
-      <div className="rounded-lg border border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-500/10 p-4">
+      <div id={ancora} className="scroll-mt-24 rounded-lg border border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-500/10 p-4">
         <p className="flex items-center gap-2 font-medium text-emerald-800 dark:text-emerald-300">
           <CheckCircle2 className="h-4 w-4" /> {nome} — cadastros mesclados.
         </p>
@@ -202,12 +227,25 @@ function Grupo({ grupo }: { grupo: GrupoDuplicado }) {
             ? `Movido para a matrícula ${destino?.matricula}: ${feito.join(', ')}.`
             : 'O cadastro duplicado não tinha nenhum vínculo — nada precisou ser movido.'}
         </p>
+        {/* A escala fundida vem em separado porque é a mudança que alguém vai PROCURAR na
+            grade depois — diluída na contagem de vínculos movidos, ninguém a encontraria. */}
+        {escalasFundidas.length > 0 && (
+          <div className="mt-2 text-sm text-emerald-700 dark:text-emerald-400">
+            <p className="font-medium">Escalas fundidas (o setor já tinha escala nos dois cadastros):</p>
+            <ul className="mt-1 list-disc pl-5 space-y-0.5">
+              {escalasFundidas.map(e => <li key={e}>{e}</li>)}
+            </ul>
+          </div>
+        )}
       </div>
     )
   }
 
   return (
-    <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
+    <div
+      id={ancora}
+      className="scroll-mt-24 rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden target:border-blue-400 target:ring-2 target:ring-blue-400/40 dark:target:border-blue-500"
+    >
       <button
         type="button"
         onClick={() => setAberto(v => !v)}
