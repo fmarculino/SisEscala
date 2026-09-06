@@ -284,6 +284,36 @@ equipamento e continuam batendo ponto**; o que muda é que deixam de ser enfilei
 na Cobertura de Ponto por aquele relógio. HMM-01/02 já viviam assim (349 cadastros para os mesmos
 173 setores), então o ajuste igualou o comportamento em vez de criar um novo.
 
+### Uma unidade pode ter vários SÍTIOS FÍSICOS, e é isso que dita o escopo do relógio
+
+🚨 **No HMM, `unidade` não é lugar.** O hospital tem o prédio principal, o **CCE** (Centro de
+Cirurgias Eletivas) e a **ALA - PSICOSSOCIAL**, em endereços diferentes, todos sob a mesma
+`unidades.id`. Cada sítio tem (ou terá) **relógio próprio**, e os setores se dividem entre eles
+**sem interseção**: 173 no prédio principal (HMM-01/02/03), 10 no CCE-01, e o ramo da ALA
+aguardando o equipamento dele. Confirmado pelo usuário em 06/09/2026.
+
+⚠️ **Por isso "atende a unidade inteira" (nenhum setor em `dispositivos_rep_setores`) está ERRADO
+para qualquer relógio de unidade multi-sítio** — e não avisa. Foi o que o HMM-03 fez ao entrar no
+ar: passou a "atender" também os setores do CCE, criando ponto cego de biometria com um
+equipamento que está noutro prédio e noutra máquina. **Relógio sem setor vinculado atende tudo.**
+
+⚠️ **O ramo do CCE está dividido de propósito entre DOIS relógios**, e a divisão é física, não
+hierárquica: dos 24 subsetores, 9 vão ao CCE-01 (centro cirúrgico, CME, clínica cirúrgica) e 13
+aos relógios do prédio principal (cozinha, farmácia, SAME, portaria). **Não "arrume" isso
+vinculando o ramo inteiro a um relógio só** — a árvore de setores diz a estrutura administrativa, o
+vínculo do relógio diz onde a pessoa encosta o dedo, e as duas não coincidem.
+
+ℹ️ **Servidor em setor sem relógio nenhum continua batendo ponto normalmente.** A batida é atribuída
+por CPF/PIS direto em `servidores` (armadilha 13); o setor decide **cobertura, enfileiramento e
+relatório**, nunca autoria. Medido em 06/09/2026: 36 lotados ativos do HMM em setor sem relógio, 32
+deles já cadastrados no HMM-03 e 15 com digital — registrando ponto sem nenhum problema.
+
+**Ao instalar o relógio de um sítio novo** (o da ALA é o próximo): vincule **os setores daquele
+sítio** antes de liberar o uso — nunca deixe em "unidade inteira" —, confira `ponto_valido_desde`
+e o **tipo de identificador** se o equipamento for reaproveitado (armadilha 10), e lembre que ele
+estará em **outra máquina**: não haverá cópia automática de biometria com os demais, o que é
+inofensivo enquanto os setores não se sobrepuserem.
+
 ⚠️ **Nessa conta, `0 setores vinculados` é sobreposição MÁXIMA, nunca "desconhecido".** Foi o erro
 da primeira versão de `scratchpad/an_biometria_hmm.mjs`, que classificou o par CCE-01 × HMM-03
 como indeterminado e imprimiu **"nenhum ponto cego hoje"** — a checagem escondeu exatamente o pior
