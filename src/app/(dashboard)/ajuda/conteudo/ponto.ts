@@ -373,6 +373,74 @@ export const ponto: Capitulo = {
     },
 
     {
+      id: 'cobertura-escala',
+      titulo: 'Cobertura da Escala',
+      resumo: 'Quem está escalado onde ainda não consegue bater ponto.',
+      papeis: ['Coordenador', 'RH da Unidade', 'RH Geral', 'Administrador Geral', 'Diretor'],
+      blocos: [
+        {
+          tipo: 'p',
+          texto:
+            'Enquanto a Cobertura de Ponto responde **por relógio**, esta aba responde pelo município inteiro: de todo mundo escalado no mês, quem **não consegue registrar ponto no lugar onde foi escalado**. A lista vem ordenada pelo primeiro dia escalado, então o mais urgente aparece primeiro. Quem já consegue bater não aparece.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'Plantão em outra unidade exige digital naquela unidade',
+          texto:
+            'Quem é lotado num lugar e faz plantão em outro aparece aqui marcado como **externo**. O cadastro dele chega sozinho ao relógio da outra unidade, mas **a digital não** — ela precisa ser coletada lá, uma vez. Se ninguém fizer isso antes do primeiro plantão, a pessoa trabalha e o dia sai em branco.',
+        },
+        {
+          tipo: 'tabela',
+          colunas: ['Situação', 'O que quer dizer', 'O que fazer'],
+          linhas: [
+            [
+              'Sem biometria',
+              'Está cadastrada no relógio da unidade, sem digital.',
+              'Levar a pessoa ao equipamento para coletar a digital.',
+            ],
+            [
+              'Fora do relógio',
+              'Ainda não foi cadastrada no equipamento daquela unidade.',
+              'A rotina diária resolve sozinha. Para não esperar, use "Sincronizar cadastros" na aba Dispositivos REP — depois ainda falta a digital.',
+            ],
+            [
+              'Setor sem relógio',
+              'O setor onde ela foi escalada não é atendido por equipamento nenhum.',
+              'Vincular o setor a um relógio, ou confirmar que ali o ponto é registrado por outro meio.',
+            ],
+            [
+              'Só em um relógio',
+              'Tem digital em parte dos relógios do setor, não em todos.',
+              'Quando os equipamentos ficam no mesmo computador, o sistema copia a digital sozinho no próximo ciclo.',
+            ],
+          ],
+        },
+        {
+          tipo: 'aviso',
+          tom: 'dica',
+          titulo: 'A coluna "já bate em" poupa viagem',
+          texto:
+            'Cada linha diz onde aquela pessoa já consegue bater hoje. Quem já bate em alguma unidade só precisa da coleta na nova — quem não bate em lugar nenhum nunca teve digital coletada, e costuma ser gente recém-admitida.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'A digital não passa de uma unidade para outra',
+          texto:
+            'A cópia automática de digital só acontece entre relógios **da mesma unidade** atendidos pelo **mesmo computador**. Entre unidades diferentes não há caminho: quem trabalha em duas unidades cadastra a digital nas duas, uma vez em cada.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'dica',
+          titulo: 'Exportar para distribuir',
+          texto:
+            'O botão **Exportar CSV** gera a lista filtrada para enviar a cada unidade, com nome, matrícula, setor, situação e o primeiro dia escalado.',
+        },
+      ],
+    },
+
+    {
       id: 'justificativas',
       titulo: 'Justificativas',
       resumo: 'Registrar por escrito o motivo de uma falta ou ocorrência.',

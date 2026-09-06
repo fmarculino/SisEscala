@@ -4088,6 +4088,43 @@ branco — num relógio que já os tivesse, `add_users.fcgi` responderia `PIS j�
 biometria não volta com isso**: 0 de 35 têm digital, e o CCE-01 é o único relógio da unidade
 naqueles setores, então a cópia automática entre relógios não alcança.
 
+### Cobertura da Escala: quem está escalado onde não consegue bater (06/09/2026)
+
+⚠️ **A identidade do Servidor Externo JÁ chega sozinha ao relógio da outra unidade** —
+`fn_enfileirar_cadastros_por_escala` escolhe por **escala**, não por lotação, e o cron diário
+(`enfileirarCadastrosDoParque`) roda as duas RPCs em todo dispositivo ativo. Não construa
+encanamento novo para isso; ele existe desde 13/08/2026 e foi conferido em produção.
+
+🚨 **A DIGITAL não chega, e é estrutural.** `fn_biometria_faltante_dispositivo` só busca origem na
+**mesma unidade**, e afrouxar isso renderia zero: a cópia é feita pelo coletor **dentro da rede da
+unidade**, e **nenhuma máquina do parque atende duas unidades** (medido em 06/09/2026, 29
+dispositivos). Mandar o template pelo servidor está fora por LGPD e por não haver rota. **Quem
+trabalha em duas unidades cadastra a digital nas duas, uma vez em cada.**
+
+O que faltava não era encanamento, era **aviso** — a informação só existia relógio a relógio.
+`fn_cobertura_escala_parque` / `fn_cobertura_escala_resumo` (`20260906110000`) e a aba
+**Cobertura da Escala** em `/marcacoes` respondem "quem está escalado onde não consegue bater, e a
+partir de que dia", ordenado pela urgência. Plano em
+[`docs/planos/2026-09-06-painel-de-cobertura-de-escala-do-parque.md`](docs/planos/2026-09-06-painel-de-cobertura-de-escala-do-parque.md).
+
+⚠️ **O painel NÃO é "de externos", e restringi-lo a eles seria o erro.** Medido em 09/2026: das
+**85 escalas / 84 pessoas** que não conseguem bater onde estão escaladas, **só 2 são externas**.
+O caso que motivou é real e vai crescer, mas filtrar por externo esconderia 82 dos 84 — o externo
+é **sinalizado**, nunca usado como filtro padrão.
+
+⚠️ **O universo é escala COM DIA LANÇADO.** Adicionar alguém à grade sem turno nenhum não o manda
+ao relógio, e isso é correto: foi exatamente o que separou "4 externos sumidos" de um bug real —
+os 4 tinham `escala_mensal` no destino com **zero** dias. Ao diagnosticar "escalei e não foi para
+o relógio", **confira se algum dia foi lançado antes de suspeitar da fila**.
+
+⚠️ **Leitura pura, de propósito.** O painel não enfileira e não escreve em equipamento: quem faz
+isso é o cron e o botão "Sincronizar cadastros", que já funcionam. Caminho de escrita novo aqui
+seria risco sem ganho.
+
+⚠️ `sem_relogio_no_setor` **não é defeito do painel** — são 17 escalas em setores que nenhum
+equipamento atende (o caso da ALA - PSICOSSOCIAL do HMM, que aguarda relógio próprio). Some quando
+o setor for vinculado a um relógio.
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.

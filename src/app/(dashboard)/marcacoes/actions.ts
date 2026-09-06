@@ -1064,3 +1064,81 @@ export async function revogarAutorizacaoPontoColetivo(id: string, motivo: string
   revalidatePath('/marcacoes')
   return { error: null }
 }
+
+// ---------------------------------------------------------------------------
+// Painel de cobertura de ESCALA do parque (06/09/2026)
+//
+// Responde o que nenhuma tela respondia: "quem está escalado onde NÃO consegue bater ponto, e a
+// partir de que dia". A aba Cobertura de Ponto responde isso relógio a relógio; aqui é o parque
+// inteiro, ordenado por urgência.
+//
+// Nasceu do Servidor Externo (lotado numa unidade, escalado em outra) — mas medido em 06/09/2026
+// só 2 dos 84 casos eram externos, então o escopo é toda a escala e o externo é só sinalizado.
+// Restringir a externos esconderia 82 dos 84.
+//
+// ⚠️ LEITURA PURA. Não enfileira nada e não escreve em equipamento: quem faz isso é o cron diário
+// e o botão "Sincronizar cadastros", que já existem e já funcionam. Um caminho de escrita novo
+// aqui seria risco sem ganho.
+// ---------------------------------------------------------------------------
+
+export type SituacaoCoberturaEscala =
+  | 'sem_biometria'         // está no relógio, sem digital — cadastro presencial
+  | 'fora_do_relogio'       // nem cadastro; a fila/cron resolve sozinha
+  | 'sem_relogio_no_setor'  // o setor da escala não tem equipamento nenhum
+  | 'parcial'               // bate em um relógio da unidade, não em todos
+
+export interface CoberturaEscalaLinha {
+  servidor_id: string
+  servidor_nome: string
+  matricula: string
+  escala_unidade_id: string
+  unidade_nome: string
+  setor_id: string | null
+  setor_nome: string | null
+  /** Lotado em outra unidade = "Servidor Externo". Sinalizado, nunca usado como filtro. */
+  externo: boolean
+  lotacao_nome: string | null
+  dias_escalados: number
+  /** Primeiro dia escalado no mês — é a urgência, e por isso a lista vem ordenada por ele. */
+  primeiro_dia: number
+  situacao: SituacaoCoberturaEscala
+  relogios_alvo: string | null
+  /** Onde a pessoa bate hoje, em qualquer unidade. null = nunca cadastrou digital. */
+  bate_em: string | null
+}
+
+export interface CoberturaEscalaResumo {
+  escala_unidade_id: string
+  unidade_nome: string
+  pessoas: number
+  externos: number
+  sem_biometria: number
+  fora_do_relogio: number
+  sem_relogio_no_setor: number
+  parcial: number
+  bate_em_outra: number
+}
+
+export async function listarCoberturaEscala(
+  mes?: number, ano?: number,
+): Promise<Resultado<CoberturaEscalaLinha[]>> {
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc('fn_cobertura_escala_parque', {
+    p_mes: mes ?? null,
+    p_ano: ano ?? null,
+  })
+  if (error) return { dados: [], error: erroLegivel(error) }
+  return { dados: (data || []) as CoberturaEscalaLinha[], error: null }
+}
+
+export async function listarCoberturaEscalaResumo(
+  mes?: number, ano?: number,
+): Promise<Resultado<CoberturaEscalaResumo[]>> {
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc('fn_cobertura_escala_resumo', {
+    p_mes: mes ?? null,
+    p_ano: ano ?? null,
+  })
+  if (error) return { dados: [], error: erroLegivel(error) }
+  return { dados: (data || []) as CoberturaEscalaResumo[], error: null }
+}

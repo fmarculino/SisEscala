@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { formatarDataHoraComSegundos } from '@/utils/horario'
-import { Monitor, Fingerprint, ListChecks, Plus, Pencil, Trash2, ShieldCheck, UploadCloud, HeartPulse, FileCheck2 } from 'lucide-react'
-import { listarTerminaisLocais, listarDispositivosRep, excluirTerminalLocal, excluirDispositivoRep, listarCoberturaResumo } from './actions'
+import { Monitor, Fingerprint, ListChecks, Plus, Pencil, Trash2, ShieldCheck, UploadCloud, HeartPulse, FileCheck2, CalendarClock } from 'lucide-react'
+import { listarTerminaisLocais, listarDispositivosRep, excluirTerminalLocal, excluirDispositivoRep, listarCoberturaResumo, listarCoberturaEscalaResumo } from './actions'
 import { TerminalLocalModal } from './TerminalLocalModal'
 import { DispositivoRepModal } from './DispositivoRepModal'
 import { PendenciasTab } from './PendenciasTab'
@@ -11,10 +11,11 @@ import { BiometriaTab } from './BiometriaTab'
 import { HigieneDispositivoTab } from './HigieneDispositivoTab'
 import { ImportarPendriveTab } from './ImportarPendriveTab'
 import { CoberturaTab } from './CoberturaTab'
+import { CoberturaEscalaTab } from './CoberturaEscalaTab'
 import { AutorizacoesPontoTab } from './AutorizacoesPontoTab'
 import { IdCopyBadge } from './IdCopyBadge'
 
-type Aba = 'terminais' | 'dispositivos' | 'cobertura' | 'pendencias' | 'biometria' | 'higiene' | 'pendrive' | 'autorizacoes'
+type Aba = 'terminais' | 'dispositivos' | 'cobertura' | 'cobertura_escala' | 'pendencias' | 'biometria' | 'higiene' | 'pendrive' | 'autorizacoes'
 
 interface Opcoes {
   unidades: { id: string; nome: string }[]
@@ -118,6 +119,7 @@ function statusColetaDispositivo(d: any): { texto: string; classe: string } {
 
 export function MarcacoesClient({ isAdmin, podeAutorizar, opcoes }: { isAdmin: boolean; podeAutorizar: boolean; opcoes: Opcoes }) {
   const [aba, setAba] = useState<Aba>(isAdmin ? 'terminais' : 'pendencias')
+  const [alertaEscala, setAlertaEscala] = useState<number | null>(null)
 
   const [terminais, setTerminais] = useState<any[]>([])
   const [dispositivos, setDispositivos] = useState<any[]>([])
@@ -174,6 +176,14 @@ export function MarcacoesClient({ isAdmin, podeAutorizar, opcoes }: { isAdmin: b
   // O alerta de cobertura carrega junto com a página, não quando a aba é aberta: o valor dele é
   // justamente avisar quem não ia clicar. Falha em silêncio — um erro aqui não pode derrubar o
   // resto da tela de Marcações.
+  // Mesmo motivo do alerta de cobertura abaixo: quem precisa deste numero e justamente quem nao
+  // ia abrir a aba. Falha em silencio - erro aqui nao pode derrubar a tela de Marcacoes.
+  useEffect(() => {
+    listarCoberturaEscalaResumo()
+      .then((res) => setAlertaEscala(res.error ? null : res.dados.reduce((s, d) => s + d.pessoas, 0)))
+      .catch(() => setAlertaEscala(null))
+  }, [])
+
   useEffect(() => {
     listarCoberturaResumo()
       .then((res) => setAlertaCobertura(res.error ? null : res.dados.reduce((s, d) => s + d.nao_conseguem_bater, 0)))
@@ -184,6 +194,7 @@ export function MarcacoesClient({ isAdmin, podeAutorizar, opcoes }: { isAdmin: b
     { id: 'terminais', label: 'Terminais Locais', icon: Monitor, visivel: isAdmin },
     { id: 'dispositivos', label: 'Dispositivos REP', icon: Fingerprint, visivel: isAdmin },
     { id: 'cobertura', label: 'Cobertura de Ponto', icon: HeartPulse, visivel: true, alerta: alertaCobertura },
+    { id: 'cobertura_escala', label: 'Cobertura da Escala', icon: CalendarClock, visivel: true, alerta: alertaEscala },
     { id: 'pendencias', label: 'Pendências', icon: ListChecks, visivel: true },
     { id: 'biometria', label: 'Biometria Pendente', icon: Fingerprint, visivel: true },
     { id: 'higiene', label: 'Higiene do Relógio', icon: ShieldCheck, visivel: isAdmin },
@@ -381,6 +392,7 @@ export function MarcacoesClient({ isAdmin, podeAutorizar, opcoes }: { isAdmin: b
       )}
 
       {aba === 'cobertura' && <CoberturaTab isAdmin={isAdmin} />}
+      {aba === 'cobertura_escala' && <CoberturaEscalaTab />}
       {aba === 'pendencias' && <PendenciasTab opcoes={opcoes} />}
       {aba === 'biometria' && <BiometriaTab />}
       {aba === 'higiene' && isAdmin && <HigieneDispositivoTab />}
