@@ -37,7 +37,7 @@ async function lerVigenciaHorasLiquidas(supabase: any): Promise<string | null> {
 
 
 import { autorizacaoDoDia, aplicarObservacaoAutorizacao } from '@/utils/folha/autorizacaoPonto'
-import { carregarDecisaoCompensacao, horasNormaisLiquidasVigente } from '@/utils/folha/calculoDia'
+import { carregarDecisaoCompensacao, carregarDecisaoAutorizacaoExtra, horasNormaisLiquidasVigente } from '@/utils/folha/calculoDia'
 import { afastamentosDoDia, avaliarAfastamentosNoTurno, descreverAfastamentos, minutosAbonadosDoDia } from '@/utils/folha/afastamentosDia'
 import { conferirPinNovo, mensagemRecusaPin } from '@/utils/pin'
 import { normalizarNomeJornada } from '@/utils/folha/nomeJornada'
@@ -1551,6 +1551,7 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
       // sobrevive a regeracao, como manda a regra de preservacao.ts. O valor em minutos e
       // recalculado sobre os horarios atuais; o que se preserva e a autorizacao.
       carregarDecisaoCompensacao(registro, registroExistente)
+      carregarDecisaoAutorizacaoExtra(registro, registroExistente)
 
       registrosAtualizados.push(registro)
     }
@@ -2192,6 +2193,7 @@ export async function gerarFolhaPontoServidor(mes: number, ano: number, forcarRa
       // sobrevive a regeracao, como manda a regra de preservacao.ts. O valor em minutos e
       // recalculado sobre os horarios atuais; o que se preserva e a autorizacao.
       carregarDecisaoCompensacao(registro, registroExistente)
+      carregarDecisaoAutorizacaoExtra(registro, registroExistente)
 
       registros.push(registro)
     }

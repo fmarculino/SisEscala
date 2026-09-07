@@ -2,6 +2,60 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.48.0] - 2026-09-06
+
+⚠️ **Requer aplicar `20260906150000`.** Ela só cria a chave de vigência — **nenhum valor de folha
+muda por aplicá-la**.
+
+### Added
+
+- **Autorização prévia de hora extra** (Art. 8º da Portaria 382/2019-GAB-MAB/SMS). Decisão do
+  usuário, 06/09/2026: o gate vale sobre a **hora extra APURADA** na folha, não sobre o
+  lançamento de turno Extra na grade — é de lá que vem o volume. **473h em 08/2026 nasceram sem
+  ninguém autorizar nada**: a folha media a saída, achava excedente e virava verba por inércia.
+  - **Selo na linha do dia** (`extra — autorizar?`) e modal com as duas respostas, espelhando o
+    desenho da compensação de atraso que entrou em 04/09 e funcionou.
+  - **O fechamento cobra a decisão**, listando os dias — e o gate existe **no servidor**, não só
+    na tela: `salvarFolhaPonto` recusa fechar com dias pendentes até alguém confirmar.
+  - A decisão sobrevive ao **Sincronizar** (`carregarDecisaoAutorizacaoExtra` nas **quatro**
+    cópias da geração, aplicada por `scratchpad/gen_autorizacao_extra.js` com contagem que aborta).
+
+### Decisões de desenho
+
+- 🚨 **`pendente` NÃO muda valor nenhum, e é a decisão mais importante desta entrega.** "Não
+  autorizada por padrão" apagaria hora extra de gente que trabalhou, numa folha que o servidor
+  assina; "autorizada por padrão" manteria o problema que o Art. 8º existe para resolver. Então o
+  dia fica pendente, o total segue idêntico ao de hoje, e a decisão é **cobrada** no fechamento.
+- ⚠️ **`não autorizada` zera a VERBA, nunca o REGISTRO.** A batida continua gravada, o horário
+  continua impresso na folha e o excedente aparece rotulado. O que deixa de acontecer é o
+  pagamento de sobrejornada que ninguém autorizou — e a decisão é reversível.
+- ⚠️ **A ordem é sempre compensa (Art. 7º) e depois autoriza (Art. 8º).** O que precisa de
+  autorização é o que **sobra** depois da compensação. Invertida, a chefia decidiria sobre minutos
+  que nem são hora extra — são reposição de atraso —, e perguntar duas vezes sobre o mesmo minuto
+  é o jeito mais rápido de ensinar quem decide a clicar sem ler.
+- ⚠️ **Chave de vigência PRÓPRIA** (`autorizacao_extra_vigente_desde`), nunca a da compensação:
+  são perguntas diferentes sobre o mesmo dia, decididas em datas diferentes, e o RH pode precisar
+  mover uma sem a outra. **08/2026 fica de fora de propósito** — "as 473h daquele mês ficam como
+  estão" foi decisão explícita em 04/09.
+- ℹ️ **Nenhum limiar novo foi inventado.** A tolerância do Art. 58 §1º da CLT já é aplicada antes
+  (5 min por marcação, 10 min/dia, desde `20260823120000`), então hora extra maior que zero já é
+  material. Um piso a mais aqui seria uma franquia que ninguém decidiu.
+- **Manual do usuário**: seção "Autorizar a hora extra", como manda a regra da v2.44.0.
+
+### Notes
+
+- **Portões**: `node scratchpad/sim_autorizacao_extra.js` (42 asserções) e
+  `val_sim_autorizacao_extra.js`, com **7 regressões injetadas**, todas reprovadas. Os existentes
+  seguem passando: `sim_calculo_dia` (71), `sim_horas_liquidas` (33), `sim_nome_jornada` (22).
+- ⚠️ **O validador achou um buraco no próprio portão, e vale registrar.** A asserção do dia
+  inteiramente compensado chamava a função direta, já com o líquido em mãos — então um
+  `totaisFolha` que passasse a extra **bruta** (ignorando a compensação) passava despercebido.
+  Corrigido fazendo a asserção atravessar o totalizador. **Portão que testa a função e não o
+  caminho não protege o caminho.**
+- ⚠️ **Antes de ligar em 09/2026, meça o tamanho da fila** — a consulta 3 no rodapé da migration
+  diz quantos dias e quantas folhas a chefia vai encontrar. Se for grande demais para o
+  fechamento do mês, a saída é mover a **chave** para `2026-10`, nunca mexer no código.
+
 ## [2.47.0] - 2026-09-06
 
 Sem migration. Correção de leitura, com fonte única.

@@ -10,7 +10,7 @@ import {
   Check, Loader2, Building2, Users, Calendar, Briefcase, 
   Clock, FileText, CheckSquare, X, Unlock, PhoneCall, ShieldCheck, Wand2
 } from 'lucide-react'
-import { salvarFolhaPonto, verificarDivergenciaEscala, sincronizarFolhaPonto, gerarFolhaPonto, reclassificarPassoPresenca, getDadosPlantoesSobreavisosServidor, autoCorrigirFolhaPonto, decidirCompensacaoDia } from '../actions'
+import { salvarFolhaPonto, verificarDivergenciaEscala, sincronizarFolhaPonto, gerarFolhaPonto, reclassificarPassoPresenca, getDadosPlantoesSobreavisosServidor, autoCorrigirFolhaPonto, decidirCompensacaoDia, decidirAutorizacaoExtraDia } from '../actions'
 import { Modal } from '@/components/ui/Modal'
 import { ocorrenciasDoMes } from '@/utils/folha/ocorrencias'
 import { createClient } from '@/utils/supabase/client'
@@ -26,6 +26,9 @@ import {
   totaisFolha,
   calcularDia,
   statusCompensacaoDoDia,
+  statusAutorizacaoExtraDoDia,
+  extraEfetivaDoDia,
+  regraAutorizacaoExtraVigente,
   regraCompensacaoVigente,
   horasNormaisLiquidasVigente,
   type CompensacaoStatus,
@@ -60,7 +63,7 @@ interface FolhaPontoEditorProps {
    */
   onSolicitarAjuste?: (dia: number) => void
   onBack?: () => void
-  saveAction?: (folhaId: string, registros: any[], status?: string, cargo?: string, confirmarFaltasPendentes?: boolean, confirmarCompensacaoPendente?: boolean) => Promise<{ success?: boolean; error?: string; requerConfirmacaoFaltas?: boolean; diasFaltaPendente?: number[]; requerDecisaoCompensacao?: boolean; diasCompensacaoPendente?: number[] }>
+  saveAction?: (folhaId: string, registros: any[], status?: string, cargo?: string, confirmarFaltasPendentes?: boolean, confirmarCompensacaoPendente?: boolean, confirmarAutorizacaoExtraPendente?: boolean) => Promise<{ success?: boolean; error?: string; requerConfirmacaoFaltas?: boolean; diasFaltaPendente?: number[]; requerDecisaoCompensacao?: boolean; diasCompensacaoPendente?: number[]; requerDecisaoAutorizacaoExtra?: boolean; diasAutorizacaoExtraPendente?: number[] }>
   verifyDivergenceAction?: (folhaId: string) => Promise<{ divergent: boolean; affectedDays?: number[]; error?: string }>
   syncAction?: (folhaId: string) => Promise<{ success?: boolean; error?: string }>
   regenerateAction?: (servidorId: string, mes: number, ano: number, isRascunho: boolean) => Promise<{ success?: boolean; error?: string }>
@@ -91,6 +94,8 @@ export function FolhaPontoEditor({
   // Ausente = padrao do modulo (2026-09), que e a decisao tomada. Ver COMPETENCIA_COMPENSACAO_PADRAO.
   const [vigenciaCompensacao, setVigenciaCompensacao] = useState<string | null>(null)
   const [vigenciaHorasLiquidas, setVigenciaHorasLiquidas] = useState<string | null>(null)
+  // Art. 8 - chave PROPRIA, nunca a da compensacao: sao perguntas diferentes sobre o mesmo dia.
+  const [vigenciaAutorizacaoExtra, setVigenciaAutorizacaoExtra] = useState<string | null>(null)
   const supabase = createClient()
 
   const [isMounted, setIsMounted] = useState(false)
@@ -119,11 +124,12 @@ export function FolhaPontoEditor({
       const { data: cfgVigencia } = await supabase
         .from('configuracoes_globais')
         .select('chave, valor')
-        .in('chave', ['compensacao_atraso_vigente_desde', 'horas_normais_liquidas_desde'])
+        .in('chave', ['compensacao_atraso_vigente_desde', 'horas_normais_liquidas_desde', 'autorizacao_extra_vigente_desde'])
       for (const c of cfgVigencia || []) {
         if (typeof c.valor !== 'string') continue
         if (c.chave === 'compensacao_atraso_vigente_desde') setVigenciaCompensacao(c.valor)
         if (c.chave === 'horas_normais_liquidas_desde') setVigenciaHorasLiquidas(c.valor)
+        if (c.chave === 'autorizacao_extra_vigente_desde') setVigenciaAutorizacaoExtra(c.valor)
       }
 
       const { data: closedData } = await supabase
@@ -286,6 +292,51 @@ export function FolhaPontoEditor({
       message: decisao === 'autorizada'
         ? 'O tempo que repôs o atraso deixou de contar como hora extra neste dia. A decisão ficou registrada com seu nome na auditoria.'
         : 'O dia segue com a hora extra integral, e o atraso continua registrado. A decisão ficou na auditoria com seu nome.',
+      type: 'success',
+    })
+    router.refresh()
+  }
+
+  /*
+    Art. 8 - a autorizacao da hora extra apurada. Estado SEPARADO do da compensacao de proposito:
+    sao duas perguntas diferentes sobre o mesmo dia, e juntar as duas num modal so faria a chefia
+    decidir as duas com um clique - que e o oposto do que um gate de autorizacao existe para
+    provocar.
+  */
+  const autorizacaoExtraVigente = useMemo(
+    () => regraAutorizacaoExtraVigente(folha.mes, folha.ano, vigenciaAutorizacaoExtra),
+    [folha.mes, folha.ano, vigenciaAutorizacaoExtra]
+  )
+
+  const [extraModal, setExtraModal] = useState<{
+    dia: number
+    extraMinutos: number
+    justificativa: string
+    submitting: boolean
+  } | null>(null)
+
+  const decidirExtra = async (decisao: 'autorizada' | 'nao_autorizada') => {
+    if (!extraModal) return
+    setExtraModal({ ...extraModal, submitting: true })
+    const res = await decidirAutorizacaoExtraDia(
+      folha.id,
+      extraModal.dia,
+      decisao,
+      extraModal.justificativa.trim() || undefined
+    )
+    if ((res as any).error) {
+      setExtraModal(null)
+      setAlertModal({ isOpen: true, title: 'Nao foi possivel registrar a decisao', message: (res as any).error, type: 'danger' })
+      return
+    }
+    if ((res as any).registros) setRegistros((res as any).registros)
+    setExtraModal(null)
+    setAlertModal({
+      isOpen: true,
+      title: decisao === 'autorizada' ? 'Hora extra autorizada' : 'Hora extra nao autorizada',
+      message: decisao === 'autorizada'
+        ? 'A hora extra deste dia continua contando, agora com o seu nome como quem autorizou.'
+        : 'O excedente deste dia deixou de contar como hora extra. O horario registrado continua na folha, e a decisao pode ser revista.',
       type: 'success',
     })
     router.refresh()
@@ -505,7 +556,7 @@ export function FolhaPontoEditor({
   }
 
   // Save edits
-  const handleSave = async (newStatus?: string, confirmarFaltasPendentes?: boolean, confirmarCompensacaoPendente?: boolean) => {
+  const handleSave = async (newStatus?: string, confirmarFaltasPendentes?: boolean, confirmarCompensacaoPendente?: boolean, confirmarAutorizacaoExtraPendente?: boolean) => {
     // 1. Validação de consistência cronológica
     for (const r of registros) {
       if (!r.turno_codigo || r.afastamento || r.feriado) continue
@@ -550,7 +601,7 @@ export function FolhaPontoEditor({
 
     setSaving(true)
     const targetStatus = newStatus || status
-    const res = await executeSave(folha.id, registros, targetStatus, cargo, confirmarFaltasPendentes, confirmarCompensacaoPendente)
+    const res = await executeSave(folha.id, registros, targetStatus, cargo, confirmarFaltasPendentes, confirmarCompensacaoPendente, confirmarAutorizacaoExtraPendente)
     setSaving(false)
 
     // Fechar sem justificar É a decisão (usuário, 01/09/2026) — mas pede confirmação explícita
@@ -571,6 +622,23 @@ export function FolhaPontoEditor({
         message: `No(s) dia(s) ${dias} o servidor chegou atrasado e saiu depois do previsto. Fechar agora confirma que esse tempo é HORA EXTRA, e não compensação do atraso. Prefere revisar dia a dia?`,
         type: 'warning',
         onConfirm: () => { void handleSave(newStatus, confirmarFaltasPendentes, true) }
+      })
+      return
+    }
+
+    /*
+      GATE DA AUTORIZACAO DE HORA EXTRA (Art. 8, 06/09/2026). Vem depois do da compensacao pelo
+      mesmo motivo que no servidor: quem repos atraso decide primeiro se aquilo e reposicao; so o
+      que sobra vira pergunta de autorizacao.
+    */
+    if ((res as any).requerDecisaoAutorizacaoExtra) {
+      const dias = ((res as any).diasAutorizacaoExtraPendente || []).map((d: number) => String(d).padStart(2, '0')).join(', ')
+      setConfirmModal({
+        isOpen: true,
+        title: 'Hora extra sem autorizacao',
+        message: `No(s) dia(s) ${dias} ha hora extra apurada que ninguem autorizou. Fechar agora confirma que ela e devida e sera paga. Prefere revisar dia a dia?`,
+        type: 'warning',
+        onConfirm: () => { void handleSave(newStatus, confirmarFaltasPendentes, confirmarCompensacaoPendente, true) }
       })
       return
     }
@@ -716,8 +784,9 @@ export function FolhaPontoEditor({
         mes: folha.mes,
         isFaltaDefinitiva,
         compensacaoVigenteDesde: vigenciaCompensacao,
+        autorizacaoExtraVigenteDesde: vigenciaAutorizacaoExtra,
       }),
-    [registros, jornada, folha.ano, folha.mes, vigenciaCompensacao, vigenciaHorasLiquidas]
+    [registros, jornada, folha.ano, folha.mes, vigenciaCompensacao, vigenciaHorasLiquidas, vigenciaAutorizacaoExtra]
   )
 
   // Ocorrências do verso (Página 2) — regra em src/utils/folha/ocorrencias.ts.
@@ -1197,6 +1266,13 @@ export function FolhaPontoEditor({
                 */
                 const calc = calcularDia(r, recordJornadaNome)
                 const statusComp = statusCompensacaoDoDia(r, calc)
+                // Art. 8 SOBRE o Art. 7: o que precisa de autorizacao e o que sobra depois da
+                // compensacao. Perguntar sobre o minuto que ja e reposicao de atraso seria
+                // perguntar duas vezes a mesma coisa.
+                const extraLiquidaDia = compensacaoVigente
+                  ? extraEfetivaDoDia(r, calc)
+                  : Math.max(0, Number(r.hora_extra_minutos) || 0)
+                const statusExtra = statusAutorizacaoExtraDoDia(r, extraLiquidaDia)
 
                 const isEntradaInvertida = seq.entradaInvertida
                 const isIntervaloInvertido = seq.intervaloInvertido
@@ -1419,6 +1495,43 @@ export function FolhaPontoEditor({
                             }
                           >
                             {statusComp === 'autorizada' ? `compensado ${calc.compensavelMinutos}min` : 'extra confirmada'}
+                          </div>
+                        )
+                      )}
+
+                      {autorizacaoExtraVigente && isWorkDay && statusExtra !== 'nenhum' && (
+                        statusExtra === 'pendente' ? (
+                          podeDecidirCompensacao ? (
+                            <button
+                              type="button"
+                              onClick={() => setExtraModal({
+                                dia: r.dia,
+                                extraMinutos: extraLiquidaDia,
+                                justificativa: '',
+                                submitting: false,
+                              })}
+                              className="mt-1 px-1.5 py-0.5 text-[8px] font-black uppercase rounded bg-sky-100 dark:bg-sky-900/50 text-sky-800 dark:text-sky-300 hover:bg-sky-200 dark:hover:bg-sky-900/80 transition-all whitespace-nowrap print:hidden"
+                              title={`${extraLiquidaDia} min de hora extra neste dia ainda sem autorizacao da chefia (Art. 8). Enquanto ninguem decidir, o valor segue contando normalmente.`}
+                            >
+                              extra &mdash; autorizar?
+                            </button>
+                          ) : (
+                            <div className="mt-1 text-[8px] font-bold text-sky-600 whitespace-nowrap print:hidden">
+                              extra {extraLiquidaDia}min sem autorizacao
+                            </div>
+                          )
+                        ) : (
+                          <div
+                            className={`mt-1 text-[8px] font-bold whitespace-nowrap ${statusExtra === 'autorizada' ? 'text-emerald-600' : 'text-red-600'}`}
+                            title={
+                              (statusExtra === 'autorizada'
+                                ? `Hora extra de ${extraLiquidaDia} min autorizada`
+                                : `Hora extra de ${extraLiquidaDia} min NAO autorizada - nao entra na verba`) +
+                              (r.extra_autorizado_por_nome ? ` por ${r.extra_autorizado_por_nome}` : '') +
+                              (r.extra_autorizacao_justificativa ? ` - ${r.extra_autorizacao_justificativa}` : '')
+                            }
+                          >
+                            {statusExtra === 'autorizada' ? 'extra autorizada' : 'extra nao autorizada'}
                           </div>
                         )
                       )}
@@ -1807,6 +1920,77 @@ export function FolhaPontoEditor({
           }
         >
           <p className="text-sm text-zinc-600 dark:text-zinc-400">{confirmModal.message}</p>
+        </Modal>
+      )}
+
+      {/* Autorizacao de hora extra apurada - Portaria 382/2019, Art. 8 */}
+      {extraModal && (
+        <Modal
+          isOpen={true}
+          onClose={() => setExtraModal(null)}
+          title={`Hora extra no dia ${String(extraModal.dia).padStart(2, '0')}`}
+          type="warning"
+          footer={
+            <div className="flex flex-col sm:flex-row gap-3 w-full">
+              <button
+                onClick={() => setExtraModal(null)}
+                disabled={extraModal.submitting}
+                className="flex-1 px-4 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-black uppercase tracking-widest text-[10px] disabled:opacity-50"
+              >
+                Decidir depois
+              </button>
+              <button
+                onClick={() => decidirExtra('nao_autorizada')}
+                disabled={extraModal.submitting}
+                className="flex-1 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-[10px] uppercase tracking-widest disabled:opacity-50"
+              >
+                Nao autorizar
+              </button>
+              <button
+                onClick={() => decidirExtra('autorizada')}
+                disabled={extraModal.submitting}
+                className="flex-1 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] uppercase tracking-widest disabled:opacity-50"
+              >
+                Autorizar
+              </button>
+            </div>
+          }
+        >
+          <div className="space-y-3">
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              O servidor trabalhou <strong className="text-blue-600">{extraModal.extraMinutos} min</strong> alem
+              do horario previsto neste dia, e ninguem autorizou essa sobrejornada.
+            </p>
+            <div className="rounded-xl bg-zinc-50 dark:bg-zinc-800/50 p-3 text-xs text-zinc-600 dark:text-zinc-400 space-y-1.5">
+              <p>
+                <strong className="text-zinc-900 dark:text-white">Autorizar:</strong> a hora extra
+                continua contando normalmente, agora com o seu nome como quem autorizou
+                (Art. 8&ordm; da Portaria 382/2019).
+              </p>
+              <p>
+                <strong className="text-zinc-900 dark:text-white">Nao autorizar:</strong> os{' '}
+                {extraModal.extraMinutos} min deixam de contar como hora extra. O horario batido
+                continua registrado e impresso na folha &mdash; o que muda e a verba.
+              </p>
+              <p className="text-[11px] text-zinc-500 pt-1 border-t border-zinc-200 dark:border-zinc-700">
+                Enquanto ninguem decide, nada muda: o dia segue contando a hora extra como hoje.
+                A decisao fica na auditoria com o seu nome e pode ser revista enquanto a folha
+                estiver aberta.
+              </p>
+            </div>
+            <div>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">
+                Justificativa <span className="font-normal normal-case">(opcional)</span>
+              </label>
+              <textarea
+                value={extraModal.justificativa}
+                onChange={(e) => setExtraModal({ ...extraModal, justificativa: e.target.value })}
+                rows={2}
+                placeholder="Ex.: atendimento de urgencia autorizado pela coordenacao"
+                className="w-full text-sm rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2"
+              />
+            </div>
+          </div>
         </Modal>
       )}
 

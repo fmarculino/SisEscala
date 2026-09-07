@@ -112,6 +112,34 @@ export function horasNormaisLiquidasVigente(
   return competenciaAlcancada(mes, ano, vigenteDesde || '', COMPETENCIA_HORAS_LIQUIDAS_PADRAO)
 }
 
+/**
+ * A competencia da folha ja exige autorizacao da chefia para a hora extra apurada?
+ *
+ * @param vigenteDesde formato `YYYY-MM`. Valor invalido cai no padrao — configuracao malformada
+ *   nunca liga a regra para tras.
+ */
+export function regraAutorizacaoExtraVigente(
+  mes: number,
+  ano: number,
+  vigenteDesde?: string | null
+): boolean {
+  return competenciaAlcancada(mes, ano, vigenteDesde || '', COMPETENCIA_AUTORIZACAO_EXTRA_PADRAO)
+}
+
+/**
+ * Competencia a partir da qual a HORA EXTRA APURADA passa a exigir autorizacao da chefia
+ * (Art. 8 da Portaria 382/2019-GAB-MAB/SMS). Decisao do usuario, 06/09/2026.
+ *
+ * ⚠️ Chave PROPRIA, e nao a da compensacao. Sao perguntas diferentes sobre o mesmo dia:
+ * "esse excedente repoe um atraso?" (Art. 7) e "esse excedente foi autorizado?" (Art. 8). Foram
+ * decididas em datas diferentes e o RH pode precisar mover uma sem a outra.
+ *
+ * ⚠️ 08/2026 fica de fora de proposito: as 473h daquele mes "ficam como estao" foi decisao
+ * explicita em 04/09/2026, e reabrir aquelas folhas para autorizar retroativamente seria pedir
+ * a chefia que decida sobre trabalho que ja foi conferido e assinado.
+ */
+export const COMPETENCIA_AUTORIZACAO_EXTRA_PADRAO = '2026-09'
+
 /** Art. 7 §3: a compensacao nao pode passar de 2h por dia. */
 export const TETO_COMPENSACAO_DIARIA_MIN = 120
 
@@ -223,6 +251,16 @@ export interface RegistroDia extends HorariosDia {
   observacao?: string | null
   compensacao_status?: CompensacaoStatus | null
   compensacao_minutos?: number | null
+  /**
+   * Decisao da chefia sobre a hora extra apurada neste dia (Art. 8). Ausente = ninguem decidiu,
+   * e o dia e tratado como `pendente` — que NAO muda valor nenhum.
+   */
+  extra_autorizacao_status?: AutorizacaoExtraStatus | null
+  /** Historico de quanto foi decidido. Nao e a verdade do calculo — ver extraAposAutorizacao. */
+  extra_autorizacao_minutos?: number | null
+  extra_autorizado_por_nome?: string | null
+  extra_autorizado_em?: string | null
+  extra_autorizacao_justificativa?: string | null
   abono_minutos?: number | null
   /**
    * Slots do turno cobertos por afastamento PARCIAL neste dia (`['M']` num turno `MT`).
@@ -251,6 +289,25 @@ export type CompensacaoStatus =
   | 'autorizada'
   /** Coordenador/RH confirmou que aquilo e hora extra mesmo, nao reposicao de atraso. */
   | 'extra_confirmada'
+
+/**
+ * Estado da AUTORIZACAO da hora extra apurada (Art. 8 da Portaria 382/2019-GAB-MAB/SMS).
+ *
+ * 🚨 E uma pergunta DIFERENTE da compensacao, sobre o mesmo dia, e as duas podem conviver:
+ *   - compensacao: "esse excedente apenas repoe o atraso da entrada?" (Art. 7)
+ *   - autorizacao: "o que sobrou depois disso foi autorizado pela chefia?" (Art. 8)
+ * Um dia pode ter atraso reposto E hora extra de verdade. A ordem importa e e sempre esta:
+ * compensa primeiro, autoriza o que sobrou.
+ */
+export type AutorizacaoExtraStatus =
+  /** Nao ha hora extra a autorizar neste dia (ou ela foi inteiramente compensada). */
+  | 'nenhum'
+  /** Ha, e ninguem decidiu. ⚠️ NAO altera valor nenhum enquanto estiver assim. */
+  | 'pendente'
+  /** A chefia autorizou: a hora extra conta, agora com nome e data de quem autorizou. */
+  | 'autorizada'
+  /** A chefia recusou: o excedente NAO entra na verba de hora extra. */
+  | 'nao_autorizada'
 
 export interface CalculoDia {
   /** null quando o nome da jornada nao resolve o previsto — entao nada de atraso e medido. */
@@ -392,6 +449,83 @@ export function extraEfetivaDoDia(registro: RegistroDia, calculo: CalculoDia): n
   return Math.max(0, bruta - calculo.compensavelMinutos)
 }
 
+/**
+ * O estado da autorizacao (Art. 8) para o dia.
+ *
+ * ⚠️ Recebe `extraLiquidaMinutos` PRONTO em vez de recalcular, e isso e deliberado: o que precisa
+ * de autorizacao e o que SOBRA depois da compensacao, e so o chamador sabe se a regra de
+ * compensacao esta vigente naquela competencia. Recalcular aqui dentro acoplaria as duas regras
+ * por baixo, e elas tem chaves de vigencia separadas justamente para poderem andar em ritmos
+ * diferentes.
+ */
+export function statusAutorizacaoExtraDoDia(
+  registro: RegistroDia,
+  extraLiquidaMinutos: number
+): AutorizacaoExtraStatus {
+  if (!(extraLiquidaMinutos > 0)) return 'nenhum'
+  const gravado = registro.extra_autorizacao_status
+  if (gravado === 'autorizada' || gravado === 'nao_autorizada') return gravado
+  return 'pendente'
+}
+
+/**
+ * Hora extra do dia DEPOIS da decisao da chefia (Art. 8).
+ *
+ * 🚨 `pendente` devolve o valor inalterado, e essa e a mesma decisao de desenho da compensacao —
+ * a mais importante das duas entregas. O default nao pode mexer em verba: "nao autorizada por
+ * padrao" apagaria hora extra de gente que trabalhou, em folha que o servidor assina; "autorizada
+ * por padrao" manteria o problema que o Art. 8 existe para resolver. Entao o dia fica pendente, o
+ * total nao muda, e a decisao e cobrada no FECHAMENTO.
+ *
+ * ⚠️ `nao_autorizada` zera a VERBA, nunca o REGISTRO. A batida continua gravada, o horario
+ * continua impresso na folha e o excedente aparece rotulado — o que deixa de acontecer e o
+ * pagamento de sobrejornada que ninguem autorizou. E e reversivel: a chefia muda a decisao e o
+ * valor volta.
+ */
+export function extraAposAutorizacao(
+  registro: RegistroDia,
+  extraLiquidaMinutos: number
+): number {
+  if (statusAutorizacaoExtraDoDia(registro, extraLiquidaMinutos) === 'nao_autorizada') return 0
+  return Math.max(0, extraLiquidaMinutos)
+}
+
+/** Rotulo curto do estado da autorizacao, para o selo na linha do dia. */
+export function rotuloAutorizacaoExtra(status: AutorizacaoExtraStatus): string {
+  switch (status) {
+    case 'pendente': return 'Hora extra — autorizar?'
+    case 'autorizada': return 'Hora extra autorizada'
+    case 'nao_autorizada': return 'Hora extra não autorizada'
+    default: return ''
+  }
+}
+
+/**
+ * Carrega para o registro NOVO a decisao de autorizacao que ja existia no anterior.
+ *
+ * ⚠️ SEM ISTO, "Sincronizar" APAGA A DECISAO DA CHEFIA — `folha_ponto.registros` e um snapshot
+ * reconstruido do zero a cada geracao. Mesma regra de `carregarDecisaoCompensacao` e de
+ * `preservacao.ts`: decisao humana se preserva, valor derivado se regera.
+ *
+ * ⚠️ O valor em minutos NAO e preservado como verdade: fica como historico do que foi decidido,
+ * mas quem manda no calculo e o excedente RECALCULADO sobre os horarios atuais. Se a batida
+ * mudar, a autorizacao continua valendo e o valor acompanha o fato novo.
+ */
+export function carregarDecisaoAutorizacaoExtra(
+  registroNovo: Record<string, unknown>,
+  registroExistente: Record<string, unknown> | null | undefined
+): void {
+  if (!registroNovo || !registroExistente) return
+  const status = registroExistente.extra_autorizacao_status
+  if (status !== 'autorizada' && status !== 'nao_autorizada') return
+
+  registroNovo.extra_autorizacao_status = status
+  registroNovo.extra_autorizacao_minutos = registroExistente.extra_autorizacao_minutos ?? null
+  registroNovo.extra_autorizado_por_nome = registroExistente.extra_autorizado_por_nome ?? null
+  registroNovo.extra_autorizado_em = registroExistente.extra_autorizado_em ?? null
+  registroNovo.extra_autorizacao_justificativa = registroExistente.extra_autorizacao_justificativa ?? null
+}
+
 /** Atraso que sobra no dia depois da compensacao autorizada. */
 export function atrasoEfetivoDoDia(registro: RegistroDia, calculo: CalculoDia): number {
   const bruto = calculo.atrasoEntradaMinutos + calculo.saidaAntecipadaMinutos
@@ -423,6 +557,12 @@ export interface TotaisFolha {
   pendentesCompensacao: number[]
   /** Minutos que seriam abatidos da hora extra se todos os pendentes fossem autorizados. */
   compensavelPendenteMinutos: number
+  /** Dias com hora extra apurada que a chefia ainda nao autorizou nem recusou (Art. 8). */
+  pendentesAutorizacaoExtra: number[]
+  /** Minutos de excedente que a chefia RECUSOU — nao entram na verba, mas continuam visiveis. */
+  extraNaoAutorizadaMinutos: number
+  /** Minutos de excedente esperando decisao. Ja estao contados na extra 50/100 (pendente nao muda valor). */
+  extraPendenteAutorizacaoMinutos: number
 }
 
 export interface OpcoesTotais {
@@ -438,6 +578,11 @@ export interface OpcoesTotais {
    * Omitido = `COMPETENCIA_COMPENSACAO_PADRAO`. Ver regraCompensacaoVigente.
    */
   compensacaoVigenteDesde?: string | null
+  /**
+   * Competencia a partir da qual a hora extra apurada exige autorizacao (`YYYY-MM`).
+   * Omitido = `COMPETENCIA_AUTORIZACAO_EXTRA_PADRAO`. Ver regraAutorizacaoExtraVigente.
+   */
+  autorizacaoExtraVigenteDesde?: string | null
 }
 
 /**
@@ -465,6 +610,15 @@ export function totaisFolha(registros: RegistroDia[], opcoes: OpcoesTotais): Tot
   let abonoMinutos = 0
   let compensavelPendenteMinutos = 0
   const pendentesCompensacao: number[] = []
+  // Art. 8 - vigencia PROPRIA, deliberadamente separada da compensacao (ver
+  // COMPETENCIA_AUTORIZACAO_EXTRA_PADRAO). Antes do corte nenhum dia entra na fila e nenhum
+  // valor muda, exatamente como a folha se comporta hoje.
+  const vigenteAutorizacao = regraAutorizacaoExtraVigente(
+    opcoes.mes, opcoes.ano, opcoes.autorizacaoExtraVigenteDesde
+  )
+  let extraNaoAutorizadaMinutos = 0
+  let extraPendenteAutorizacaoMinutos = 0
+  const pendentesAutorizacaoExtra: number[] = []
 
   for (const r of registros || []) {
     if (r.turno_codigo) normaisMinutos += Math.round((opcoes.horasNormaisPorDia || 8) * 60)
@@ -486,7 +640,26 @@ export function totaisFolha(registros: RegistroDia[], opcoes: OpcoesTotais): Tot
       }
     }
 
-    const extra = vigente ? extraEfetivaDoDia(r, calculo) : Math.max(0, Number(r.hora_extra_minutos) || 0)
+    // Camada 1 (Art. 7): o excedente que apenas repoe atraso sai daqui, se autorizado.
+    const extraLiquida = vigente ? extraEfetivaDoDia(r, calculo) : Math.max(0, Number(r.hora_extra_minutos) || 0)
+
+    // Camada 2 (Art. 8): o que SOBROU precisa da autorizacao da chefia.
+    //
+    // ⚠️ A ordem e sempre esta, e nunca a inversa: autorizar primeiro e compensar depois faria a
+    // chefia decidir sobre minutos que nem sao hora extra — sao reposicao de atraso, que o Art. 7
+    // ja resolve sozinho. Perguntar duas vezes sobre o mesmo minuto e o jeito mais rapido de
+    // ensinar quem decide a clicar sem ler.
+    let extra = extraLiquida
+    if (vigenteAutorizacao) {
+      const st = statusAutorizacaoExtraDoDia(r, extraLiquida)
+      if (st === 'nao_autorizada') extraNaoAutorizadaMinutos += extraLiquida
+      else if (st === 'pendente' && r.dia) {
+        pendentesAutorizacaoExtra.push(r.dia)
+        extraPendenteAutorizacaoMinutos += extraLiquida
+      }
+      extra = extraAposAutorizacao(r, extraLiquida)
+    }
+
     if (extra > 0) {
       const domingo = new Date(opcoes.ano, opcoes.mes - 1, r.dia || 1).getDay() === 0
       if (domingo || r.feriado || r.hora_extra_tipo === '100%') extra100Minutos += extra
@@ -504,6 +677,9 @@ export function totaisFolha(registros: RegistroDia[], opcoes: OpcoesTotais): Tot
     abonoMinutos,
     pendentesCompensacao,
     compensavelPendenteMinutos,
+    pendentesAutorizacaoExtra,
+    extraNaoAutorizadaMinutos,
+    extraPendenteAutorizacaoMinutos,
   }
 }
 
@@ -556,6 +732,37 @@ export function diasPendentesDeCompensacao(
   for (const r of registros || []) {
     const calculo = calcularDia(r, jornadaNomeFallback)
     if (statusCompensacaoDoDia(r, calculo) === 'pendente' && r.dia) dias.push(r.dia)
+  }
+  return dias
+}
+
+/**
+ * Dias com hora extra apurada que ninguem autorizou nem recusou (Art. 8).
+ *
+ * E o que o FECHAMENTO cobra, no mesmo desenho da falta pendente e da compensacao pendente: a
+ * folha nao trava, mas fechar sem decidir passa a ser uma escolha explicita, e nao um
+ * esquecimento silencioso.
+ */
+export function diasPendentesDeAutorizacaoExtra(
+  registros: RegistroDia[],
+  jornadaNomeFallback?: string | null,
+  competencia?: { mes: number; ano: number; vigenteDesde?: string | null; compensacaoVigenteDesde?: string | null }
+): number[] {
+  if (competencia && !regraAutorizacaoExtraVigente(competencia.mes, competencia.ano, competencia.vigenteDesde)) {
+    return []
+  }
+  // A compensacao pode estar vigente ou nao, e isso muda quanto sobra para autorizar - por isso
+  // a vigencia dela entra aqui tambem, em vez de ser assumida.
+  const compVigente = !competencia
+    || regraCompensacaoVigente(competencia.mes, competencia.ano, competencia.compensacaoVigenteDesde)
+
+  const dias: number[] = []
+  for (const r of registros || []) {
+    const calculo = calcularDia(r, jornadaNomeFallback)
+    const liquida = compVigente
+      ? extraEfetivaDoDia(r, calculo)
+      : Math.max(0, Number(r.hora_extra_minutos) || 0)
+    if (statusAutorizacaoExtraDoDia(r, liquida) === 'pendente' && r.dia) dias.push(r.dia)
   }
   return dias
 }

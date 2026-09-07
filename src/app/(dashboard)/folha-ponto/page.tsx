@@ -507,6 +507,7 @@ export default function FolhaPontoPage() {
           mes: folha.mes,
           isFaltaDefinitiva,
           compensacaoVigenteDesde: (res as any).compensacaoVigenteDesde,
+          autorizacaoExtraVigenteDesde: (res as any).autorizacaoExtraDesde,
         })
 
         // ⚠️ Competencia anterior a 09/2026 imprime o rodape de 4 caixas — o mesmo com que o

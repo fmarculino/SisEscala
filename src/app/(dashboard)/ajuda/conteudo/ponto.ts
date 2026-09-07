@@ -243,6 +243,61 @@ export const ponto: Capitulo = {
     },
 
     {
+      id: 'autorizar-extra',
+      titulo: 'Autorizar a hora extra',
+      resumo: 'Por que a folha pergunta, e o que muda em cada resposta.',
+      papeis: ['Coordenador', 'RH da Unidade', 'RH Geral', 'Administrador Geral', 'Diretor'],
+      blocos: [
+        { tipo: 'caminho', itens: ['OPERAÇÃO', 'Folha de Ponto'], href: '/folha-ponto' },
+        {
+          tipo: 'p',
+          texto:
+            'Quando alguém sai depois do horário previsto, a folha registra esse tempo como hora extra. A norma do ponto eletrônico da Secretaria (Art. 8º) exige que a chefia **autorize** a sobrejornada — e até agora não havia onde registrar essa autorização.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'dica',
+          titulo: 'Enquanto ninguém decide, nada muda',
+          texto:
+            'O dia aparece com a etiqueta **extra — autorizar?** e continua contando a hora extra exatamente como antes. O sistema **não** decide por você: ele apenas passa a perguntar, e a pergunta volta quando você fecha a folha.',
+        },
+        {
+          tipo: 'tabela',
+          colunas: ['Sua resposta', 'O que acontece'],
+          linhas: [
+            [
+              '**Autorizar**',
+              'A hora extra continua contando, agora com o seu nome e a data como quem autorizou.',
+            ],
+            [
+              '**Não autorizar**',
+              'O tempo excedente deixa de contar como hora extra. **O horário batido continua registrado e impresso na folha** — o que muda é o pagamento, não o registro.',
+            ],
+            [
+              '**Decidir depois**',
+              'O dia fica pendente e volta a perguntar no fechamento. Nenhum valor muda.',
+            ],
+          ],
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'Primeiro a compensação, depois a autorização',
+          texto:
+            'Se a pessoa chegou atrasada e saiu depois, o sistema pergunta antes se aquele tempo **repõe o atraso**. Só o que sobra depois dessa decisão vira pergunta de autorização — você nunca decide duas vezes sobre o mesmo minuto.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'dica',
+          titulo: 'A decisão é reversível enquanto a folha estiver aberta',
+          texto:
+            'Errou a resposta? Reabra a folha e decida de novo. Toda mudança fica no histórico com o nome de quem fez. Competências anteriores a setembro de 2026 não são afetadas.',
+        },
+        { tipo: 'veja', secaoId: 'atraso-compensacao', texto: 'A decisão que vem antes desta' },
+      ],
+    },
+
+    {
       id: 'marcacoes',
       titulo: 'A tela Marcações',
       resumo: 'As nove abas do módulo de ponto e para que serve cada uma.',

@@ -20,7 +20,7 @@ import { podeReabrirFolha, MENSAGEM_SEM_PERMISSAO_REABRIR } from '@/utils/folha/
 import { montarCargaPorJornada, horasNormaisDoDia, horasNormaisDaJornada } from '@/utils/folha/cargaDiaria'
 import { autorizacaoDoDia, aplicarObservacaoAutorizacao } from '@/utils/folha/autorizacaoPonto'
 import { afastamentosDoDia, avaliarAfastamentosNoTurno, descreverAfastamentos, minutosAbonadosDoDia } from '@/utils/folha/afastamentosDia'
-import { calcularDia, totaisFolha, carregarDecisaoCompensacao, diasPendentesDeCompensacao, extraEfetivaDoDia, regraCompensacaoVigente, horasNormaisLiquidasVigente } from '@/utils/folha/calculoDia'
+import { calcularDia, totaisFolha, carregarDecisaoCompensacao, carregarDecisaoAutorizacaoExtra, diasPendentesDeCompensacao, diasPendentesDeAutorizacaoExtra, extraEfetivaDoDia, extraAposAutorizacao, statusAutorizacaoExtraDoDia, regraCompensacaoVigente, regraAutorizacaoExtraVigente, horasNormaisLiquidasVigente } from '@/utils/folha/calculoDia'
 import { normalizarNomeJornada } from '@/utils/folha/nomeJornada'
 
 // Helper: Get user profile with unit/sector permissions
@@ -1030,6 +1030,7 @@ export async function executeGerarFolhaPonto(
       // sobrevive a regeracao, como manda a regra de preservacao.ts. O valor em minutos e
       // recalculado sobre os horarios atuais; o que se preserva e a autorizacao.
       carregarDecisaoCompensacao(registro, registroExistente)
+      carregarDecisaoAutorizacaoExtra(registro, registroExistente)
 
       registros.push(registro)
     }
@@ -1807,6 +1808,7 @@ export async function sincronizarFolhaPonto(folhaId: string) {
       // sobrevive a regeracao, como manda a regra de preservacao.ts. O valor em minutos e
       // recalculado sobre os horarios atuais; o que se preserva e a autorizacao.
       carregarDecisaoCompensacao(registro, registroExistente)
+      carregarDecisaoAutorizacaoExtra(registro, registroExistente)
 
       registrosAtualizados.push(registro)
     }
@@ -1992,6 +1994,27 @@ async function lerVigenciaHorasLiquidas(supabase: any): Promise<string | null> {
  * ⚠️ Chave AUSENTE cai no padrao do modulo (2026-09), que e a decisao tomada — nunca "vale para
  * todo mundo". Por isso a migration que cria a chave e conveniencia, nao pre-requisito.
  */
+/**
+ * Competencia a partir da qual a hora extra apurada exige autorizacao (Art. 8).
+ *
+ * ⚠️ Chave PROPRIA, nunca a da compensacao: sao duas perguntas diferentes sobre o mesmo dia, e o
+ * RH pode precisar mover uma sem a outra. Falha ao ler devolve null e cai no padrao do codigo —
+ * que e o comportamento decidido, nunca "liga para todo mundo".
+ */
+async function lerVigenciaAutorizacaoExtra(supabase: any): Promise<string | null> {
+  try {
+    const { data } = await supabase
+      .from('configuracoes_globais')
+      .select('valor')
+      .eq('chave', 'autorizacao_extra_vigente_desde')
+      .maybeSingle()
+    const v = data?.valor
+    return typeof v === 'string' ? v : null
+  } catch {
+    return null
+  }
+}
+
 async function lerVigenciaCompensacao(supabase: any): Promise<string | null> {
   try {
     const { data } = await supabase
@@ -2021,6 +2044,172 @@ async function lerVigenciaCompensacao(supabase: any): Promise<string | null> {
  * ⚠️ Nao existe caminho para o PORTAL chegar aqui — o servidor nao decide sobre a propria
  * compensacao. Quem autoriza e coordenacao/RH, como em toda a Portaria.
  */
+/**
+ * A chefia decide sobre a HORA EXTRA APURADA de um dia (Art. 8 da Portaria 382/2019).
+ *
+ * 🚨 O QUE ISTO RESOLVE: 473h de hora extra em 08/2026 nasceram sem ninguem autorizar nada. A
+ * folha media a saida, achava excedente e virava verba por inercia. O Art. 8 exige autorizacao
+ * PREVIA da chefia imediata para sobrejornada — e nao havia onde registra-la.
+ *
+ * ⚠️ `nao_autorizada` zera a VERBA, nunca o REGISTRO. A batida continua gravada, o horario
+ * continua impresso e o excedente aparece rotulado na folha. O que deixa de acontecer e o
+ * pagamento de sobrejornada que ninguem autorizou — e a decisao e reversivel.
+ *
+ * ⚠️ A ordem em relacao a compensacao (Art. 7) e sempre a mesma: compensa primeiro, autoriza o
+ * que sobrou. Por isso a elegibilidade aqui e recalculada a partir de `extraEfetivaDoDia`, e nao
+ * de `hora_extra_minutos` cru.
+ */
+export async function decidirAutorizacaoExtraDia(
+  folhaId: string,
+  dia: number,
+  decisao: 'autorizada' | 'nao_autorizada' | 'pendente',
+  justificativa?: string
+) {
+  try {
+    const supabase = await createClient()
+    const userProfile = await getUserProfile(supabase)
+
+    // Mesma regua da compensacao: quem chefia decide. O Portal (servidor/comum) fica de fora —
+    // autorizar a propria hora extra nao e decisao de quem a fez.
+    const PAPEIS_QUE_DECIDEM = ['coordenador', 'ass_adm', 'admin', 'super_admin', 'rh', 'rh_unidade']
+    if (!PAPEIS_QUE_DECIDEM.includes(userProfile.role)) {
+      return { error: 'Apenas coordenação e RH podem autorizar hora extra.' }
+    }
+
+    if (!['autorizada', 'nao_autorizada', 'pendente'].includes(decisao)) {
+      return { error: 'Decisão inválida.' }
+    }
+
+    const { data: folha, error: folhaError } = await supabase
+      .from('folha_ponto')
+      .select('id, escala_mensal_id, mes, ano, servidor_id, status, registros')
+      .eq('id', folhaId)
+      .single()
+
+    if (folhaError || !folha) throw new Error('Folha de ponto não encontrada')
+
+    if (await isCompetencyClosed(folha.mes, folha.ano)) {
+      return { error: 'Esta competência está encerrada e todos os dados estão congelados para auditoria.' }
+    }
+
+    if (folha.status === 'Revisada') {
+      return { error: 'Esta folha já foi fechada. Reabra a folha para decidir sobre a hora extra.' }
+    }
+
+    const { data: escala, error: escError } = await supabase
+      .from('escala_mensal')
+      .select('id, unidade_id, setor_id')
+      .eq('id', folha.escala_mensal_id)
+      .single()
+
+    if (escError || !escala) throw new Error('Escala vinculada não encontrada')
+
+    if (!hasSectorAccess(userProfile, escala.setor_id, escala.unidade_id)) {
+      return { error: 'Acesso negado para decidir sobre esta folha.' }
+    }
+
+    // ⚠️ A tela ja nao mostra o selo em competencia anterior, mas Server Action e um POST
+    // chamavel direto (armadilha 12): a regra tem que ser reconferida aqui.
+    if (!regraAutorizacaoExtraVigente(folha.mes, folha.ano, await lerVigenciaAutorizacaoExtra(supabase))) {
+      return { error: 'A autorização de hora extra passou a valer a partir de 09/2026. Esta competência é anterior e permanece como está.' }
+    }
+
+    const registros = Array.isArray(folha.registros) ? [...(folha.registros as any[])] : []
+    const indice = registros.findIndex((r: any) => r.dia === dia)
+    if (indice < 0) return { error: `Dia ${dia} não encontrado nesta folha.` }
+
+    const registro = { ...registros[indice] }
+
+    // ⚠️ Elegibilidade RECALCULADA, nunca aceita do cliente. E a partir do LIQUIDO: o que ja foi
+    // compensado como reposicao de atraso nao volta a ser perguntado aqui.
+    const compVigente = regraCompensacaoVigente(folha.mes, folha.ano, await lerVigenciaCompensacao(supabase))
+    const calculo = calcularDia(registro, registro.jornada_nome)
+    const extraLiquida = compVigente
+      ? extraEfetivaDoDia(registro, calculo)
+      : Math.max(0, Number(registro.hora_extra_minutos) || 0)
+
+    if (decisao !== 'pendente' && extraLiquida <= 0) {
+      return { error: 'Este dia não tem hora extra a autorizar.' }
+    }
+
+    const antes = {
+      extra_autorizacao_status: registro.extra_autorizacao_status || null,
+      extra_autorizacao_minutos: registro.extra_autorizacao_minutos ?? null,
+    }
+
+    if (decisao === 'pendente') {
+      registro.extra_autorizacao_status = 'pendente'
+      registro.extra_autorizacao_minutos = null
+      registro.extra_autorizado_por_nome = null
+      registro.extra_autorizado_em = null
+      registro.extra_autorizacao_justificativa = null
+    } else {
+      registro.extra_autorizacao_status = decisao
+      registro.extra_autorizacao_minutos = extraLiquida
+      registro.extra_autorizado_por_nome =
+        (userProfile as any).nome || (userProfile as any).email || null
+      registro.extra_autorizado_em = new Date().toISOString()
+      registro.extra_autorizacao_justificativa = justificativa?.trim() || null
+    }
+
+    registros[indice] = registro
+
+    const totais = totaisFolha(registros as any[], {
+      horasNormaisPorDia: 8,
+      ano: folha.ano,
+      mes: folha.mes,
+      isFaltaDefinitiva,
+    })
+
+    const { error: updateError } = await supabase
+      .from('folha_ponto')
+      .update({
+        registros,
+        // A LISTAGEM le estas colunas; sem atualiza-las, a folha mostraria na lista a hora extra
+        // que a chefia acabou de recusar.
+        total_horas_extras_50: parseFloat((totais.extra50Minutos / 60).toFixed(2)),
+        total_horas_extras_100: parseFloat((totais.extra100Minutos / 60).toFixed(2)),
+        ultima_edicao_por_id: userProfile.id,
+        ultima_edicao_em: new Date().toISOString(),
+      })
+      .eq('id', folhaId)
+
+    if (updateError) return { error: updateError.message }
+
+    await registrarLog({
+      acao: decisao === 'autorizada'
+        ? 'HORA_EXTRA_AUTORIZADA'
+        : decisao === 'nao_autorizada'
+          ? 'HORA_EXTRA_NAO_AUTORIZADA'
+          : 'HORA_EXTRA_AUTORIZACAO_REABERTA',
+      entidade: 'folha_ponto',
+      entidadeId: folhaId,
+      userId: userProfile.id,
+      alteracoes: calcularAlteracoes(antes, {
+        extra_autorizacao_status: registro.extra_autorizacao_status,
+        extra_autorizacao_minutos: registro.extra_autorizacao_minutos ?? null,
+      }),
+      detalhes: {
+        dia,
+        decisao,
+        extraLiquidaMinutos: extraLiquida,
+        horaExtraBrutaMinutos: Math.max(0, Number(registro.hora_extra_minutos) || 0),
+        justificativa: justificativa?.trim() || null,
+        servidorId: folha.servidor_id,
+      },
+      unidadeId: escala.unidade_id,
+      setorId: escala.setor_id,
+    })
+
+    revalidatePath(`/folha-ponto/${folhaId}`)
+    // Devolve os registros JA atualizados: a tela reflete a decisao sem recarregar e sem
+    // recalcular por conta propria — o rodape sai da mesma fonte (totaisFolha).
+    return { success: true, registros, status: registro.extra_autorizacao_status, extraLiquidaMinutos: extraLiquida }
+  } catch (e: any) {
+    return { error: e.message || 'Erro ao decidir sobre a hora extra.' }
+  }
+}
+
 export async function decidirCompensacaoDia(
   folhaId: string,
   dia: number,
@@ -2172,7 +2361,7 @@ export async function decidirCompensacaoDia(
 }
 
 // Persist edited timesheet records from the UI editor
-export async function salvarFolhaPonto(folhaId: string, registros: any[], status?: string, cargo?: string, confirmarFaltasPendentes?: boolean, confirmarCompensacaoPendente?: boolean) {
+export async function salvarFolhaPonto(folhaId: string, registros: any[], status?: string, cargo?: string, confirmarFaltasPendentes?: boolean, confirmarCompensacaoPendente?: boolean, confirmarAutorizacaoExtraPendente?: boolean) {
   try {
     const supabase = await createClient()
     const userProfile = await getUserProfile(supabase)
@@ -2306,6 +2495,30 @@ export async function salvarFolhaPonto(folhaId: string, registros: any[], status
       }
     }
 
+    /*
+      Art. 8: hora extra apurada que ninguem autorizou.
+
+      ⚠️ Vem DEPOIS do gate da compensacao, de proposito. Quem repos atraso decide primeiro se
+      aquilo e reposicao (Art. 7); so o que SOBRA vira pergunta de autorizacao. Perguntar as duas
+      coisas ao mesmo tempo sobre o mesmo minuto e o jeito mais rapido de ensinar quem decide a
+      clicar sem ler.
+
+      ⚠️ E' este gate que torna aceitavel o default de "pendente nao muda valor nenhum". Sem ele,
+      473h/mes continuariam virando verba por inercia — que e exatamente o que o Art. 8 veda.
+    */
+    if (status === 'Revisada' && folha.status !== 'Revisada' && !confirmarAutorizacaoExtraPendente) {
+      const jornadaFolhaExtra: any = Array.isArray((escala as any).jornadas) ? (escala as any).jornadas[0] : (escala as any).jornadas
+      const diasExtra = diasPendentesDeAutorizacaoExtra(registros, jornadaFolhaExtra?.nome, {
+        mes: folha.mes,
+        ano: folha.ano,
+        vigenteDesde: await lerVigenciaAutorizacaoExtra(supabase),
+        compensacaoVigenteDesde: await lerVigenciaCompensacao(supabase),
+      })
+      if (diasExtra.length > 0) {
+        return { requerDecisaoAutorizacaoExtra: true, diasAutorizacaoExtraPendente: diasExtra }
+      }
+    }
+
     // Fechar É o prazo: promove aqui, na mesma gravação, para não sobrar texto pendente numa
     // folha que acabou de virar documento definitivo.
     if (status === 'Revisada' && folha.status !== 'Revisada') {
@@ -2382,6 +2595,7 @@ export async function salvarFolhaPonto(folhaId: string, registros: any[], status
     const jornadaNomeParaCalculo = jornadaFolhaCalculo?.nome
     // Antes do corte (09/2026) a folha nao conhece compensacao: a extra e a bruta, como sempre foi.
     const compensacaoVigenteNaFolha = regraCompensacaoVigente(folha.mes, folha.ano, await lerVigenciaCompensacao(supabase))
+    const autorizacaoExtraVigenteNaFolha = regraAutorizacaoExtraVigente(folha.mes, folha.ano, await lerVigenciaAutorizacaoExtra(supabase))
     let totalHorasNormais = 0
     let totalExtra50 = 0
     let totalExtra100 = 0
@@ -2402,9 +2616,15 @@ export async function salvarFolhaPonto(folhaId: string, registros: any[], status
       // §1/§2). Enquanto o dia esta `pendente` ele devolve o valor cheio — nada muda de valor sem
       // decisao humana. Sem isto, salvar a folha logo depois de autorizar reverteria o abatimento
       // nas colunas do banco, e a LISTAGEM voltaria a mostrar a hora extra antiga.
-      const extraDoDia = compensacaoVigenteNaFolha
+      const extraLiquidaDoDia = compensacaoVigenteNaFolha
         ? extraEfetivaDoDia(r, calcularDia(r, jornadaNomeParaCalculo))
         : Math.max(0, Number(r.hora_extra_minutos) || 0)
+
+      // ⚠️ Art. 8 por cima do Art. 7, nesta ordem. `pendente` devolve o valor inalterado — so a
+      // recusa explicita da chefia tira o excedente da verba, e ela e reversivel.
+      const extraDoDia = autorizacaoExtraVigenteNaFolha
+        ? extraAposAutorizacao(r, extraLiquidaDoDia)
+        : extraLiquidaDoDia
       if (extraDoDia > 0) {
         const dateObj = new Date(folha.ano, folha.mes - 1, r.dia)
         const dateStr = `${folha.ano}-${String(folha.mes).padStart(2, '0')}-${String(r.dia).padStart(2, '0')}`
@@ -2758,7 +2978,7 @@ export async function getFolhasPontoPrintData(folhaIds: string[]) {
 
     // A impressao em lote precisa da vigencia para nao imprimir campo novo em competencia
     // anterior ao corte (documento ja assinado).
-    return { folhas: mappedFolhas, logoUrl, compensacaoVigenteDesde: await lerVigenciaCompensacao(supabase), horasLiquidasDesde: await lerVigenciaHorasLiquidas(supabase) }
+    return { folhas: mappedFolhas, logoUrl, compensacaoVigenteDesde: await lerVigenciaCompensacao(supabase), horasLiquidasDesde: await lerVigenciaHorasLiquidas(supabase), autorizacaoExtraDesde: await lerVigenciaAutorizacaoExtra(supabase) }
   } catch (error: any) {
     console.error('Erro em getFolhasPontoPrintData:', error)
     return { error: error.message }
