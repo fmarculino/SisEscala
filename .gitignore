@@ -66,6 +66,8 @@ relogio/
 scratchpad/_sim/
 # saida do tsc para o portao do manual do usuario (scratchpad/sim_manual.js)
 scratchpad/_sim_manual/
+# saida do tsc para o portao do nome da jornada (scratchpad/sim_nome_jornada.js)
+scratchpad/_sim_jornada/
 
 # scratchpad: dado de producao com identificacao de servidor NAO entra no repo (e publico,
 # armadilha 18 do CLAUDE.md). Script pode; despejo com nome/matricula, nao.
