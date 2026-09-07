@@ -2,6 +2,46 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.47.0] - 2026-09-06
+
+Sem migration. Correção de leitura, com fonte única.
+
+### Fixed
+
+- 🚨 **12 dos 14 sítios que leem o nome da jornada não aceitavam `Á` (A agudo)** — e
+  `08H ÁS 20H` e `09H ÁS 21H` estão no catálogo, **selecionáveis no cadastro**. Sem casar o
+  separador, `parseJornadaNome` cai no **default de 08:00–17:00**: numa jornada que vai até 20:00,
+  são **3h de hora extra fabricada por dia, em silêncio**. A folha não avisa, o build não vê SQL
+  nem regex, e ninguém confere um número que "sempre foi assim".
+  - Fonte única em **`src/utils/folha/nomeJornada.ts`** (`normalizarNomeJornada`), aplicada nos
+    13 sítios por `scratchpad/gen_nome_jornada.js` — um gerador com contagem que **aborta** se
+    qualquer substituição não bater, porque esquecer um sítio é exatamente o modo de falha
+    silencioso que a correção existe para fechar.
+  - ⚠️ **A normalização preserva a CAIXA, e essa é a armadilha da própria correção.** Metade dos
+    regex do projeto não tem a flag `/i` e só casa `AS` maiúsculo (`ScaleGrid`,
+    `complianceEngine`): mapear tudo para `a` minúsculo consertaria o `Á` e **quebraria** esses —
+    trocaria um bug por outro, mais amplo. O validador injeta exatamente essa regressão.
+  - ⚠️ **O atraso nunca esteve exposto, e a assimetria é deliberada:** `previstoDaJornada` devolve
+    `null` quando não sabe, então dia sem previsto não é medido. Quem caía no default é a **hora
+    extra**. (O balanço da semana dizia "vira atraso fabricado" — impreciso; é hora extra.)
+  - `calculoDia.ts` passou a usar a fonte única no lugar do `replace` de acento inline que tinha
+    desde 04/09 — a regra do acento agora existe **num lugar só**.
+
+### Notes
+
+- **Portões**: `node scratchpad/sim_nome_jornada.js` (22 asserções — comportamento **e** uma
+  varredura do código-fonte que reprova qualquer sítio novo que leia o nome sem normalizar) e
+  `val_sim_nome_jornada.js`, com **4 regressões injetadas**, todas reprovadas. Os portões
+  existentes que tocam esses arquivos continuam passando: `sim_calculo_dia` (71),
+  `sim_horas_liquidas` (33) e `sim_revezamento_vigias`.
+- ⚠️ **Duas armadilhas do próprio gerador, registradas porque voltam:** a âncora de inserção do
+  `import` era `/^import .*$/` e casou com a linha `import {` de um **import multilinha** em
+  `FolhaPontoEditor.tsx` — o import novo entrou no meio da lista de nomes e quebrou o arquivo. E
+  um padrão de substituição que atravessava a quebra de linha deixou de casar depois de um
+  `git checkout` (que restaura em **CRLF**), virando um no-op silencioso.
+- ℹ️ **A correção no cadastro já tinha sido feita pelo usuário** (renomear as jornadas). Esta
+  fecha a outra metade: os nomes continuam digitáveis, e agora o acento deixou de importar.
+
 ## [2.46.1] - 2026-09-06
 
 ⚠️ **Requer aplicar `20260906140000`.**

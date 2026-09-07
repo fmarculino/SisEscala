@@ -8,6 +8,8 @@
  * As violações são INFORMATIVAS (warnings), não bloqueiam o salvamento.
  */
 
+import { normalizarNomeJornada } from './folha/nomeJornada'
+
 export interface ComplianceViolation {
   type: 'INTERJORNADA' | 'DSR' | 'EXTRA_ORFA'
   servidorId: string
@@ -34,7 +36,7 @@ type GridData = Record<string, Record<RowCategory, Record<number, string>>>
 export function fimDeJornadaNoturna(jornadaNome?: string | null): number | null {
   if (!jornadaNome) return null
   const ini = /^([0-9]+)/.exec(jornadaNome)
-  const fim = /(?:ÀS|AS|as|às)\s*([0-9]+)/.exec(jornadaNome)
+  const fim = /(?:ÀS|AS|as|às)\s*([0-9]+)/.exec(normalizarNomeJornada(jornadaNome))
   if (!ini || !fim) return null
   return +fim[1] < +ini[1] ? +fim[1] : null
 }
@@ -85,7 +87,7 @@ function getShiftEndHour(codigo: string, horasComputadas?: number, fimJornadaNot
   // do código do turno. Ver comentário lá.
   if (isRegular && jornadaNome) {
     const mStart = jornadaNome.match(/^([0-9]+)/)
-    const mEnd = jornadaNome.match(/(?:ÀS|AS|as|às)\s*([0-9]+)/)
+    const mEnd = normalizarNomeJornada(jornadaNome).match(/(?:ÀS|AS|as|às)\s*([0-9]+)/)
     if (mEnd) {
       let end = parseInt(mEnd[1], 10)
       const start = mStart ? parseInt(mStart[1], 10) : end

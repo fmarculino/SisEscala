@@ -12,6 +12,7 @@
 import { toleranciaAbsorve, type LimitesTolerancia } from './toleranciaExtra'
 
 import { sequenciarDia } from './sequenciaDia'
+import { normalizarNomeJornada } from './nomeJornada'
 
 export interface NormalizacaoResult {
   registros: any[]
@@ -92,7 +93,7 @@ export function normalizarRegistrosFolha(
     if (!r.turno_codigo || r.afastamento || r.feriado) continue
 
     const jornadaNome = r.jornada_nome || jornadaPadrao?.nome || ''
-    const match = jornadaNome.match(/(\d{1,2})(?:[hH:](\d{2})?)?\s*(?:às|as|to|-|a)\s*(\d{1,2})(?:[hH:](\d{2})?)?/i)
+    const match = normalizarNomeJornada(jornadaNome).match(/(\d{1,2})(?:[hH:](\d{2})?)?\s*(?:às|as|to|-|a)\s*(\d{1,2})(?:[hH:](\d{2})?)?/i)
     let startHour = 8
     let startMin = 0
     let endHour = 18

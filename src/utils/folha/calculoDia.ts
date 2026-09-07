@@ -42,6 +42,7 @@
  */
 
 import { sequenciarDia, timeToMin, type HorariosDia } from './sequenciaDia'
+import { normalizarNomeJornada } from './nomeJornada'
 
 /**
  * Competencia a partir da qual a regra de atraso/compensacao vale (decisao do usuario,
@@ -179,7 +180,7 @@ export interface PrevistoDia {
 export function previstoDaJornada(jornadaNome?: string | null): PrevistoDia | null {
   if (!jornadaNome) return null
   // "ÀS", "ÁS" e "AS" viram todos "AS" antes de casar.
-  const semAcento = jornadaNome.replace(/[ÀÁàá]/g, 'a')
+  const semAcento = normalizarNomeJornada(jornadaNome)
   const m = semAcento.match(/(\d{1,2})(?:[hH:](\d{2})?)?\s*(?:as|to|-|a)\s*(\d{1,2})(?:[hH:](\d{2})?)?/i)
   if (!m) return null
 

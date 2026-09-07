@@ -1585,6 +1585,24 @@ substring(j.nome from '^([0-9]+)')                    -- "08H ÀS 12H" → 8
 substring(j.nome from '(?:ÀS|AS|as|às)\s*([0-9]+)')   -- "08H ÀS 12H" → 12
 ```
 
+✅ **O separador acentuado deixou de importar em 06/09/2026 (v2.47.0).** A leitura do nome estava
+em **14 sítios** com regex próprio, e **12 não aceitavam `Á` (A agudo)** — e `08H ÁS 20H` /
+`09H ÁS 21H` estão no catálogo e são selecionáveis. Sem casar, `parseJornadaNome` cai no
+**default de 08:00–17:00**: numa jornada até 20:00, são **3h de hora extra fabricada por dia, em
+silêncio**. Fonte única em **`src/utils/folha/nomeJornada.ts`** (`normalizarNomeJornada`), aplicada
+nos 13 sítios por `scratchpad/gen_nome_jornada.js`.
+
+⚠️ **A normalização PRESERVA A CAIXA, e isso não é detalhe:** metade dos regex não tem a flag `/i`
+e só casa `AS` maiúsculo (`ScaleGrid`, `complianceEngine`). Mapear tudo para `a` minúsculo
+consertaria o `Á` e **quebraria** esses — trocaria um bug por outro, mais amplo.
+
+⚠️ **O ATRASO nunca esteve exposto, e a assimetria é deliberada:** `previstoDaJornada`
+(`calculoDia.ts`) devolve `null` quando não sabe, então dia sem previsto simplesmente não é
+medido. Quem cai no default é a **hora extra**. Ao mexer aqui, mantenha isso — inventar previsto
+para medir atraso é muito pior que não medir. Portões: `node scratchpad/sim_nome_jornada.js`
+(22 asserções, inclusive uma varredura que **reprova qualquer sítio novo** que leia o nome sem
+normalizar) e `val_sim_nome_jornada.js` (4 regressões injetadas).
+
 **Renomear uma jornada ainda quebra o cálculo de presença** para `Regular` — o nível 3 continua
 sendo regex sobre o nome.
 

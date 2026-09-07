@@ -40,6 +40,7 @@ import { autorizacaoDoDia, aplicarObservacaoAutorizacao } from '@/utils/folha/au
 import { carregarDecisaoCompensacao, horasNormaisLiquidasVigente } from '@/utils/folha/calculoDia'
 import { afastamentosDoDia, avaliarAfastamentosNoTurno, descreverAfastamentos, minutosAbonadosDoDia } from '@/utils/folha/afastamentosDia'
 import { conferirPinNovo, mensagemRecusaPin } from '@/utils/pin'
+import { normalizarNomeJornada } from '@/utils/folha/nomeJornada'
 
 
 /**
@@ -591,7 +592,7 @@ function parseJornadaNome(nome: string): { startHour: number; startMin: number; 
   const defaultVal = { startHour: 8, startMin: 0, endHour: 17, endMin: 0 }
   if (!nome) return defaultVal
 
-  const match = nome.match(/(\d{1,2})(?:[hH:](\d{2})?)?\s*(?:às|as|to|-|a)\s*(\d{1,2})(?:[hH:](\d{2})?)?/i)
+  const match = normalizarNomeJornada(nome).match(/(\d{1,2})(?:[hH:](\d{2})?)?\s*(?:às|as|to|-|a)\s*(\d{1,2})(?:[hH:](\d{2})?)?/i)
   if (!match) return defaultVal
 
   const startHour = parseInt(match[1], 10)

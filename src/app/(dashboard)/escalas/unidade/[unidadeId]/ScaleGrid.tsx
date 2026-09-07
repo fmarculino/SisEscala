@@ -85,6 +85,7 @@ import { AcionarSobreavisoModal } from '@/components/sobreaviso/AcionarSobreavis
 import { AutorizacaoExcecaoModal } from '@/components/escalas/AutorizacaoExcecaoModal'
 import { SolicitarExcecaoModal } from '@/components/escalas/SolicitarExcecaoModal'
 import { AlterarJornadaModal, type AlterarJornadaAlvo } from '@/components/escalas/AlterarJornadaModal'
+import { normalizarNomeJornada } from '@/utils/folha/nomeJornada'
 
 interface ScaleGridProps {
   unidadeId: string
@@ -1222,7 +1223,7 @@ export function ScaleGrid({
     if (c.includes('M')) return 7
     if (c.includes('T')) return 13
     if (c.includes('N')) return 19
-    const match = c.match(/^([0-9]+)\s*H\s*(?:AS|ÀS|A)\s*([0-9]+)\s*H/)
+    const match = normalizarNomeJornada(c).match(/^([0-9]+)\s*H\s*(?:AS|ÀS|A)\s*([0-9]+)\s*H/)
     if (match) {
       return parseInt(match[1], 10)
     }
@@ -1241,7 +1242,7 @@ export function ScaleGrid({
     if (/^T[0-9]*N$/.test(c)) return 31
     if (c === 'N' || c === 'N12') return 31
     
-    const match = c.match(/^([0-9]+)\s*H\s*(?:AS|ÀS|A)\s*([0-9]+)\s*H/)
+    const match = normalizarNomeJornada(c).match(/^([0-9]+)\s*H\s*(?:AS|ÀS|A)\s*([0-9]+)\s*H/)
     if (match) {
       let end = parseInt(match[2], 10)
       const start = parseInt(match[1], 10)
@@ -1411,7 +1412,7 @@ export function ScaleGrid({
     if (regularId) {
       const emRecord = escalaMensal.find(e => e.servidor_id === servidorId)
       const jornada = emRecord?.jornada_id ? jornadas.find(j => j.id === emRecord.jornada_id) : null
-      const m = jornada?.nome?.match(/(?:ÀS|AS|A)\s*([0-9]+)/i)
+      const m = normalizarNomeJornada(jornada?.nome).match(/(?:ÀS|AS|A)\s*([0-9]+)/i)
       if (m) fim = parseInt(m[1], 10)
       else {
         const t = turnos.find(x => x.id === regularId)
@@ -3037,7 +3038,7 @@ export function ScaleGrid({
       if (matchStart) {
         startH = parseInt(matchStart[1], 10)
       }
-      const matchEnd = jornada.nome.match(/(?:ÀS|AS|as|às)\s*([0-9]+)/)
+      const matchEnd = normalizarNomeJornada(jornada.nome).match(/(?:ÀS|AS|as|às)\s*([0-9]+)/)
       if (matchEnd) {
         let parsedEnd = parseInt(matchEnd[1], 10)
         if (parsedEnd < startH) parsedEnd += 24
@@ -3054,7 +3055,7 @@ export function ScaleGrid({
         let regEndH = 19
         if (jornada?.nome) {
           const matchStart = jornada.nome.match(/^([0-9]+)/)
-          const matchEnd = jornada.nome.match(/(?:ÀS|AS|as|às)\s*([0-9]+)/)
+          const matchEnd = normalizarNomeJornada(jornada.nome).match(/(?:ÀS|AS|as|às)\s*([0-9]+)/)
           if (matchEnd) {
             let parsedEnd = parseInt(matchEnd[1], 10)
             const sH = matchStart ? parseInt(matchStart[1], 10) : 7
@@ -4364,7 +4365,7 @@ export function ScaleGrid({
                   if (jornadaReg?.nome) {
                     const matchStart = jornadaReg.nome.match(/^([0-9]+)/)
                     if (matchStart) startHour = parseInt(matchStart[1], 10)
-                    const matchEnd = jornadaReg.nome.match(/(?:ÀS|AS|as|às)\s*([0-9]+)/)
+                    const matchEnd = normalizarNomeJornada(jornadaReg.nome).match(/(?:ÀS|AS|as|às)\s*([0-9]+)/)
                     if (matchEnd) {
                       let parsedEnd = parseInt(matchEnd[1], 10)
                       if (parsedEnd < startHour) parsedEnd += 24

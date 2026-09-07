@@ -49,6 +49,8 @@
  *   este modulo e o palpite unico, conservador e testavel; nao o lugar certo da resposta.
  */
 
+import { normalizarNomeJornada } from './nomeJornada'
+
 export type PassoFolha = 'entrada' | 'saida_intervalo' | 'retorno_intervalo' | 'saida'
 
 /** Ordem canonica dos passos na folha. Tambem e a ordem cronologica esperada do dia. */
@@ -122,7 +124,7 @@ function parseJornadaNome(
   jornadaNome?: string | null
 ): { inicioMin: number; fimMin: number } | null {
   if (!jornadaNome) return null
-  const match = jornadaNome.match(
+  const match = normalizarNomeJornada(jornadaNome).match(
     /(\d{1,2})(?:[hH:](\d{2})?)?\s*(?:às|as|to|-|a)\s*(\d{1,2})(?:[hH:](\d{2})?)?/i
   )
   if (!match) return null

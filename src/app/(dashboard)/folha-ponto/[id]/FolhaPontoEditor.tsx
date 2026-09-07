@@ -20,6 +20,7 @@ import { sequenciarDia, temViradaDeDia } from '@/utils/folha/sequenciaDia'
 import { RelatorioPlantaoSobreavisoAnexo } from '@/components/reports/RelatorioPlantaoSobreavisoAnexo'
 import { horasNormaisDaJornada } from '@/utils/folha/cargaDiaria'
 import { podeReabrirFolha } from '@/utils/folha/reabertura'
+import { normalizarNomeJornada } from '@/utils/folha/nomeJornada'
 import {
   formatarMinutosHHMM,
   totaisFolha,
@@ -351,7 +352,7 @@ export function FolhaPontoEditor({
   const { startHour, startMin, endHour, endMin } = useMemo(() => {
     const defaultVal = { startHour: 8, startMin: 0, endHour: 17, endMin: 0 }
     if (!jornada?.nome) return defaultVal
-    const match = jornada.nome.match(/(\d{1,2})(?:[hH:](\d{2})?)?\s*(?:às|as|to|-|a)\s*(\d{1,2})(?:[hH:](\d{2})?)?/i)
+    const match = normalizarNomeJornada(jornada.nome).match(/(\d{1,2})(?:[hH:](\d{2})?)?\s*(?:às|as|to|-|a)\s*(\d{1,2})(?:[hH:](\d{2})?)?/i)
     if (!match) return defaultVal
     return {
       startHour: parseInt(match[1], 10),
@@ -1173,7 +1174,7 @@ export function FolhaPontoEditor({
                 const recordJornadaNome = r.jornada_nome || jornada?.nome || ''
                 const recordHasInterval = (() => {
                   if (!recordJornadaNome) return false
-                  const match = recordJornadaNome.match(/(\d{1,2})(?:[hH:](\d{2})?)?\s*(?:às|as|to|-|a)\s*(\d{1,2})(?:[hH:](\d{2})?)?/i)
+                  const match = normalizarNomeJornada(recordJornadaNome).match(/(\d{1,2})(?:[hH:](\d{2})?)?\s*(?:às|as|to|-|a)\s*(\d{1,2})(?:[hH:](\d{2})?)?/i)
                   if (!match) return false
                   const start = parseInt(match[1], 10)
                   const end = parseInt(match[3], 10)
