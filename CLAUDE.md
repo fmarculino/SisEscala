@@ -1148,6 +1148,13 @@ consumindo a vaga de quem é novo, no teto de 20 cadastros por ciclo. Validada e
 cenário sintético revertido por `RAISE EXCEPTION` proposital (7 casos, incluindo os dois sentidos e
 o teto de 30 dias).
 
+✅ **Aplicada e conferida em produção em 07/09/2026** por
+`scratchpad/ver_migration_aplicada.mjs`, que executa a função **par a par** e sai com código 1 se
+qualquer asserção falhar: **43 → 29 reprovados**, os 14 superados liberados, os **29 legítimos
+intactos**, o caso que motivou virou `false` e `anon` continua recebendo **401**. Os dois relógios
+do almoxarifado ficaram com cobertura **idêntica** (58 `ok` + 1 `sem_biometria`, o único sem digital
+em relógio nenhum — biometria só presencial).
+
 ⚠️ **`CREATE OR REPLACE FUNCTION` não altera a lista de colunas de um `RETURNS TABLE`.** Reaplicar
 uma migration depois de acrescentar uma coluna de saída morre com `42P13: cannot change return
 type of existing function` — aconteceu em 13/08/2026 com `fn_cobertura_ponto_dispositivo`. Quem
