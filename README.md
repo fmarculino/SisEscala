@@ -1,4 +1,4 @@
-# SisEscala 📅[![Version](https://img.shields.io/badge/version-2.34.0-green.svg)](https://github.com/fmarculino/SisEscala)
+# SisEscala 📅[![Version](https://img.shields.io/badge/version-2.45.0-green.svg)](https://github.com/fmarculino/SisEscala)
 [![Next.js](https://img.shields.io/badge/framework-Next.js%2015-black.svg)](https://nextjs.org/)
 [![Supabase](https://img.shields.io/badge/backend-Supabase-green.svg)](https://supabase.com/)
 [![Tailwind CSS](https://img.shields.io/badge/styling-Tailwind%20CSS-38B2AC.svg)](https://tailwindcss.com/)
@@ -10,6 +10,54 @@ O sistema foca em **governança, segurança jurídica e eficiência operacional*
 ---
 
 ## 🚀 Principais Funcionalidades
+
+### 📖 Manual do Usuário em SUPORTE → Ajuda (v2.44.0)
+- **8 capítulos, 45 seções e 208 blocos** cobrindo as **23 telas do menu**: o que o sistema é, o ciclo do mês, a grade e suas travas, ponto e folha, pessoas e ausências, relatórios e gestão, a área do servidor, e 12 dúvidas frequentes com glossário.
+- Sumário recolhível, **busca sobre todo o texto** (sem acento, sem caixa, atalho `/`), etiquetas de perfil por seção, navegação anterior/próxima e blocos "caminho" com botão que abre a tela descrita.
+- **O manual entra no radar de atualizações**: toda mudança que altera o que o usuário vê ou faz entra no manual **no mesmo commit** — e o portão automático **reprova** quando uma tela do menu não é citada em lugar nenhum. Manual desatualizado ensina o caminho errado com a autoridade de documentação oficial.
+- Linguagem com régua verificada: o público é o coordenador da unidade, e o portão varre o texto atrás de jargão técnico.
+
+### 🕐 Cobertura de Ponto e Envio Automático ao Relógio (v2.41.0 → v2.45.0)
+- **A aba de cobertura passou a listar `lotados ∪ escalados`.** Antes mostrava só quem tinha escala no mês, e por isso **1.257 pessoas cadastradas no relógio sem biometria** — que não conseguem bater ponto — não apareciam em tela nenhuma.
+- **O envio de cadastro ao relógio virou automático.** Até a v2.41.0 o enfileiramento era 100% manual (só no clique de "Sincronizar cadastros"), então servidor novo com lotação definida nunca chegava ao equipamento sozinho. Hoje o cron diário roda os dois caminhos — lotação e escala — em cada dispositivo ativo.
+- **Novo painel "Cobertura da Escala"**: quem está escalado onde **não consegue bater**, e a partir de que dia — ordenado pela urgência, com resumo por unidade, filtro de externo e exportação CSV. Leitura pura: não enfileira e não escreve em equipamento.
+- **A fila de cadastro parou de insistir com quem o equipamento recusou** (eram 2.463 tentativas condenadas, o mesmo par até 83 vezes) — corrigir o CPF/PIS libera a retentativa na hora.
+- ⚠️ **A cópia automática de biometria entre relógios move só a digital** — cartão RFID, código e senha não vão junto. Pendência registrada, a testar em campo.
+
+### 📊 Indicadores do Painel e Relatórios sem Corte Silencioso (v2.42.0)
+- **Quatro relatórios agregados nunca paginaram** e o banco corta em 1.000 linhas **sem avisar**: RH (58% ausente), Plantão/Sobreaviso (58%), Distribuição (57%) e Consolidado (28%). Em agosto os quatro cabiam no limite e **pareciam corretos** — foi a entrada de uma unidade grande que revelou o problema. Quando a busca falha no meio, a tela agora **avisa que os dados estão incompletos** em vez de mostrar um número menor sem explicação.
+- **O Painel era a última tela a contar o intervalo como jornada**: 163.392h contra 126.175h da grade, do consolidado e da folha — **22,8% de diferença na mesma competência**, com o número maior justamente na tela de decisão.
+- **Cartões que não respondiam o que o rótulo perguntava**: "Escalas Ativas" misturava grades com linhas por servidor, "Em serviço hoje" contava a mesma pessoa duas vezes, o gráfico igualava 156h e 13.218h na mesma altura, e os servidores **Afastados** não entravam em nenhum dos dois números.
+- O gráfico passou a dizer que é **escala prevista** (não hora trabalhada), e o Sobreaviso ficou rotulado como **prontidão**, nunca somado às horas.
+
+### ⏰ Fechamento Automático de Escalas e Folhas que Realmente Fecha (v2.41.2 → v2.41.3)
+- **O fechamento automático pelo cron nunca havia rodado uma vez.** A rotina exigia sessão de usuário, e rotina de máquina não tem nenhuma — escalas vencidas só fechavam "de carona" quando alguém abria a tela.
+- E, ao rodar pela primeira vez, ele **relatou 562 escalas fechadas tendo fechado zero**: o lote grande era recusado pelo banco, o erro era engolido, e a contagem vinha do que foi **encontrado**, não do que mudou. Hoje o número vem das linhas que de fato voltaram do banco, e "achar muito e fechar pouco" virou sintoma visível.
+- As buscas também não paginavam — eram 2.160 escalas abertas contra o teto de 1.000, então **metade da base nunca era enxergada**.
+
+### 🧩 Mesclar Cadastros Duplicados de Servidor (v2.39.0 → v2.43.0)
+- Nova ação para **unificar dois cadastros da mesma pessoa**: move todos os vínculos (ponto, escala, folha, férias, usuário do sistema) para o cadastro que fica e **inativa** o outro — nunca exclui, porque a matrícula pode já ter sido impressa em folha e escala.
+- **Mesclar direto pela lista de "Possíveis duplicidades"**, que é onde o problema tem nome: selo, botão que leva à ação e, quando não dá, **o motivo escrito**.
+- ⚠️ **O critério é sempre o CPF, nunca o agrupamento da lista** — há grupos por telefone e por e-mail com CPF diferente (um deles é um endereço compartilhado por 12 pessoas), e mesclar pessoas diferentes faria o ponto de uma virar ponto da outra.
+- Quando os dois cadastros têm escala **na mesma competência, unidade e setor**, as duas passam a ser **fundidas** em vez de travar a operação. O que continua recusado — mesmo dia com turnos diferentes — é decisão de quem escala, e a recusa agora nomeia setor, competência, dia e turno de cada lado.
+
+### 🛡️ Revezamento de Vigias na Portaria (v2.40.0)
+- Novo botão na grade que **gera o mês inteiro** para 2 ou mais agentes de portaria, decidindo a forma de cada dia pelo calendário (12h + 1h extra em dia normal, 24h em fim de semana e feriado) e quem está na vez pela alternância simples.
+- **Nenhum turno novo e nenhuma migration** — usa os códigos já cadastrados, escolhidos na tela, porque o código da hora extra define o percentual pago e essa é decisão de quem escala.
+- **Prévia obrigatória dia a dia** antes de aplicar, com a projeção de horas de cada agente contra o teto mensal. Dia com presença confirmada, afastamento ou sobreposição **não é preenchido nem apagado**.
+
+### 🗓️ Folha de Ponto em HH:MM, Atraso e Compensação (v2.36.0 → v2.37.0)
+- **Todas as horas da folha saem em `HH:MM`**, não mais em decimal — `0.18h` era ilegível e não permitia recuperar os 11 minutos originais.
+- **Atraso e saída antecipada passam a ser medidos.** Medido em agosto: **622 dias e 141 pessoas** chegaram atrasadas e saíram depois do previsto, gerando 489h de hora extra — das quais **253h apenas repunham o atraso** —, e os 1.363 dias de atraso não apareciam em lugar nenhum.
+- A compensação **não é automática**: vira um selo de decisão do coordenador/RH na linha do dia, cobrado no fechamento, com teto de 2h/dia. Nenhum valor muda sem decisão humana.
+- **As horas normais deixaram de contar o intervalo.** A folha somava o vão entre entrar e sair, então uma jornada "08H ÀS 18H" com 2h de intervalo lançava 10h de trabalho — 14,1% de intervalo lançado como jornada na competência inteira. Vale a partir de 09/2026; competência anterior é documento assinado.
+- **RH Geral e RH da Unidade passam a reabrir folha fechada**, além do Administrador Geral.
+
+### 🔀 Mover e Dividir Escala Entre Setores (v2.35.0)
+- 🚨 **Transferir alguém de setor APAGAVA a escala em vez de movê-la** — e falhava em silêncio, "dando certo" sem ter tocado em escala nenhuma. Hoje a transferência **pergunta**: mover a competência inteira, dividir na data da transferência, ou não mexer (o padrão).
+- **"Transferir Escala" na grade**: marca um ou mais servidores e move para outra unidade/setor, preservando o ponto já batido — a presença viaja na própria linha do dia.
+- **Afastamento de meio período deixou de anular o dia inteiro.** Uma declaração de comparecimento pela manhã sobre um turno `MT` fazia o dia sumir da folha como "FOLGA"; agora o período trabalhado é preservado, e o meio período vira abono.
+- **Seleção de setor em árvore** também onde a escolha é única (avaliação de transferência e grade), com o caminho completo do setor — nome de folha sozinho não identifica setor.
 
 ### 📊 Painel Confiável, Hora Extra com Base Certa & Falta com Regras Claras (v2.34.0)
 - **Painel de Controle parava de contar tudo.** Os cartões de Servidores, Escalas Ativas e

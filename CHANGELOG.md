@@ -2,6 +2,340 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.45.0] - 2026-09-06
+
+Duas frentes do módulo de marcações no mesmo dia: o painel que avisa quem está escalado onde não
+consegue bater ponto, e o registro de uma pendência medida no código — a cópia automática de
+biometria entre relógios move **só a digital**.
+
+### Added
+
+- **Painel "Cobertura da Escala"** em `/marcacoes` (`fn_cobertura_escala_parque` /
+  `fn_cobertura_escala_resumo`, migration `20260906110000`). Responde a pergunta que só existia
+  relógio a relógio: **quem está escalado onde não consegue bater, e a partir de que dia** —
+  ordenado pelo primeiro dia escalado, com resumo por unidade, filtro de externo, exportação CSV e
+  a ação correta para cada situação. Plano em
+  [`docs/planos/2026-09-06-painel-de-cobertura-de-escala-do-parque.md`](docs/planos/2026-09-06-painel-de-cobertura-de-escala-do-parque.md).
+  - **Investigado antes de construir, e boa parte já existia:** a **identidade** já chega sozinha
+    ao relógio da outra unidade (`fn_enfileirar_cadastros_por_escala` escolhe por **escala**, não
+    por lotação, e o cron diário roda em todo dispositivo ativo, desde a v2.41.0).
+  - **A digital não tem como chegar, e é estrutural:** a cópia só ocorre entre relógios da mesma
+    unidade atendidos pela **mesma máquina**, e nenhuma máquina do parque atende duas unidades
+    (medido: 29 dispositivos). Pelo servidor está fora por LGPD e por não haver rota de rede até a
+    unidade. **Quem trabalha em duas unidades cadastra a digital nas duas, uma vez em cada.**
+  - ⚠️ **O painel NÃO é "de externos".** Das **85 escalas / 84 pessoas** que não conseguem bater em
+    09/2026, só **2** são externas — filtrar por externo esconderia 82. O externo é *sinalizado*,
+    nunca usado como filtro padrão.
+  - ⚠️ **O universo é escala COM DIA LANÇADO.** Adicionar alguém à grade sem turno nenhum não o
+    manda ao relógio, e isso é correto — foi o que separou "4 externos sumidos" de um bug real.
+  - **Leitura pura, de propósito:** não enfileira e não escreve em equipamento. Devolve só o que
+    **não** está ok (as 941 linhas `ok` passariam do teto de 1.000 do PostgREST em silêncio).
+  - Manual do usuário atualizado no mesmo commit (seção "Cobertura da Escala"), como manda a regra
+    da v2.44.0.
+
+### Notes
+
+- 🚨 **A cópia de biometria move SÓ A DIGITAL — cartão RFID, código e senha não vão junto.**
+  `formatosTemplate` manda apenas `name`, `pis`/`cpf`, `registration` e `templates`;
+  `ListarUsuarios` **nem lê** o campo `rfid` que o equipamento devolve; e `rep_usuarios_dispositivo`
+  só guarda `tem_biometria`.
+  - **Consequência:** quem bate por **cartão** entra na fila como faltando digital, a cópia falha
+    com *"o relógio de origem não tem digital cadastrada"* e **repete para sempre** — e
+    "Sincronizar cadastros" entrega essa pessoa num relógio novo **sem nenhum meio de bater**.
+  - Pendência aberta, a testar no **HMM** (os três cenários convivem lá). O primeiro passo é
+    diagnóstico **sem escrever nada**: ler a resposta crua de `load_users.fcgi` para um usuário de
+    cartão e um de senha. Plano e as duas armadilhas já conhecidas em
+    [`docs/planos/2026-09-06-copia-de-cartao-codigo-e-senha-entre-relogios.md`](docs/planos/2026-09-06-copia-de-cartao-codigo-e-senha-entre-relogios.md).
+  - ⚠️ **A conferência por relistagem não protege esse caso** — ela olha biometria ganha e tamanho
+    do cadastro, nunca os **campos de quem ficou**.
+- ⚠️ **A migration `20260906110000` não foi aplicada a partir daqui** (porta 5432 bloqueada, sem
+  RPC de SQL cru). Aplicar em homologação antes de produção e comparar com
+  `scratchpad/an_proto_painel_cobertura.mjs`, que produz os mesmos números por fora.
+
+## [2.44.0] - 2026-09-06
+
+O manual do usuário em SUPORTE → Ajuda tinha 5 seções curtas e estava desatualizado **de um jeito
+que induzia ao erro**: "Presença e GPS" descrevia validação por geolocalização na marcação de
+ponto, e hoje o GPS é do **Sobreaviso** — quem lesse aquilo procuraria uma tela que não existe.
+Diário em [`docs/evolucao/2026-09-06-manual-do-usuario.md`](docs/evolucao/2026-09-06-manual-do-usuario.md).
+
+### Added
+
+- **Manual do usuário completo**: 8 capítulos, 45 seções e 208 blocos cobrindo as **23 telas do
+  menu** — o que o sistema é, o ciclo do mês, a grade e suas travas, ponto e folha, pessoas e
+  ausências, relatórios e gestão, a área do servidor, e 12 dúvidas frequentes com glossário.
+- **Tela**: sumário recolhível, busca sobre todo o texto (sem acento, sem caixa, atalho `/`),
+  etiquetas de perfil por seção, navegação anterior/próxima, blocos "caminho" com botão que abre a
+  tela descrita, e a versão do sistema no cabeçalho.
+
+### Changed
+
+- **O conteúdo é DADO, não JSX** (`ajuda/conteudo/` + `ajuda/Blocos.tsx`). Três coisas dependem
+  disso: a busca indexa o texto sozinha (com JSX seria uma lista de palavras-chave à mão, que
+  envelhece na primeira edição), o visual fica consistente por construção, e atualizar passa a ser
+  editar um objeto. Precisa de um formato novo? Acrescente um **tipo de bloco**, não HTML solto.
+
+### Decisões registradas
+
+- 🚨 **O manual entra no radar de atualizações** (pedido do usuário): toda mudança que altera **o
+  que o usuário vê ou faz** entra no manual **no mesmo commit**. Registrado no `CLAUDE.md`.
+  **Manual desatualizado é pior que manual nenhum** — ensina o caminho errado com a autoridade de
+  documentação oficial, e quem o segue abre chamado sobre um defeito que não existe.
+- **A defesa que não depende de ninguém lembrar é a checagem de cobertura do portão**: tela do menu
+  não citada em lugar nenhum **reprova**.
+- **A linguagem tem régua verificada.** O público é o coordenador da unidade, e o portão varre o
+  texto procurando `fn_`, `escala_diaria`, `trigger`, `rpc`, `supabase` e afins — nome de tabela ou
+  função não entra nem em nota de rodapé.
+
+### Notas de verificação
+
+- Portões: `node scratchpad/sim_manual.js` (610 asserções — ids únicos, link interno válido, tabela
+  alinhada com o cabeçalho, `**` e crase balanceados, a busca achando os 12 termos prometidos, sem
+  jargão, cobertura das 23 telas) e `val_sim_manual.js`, que injeta 5 defeitos de conteúdo e exige
+  reprovação nos 5, **conferindo antes que cada injeção foi aplicada**.
+
+## [2.43.0] - 2026-09-06
+
+A mesclagem de cadastros duplicados existia desde a v2.39.0, na seção "Cadastros duplicados" —
+**duas seções longas acima** da lista "Possíveis duplicidades", que é onde o problema tem nome.
+Quem chegava lá não tinha o que fazer com a informação. Diário em
+[`docs/evolucao/2026-09-06-mesclar-pela-lista-e-fundir-escala-do-mesmo-setor.md`](docs/evolucao/2026-09-06-mesclar-pela-lista-e-fundir-escala-do-mesmo-setor.md).
+
+### Added
+
+- **Mesclar direto pela lista de diagnóstico.** O grupo de "Possíveis duplicidades" passa a trazer
+  selo, botão que **ancora no grupo da ação** (abre e rola até ele) e — quando não dá — **o motivo
+  escrito**. Botão cinza sem explicação ensina a contornar a tela.
+- ⚠️ **O critério do botão é o CPF, NUNCA o do agrupamento.** Medido nos 40 grupos do diagnóstico:
+  os **16 agrupados por nome** têm o mesmo CPF dos dois lados e são mescláveis; **3 dos 6 por
+  telefone e 2 dos 5 por e-mail têm CPF diferente** — um dos de e-mail é um endereço compartilhado
+  por **12 pessoas**. Recusar pelo rótulo esconderia os 16; aceitar pelo telefone mesclaria duas
+  pessoas, e o ponto de uma viraria ponto da outra.
+
+### Changed
+
+- **Escala do mesmo setor passa a ser FUNDIDA, não a travar a mesclagem** (migration
+  `20260906100000`). Quando os dois cadastros têm escala na mesma competência, unidade e setor, a
+  unique de `escala_mensal` caía na varredura genérica de unicidade e travava tudo — **5 dos 16
+  grupos**, e um deles (ELIETE, 26 × 20 dias) não tinha **um** dia em comum. A mensagem antiga nem
+  dizia competência, setor ou dia.
+  - **A fusão é barata porque `escala_diaria` não tem `servidor_id`** (herda de `escala_mensal`):
+    repontar `escala_mensal_id` e apagar a escala vazia. **A presença viaja na própria linha do
+    dia** — ponto batido acompanha sem ser tocado.
+  - ⚠️ **A fusão roda ANTES do laço genérico**, por necessidade: é ele que faria
+    `UPDATE escala_mensal SET servidor_id`, e a unique derrubaria a transação inteira. O gerador
+    **aborta** se a ordem inverter.
+  - **A escala fundida é relatada separada na tela** — diluída na contagem de vínculos movidos,
+    ninguém a encontraria depois na grade.
+
+### Notes
+
+- **O que continua recusado não é limitação técnica, é decisão de escala.** Dos 5 travados, **4 têm
+  o mesmo dia com turnos diferentes** (`MT` num cadastro e `N` no outro, categoria Regular).
+  🚨 Isso **não** passa pela checagem de escala sobreposta, que exige slots cruzados — e `{M,T}` não
+  cruza com `{N}`: dois lançamentos legítimos isoladamente que, juntos, dizem que a pessoa faz 24h
+  em dias alternados. A recusa agora **nomeia setor, competência, dia e o turno de cada lado**.
+- Os outros dois motivos novos de recusa: competência encerrada / escala fechada, e folha de ponto
+  na escala que seria fundida (juntar dois documentos de folha é outra decisão).
+- **O cadastro duplicado continua sendo INATIVADO, não excluído** — a matrícula pode já ter sido
+  impressa em folha e escala. Medido: **13 dos 16 lados que sairiam ainda têm batida, escala, folha
+  ou vínculo de relógio**.
+
+### Notas de verificação
+
+- Conferido em produção depois de aplicar: **11 → 12 grupos sem impedimento** (nenhum regrediu),
+  **0** `escala_mensal` órfã em 2.373, **0** `escala_diaria` apontando para escala inexistente em
+  35.566, e **0** triplas `(escala_mensal_id, dia, categoria)` repetidas.
+- Portões: `node scratchpad/sim_mesclagem_da_lista.js` (21 asserções) e
+  `val_sim_mesclagem_da_lista.js`, que injeta 3 regressões e exige reprovação nas 3. A migration é
+  gerada por `scratchpad/gen_fusao_escala_mesclagem.js` a partir da versão vigente, com invariantes.
+
+## [2.42.0] - 2026-09-05
+
+O usuário desconfiou das **25.287h de plantão** do painel em 09/2026. **O número estava certo**
+(2.338 plantões de 318 servidores, 89% do HMI; o "+742% contra agosto" é implantação, não trabalho
+novo). A revisão dos demais indicadores achou **oito defeitos, sete deles de leitura** — nenhuma
+migration: nenhum horário, hora normal, falta ou folha se move. Diário em
+[`docs/evolucao/2026-09-05-indicadores-do-painel-e-corte-de-1000-nos-relatorios.md`](docs/evolucao/2026-09-05-indicadores-do-painel-e-corte-de-1000-nos-relatorios.md).
+
+### Fixed
+
+- 🚨 **QUATRO relatórios agregados nunca paginaram**, e o PostgREST corta em 1.000 **em silêncio**:
+
+  | tela | linhas reais | via | ausente |
+  |---|---|---|---|
+  | `/relatorios/rh` | 2.362 | 1.000 | **58%** |
+  | `/relatorios/plantao-sobreaviso` | 2.362 (ano) | 1.000 | **58%** |
+  | `/relatorios/distribuicao` | 2.338 | 1.000 | **57%** |
+  | `/relatorios/consolidado` | 1.384 | 1.000 | **28%** |
+
+  - ⚠️ **Em 08/2026 os quatro cabiam em 1.000 e pareciam corretos** — foi o HMI entrar em 09/2026
+    que revelou o corte. **Relatório que hoje cabe não está seguro; só ainda não estourou.**
+  - `/relatorios/rh` **não filtrava período e não tinha `ORDER BY`**: o recorte de 1.000 era
+    arbitrário e sem garantia de ser o mesmo a cada carregamento. `plantao-sobreaviso` filtrava os
+    meses **em JS, depois da consulta**, então o corte acontecia sobre o ano inteiro.
+  - Fonte única: `src/utils/paginacao.ts`. **Falha no meio devolve `completo: false`** e a tela
+    mostra `AvisoDadosIncompletos` — trocar um número errado por outro número errado não resolve.
+- 🚨 **O painel era o ÚLTIMO lugar a somar o vão do relógio no Regular:** **163.392h** contra
+  **126.175h** da grade, do consolidado e da folha — **37.217h (22,8%)** de diferença na mesma
+  competência, com o número maior justamente na tela de decisão. Fonte única nova em
+  `src/utils/escala/horasLinha.ts`, agora compartilhada com o consolidado (cuja fórmula **já estava
+  certa** — o defeito era ser a terceira cópia).
+- **O número não respondia o que o rótulo perguntava**, em quatro cartões:
+
+  | card | dizia | era |
+  |---|---|---|
+  | "Escalas Ativas" | `113` grades **e** `694 fechadas` | grades × linhas por servidor, lado a lado |
+  | "Em serviço hoje" | 207 | **188 pessoas** — Regular + Plantão no mesmo dia contava 2× |
+  | barras do gráfico | piso de 4% | 156h e 13.218h na mesma altura |
+  | "Servidores" | 2.065 + 5 | os **10 `Afastado`** não entravam em nenhum dos dois |
+
+### Changed
+
+- **O gráfico passou a dizer que é escala PREVISTA**, não hora trabalhada. Sem essa palavra, a
+  variação percentual entre meses é lida como aumento de trabalho quando na maior parte é
+  implantação — hora realizada é a folha.
+- **Sobreaviso ficou rotulado como prontidão** e **nunca é somado** às horas trabalhadas.
+- **Uma grade só é "fechada" quando TODAS as escalas dela estão Fechadas**; e o card "Servidores"
+  passou a derivar o resto de uma contagem **total**, para status novo ser somado sozinho em vez de
+  sumir.
+
+### Notas de verificação
+
+- Portões: `node scratchpad/sim_horas_escala.js` (39 asserções) e `val_sim_horas_escala.js`, que
+  injeta **5 regressões e exige reprovação nas 5**. `an_confere_painel_novo.mjs` roda a consulta e a
+  conta novas contra produção, inclusive o embed `escala_mensal!inner(jornadas(...))`.
+- ⚠️ **Fica aberto:** 13 pares (servidor, dia, categoria) com **duas escalas** em 09/2026, **126h em
+  dobro** — anteriores à trava `20260826220000`. Não foram tocados: é decisão de escala.
+
+## [2.41.3] - 2026-09-05
+
+Logo depois de o `autoClose` passar a rodar de fato (v2.41.2), a resposta trazia
+`"closedScales": 562` — e o banco mostrava **202 escalas `Fechada` no total e nenhum log
+"Escala Fechada Automaticamente"**. Nada tinha sido fechado.
+
+### Fixed
+
+- **Três defeitos somados no fechamento automático**, e os três são padrões que voltam:
+
+  | defeito | onde |
+  |---|---|
+  | `.update().in('id', <562 uuids>)` monta URL de ~20 KB e o PostgREST recusa | update em lote sem fatiar → agora vai em lotes de 100 |
+  | o erro caía em `console.error` e a função seguia | agora é propagado para o retorno e para o campo `falhas` da rota de cron |
+  | `closedScales` devolvia o tamanho da lista **encontrada**, não o que mudou | a contagem passa a vir do `.select('id')` do próprio update |
+
+  `encontradasEscalas` / `encontradasFolhas` ficam ao lado: **achar muito e fechar pouco vira
+  sintoma visível em vez de silêncio.**
+- **As duas buscas também não paginavam.** São **2.160** escalas abertas contra o teto silencioso de
+  1.000, então o fechamento nunca enxergou metade da base.
+- **Log e geração de folha passam a usar só as escalas/folhas que de fato fecharam** — um lote que
+  falha no meio não pode gerar log de coisa que não aconteceu.
+- **A fila de cadastro do relógio para de insistir com quem o equipamento recusou** (migration
+  `20260905110000`). `rep_cadastros_fila` tinha **2.463** linhas `falhou`, o mesmo par (dispositivo,
+  servidor) até **83 vezes**, e 25 dos 51 pendentes já haviam falhado antes no mesmo relógio.
+  `falhou` já significa definitivo (falha transitória volta para `pendente`) — faltava o
+  enfileiramento respeitar isso. Grave porque o coletor aplica no máximo **20 cadastros por ciclo**:
+  entrada condenada consome a vaga de quem é novo de verdade.
+  - ⚠️ **O critério de `fn_cadastro_rep_reprovado` não é janela de tempo.** Reprova quem falhou e
+    **cujo cadastro não mudou desde a falha** (`servidores.updated_at <= processado_em`) — corrigir
+    o CPF/PIS libera a retentativa na hora. O teto de 30 dias cobre só o caso em que quem muda é o
+    **outro lado** (firmware, coletor novo). Vale nos dois caminhos (lotação e escala) e para os
+    dois chamadores: o laço nasceu dos cliques na tela, não do cron.
+
+## [2.41.2] - 2026-09-05
+
+Primeira execução manual de `/api/cron`, e a resposta foi
+`{"success":true,"autoClose":{"success":false,"error":"Não autorizado"}}`.
+
+### Fixed
+
+- 🚨 **O fechamento automático de escalas e folhas pelo cron nunca rodou uma vez.**
+  `autoCloseExpiredScalesAndTimesheets` exigia sessão do Supabase Auth (`auth.getUser()`), e rota de
+  máquina não tem nenhuma: **o `CRON_SECRET` autentica a requisição, não cria usuário.**
+  - **O fechamento em si não estava parado:** dos 5 chamadores, 4 são telas (`/escalas`,
+    `/escalas/unidade/[id]`, folha-ponto) e ali há sessão — escala vencida fechava **de carona**
+    quando alguém abria a tela. O que não existia era o caminho automático.
+  - A função passa a aceitar `{ origemDeMaquina: true }`, usado **só** pela rota de cron, que já
+    está autenticada por um segredo de máquina — credencial mais forte que "existe alguém logado".
+    As 4 telas continuam pelo guard de sessão, sem alteração.
+  - ⚠️ **O 5º chamador é o Portal do Servidor**, que autentica por PIN com cookie HMAC e também não
+    tem sessão Supabase. Continua no-op ali, **deliberadamente**: quem abre o Portal é o servidor,
+    não alguém com autoridade para fechar competência.
+- **O topo da resposta era `"success": true` fixo**, com o `autoClose` reprovado dentro. Agendado
+  diariamente, isso esconderia a falha para sempre. Agora `success` reflete as três etapas e há um
+  campo `falhas` nomeando qual quebrou.
+
+### Notes
+
+- **Ao escrever rotina de máquina, confira se o que ela chama depende de sessão de usuário:** o modo
+  de falha é silencioso e o chamador recebe 200.
+
+## [2.41.1] - 2026-09-05
+
+### Changed
+
+- **Coletor REP v0.15.0 — o cadastro do relógio passa a ser relistado 1×/hora, não a cada ciclo.**
+  `SincronizarCadastros` chamava `load_users` a cada 5 min, com `templates: true`, **mesmo sem nada
+  pendente** — ou seja, para não fazer nada. Medido em produção: no HMI são ~500 cadastros com ~418
+  **digitais** baixados **288 vezes por dia**, em cada um dos 3 relógios; HMM 349 cada, SMS 321.
+  - Num equipamento cujo handshake TLS sozinho custa **1,1s de CPU dele** (60/60 conexões TCP em
+    41ms, mas TLS de 1,1s a 4,2s, e a 8ª conexão simultânea falha em 21s sem conectar), essa
+    relistagem era **a maior carga contínua que o coletor impõe**.
+  - A listagem agora roda quando: é clique manual/CLI (`limite == 0`), **ou** algo foi de fato
+    escrito no relógio neste ciclo, **ou** faz mais de 1 hora desde a última. Corta 11 de cada 12
+    listagens **sem deixar o snapshot envelhecer** — ele é o que detecta biometria cadastrada
+    presencialmente, que é o gargalo real do parque.
+  - De passagem: `IdleConnTimeout` explícito no `Transport` do `rep.Client`. O zero-value do
+    `http.Transport` significa "sem limite", então a conexão ociosa nunca se fechava sozinha. Em
+    campo o acúmulo não estava ocorrendo (o device derruba as ociosas), mas depender disso é contar
+    com sorte alheia.
+  - **Não feitas, deliberadamente:** reusar um `rep.Client` por ciclo (economiza 2,2s a cada 300s —
+    churn alto em assinaturas usadas pela CLI, ganho irrelevante perto da listagem) e retry nas
+    leituras (o travamento medido durou **4 minutos**; retry curto não alcança isso, e insistir num
+    equipamento que satura por excesso de conexão pode piorar — o ciclo de 5 min já é o retry).
+  - Portões: `go build`, `go vet`, `go test ./fila/ ./config/`, subsystem conferido (tray = 2 GUI,
+    cli = 3 console), `versioninfo` 0.15.0.0 nos dois, e `VERSION` 0.15.0 presente em
+    `.next/standalone`.
+
+## [2.41.0] - 2026-09-05
+
+A aba "Cobertura da Escala" listava **só quem tinha escala no mês**, então quem está lotado na
+unidade e já cadastrado no relógio era invisível. Medido em produção: **1.257 pessoas cadastradas
+sem biometria** — 348 no HMM-01, 57 no CAPS III, ~82 em cada relógio do HMI — gente que **não
+consegue bater ponto** e não aparecia em tela nenhuma. Diário em
+[`docs/evolucao/2026-09-05-cobertura-de-ponto-inclui-lotados.md`](docs/evolucao/2026-09-05-cobertura-de-ponto-inclui-lotados.md).
+
+### Changed
+
+- **A aba virou "Cobertura de Ponto" e o universo passou a ser `lotados ∪ escalados`**
+  (`20260905100000`). O caso que motivou foi a USF José Manoel: 4 lotados, os 4 no relógio com
+  biometria, e a aba mostrava 1. **Os dois números estavam certos; a tela respondia outra pergunta.**
+  - ⚠️ **União, nunca substituição** — trocar escala por lotação quebraria o "Servidor Externo".
+    Conferido em produção: **22 externos preservados**.
+  - **`escalados` no resumo continua contando só quem tem escala**; o denominador novo é
+    `total_pessoas`, somado ao lado. `dias_com_escala = 0` identifica quem entrou por lotação, sem
+    coluna nova.
+  - ⚠️ **O número de escalados varia de 640 a 1.785 conforme o mês** (o HMI tinha 6 escalados em
+    08/2026 e 390 em 09/2026); a união fica **estável em ~3,4 mil**. É isso que faz a aba parar de
+    depender de a escala ter sido lançada.
+
+### Added
+
+- **O envio de cadastro ao relógio passa a ser automático.** 🚨 **O enfileiramento era 100% manual
+  até aqui** — `fn_enfileirar_cadastros_rep` (lotação) e `fn_enfileirar_cadastros_por_escala`
+  (escala) só rodavam no clique de "Sincronizar cadastros"; **não havia trigger nem cron**, então
+  servidor novo com lotação definida nunca chegava ao equipamento sozinho.
+  - O cron diário passa a rodar **as duas** por dispositivo ativo
+    (`src/utils/rep/enfileirarCadastrosParque.ts`). **Só popula a fila** — quem grava no relógio
+    continua sendo o coletor, com teto de 20 por ciclo.
+  - ⚠️ Roda com **`service_role`**: as duas RPCs só aplicam os guards quando
+    `auth.uid() IS NOT NULL`, então com `createClient()` a rotina veria zero.
+
+### Notas de verificação
+
+- Conferido em produção após aplicar: `total_pessoas = 3431`, `escalados = 1785` (inalterado),
+  `sem_biometria = 1259`, os 4 da USF José Manoel listados, **0 duplicados**.
+
 ## [2.40.0] - 2026-09-04
 
 Relato do usuário: a escala dos vigias/agentes de portaria é "muito confusa pra maioria das
