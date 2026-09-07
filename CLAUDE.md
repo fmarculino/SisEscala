@@ -3686,6 +3686,25 @@ inclusive na impressão (`window.print()` sobre o mesmo DOM). Mudança na folha 
 sozinha — mas o selo de decisão não aparece lá: `podeDecidirCompensacao = podeReclassificar`
 (exclui `isPortal`), e a Server Action reconfere o papel.
 
+- **Autorização prévia de hora extra** (Art. 8º) — ✅ **IMPLEMENTADA em 06/09/2026 (v2.48.0)**,
+  migration `20260906150000`. O gate vale sobre a hora extra **APURADA** (o excedente da saída),
+  não sobre o lançamento de turno Extra na grade — é de lá que vinham as 473h.
+
+  🚨 **`pendente` NÃO muda valor nenhum**, e é o coração do desenho: "não autorizada por padrão"
+  apagaria hora extra de quem trabalhou numa folha assinada; "autorizada por padrão" manteria o
+  problema. O total segue idêntico ao de hoje e a decisão é **cobrada no fechamento**
+  (`requerDecisaoAutorizacaoExtra`, no servidor — não só na tela).
+
+  ⚠️ **A ordem é compensa (Art. 7º) e DEPOIS autoriza (Art. 8º).** O que precisa de autorização é
+  o que **sobra** depois da compensação. Invertida, a chefia decidiria sobre minutos que são
+  reposição de atraso — e perguntar duas vezes sobre o mesmo minuto ensina a clicar sem ler.
+
+  ⚠️ **`nao_autorizada` zera a VERBA, nunca o REGISTRO**: a batida continua gravada e impressa.
+
+  ⚠️ **Chave de vigência própria** (`autorizacao_extra_vigente_desde`), nunca a da compensação.
+  Fila grande demais em 09/2026? Mova a **chave** para `2026-10` — nunca o default do código.
+  Portões: `sim_autorizacao_extra.js` (42) + `val_sim_autorizacao_extra.js` (7 regressões).
+
 🚨 **A compensação ocorre DENTRO DO PRÓPRIO MÊS — nunca nos meses subsequentes** (decisão do
 usuário, 04/09/2026). O Art. 7º caput da Portaria *admite* compensar até o fim do mês subsequente,
 mas é teto, não obrigação. A implementação é compatível por construção — a compensação é do

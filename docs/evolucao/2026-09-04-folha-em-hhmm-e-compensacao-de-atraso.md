@@ -137,7 +137,7 @@ na mão.
     fechamento existir — depois de fechada, não há segunda chance de compensar.
   - ⚠️ **Não construir saldo que atravessa competência.** Seria banco de horas por outro nome, e
     esbarra nas mesmas perguntas de regime jurídico que continuam sem resposta desde 14/08/2026.
-- **Autorização prévia de hora extra** (Art. 8º — 473h em 08/2026 nasceram sem gate nenhum).
+- ~~**Autorização prévia de hora extra** (Art. 8º — 473h em 08/2026 nasceram sem gate nenhum).~~ ✅ **Fechada em 06/09/2026 (v2.48.0)** — ver o `CLAUDE.md`, seção da folha.
   Continua em aberto. Ver seção 6 do plano.
 - **Recálculo em `autoCorrigirFolhaPonto`/`autoCorrigirTodasFolhasPonto`/portal** ainda ignora a
   compensação ao gravar as colunas do banco. `salvarFolhaPonto` já honra (é o caminho que roda
