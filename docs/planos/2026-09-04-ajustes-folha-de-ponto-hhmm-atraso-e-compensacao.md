@@ -310,7 +310,16 @@ todas "Revisada"**, com a competência ainda aberta: os indicadores novos só ap
 alguém reabrir e sincronizar, folha a folha. **Planejar a virada para 10/2026**, deixando 09 (que
 já tem 617 folhas em andamento) ganhar os campos naturalmente pela sincronização.
 
-### 7.2 A mina no catálogo de jornadas
+### 7.2 A mina no catálogo de jornadas — ✅ **FECHADA em 06/09/2026 (v2.47.0)**
+
+> Fonte única em `src/utils/folha/nomeJornada.ts`, aplicada nos **13 sítios** por
+> `scratchpad/gen_nome_jornada.js`. Eram **12 dos 14** que não aceitavam `Á`.
+>
+> ⚠️ **Uma imprecisão do texto abaixo, corrigida:** ele diz que o default *"viraria atraso
+> fabricado"*. **Não.** `previstoDaJornada` devolve `null` quando não sabe, então dia sem previsto
+> não é medido — o atraso nunca esteve exposto. Quem caía no default de 08:00–17:00 é a **hora
+> extra**: 3h fabricadas por dia numa jornada até 20:00. A assimetria é deliberada e precisa
+> continuar: inventar previsto para medir atraso é muito pior que não medir.
 
 `08H ÁS 20H` e `09H ÁS 21H` (Á agudo) não casam com o regex e cairiam em `08:00–17:00` — 3h de
 extra falsa por dia, em silêncio. Hoje não há escala usando, mas **estão selecionáveis no
