@@ -646,6 +646,30 @@ marcada em algum lado. Diário em
 - Migration validada em homologação com ensaio revertido (mesclagem completa, as recusas, a
   imutabilidade da marcação e os 13 índices únicos reais).
 
+## [2.38.0] - 2026-09-04
+
+> Entrada escrita em 06/09/2026, ao fechar a dívida de changelog da semana. O commit é de 04/09
+> (`dff0362`); o conteúdo abaixo sai dele e do diário do dia.
+
+### Fixed
+
+- 🚨 **Afastamento de MEIO PERÍODO anulava o dia inteiro, e a escala era APAGADA.** Um afastamento
+  por slot `{M}` sobre um turno `MT` fazia o dia sumir da folha — e não era só bloqueio:
+  `fn_clean_conflicting_shifts` apagava a linha da escala **sem olhar slot nenhum**, filtrando só
+  por data. Sem linha, a folha caía no ramo de folga e imprimia
+  `AFASTAMENTO PARCIAL: ... | FOLGA`, sem horário e sem hora normal. O período efetivamente
+  trabalhado sumia.
+  - Caso real: LUANA JESUS DE OLIVEIRA (mat. 52705), DMAC/SMS, 25 e 27/08/2026, jornada
+    `08H ÀS 18H`, declaração de comparecimento pela manhã. **Trabalhou as duas tardes e a folha
+    marcou folga.**
+  - A regra passou a ser a **contenção**, nunca a interseção: slots que cobrem o turno anulam
+    (inalterado); slots que alcançam **parte** dele preservam a escala e não bloqueiam (novo).
+  - ⚠️ **Interseção vazia continua apagando, de propósito.** Há Férias e Licença Prêmio em
+    produção com `slots = {M,T}` sobre turno `N` — uso indevido do campo, mas tratar isso como
+    parcial deixaria a servidora **escalada durante as próprias férias**.
+  - Detalhes, medições e as quatro regressões do portão em
+    [`docs/evolucao/2026-09-04-afastamento-parcial-anulava-o-dia-inteiro.md`](docs/evolucao/2026-09-04-afastamento-parcial-anulava-o-dia-inteiro.md).
+
 ## [2.37.2] - 2026-09-04
 
 ### Changed
@@ -933,6 +957,62 @@ Diário completo em `docs/evolucao/2026-09-01-painel-regras-de-escala-e-falta-an
   - As quatro cópias da geração de folha passaram a consultar essa declaração antes da lógica
     automática de prazo: se o coordenador já decidiu, grava falta definitiva direto, sem esperar
     o prazo de dias úteis.
+
+## [2.33.0] - 2026-08-31
+
+> Entrada escrita em 06/09/2026, ao fechar a dívida de changelog da semana (`ba21a17`).
+
+### Added
+
+- **Importação de planilha em `/servidores/pendencias`**, para RH Geral e RH da Unidade.
+  - **Nasceu de trabalho manual medido:** em 31/08 foram cadastrados 41 servidores do HMM-SND
+    cruzando uma planilha à mão contra os importados pendentes e o cadastro. Funcionou, e era
+    repetível — o usuário tem mais planilhas no mesmo padrão.
+  - Upload de CSV, **uma unidade por arquivo**, e um seletor por valor distinto de "setor"
+    encontrado no arquivo. Cada linha é classificada contra o cadastro existente
+    (`fn_classificar_lote_importacao_rh`, a única migration da mudança).
+  - ⚠️ **Nada é gravado até a revisão ser confirmada** — a classificação é diagnóstico, não ação.
+
+## [2.32.0] - 2026-08-31
+
+> Entrada escrita em 06/09/2026, ao fechar a dívida de changelog da semana (`92decfb`).
+
+### Fixed
+
+- 🚨 **Duas travas independentes com a mesma causa: papel escrito à mão numa condição que ninguém
+  revisita.**
+  - **O modal "Adicionar Servidor Externo" recusava o RH.** As duas RPCs tinham allowlist fixa
+    `super_admin`/`admin`/`coordenador`, escrita **antes** de `rh`, `ass_adm` e `rh_unidade`
+    existirem — enquanto a RLS de `escala_mensal` já os autorizava a gravar desde 18/08. Virou
+    **denylist** (`fn_pode_escalar_servidor_externo`): fora só `servidor` e `comum`, os papéis do
+    Portal. De quebra, `get_external_servers_for_scale` **nunca teve `REVOKE FROM PUBLIC`** e
+    estava aberta a `anon` desde 06/2026.
+  - **O teto mensal mandava "Solicite a um Administrador" — e não existia como solicitar.** Sem
+    tabela, sem tela, sem registro: o pedido saía por WhatsApp e a decisão não ficava em lugar
+    nenhum. Medido: **5 pessoas podiam conceder contra 96 que lançam escala.**
+- 🚨 **A regra transferível: nunca instrua uma ação que o sistema não oferece.** Instrução que o
+  sistema não cumpre ensina a contornar o sistema — e a decisão sobre carga horária de servidor
+  público desaparece.
+
+### Added
+
+- **Fila de solicitação de exceção de carga** (`/autorizacoes-escala`): RH Geral e RH da Unidade
+  concedem, quem lança escala solicita, e aprovar grava a exceção **na mesma transação**.
+
+## [2.31.0] - 2026-08-31
+
+> Entrada escrita em 06/09/2026, ao fechar a dívida de changelog da semana (`e01cff1`).
+
+### Added
+
+- **Servidor externo achado pelo nome, sem saber a lotação.** O modal só oferecia
+  Unidade → Setor → Servidor: era preciso **saber a lotação antes de achar a pessoa**, e errar a
+  unidade não dava erro nenhum — a lista vinha vazia e quem procurava concluía que ela não estava
+  cadastrada. São 33 unidades e 646 setores, com nomes repetidos em ramos diferentes.
+  - Campo de busca por nome/matrícula **acima** do caminho antigo, que continua existindo para
+    quem já sabe a origem. **A lotação deixa de ser pergunta e vira resposta**, com confirmação
+    antes de adicionar — o que evita levar um homônimo para a grade.
+  - Nos dois caminhos, quem já está na escala aparece desabilitado **com o motivo escrito**.
 
 ## [2.30.0] - 2026-08-30
 
