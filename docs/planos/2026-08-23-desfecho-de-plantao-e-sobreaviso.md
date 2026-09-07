@@ -1,6 +1,22 @@
 # Desfecho de plantão e sobreaviso — validado, falta, ou em avaliação
 
-**Data:** 23/08/2026 · **Status:** plano, nada implementado · **Versão base:** v2.13.3
+**Data:** 23/08/2026 · **Versão base quando foi escrito:** v2.13.3
+
+> ✅ **STATUS ATUAL — IMPLEMENTADO. As fases 0 a 5 saíram em 24/08/2026** (v2.15.0 → v2.17.2),
+> migrations `20260824100000`, `110000`, `120000`, `140000` e `160000`. O anexo tem `ehCumprido`
+> e três subtotais; `/relatorios/plantao-sobreaviso` consome `fn_desfecho_eventos_escalas`.
+>
+> 🚨 **O texto abaixo dizia "Status: plano, nada implementado" até 06/09/2026, e isso produziu um
+> relatório afirmando que os 65% de horas sem prova continuavam abertos — duas semanas depois de
+> terem sido fechados.** Cabeçalho de plano é a foto do dia em que foi escrito. **A fonte de
+> verdade sobre o que está pronto é o código e o `CHANGELOG`**, nunca este campo. Mesma armadilha
+> das "103 marcações de intervalo" que, remedidas, eram 7.
+>
+> **O que continua aberto:** a chave `desfecho_obrigatorio_fechar` nasceu desligada e segue
+> desligada — ligá-la travaria o fechamento de 08/2026 com ~210 eventos, e a maior parte deles
+> não é conduta: é a batida de transição que o terminal recusa (armadilha 6 — `fn_confirmar_presenca`
+> não tem os slots de fronteira que `fn_blocos_previstos_dia` ganhou em 19/08). Esvaziar essa fila
+> é atacar a causa; ligar o gate antes disso é acusar servidor por defeito conhecido do sistema.
 
 O anexo "Demonstrativo de Plantões e Sobreavisos" é comprobatório: é o documento que o servidor
 assina e que o RH usa para pagar a unidade de plantão. Hoje ele soma **o que foi escalado**, não o

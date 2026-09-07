@@ -2,6 +2,88 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.46.0] - 2026-09-06
+
+⚠️ **Requer aplicar `20260906120000` e `20260906130000`, nessa ordem.** A primeira reconstrói dois
+índices únicos sobre ~2,5M e ~2,4M linhas — **meça em homologação antes**. Diário em
+[`docs/evolucao/2026-09-06-geracao-do-equipamento-rep.md`](docs/evolucao/2026-09-06-geracao-do-equipamento-rep.md).
+
+O relógio do CCE queimou e foi trocado por um aparelho novo, mesmo IP e mesma senha. O cadastro já
+tinha sido destravado à mão; faltava a metade que ninguém tinha visto — **a batida do relógio novo
+não estava chegando, e nada reclamava**.
+
+### Added
+
+- **Geração do equipamento** (`20260906120000`): `dispositivos_rep.geracao_atual`,
+  `rep_afd_registros.geracao` e `marcacoes_ponto.geracao`. A unicidade passa a ser
+  `(dispositivo, geracao, nsr)` nas duas tabelas.
+  - 🚨 **O defeito era duplo e os dois lados eram mudos.** O cursor devolvia o fim do trecho
+    contíguo do equipamento **anterior** (111.509 no CCE), o aparelho novo — cujo AFD recomeça no
+    NSR 1 — respondia vazio, e a sincronização era gravada como **`concluida` em todo ciclo**.
+    E se a batida chegasse seria pior: com a chave antiga `(dispositivo_id, nsr)`, os NSR do
+    aparelho novo colidiriam com os do antigo e o `ON CONFLICT ... DO NOTHING` os descartaria
+    **como duplicados**, sem erro em lugar nenhum.
+  - **`fn_cursor_afd_dispositivo` conta dentro da geração vigente** — geração nova cai para 1
+    sozinha, e o AFD inteiro do aparelho novo entra sem colidir.
+  - **A cadeia de hash não atravessa equipamentos.** Sem o filtro, o primeiro registro do relógio
+    novo encadeia no último do velho, e a cadeia passa a afirmar uma continuidade que nunca
+    existiu — num campo cuja única função é provar sequência.
+  - ⚠️ **`nsr` continua sendo exatamente o que o equipamento disse.** A alternativa (`nsr_offset`
+    por dispositivo, que evitaria reconstruir os índices) foi **descartada**: falsificaria um
+    campo do artefato legal.
+- **Botão "Trocamos o aparelho"** no modal do Dispositivo REP, com motivo obrigatório e histórico
+  append-only (`dispositivos_rep_substituicoes`, sem policy de escrita).
+  - ⚠️ **O SisEscala não troca a geração sozinho, de propósito.** Detectar substituição é palpite
+    — o equipamento pode só ter tido a memória lida errado num ciclo — e trocar por engano cria um
+    AFD paralelo que ninguém pediu.
+  - 🚨 **Registre a troca ANTES de ligar o aparelho novo na rede.** Um lote já em voo entraria na
+    geração anterior e colidiria. É a única parte irreversível, e está escrita na tela e no manual.
+  - **Nada é apagado.** O AFD do equipamento anterior continua sendo a prova daquele período.
+
+### Changed
+
+- **O snapshot de cadastro passa a distinguir "li e havia zero" de "não consegui ler"**
+  (`20260906130000` + coletor **v0.16.0**).
+  - A guarda `IF v_total > 0` **não sai** — a rota cai para `[]` com corpo malformado, e encerrar
+    os vínculos de uma unidade inteira por um POST torto é muito pior que o bug do CCE. O que
+    muda é o **transporte**: a informação sempre existiu no coletor e era jogada fora.
+  - `body?.leitura_ok === true`, comparação **estrita**: campo ausente (coletor anterior à
+    v0.16.0), `"true"`, `1`, `null` e corpo torto viram `false` e preservam o comportamento de hoje.
+  - `leituraOK bool` é **explícito** na assinatura Go — uma constante escondida no client faria um
+    chamador futuro afirmar "leitura boa" sem ter lido nada.
+  - A guarda dos **15 minutos** continua: ela protege a corrida entre ler o relógio paginado e
+    publicar o snapshot, e vale também com leitura vazia.
+  - `dispositivos_rep.usuarios_lidos_em` / `usuarios_lidos_total` guardam o rastro. Sem eles,
+    leitura boa que devolve zero não deixa marca nenhuma — era por isso que a tela do CCE
+    continuava afirmando que os 35 servidores estavam no relógio.
+- **`fn_registrar_marcacao` deriva a geração em vez de ganhar parâmetro.** Assinatura nova é
+  objeto novo (armadilha 41) e exigiria `DROP` da de 16 argumentos, que **14 migrations chamam por
+  posição** — e derivar torna impossível um chamador futuro esquecer de passar.
+- **Manual do usuário**: seção nova "Quando o relógio é trocado", como manda a regra da v2.44.0.
+
+### Notes
+
+- ⚠️ **Andaime temporário na rota `/api/rep/v1/usuarios-dispositivo`.** O push na `main` dispara o
+  deploy sozinho e a migration é aplicada à mão; entre um e outro, **todo snapshot de todo relógio
+  do parque falharia com 500**. A rota faz um retry sem o parâmetro quando a assinatura ainda não
+  existe, e **registra o erro em vez de engoli-lo**. Remover assim que `20260906130000` estiver em
+  produção.
+- 🚨 **Correção do balanço da semana publicado hoje de manhã: "Desfecho de plantão — nada
+  implementado" estava ERRADO.** O cabeçalho do plano (`Status: plano, nada implementado`) é de
+  23/08; as fases 0 a 5 saíram em **24/08/2026** (v2.15.0 → v2.17.2). Conferido no código: o anexo
+  tem `ehCumprido` e o relatório consome `fn_desfecho_eventos_escalas`. **A fonte de verdade sobre
+  o que está pronto é o código e este arquivo, nunca o campo `Status:` de um plano** — é a mesma
+  armadilha das "103 marcações de intervalo" que eram 7. O que segue aberto ali é só a chave
+  `desfecho_obrigatorio_fechar`, desligada até a fila de "em avaliação" ser esvaziada.
+- **Portões**: `node scratchpad/sim_geracao_dispositivo.js` (48 asserções — a Parte A afirma
+  invariantes sobre o SQL **realmente gerado**, a Parte B simula o algoritmo do cursor) e
+  `node scratchpad/val_sim_geracao_dispositivo.js`, que injeta **8 regressões e exige reprovação
+  nas 8**. O guard da armadilha 48 pegou três substituições no-op durante a construção (CRLF
+  contra `
+`) — sem ele o teste do teste teria passado mentindo.
+- **Pendente**: rodar `fn_registrar_substituicao_dispositivo` para o CCE-01 depois de aplicar, e
+  as Prioridades 1b, 1c, 2 e 3 do plano.
+
 ## [2.45.0] - 2026-09-06
 
 Duas frentes do módulo de marcações no mesmo dia: o painel que avisa quem está escalado onde não

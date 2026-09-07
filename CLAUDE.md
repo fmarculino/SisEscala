@@ -4164,10 +4164,43 @@ antigo e serem **descartados como duplicados, sem erro em lugar nenhum**. Nada s
 no equipamento), mas o sintoma é invisível. **Ao trocar um REP, confira `fn_cursor_afd_dispositivo`
 contra o `last_nsr` do equipamento antes de considerar a instalação pronta.**
 
-A correção decidida (usuário, 06/09/2026) é **coluna `geracao`** em `rep_afd_registros`,
-`marcacoes_ponto` e `dispositivos_rep`, com unicidade `(dispositivo_id, geracao, nsr)` — mantém
-token, `config.yaml`, vínculos e histórico num lugar só. ⚠️ **`nsr_offset` foi considerado e
-descartado**: evitaria mexer em 2,49M + 2,39M linhas, mas falsificaria um campo do artefato legal.
+✅ **CORRIGIDO em 06/09/2026 (v2.46.0), migrations `20260906120000` e `20260906130000` — mas
+elas ainda NÃO foram aplicadas.** Coluna **`geracao`** em `rep_afd_registros` e `marcacoes_ponto`,
+`geracao_atual` em `dispositivos_rep`, unicidade `(dispositivo_id, geracao, nsr)` nas duas tabelas,
+`fn_cursor_afd_dispositivo` contando **dentro** da geração vigente e a cadeia de hash encadeada
+dentro dela. Mantém token, `config.yaml`, vínculos e histórico num lugar só. Diário em
+[`docs/evolucao/2026-09-06-geracao-do-equipamento-rep.md`](docs/evolucao/2026-09-06-geracao-do-equipamento-rep.md).
+
+⚠️ **`nsr_offset` foi considerado e descartado**: evitaria mexer em 2,49M + 2,39M linhas, mas
+falsificaria um campo do artefato legal.
+
+⚠️ **A troca é registrada por uma PESSOA, nunca detectada.** `fn_registrar_substituicao_dispositivo`
+(botão "Trocamos o aparelho" no modal do dispositivo, `admin`/`super_admin`, motivo obrigatório,
+histórico append-only em `dispositivos_rep_substituicoes` **sem policy de escrita**). Detectar
+substituição é palpite — o equipamento pode só ter tido a memória lida errado num ciclo — e
+incrementar a geração por engano cria um AFD paralelo que ninguém pediu.
+
+🚨 **Registre a troca ANTES de ligar o aparelho novo na rede.** Um lote já em voo do equipamento
+novo, coletado antes do registro, entra na geração anterior e colide — que é exatamente o descarte
+silencioso que isto resolve. É a única parte irreversível.
+
+⚠️ **`fn_registrar_marcacao` NÃO ganhou parâmetro de geração — ela a DERIVA** de
+`dispositivos_rep.geracao_atual`. Assinatura nova é objeto novo (armadilha 41) e exigiria `DROP` da
+de 16 argumentos, que **14 migrations chamam por posição**; derivar também torna impossível um
+chamador futuro esquecer de passar. Ao acrescentar caminho novo que grave marcação de REP, não
+tente passar a geração — ela já vem certa.
+
+✅ **E o transporte do snapshot passou a dizer se a leitura foi boa** (`leitura_ok`, coletor
+**v0.16.0**): a guarda `IF v_total > 0` **não saiu** (POST torto encerrando vínculo de unidade
+inteira é muito pior que o bug do CCE), mas agora ela é `IF v_total > 0 OR p_leitura_ok`. A rota
+compara com `=== true` **literal** — campo ausente, `"true"`, `1` e `null` viram `false`.
+`dispositivos_rep.usuarios_lidos_em`/`usuarios_lidos_total` guardam o rastro que faltava para
+separar "nunca ninguém leu" de "leu e o relógio está vazio".
+
+⚠️ **Andaime a remover**: `/api/rep/v1/usuarios-dispositivo` faz retry sem `p_leitura_ok` quando a
+assinatura ainda não existe, porque o deploy é automático e a migration é manual — sem isso, todo
+snapshot do parque falharia com 500 na janela entre os dois. Tire depois que `20260906130000`
+estiver em produção.
 
 ⚠️ **`fn_enfileirar_remocao_usuarios_dispositivo` bloqueia exatamente quem precisa sair.** Ela
 recusa todo `servidor_status = 'Ativo'` — e quem mudou de unidade ou setor **continua Ativo**. Só
@@ -4245,6 +4278,13 @@ o setor for vinculado a um relógio.
   (a companheira precisou ir junto para não inverter a ordem do par), junto com as **26**
   referências ao número antigo espalhadas por migration, diário e script gerador.
 - **Nunca** rode migration direto em produção sem validar em homologação antes.
+- 🚨 **Cabeçalho de plano NÃO é estado atual.** O campo `Status:` de um documento em
+  `docs/planos/` é a foto do dia em que ele foi escrito, e este projeto implementa rápido demais
+  para isso envelhecer bem. Em 06/09/2026 o plano do desfecho de plantão ainda dizia *"nada
+  implementado"* — as fases 0 a 5 tinham saído em **24/08**, no dia seguinte —, e isso produziu um
+  relatório afirmando que 1.377h/mês de anexo sem prova continuavam abertas. **Antes de citar um
+  plano como pendência, confira no código e no `CHANGELOG`**; e ao terminar uma fase, atualize o
+  cabeçalho do plano no mesmo commit, como já se faz com o manual do usuário.
 - Timezone padrão: `configuracoes_globais`, fallback `America/Sao_Paulo`. ⚠️ **A tabela é
   chave/valor, com `valor` jsonb** — não existe coluna `timezone`. Em SQL, a forma usada por
   `fn_confirmar_presenca` e companhia é a única correta:

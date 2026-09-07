@@ -368,8 +368,20 @@ type UsuarioDispositivoRelato struct {
 
 // ReportarUsuariosDispositivo envia o snapshot inteiro de load_users.fcgi — o SisEscala
 // substitui por completo o que tinha antes para este dispositivo (fn_registrar_snapshot_usuarios_dispositivo).
-func (c *Client) ReportarUsuariosDispositivo(usuarios []UsuarioDispositivoRelato) (jsonResumo []byte, err error) {
-	corpo, err := json.Marshal(map[string]interface{}{"usuarios": usuarios})
+//
+// 🚨 `leituraOK` é a única coisa que separa "li o relógio e ele está vazio" de "não consegui
+// ler". Os dois produzem `usuarios` vazio, e o servidor não tem como distinguir — foi por isso
+// que a troca do relógio do CCE (06/09/2026) deixou 35 vínculos vigentes apontando para um
+// equipamento em branco, com a tela afirmando que estava tudo certo.
+//
+// Passe `true` SOMENTE depois de um ListarUsuarios que retornou sem erro. Com `true` e lista
+// vazia, o SisEscala encerra TODOS os vínculos vigentes daquele dispositivo — que é o correto
+// quando o relógio foi trocado, e destrutivo quando foi só uma falha de rede.
+func (c *Client) ReportarUsuariosDispositivo(usuarios []UsuarioDispositivoRelato, leituraOK bool) (jsonResumo []byte, err error) {
+	corpo, err := json.Marshal(map[string]interface{}{
+		"usuarios":   usuarios,
+		"leitura_ok": leituraOK,
+	})
 	if err != nil {
 		return nil, err
 	}

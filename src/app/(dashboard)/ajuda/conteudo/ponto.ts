@@ -323,6 +323,61 @@ export const ponto: Capitulo = {
     },
 
     {
+      id: 'trocar-relogio',
+      titulo: 'Quando o relógio é trocado',
+      resumo: 'O que fazer quando o aparelho queima e vem outro no lugar.',
+      papeis: ['Administrador Geral'],
+      blocos: [
+        { tipo: 'caminho', itens: ['OPERAÇÃO', 'Marcações', 'Dispositivos REP'], href: '/marcacoes' },
+        {
+          tipo: 'p',
+          texto:
+            'Relógio queima, e às vezes vem um aparelho novo com o mesmo endereço e a mesma senha. Para quem olha de fora nada mudou — mas o sistema precisa saber que o aparelho é outro.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'cuidado',
+          titulo: 'Sem esse aviso, o ponto da unidade some sem ninguém perceber',
+          texto:
+            'Cada relógio numera as batidas em sequência, e um aparelho novo recomeça do zero. O sistema continua pedindo a partir da numeração que o aparelho antigo tinha alcançado, o aparelho novo responde que não tem nada com aquele número, e **a sincronização é registrada como bem-sucedida** — todo ciclo, sem erro em tela nenhuma. Quem trabalha ali continua encostando o dedo, o relógio continua aceitando, e a batida nunca chega.',
+        },
+        {
+          tipo: 'passos',
+          itens: [
+            {
+              titulo: 'Registre a troca ANTES de ligar o aparelho novo na rede',
+              texto:
+                'Abra o relógio em Dispositivos REP e clique em "Trocamos o aparelho". Se o aparelho novo já estiver coletando, as primeiras batidas dele podem se perder — é a única parte irreversível.',
+            },
+            {
+              titulo: 'Descreva o que houve',
+              texto:
+                'O texto fica guardado com o seu nome e a data. Ele é o que explica, meses depois, por que a numeração daquele ponto recomeçou.',
+            },
+            {
+              titulo: 'Confira a hora do aparelho novo',
+              texto:
+                'Relógio novo costuma vir com a hora errada, e batida com data errada não entra na folha de ninguém. O aplicativo coletor acerta sozinho, mas confira antes de liberar o uso.',
+            },
+            {
+              titulo: 'Cadastre as pessoas de novo',
+              texto:
+                'O aparelho novo chega vazio. Use "Sincronizar cadastros" e depois acompanhe pela Cobertura de Ponto quem ainda falta coletar a digital — ela não vem junto com o cadastro.',
+            },
+          ],
+        },
+        {
+          tipo: 'aviso',
+          tom: 'dica',
+          titulo: 'Nada do que já foi registrado se perde',
+          texto:
+            'As batidas do aparelho anterior continuam guardadas e continuam valendo como prova daquele período. A troca só ensina o sistema a não confundir a numeração de um com a do outro.',
+        },
+        { tipo: 'veja', secaoId: 'cobertura-ponto', texto: 'Depois da troca, acompanhe por aqui' },
+      ],
+    },
+
+    {
       id: 'cobertura-ponto',
       titulo: 'Cobertura de Ponto',
       resumo: 'A tela que mostra quem não consegue bater — e por quê.',

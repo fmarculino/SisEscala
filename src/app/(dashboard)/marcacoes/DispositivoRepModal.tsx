@@ -2,8 +2,8 @@
 
 import { useMemo, useState } from 'react'
 import { Modal } from '@/components/ui/Modal'
-import { Loader2, KeyRound, Download, Users } from 'lucide-react'
-import { criarDispositivoRep, atualizarDispositivoRep, gerarTokenDispositivoRep, enfileirarCadastrosRep, gerarTokensUnidadeRep } from './actions'
+import { Loader2, KeyRound, Download, Users, RefreshCw } from 'lucide-react'
+import { criarDispositivoRep, atualizarDispositivoRep, gerarTokenDispositivoRep, enfileirarCadastrosRep, gerarTokensUnidadeRep, registrarSubstituicaoDispositivo } from './actions'
 import { TokenRevealBox } from './TokenRevealBox'
 import { baixarAplicativoColetorRep, baixarAplicativoUnidadeRep } from './baixarAplicativo'
 import { SeletorSetoresArvore } from '@/components/setores/SeletorSetoresArvore'
@@ -32,6 +32,13 @@ interface DispositivoRep {
   // continua gravado no AFD e em marcacoes_ponto, mas fica órfão — é assim que o histórico de um
   // equipamento reaproveitado não vira ponto daqui.
   ponto_valido_desde?: string | null
+  // Qual equipamento físico está neste ponto agora. 1 = o original; sobe a cada substituição
+  // registrada. É o que faz o NSR do relógio novo parar de colidir com o do antigo.
+  geracao_atual?: number | null
+  // Última leitura BEM-SUCEDIDA do cadastro do equipamento. Total 0 com data preenchida
+  // significa "lido e vazio" — relógio zerado ou trocado —, que é diferente de nunca lido.
+  usuarios_lidos_em?: string | null
+  usuarios_lidos_total?: number | null
 }
 
 export function DispositivoRepModal({
@@ -93,6 +100,18 @@ export function DispositivoRepModal({
   const [selecaoUnidade, setSelecaoUnidade] = useState<string[] | null>(null)
   const [sincronizandoCadastros, setSincronizandoCadastros] = useState(false)
   const [resultadoCadastros, setResultadoCadastros] = useState<{ enfileirados: number; sem_cpf: number; ja_vinculados: number; ja_no_relogio: number } | null>(null)
+
+  // Substituição de equipamento (06/09/2026). Fica fechada por padrão: é a ação mais rara e a
+  // mais consequente deste modal, e não deve dividir o mesmo peso visual de "Gerar token".
+  const [abrirSubstituicao, setAbrirSubstituicao] = useState(false)
+  const [motivoSubstituicao, setMotivoSubstituicao] = useState('')
+  const [serieNova, setSerieNova] = useState('')
+  const [substituindo, setSubstituindo] = useState(false)
+  const [resultadoSubstituicao, setResultadoSubstituicao] = useState<{
+    geracao_anterior: number; geracao_nova: number
+    nsr_max_anterior: number; registros_anteriores: number; cursor_novo: number
+  } | null>(null)
+  const [erroSubstituicao, setErroSubstituicao] = useState<string | null>(null)
 
   const setoresDaUnidade = opcoes.setores.filter((s) => s.unidade_id === unidadeId)
 
@@ -583,6 +602,116 @@ export function DispositivoRepModal({
                 {resultadoCadastros.ja_no_relogio > 0 && ` · ${resultadoCadastros.ja_no_relogio} já cadastrado(s) no relógio`}
                 {resultadoCadastros.sem_cpf > 0 && ` · ${resultadoCadastros.sem_cpf} sem CPF cadastrado (não enviados)`}
                 . O aplicativo local aplica no relógio no próximo ciclo.
+              </p>
+            )}
+          </div>
+        )}
+
+        {dispositivoId && (
+          <div className="border-t border-zinc-200 dark:border-zinc-800 pt-4 mt-2 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
+                  Equipamento físico
+                </p>
+                <p className="text-[11px] text-zinc-500">
+                  {(dispositivo?.geracao_atual ?? 1) > 1
+                    ? `${dispositivo?.geracao_atual}º aparelho neste ponto.`
+                    : 'Aparelho original deste ponto.'}
+                  {dispositivo?.usuarios_lidos_em && dispositivo?.usuarios_lidos_total === 0 && (
+                    <span className="text-amber-600 dark:text-amber-400 font-semibold">
+                      {' '}O relógio foi lido e está sem nenhum cadastro.
+                    </span>
+                  )}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAbrirSubstituicao((v) => !v)}
+                className="text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 underline shrink-0"
+              >
+                {abrirSubstituicao ? 'Cancelar' : 'Trocamos o aparelho'}
+              </button>
+            </div>
+
+            {abrirSubstituicao && (
+              <div className="space-y-3 rounded-lg border border-amber-300 dark:border-amber-800/60 bg-amber-50/60 dark:bg-amber-950/20 p-3">
+                <p className="text-[11px] text-zinc-700 dark:text-zinc-300 leading-relaxed">
+                  Use isto <strong>somente</strong> quando o aparelho foi trocado por outro
+                  fisicamente. Um relógio novo recomeça a numerar as batidas do zero, e sem este
+                  registro o SisEscala continua pedindo a numeração do aparelho antigo — as
+                  sincronizações passam a aparecer como bem-sucedidas <strong>sem trazer nada</strong>,
+                  e o ponto de quem trabalha ali some sem nenhum aviso.
+                </p>
+                <p className="text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed">
+                  ⚠️ Registre <strong>antes</strong> de ligar o aparelho novo na rede. Nada é
+                  apagado: as batidas do aparelho anterior continuam guardadas como prova daquele
+                  período.
+                </p>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 mb-1">
+                    O que aconteceu com o aparelho anterior?
+                  </label>
+                  <textarea
+                    value={motivoSubstituicao}
+                    onChange={(e) => setMotivoSubstituicao(e.target.value)}
+                    rows={2}
+                    placeholder="Ex.: queimou em 06/09/2026 e foi substituído pela assistência"
+                    className="w-full text-sm rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 mb-1">
+                    Número de série do aparelho novo <span className="font-normal">(opcional)</span>
+                  </label>
+                  <input
+                    value={serieNova}
+                    onChange={(e) => setSerieNova(e.target.value)}
+                    className="w-full text-sm rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2"
+                  />
+                </div>
+
+                {erroSubstituicao && (
+                  <p className="text-[11px] text-red-600 dark:text-red-400">{erroSubstituicao}</p>
+                )}
+
+                <button
+                  type="button"
+                  disabled={substituindo || motivoSubstituicao.trim().length < 5}
+                  onClick={async () => {
+                    setSubstituindo(true)
+                    setErroSubstituicao(null)
+                    const r = await registrarSubstituicaoDispositivo(
+                      dispositivoId, motivoSubstituicao.trim(), serieNova
+                    )
+                    setSubstituindo(false)
+                    if ('error' in r) { setErroSubstituicao(r.error); return }
+                    setResultadoSubstituicao(r)
+                    setAbrirSubstituicao(false)
+                    setMotivoSubstituicao('')
+                    onSaved()
+                  }}
+                  className="w-full bg-amber-600 hover:bg-amber-700 text-white py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {substituindo ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                  Registrar a troca do aparelho
+                </button>
+                <p className="text-[11px] text-zinc-500">
+                  Descreva o que houve com pelo menos 5 caracteres — o texto fica no histórico
+                  com o seu nome.
+                </p>
+              </div>
+            )}
+
+            {resultadoSubstituicao && (
+              <p className="text-[11px] text-emerald-700 dark:text-emerald-400">
+                Troca registrada. O aparelho anterior deixou{' '}
+                {resultadoSubstituicao.registros_anteriores.toLocaleString('pt-BR')} registro(s),
+                até o número {resultadoSubstituicao.nsr_max_anterior.toLocaleString('pt-BR')} — tudo
+                preservado. A coleta do aparelho novo recomeça do número{' '}
+                {resultadoSubstituicao.cursor_novo}.
               </p>
             )}
           </div>

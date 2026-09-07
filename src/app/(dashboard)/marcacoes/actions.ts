@@ -176,6 +176,10 @@ export async function listarDispositivosRep() {
       + 'usuario_rep, porta, usa_https, '
       + 'ultimo_nsr, ultimo_contato_em, deriva_segundos, created_at, unidades(nome), '
       + 'coletor_versao, coletor_host, coletor_ip, coletor_versao_em, '
+      // geracao_atual: qual equipamento fisico esta neste ponto agora (1 = o original).
+      // usuarios_lidos_*: a ultima leitura BEM-SUCEDIDA do cadastro. Com total 0 significa
+      // "lido e vazio" (relogio zerado ou trocado), que e' diferente de nunca ter sido lido.
+      + 'geracao_atual, usuarios_lidos_em, usuarios_lidos_total, '
       // Lista de setores atendidos (0 linhas = "toda a unidade" - mesma semantica do antigo
       // setor_id IS NULL, ver docs/planos/2026-08-13-relogio-rep-compartilhado-por-multiplos-setores.md).
       + 'dispositivos_rep_setores(setor_id, setores(dicionario_setores(nome)))'
@@ -573,6 +577,66 @@ export async function vincularCadastrosPorCpf(dispositivoId: string) {
   revalidatePath('/marcacoes')
   revalidatePath('/escalas')
   return data as { criados: number; vigente_de: string }
+}
+
+/**
+ * Registra que o equipamento físico daquele ponto foi TROCADO (06/09/2026).
+ *
+ * 🚨 Por que isto precisa existir, e por que precisa ser um botão: o relógio do CCE queimou e
+ * foi substituído por um equipamento novo, mesmo IP e mesma senha. O AFD do novo recomeça no
+ * NSR 1, e o cursor continuou apontando para o fim do trecho contíguo do antigo (111.509) — o
+ * equipamento passou a devolver nada, e toda sincronização era gravada como "concluída".
+ * **Nenhuma tela mostrava problema nenhum**, e a batida de quem trabalha ali não chegava.
+ *
+ * A troca é deliberadamente MANUAL: detectar substituição automaticamente é palpite (o relógio
+ * pode só ter tido a memória lida errado num ciclo), e incrementar a geração por engano cria um
+ * AFD paralelo que ninguém pediu. Quem decide é uma pessoa, e fica registrado com o nome dela.
+ *
+ * ⚠️ Nada é apagado. O AFD do equipamento anterior continua sendo a prova daquele período —
+ * apenas passa a viver noutra geração, e a unicidade por NSR deixa de confundir os dois.
+ *
+ * ⚠️ ORDEM EM CAMPO: registre a substituição ANTES de pôr o equipamento novo em rede. Um lote
+ * já em voo do relógio novo, coletado antes deste registro, entraria na geração anterior e
+ * colidiria com os NSR do antigo — que é exatamente o descarte silencioso que isto resolve.
+ */
+export async function registrarSubstituicaoDispositivo(
+  dispositivoId: string,
+  motivo: string,
+  numeroSerieNovo?: string | null,
+) {
+  await exigirAdmin()
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc('fn_registrar_substituicao_dispositivo', {
+    p_dispositivo_id: dispositivoId,
+    p_motivo: motivo,
+    p_numero_serie_novo: numeroSerieNovo?.trim() || null,
+  })
+  if (error) return { error: error.message }
+
+  revalidatePath('/marcacoes')
+  return data as {
+    sucesso: boolean
+    geracao_anterior: number
+    geracao_nova: number
+    nsr_max_anterior: number
+    registros_anteriores: number
+    cursor_novo: number
+  }
+}
+
+/** Histórico de trocas de equipamento daquele ponto, mais recente primeiro. */
+export async function listarSubstituicoesDispositivo(dispositivoId: string) {
+  await exigirGestor()
+  const supabase = await createAdminClient()
+  const { data, error } = await supabase
+    .from('dispositivos_rep_substituicoes')
+    .select('id, geracao_anterior, geracao_nova, nsr_max_anterior, registros_anteriores, '
+      + 'motivo, numero_serie_anterior, numero_serie_novo, created_at')
+    .eq('dispositivo_id', dispositivoId)
+    .order('created_at', { ascending: false })
+
+  if (error) return { error: error.message }
+  return { substituicoes: data || [] }
 }
 
 export async function reprocessarBatidasOrfas(dispositivoId?: string | null, desde?: string | null) {

@@ -144,7 +144,24 @@ da unidade — a cópia automática entre relógios (v0.10.0) resolve. **No CCE 
 
 ## 3. Plano
 
-### Prioridade 0 — a geração do equipamento (urgente: a batida do CCE não está chegando)
+### Prioridade 0 — a geração do equipamento — ✅ **IMPLEMENTADA em 06/09/2026 (v2.46.0)**
+
+> Migrations `20260906120000` (geração) e `20260906130000` (leitura afirmada), coletor **v0.16.0**,
+> botão "Trocamos o aparelho" no modal do Dispositivo REP, e os portões
+> `scratchpad/sim_geracao_dispositivo.js` (48 asserções) + `val_sim_geracao_dispositivo.js`
+> (8 regressões injetadas, todas reprovadas). Diário em
+> [`docs/evolucao/2026-09-06-geracao-do-equipamento-rep.md`](../evolucao/2026-09-06-geracao-do-equipamento-rep.md).
+>
+> ⚠️ **As duas migrations ainda NÃO foram aplicadas** — a de geração reconstrói dois índices
+> únicos sobre ~2,5M e ~2,4M linhas. Meça em homologação, e só então rode
+> `fn_registrar_substituicao_dispositivo` para o CCE-01.
+>
+> Divergência do desenho abaixo, deliberada: **`fn_registrar_marcacao` NÃO ganhou parâmetro** de
+> geração — ela a deriva de `dispositivos_rep`. Assinatura nova é objeto novo (armadilha 41) e
+> exigiria `DROP` da de 16 argumentos, que 14 migrations chamam por posição; derivar também torna
+> impossível um chamador futuro esquecer de passar.
+
+### O desenho original (mantido para referência)
 
 Decisão do usuário (06/09/2026): **coluna `geracao` no mesmo dispositivo**, não um dispositivo
 novo. Mantém token, `config.yaml`, vínculos e histórico num lugar só — nenhuma máquina precisa ser
@@ -179,7 +196,7 @@ e todo o AFD do relógio novo entra de uma vez, sem colidir com os 111.508 do an
 
 ### Prioridade 1 — o relógio zerado deixa de ser invisível
 
-**1a. O coletor diz que a leitura foi boa.**
+**1a. O coletor diz que a leitura foi boa.** — ✅ **IMPLEMENTADA em 06/09/2026 (v2.46.0 / coletor v0.16.0).** Ganhou também `dispositivos_rep.usuarios_lidos_em` / `usuarios_lidos_total`: sem esse rastro, leitura boa que devolve zero não deixa marca nenhuma, e a Prioridade 1c fica sem o dado de que precisa.
 
 - `sisescala.ReportarUsuariosDispositivo` passa a enviar `leitura_ok: true` ao lado de `usuarios`.
 - A rota só repassa `true` quando o campo vem explicitamente `true`. Coletor antigo não manda →

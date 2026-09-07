@@ -22,7 +22,7 @@ import (
 	"github.com/sms-maraba/sisescala-coletor-rep/sisescala"
 )
 
-const Versao = "0.15.0"
+const Versao = "0.16.0"
 
 // LimiteCadastrosPorCiclo e' o teto do ciclo AUTOMATICO. O clique manual no menu passa 0 (sem
 // teto, envia todos).
@@ -450,7 +450,7 @@ func SincronizarCadastros(cfg *config.Config, d *config.DispositivoRepConfig, li
 			comBiometria = append(comBiometria, u.IdentificadorAFD)
 		}
 	}
-	if _, err := sc.ReportarUsuariosDispositivo(relato); err != nil {
+	if _, err := sc.ReportarUsuariosDispositivo(relato, true); err != nil {
 		log.Printf("aviso: falha ao atualizar o snapshot no SisEscala: %v", err)
 	}
 	if err := sc.ReportarBiometria(comBiometria); err != nil {
@@ -565,7 +565,7 @@ func HigienizarListagem(cfg *config.Config, d *config.DispositivoRepConfig) (Res
 			Nome: u.Nome, TemBiometria: u.TemBiometria,
 		}
 	}
-	resumo, err := sc.ReportarUsuariosDispositivo(relato)
+	resumo, err := sc.ReportarUsuariosDispositivo(relato, true)
 	if err != nil {
 		return resultado, fmt.Errorf("falha ao reportar usuarios ao SisEscala: %w", err)
 	}
@@ -700,7 +700,7 @@ func HigienizarRemocoes(cfg *config.Config, d *config.DispositivoRepConfig, limi
 			Nome: u.Nome, TemBiometria: u.TemBiometria,
 		}
 	}
-	if _, err := sc.ReportarUsuariosDispositivo(relato); err != nil {
+	if _, err := sc.ReportarUsuariosDispositivo(relato, true); err != nil {
 		log.Printf("aviso: remocoes aplicadas, mas falha ao atualizar o snapshot no SisEscala: %v", err)
 	}
 	return resultado, nil
