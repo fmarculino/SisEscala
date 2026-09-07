@@ -1117,6 +1117,37 @@ novo com formato diferente de `add_users.fcgi`). Vale nos **dois** caminhos (lot
 para os **dois** chamadores: o laço nasceu dos cliques na tela, então proteger só o cron não
 resolveria.
 
+🚨 **Mas ela reprovava por falha JÁ SUPERADA, e isso só apareceu numa troca de relógio
+(`20260907100000`, 07/09/2026).** O `EXISTS` olhava as linhas `falhou` e **não olhava se existia um
+`enviado` POSTERIOR** do mesmo par — então quem falhou algumas vezes e **depois entrou** no
+equipamento contava como recusado por até 30 dias. Caso real: o CAF-02 foi substituído, os 59
+cadastros foram refeitos e **um ficou de fora sem nenhuma mensagem** (MANUEL, mat 65879) — a fila
+dele tinha 5 `falhou` e um `enviado` **duas horas depois**, no mesmo dia. Duas cláusulas fecham:
+falha superada por envio posterior não reprova, e **recusa de aparelho já substituído não vale para
+o que está no lugar dele** (`dispositivos_rep_substituicoes`) — esta segunda é preventiva, e existe
+porque `fn_registrar_substituicao_dispositivo` **não toca na fila de propósito**, então toda troca
+de relógio herdava a lista de recusados do anterior, em silêncio.
+
+⚠️ **É inerte enquanto a pessoa está no relógio** (o enfileiramento já a pularia pelo snapshot) —
+morde só quando o cadastro precisa ser **refeito**: troca de aparelho, higiene, vínculo encerrado.
+Por isso passou despercebido desde 05/09 e apareceu de uma vez só.
+
+🚨 **MEDIR EXECUTANDO, NUNCA ESTIMANDO — e este caso é o exemplo.** A primeira estimativa do
+alcance foi feita em JS sobre a fila e deu **167 pares**; ela havia esquecido a terceira condição do
+critério (a falha precisa ser mais nova que `servidores.updated_at`). **Chamando a função par a
+par**, o número real é **43 reprovados, 14 por falha superada, e 1 único preso de verdade.** Os
+outros 29 são recusa legítima (HMI e HMM, matrícula/PIS já ocupados no próprio equipamento por
+cadastro do sistema anterior) e **não devem ser desbloqueados** — o conserto deles é achar o
+cadastro antigo. A função é `GRANT`ada a `service_role`, então dá para executá-la par a par pelo
+PostgREST: `scratchpad/an_reprovado_estado.mjs` é o modelo de antes/depois.
+
+⚠️ **A conferência da migration CHAMA a função** (armadilha 42) e confere **os dois sentidos**:
+nenhum par com envio posterior continua reprovado, **e** nenhuma recusa legítima recente deixou de
+reprovar. Afrouxar demais recria o laço que a `20260905110000` fechou — entrada condenada
+consumindo a vaga de quem é novo, no teto de 20 cadastros por ciclo. Validada em homologação com
+cenário sintético revertido por `RAISE EXCEPTION` proposital (7 casos, incluindo os dois sentidos e
+o teto de 30 dias).
+
 ⚠️ **`CREATE OR REPLACE FUNCTION` não altera a lista de colunas de um `RETURNS TABLE`.** Reaplicar
 uma migration depois de acrescentar uma coluna de saída morre com `42P13: cannot change return
 type of existing function` — aconteceu em 13/08/2026 com `fn_cobertura_ponto_dispositivo`. Quem
