@@ -1453,6 +1453,15 @@ Os passos de intervalo em todos eles são condicionados a `v_tem_intervalo`.
 Nada disso quebra build ou deploy: **plpgsql resolve nomes de coluna e operadores só em tempo de
 execução do statement**, e `CREATE OR REPLACE FUNCTION` aceita a função feliz da vida.
 
+⚠️ **E restrição de coluna (`NOT NULL`, `CHECK`, FK) também só aparece na EXECUÇÃO.** Em
+06/09/2026 `fn_registrar_substituicao_dispositivo` (`20260906120000`) escreveu
+`ultimo_nsr = NULL` numa coluna `bigint NOT NULL DEFAULT 0` — o `CREATE` passou, o portão de
+texto passou (ele até *afirmava* aquela linha), e a função morreu com `23502` na primeira execução
+real, em produção. **Antes de escrever um valor numa coluna, leia a definição dela:**
+`grep -rn "<coluna>" supabase/migrations/*.sql | grep "NOT NULL"` custa 5 segundos e é a única
+defesa que existe — nenhum portão de texto sabe o schema. ℹ️ Nada ficou pela metade: a chamada é
+um statement único, então o `INSERT` do histórico e o `UPDATE` da geração voltaram atrás junto.
+
 ⚠️ **Mas VARIÁVEL desconhecida o Postgres pega no `CREATE`** — e a diferença importa na hora de
 decidir quanto conferir. `check_function_bodies` (ligado por padrão) valida a *sintaxe* e as
 *variáveis* do corpo plpgsql; não valida nome de coluna, de função nem operador. Então:

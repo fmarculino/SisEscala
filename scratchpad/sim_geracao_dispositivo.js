@@ -39,6 +39,7 @@ function lerMig(prefixo) {
 
 const mGer = lerMig('20260906120000')
 const mSnap = lerMig('20260906130000')
+const mFix  = lerMig('20260906140000')
 
 // ===========================================================================
 // PARTE A1 - a unicidade passa a incluir a geracao, e a antiga SAI
@@ -107,7 +108,19 @@ contem('exige motivo', mGer, 'Informe o motivo da substituicao')
 contem('so Administrador', mGer, "NOT IN ('super_admin', 'admin')")
 contem('grava historico', mGer, 'INSERT INTO public.dispositivos_rep_substituicoes')
 contem('trava o dispositivo enquanto decide', mGer, 'WHERE id = p_dispositivo_id FOR UPDATE')
-contem('zera o ultimo_nsr denormalizado', mGer, 'ultimo_nsr    = NULL')
+// 🚨 ZERO, nunca NULL. `dispositivos_rep.ultimo_nsr` e' `bigint NOT NULL DEFAULT 0` desde
+// 20260808000000, e a primeira versao desta funcao escrevia NULL - morreu com 23502 na PRIMEIRA
+// execucao real em producao. Corrigido em 20260906140000. plpgsql so descobre violacao de
+// restricao EXECUTANDO (armadilha 1), entao esta asercao existe para o erro nao voltar em
+// silencio numa regeneracao futura.
+contem('zera o ultimo_nsr denormalizado, com ZERO', mFix, 'ultimo_nsr    = 0,')
+ok('nenhuma migration desta entrega escreve ultimo_nsr = NULL',
+  /ultimo_nsr\s*=\s*NULL/.test(mFix), false)
+contem('a correcao preserva o guard de papel', mFix, "NOT IN ('super_admin', 'admin')")
+contem('a correcao preserva o FOR UPDATE', mFix, 'WHERE id = p_dispositivo_id FOR UPDATE')
+contem('a correcao preserva o historico', mFix, 'INSERT INTO public.dispositivos_rep_substituicoes')
+contem('a correcao reescreve REVOKE/GRANT', mFix,
+  'REVOKE ALL ON FUNCTION public.fn_registrar_substituicao_dispositivo(uuid, text, text)')
 // A tabela de historico nao pode ter policy de escrita: seria um UPDATE que qualquer
 // autenticado faz pelo PostgREST (armadilha 12).
 naoContem('historico sem policy de INSERT', mGer,

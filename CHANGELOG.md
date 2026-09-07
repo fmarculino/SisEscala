@@ -2,6 +2,41 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.46.1] - 2026-09-06
+
+⚠️ **Requer aplicar `20260906140000`.**
+
+### Fixed
+
+- 🚨 **`fn_registrar_substituicao_dispositivo` violava `NOT NULL` e morria na primeira execução
+  real.** Ela escrevia `ultimo_nsr = NULL`, e a coluna é `bigint NOT NULL DEFAULT 0` desde
+  `20260808000000`:
+
+  ```
+  ERROR: 23502: null value in column "ultimo_nsr" of relation "dispositivos_rep"
+         violates not-null constraint
+  ```
+
+  A intenção estava certa — depois da troca, o `ultimo_nsr` denormalizado não pode continuar com o
+  máximo da geração **anterior**, senão a tela afirma que o aparelho novo já coletou 111 mil
+  linhas. O **valor** é que estava errado: "nada ainda" nesta tabela sempre foi **zero**, e o
+  próprio `DEFAULT` da coluna dizia isso.
+  - ✅ **Nenhum dado ficou pela metade.** A chamada é um statement único, então o `INSERT` no
+    histórico e o `UPDATE` da geração voltaram atrás junto com o erro. O CCE-01 continuava na
+    geração 1, com o AFD intacto e zero linhas em `dispositivos_rep_substituicoes`.
+  - ⚠️ **Armadilha 1 na forma mais pura, e nenhum portão tinha como pegar.** plpgsql resolve
+    coluna e restrição só na **execução** do statement: `CREATE OR REPLACE FUNCTION` aceitou a
+    função sem reclamar, `tsc`/`build`/`lint` não veem nada, e um portão que lê texto não sabe
+    que a coluna é `NOT NULL`. **A defesa é operacional: antes de escrever um valor numa coluna,
+    leia a definição dela** — `grep -rn "<coluna>" supabase/migrations/*.sql | grep "NOT NULL"`
+    custa 5 segundos.
+  - ⚠️ **`20260906120000` NÃO foi regerada.** Ela já rodou em produção, e reescrever arquivo já
+    aplicado apaga o registro do que de fato foi executado. O conserto vem em migration própria,
+    e o corpo da função é **copiado** de lá com uma substituição contada
+    (`scratchpad/gen_fix_ultimo_nsr_substituicao.js`) — o `diff` contra a aplicada é de uma linha.
+  - Portão atualizado: `sim_geracao_dispositivo.js` passou a **53 asserções** (afirma `= 0` e
+    reprova `= NULL`), e `val_sim_geracao_dispositivo.js` a **10 regressões**, incluindo esta.
+
 ## [2.46.0] - 2026-09-06
 
 ⚠️ **Requer aplicar `20260906120000` e `20260906130000`, nessa ordem.** A primeira reconstrói dois

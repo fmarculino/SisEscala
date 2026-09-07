@@ -188,6 +188,41 @@ nas 8**.
 
 ---
 
+## 6b. O que a primeira execução real pegou, e nenhum portão pegaria
+
+`fn_registrar_substituicao_dispositivo` escrevia **`ultimo_nsr = NULL`**, e a coluna é
+`bigint NOT NULL DEFAULT 0` desde `20260808000000`. Morreu com `23502` na primeira vez que alguém
+a chamou de verdade.
+
+A intenção estava certa — manter o `ultimo_nsr` com o máximo da geração anterior faria a tela
+afirmar que o aparelho novo já coletou 111 mil linhas. O **valor** é que estava errado: "nada
+ainda" nesta tabela sempre foi **zero**, e o próprio `DEFAULT` da coluna dizia isso. Eu escrevi
+`NULL` sem ler a definição.
+
+⚠️ **É a armadilha 1 na forma mais pura, e é importante entender por que nenhum portão pegaria.**
+plpgsql resolve nome de coluna e restrição só na **execução do statement**:
+`CREATE OR REPLACE FUNCTION` aceitou a função feliz da vida, `tsc`, `build` e `lint` não veem SQL,
+e o portão — que afirma invariantes sobre o **texto** do arquivo — não tem como saber que a coluna
+é `NOT NULL`. Ele até tinha uma asserção sobre essa linha, e ela estava **afirmando o bug**.
+
+**A defesa aqui não é mais um portão, é um hábito:** antes de escrever um valor numa coluna, leia
+a definição dela.
+
+```bash
+grep -rn "ultimo_nsr" supabase/migrations/*.sql | grep "NOT NULL"
+```
+
+✅ **Nenhum dado ficou pela metade.** A chamada é um statement único, então o `INSERT` no histórico
+e o `UPDATE` da geração voltaram atrás junto com o erro — o CCE-01 continuava na geração 1, com o
+AFD intacto e `dispositivos_rep_substituicoes` vazia. O modo de falha foi o desejado: **abortar
+inteiro em vez de deixar o dispositivo num estado meio trocado.**
+
+⚠️ **`20260906120000` não foi regerada.** Ela já rodou em produção, e reescrever arquivo já
+aplicado apaga o registro do que de fato foi executado. O conserto veio em `20260906140000`, com o
+corpo **copiado** da aplicada e uma substituição contada — o `diff` entre as duas é de uma linha.
+
+---
+
 ## 7. O que falta
 
 - 🚨 **Aplicar as duas migrations.** `20260906120000` reconstrói dois índices únicos sobre ~2,5M e

@@ -25,6 +25,7 @@ function acharMig(prefixo) {
 const ALVOS = {
   ger: acharMig('20260906120000'),
   snap: acharMig('20260906130000'),
+  fix: acharMig('20260906140000'),
   rota: path.join(RAIZ, 'src', 'app', 'api', 'rep', 'v1', 'usuarios-dispositivo', 'route.ts'),
   go: path.join(RAIZ, 'tools', 'coletor-rep', 'sisescala', 'client.go'),
 }
@@ -96,6 +97,20 @@ const REGRESSOES = [
     alvo: 'snap',
     de: "               AND v.created_at < now() - interval '15 minutes'\n",
     para: '',
+  },
+  {
+    // O defeito REAL de 06/09: a coluna e' `bigint NOT NULL DEFAULT 0`, e NULL morre com 23502
+    // na primeira execucao. plpgsql so descobre isso EXECUTANDO (armadilha 1).
+    nome: 'ultimo_nsr volta a receber NULL numa coluna NOT NULL',
+    alvo: 'fix',
+    de: '           ultimo_nsr    = 0,',
+    para: '           ultimo_nsr    = NULL,',
+  },
+  {
+    nome: 'a correcao perde o guard de papel',
+    alvo: 'fix',
+    de: "IF v_papel IS NULL OR v_papel NOT IN ('super_admin', 'admin') THEN",
+    para: 'IF false THEN',
   },
   {
     nome: 'o coletor afirma leitura boa por constante escondida',
