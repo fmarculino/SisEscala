@@ -1,0 +1,51 @@
+-- ============================================================================
+-- O BLOCO NUNCA ATRAVESSA UNIDADE
+-- ============================================================================
+-- Gerado por scratchpad/gen_bloco_unidade.js a partir de
+-- 20260903100000_ancora_do_plantao_que_nao_colide_com_o_regular.sql (a migration VIGENTE de
+-- fn_confirmar_presenca e fn_blocos_previstos_dia). Nao editar a mao: regerar pelo script,
+-- que aborta se qualquer contagem de ocorrencia divergir.
+--
+-- O QUE MUDA: a fusao de blocos contiguos passa a exigir que os dois turnos sejam da MESMA
+-- unidade. As outras condicoes ficam intactas (contiguidade, Sobreaviso fora, dobra diurna).
+--
+-- POR QUE:
+-- fn_blocos_previstos_dia e fn_confirmar_presenca listam os turnos do dia filtrando por
+-- servidor, mes, dia e categoria — nunca por unidade. Dois turnos encostados de unidades
+-- DIFERENTES viravam um bloco so, e isso quebra tres coisas de uma vez:
+--
+--   1. A FRONTEIRA INTERNA TROCA AS BATIDAS. Os dois slots de uma fronteira sao previstos no
+--      MESMO instante (a saida do turno que fecha e a entrada do que abre), e o desempate e
+--      por ordem de insercao, nao por lugar. Medido em producao (MARIA DA CONCEICAO, mat. 1272,
+--      01/09/2026): Plantao no HMI 06:00-12:00 + Regular na USF-DAA 12:00-18:00, batidas reais
+--      06:07 HMI / 12:10 HMI / 12:20 USF-DAA / 18:10 USF-DAA. O sistema gravou a saida do
+--      plantao do HMI com a batida das 12:20 da USF-DAA e a entrada do Regular da USF-DAA com
+--      a batida das 12:10 do HMI — as duas do meio TROCADAS. Repetiu-se em 01, 03 e 08/09.
+--
+--   2. O INTERVALO DO SEGUNDO TURNO SOME. Um bloco carrega UM intervalo so
+--      (v_b1_int_ini := COALESCE(v_s1_int_ini_min, v_s2_int_ini_min) — armadilha 6 do
+--      CLAUDE.md). Os cinco blocos HMI+USF-DAA de 09/2026 sairam com 11h continuas e
+--      permite_intervalo FALSE.
+--
+--   3. permite_marca_intervalo E DE UMA UNIDADE SO. O cursor le u.permite_marca_intervalo do
+--      JOIN da propria linha, entao o bloco misto herdava a regra de intervalo do primeiro
+--      turno e a aplicava ao turno da outra unidade.
+--
+-- EXTENSAO MEDIDA EM 08/09/2026 (base inteira, 37.017 linhas de escala_diaria):
+--   25 pares (servidor, dia) com escala em 2+ unidades, TODOS em 09/2026, 4 pessoas.
+--   18 desses caem em bloco que funde unidades (JULIANA 68184 e MARIA 1272); 7 ja ficavam
+--   separados por nao serem contiguos (JEOSEANE 67689, ALINE 55905).
+--   Nenhuma folha de ponto foi gerada para os afetados: o efeito e todo em escala_diaria.
+--
+-- O QUE NAO MUDA:
+--   - Turnos da MESMA unidade continuam fundindo exatamente como antes. Este e o caso
+--     dominante (Regular + Extra + Plantao emendados) e nenhuma das 12 condicoes de fusao
+--     perdeu criterio: a unidade foi SOMADA aos que ja existiam.
+--   - A consulta que lista os turnos do dia continua SEM filtro de unidade. Quem tem duas
+--     escalas no dia continua sendo visto inteiro; o que muda e so' se os turnos viram um
+--     bloco ou dois. Filtrar a consulta esconderia turno de quem tem escala em outro lugar.
+--   - Sobreaviso continua fora da montagem (armadilha 6) e a dobra diurna continua nao
+--     fundindo (20260809000000).
+--
+-- ============================================================================
+

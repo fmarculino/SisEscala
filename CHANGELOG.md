@@ -2,6 +2,60 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.50.0] - 2026-09-08
+
+⚠️ **Requer aplicar `20260908140000`, `20260908150000` e `20260908160000`** (as três já
+aplicadas e conferidas em produção em 08/09/2026), nesta ordem. Cada uma é segura sozinha, mas só
+as três juntas fecham o caso.
+
+### Fixed
+
+- 🚨 **A batida feita no relógio de uma unidade virava ponto na escala de OUTRA.**
+  `marcacoes_ponto.unidade_id` sempre existiu e sempre esteve certo para origem `rep` (vem de
+  `dispositivos_rep.unidade_id`, o equipamento físico) — e nenhuma das duas funções que decidem a
+  presença o consultava. Caso relatado (JEOSEANE, mat. 67689, 07/09/2026): as três batidas do dia,
+  **todas no `REP-iDClass-HMI-02`**, foram gravadas como entrada, retorno de intervalo e saída do
+  Regular **do CRISMU**, onde ela não esteve; e no sentido inverso, a batida do relógio do CRISMU
+  virou a saída do plantão do HMI, deixando a entrada do dia seguinte no CRISMU vazia.
+- 🚨 **O bloco fundia turnos de unidades DIFERENTES, e a fronteira interna trocava as batidas.**
+  Os dois slots de uma fronteira são previstos no mesmo instante e o desempate era por ordem de
+  inserção, não por lugar. Medido (MARIA, mat. 1272, 01/09): Plantão no HMI 06:00–12:00 + Regular
+  na USF-DAA 12:00–18:00 saíam com a saída do HMI preenchida pela batida da USF-DAA e a entrada da
+  USF-DAA pela batida do HMI — as duas do meio trocadas, em 01, 03 e 08/09. E o bloco carrega **um
+  intervalo só**: os cinco blocos HMI+USF-DAA de 09/2026 saíam com 11h contínuas e nenhum
+  intervalo previsto.
+- **A batida recusada não some**: vira pendência de tipo próprio `outra_unidade`, que a aba
+  Pendências de `/marcacoes` já lista sozinha, filtrada pela unidade **onde a pessoa bateu**.
+
+### Added
+
+- **O modal de validação manual passa a dizer de onde a batida veio.** Batida de relógio de outra
+  unidade aparece com `bateu em <unidade> · <relógio>` em vermelho, e **continua selecionável** —
+  existe caso legítimo (o relógio da unidade fora do ar). As duas metades andam juntas: o sistema
+  não decide sozinho E o coordenador não decide às cegas.
+- **Manual do usuário**: nova seção "Quem trabalha em duas unidades", em Ponto.
+
+### Medido em produção (08/09/2026)
+
+| | antes | depois |
+|---|---|---|
+| passos preenchidos por batida de outra unidade | **15** | **8** |
+| pares (servidor, dia) afetados | 8 | 4 |
+| pares com escala em 2+ unidades que **fundiam** | 18 | **0** |
+
+Os 8 restantes são os deixados de fora de propósito: 4 do administrador do parque em 08/2026
+(competência **Fechada**; o caminho de lá é `marcacoes_tratamentos` com `desconsiderar`) e 4 da
+JULIANA (mat. 68184), cuja jornada está cadastrada como `07H ÀS 19H` enquanto ela cumpre
+`19H ÀS 07H` no HMI — o previsto do `Regular N` sai invertido, e reconciliar contra previsto
+errado troca um erro por outro. Nenhum campo passou de correto para errado, e nenhuma folha havia
+sido gerada para os afetados.
+
+⚠️ **Efeito colateral conhecido:** separar os blocos **expôs** escala com previsto sobreposto, que
+a fusão escondia. São 18 fronteiras, todas em 09/2026 e de 2 pessoas só (60 min na MARIA, 660 na
+JULIANA). Onde há sobreposição, o alinhamento monotônico não casa a batida da virada e ela vira
+pendência — com o horário real a um clique no modal. **A raiz é a escala**: ajustada, o sistema
+casa sozinho.
+
 ## [2.49.0] - 2026-09-08
 
 ⚠️ **Requer aplicar `20260908110000`** (já aplicada e conferida em produção em 08/09/2026). Ela

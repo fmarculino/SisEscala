@@ -1,0 +1,61 @@
+-- ============================================================================
+-- A ALOCACAO NUNCA ATRAVESSA UNIDADE
+-- ============================================================================
+-- Gerado por scratchpad/gen_alocacao_unidade.js a partir de
+-- 20260901120000_guarda_intervalo_minimo_e_deduplicacao_entrada.sql (a migration VIGENTE de
+-- fn_alocar_marcacoes_dia). Nao editar a mao: regerar pelo script.
+--
+-- Par de 20260908140000 (o bloco nao atravessa unidade). Aplicar as duas, nesta ordem.
+-- Cada uma e segura sozinha, mas so as duas juntas fecham o caso.
+--
+-- O QUE MUDA: a batida de RELOGIO so pode casar com um passo da MESMA unidade. Onde o lugar
+-- de um dos dois lados e desconhecido, nada muda.
+--
+-- POR QUE:
+-- O casamento batida<->passo era um alinhamento por proximidade de horario e mais nada. A
+-- consulta de candidatas filtra por servidor, origem e janela de tempo; os slots nao sabiam a
+-- que unidade pertenciam. Entao a batida feita no relogio de uma unidade preenchia o passo da
+-- escala de outra, sem erro em lugar nenhum e sem nada em tela que denunciasse.
+--
+-- Caso que motivou (JEOSEANE, mat. 67689, 07/09/2026): Regular 07:00-16:00 no CRISMU e
+-- Plantao N no HMI. As tres batidas do dia — 07:14, 12:59 e 14:03, TODAS no REP-iDClass-HMI-02
+-- — foram gravadas como entrada, retorno de intervalo e saida do Regular DO CRISMU, onde ela
+-- nao esteve. E no sentido inverso a batida das 06:54 do dia 8, feita no REP-iDClass-CRISMU,
+-- virou a saida do plantao DO HMI — deixando a entrada do dia 8 no CRISMU vazia.
+--
+-- EXTENSAO MEDIDA EM 08/09/2026 (base inteira, 25.531 marcacoes referenciadas por escala):
+--   18 passos preenchidos por batida de outra unidade, 8 pares (servidor, dia), 4 pessoas.
+--   0 passos de origem `terminal` com unidade divergente.
+--   0 escalas de 09/2026 em unidade sem relogio ativo (ninguem depende hoje de bater fora).
+--
+-- TRES DECISOES QUE PRECISAM SOBREVIVER A QUALQUER RECRIACAO:
+--
+--   1. PROIBIR, NAO PENALIZAR. Casamento entre unidades diferentes tem custo infinito (o ramo
+--      do DP simplesmente nao e considerado), nao um custo alto. Com penalidade a troca volta
+--      a acontecer sempre que nao houver candidata melhor, e o preco de errar aqui e ponto de
+--      servidor publico em folha. O sistema ja escolheu, em toda parte, pendencia em vez de
+--      horario que ninguem pode conferir.
+--
+--   2. SO PARA origem = 'rep' COM dispositivo_id. Em origem `terminal`,
+--      marcacoes_ponto.unidade_id e a LOTACAO do servidor (fn_registrar_ponto le
+--      servidores.unidade_id), nao o lugar da batida — aplicar a regra ali derrubaria o ponto
+--      do Servidor Externo (v1.2.4), lotado em A e escalado em B. `ajuste_coordenador` e
+--      `ajuste_servidor` sao declaracao, nao fato de lugar: tambem ficam de fora.
+--
+--   3. NUNCA DESCARTAR BATIDA. O cursor de candidatas continua SEM filtro de unidade: a batida
+--      e lida, disputa o DP e, se nao casar, vira pendencia com tipo proprio `outra_unidade` —
+--      que a aba Pendencias de /marcacoes ja lista sozinha (fn_marcacoes_pendentes_revisao
+--      mostra toda marcacao nao referenciada em escala_diaria, filtrada por m.unidade_id, ou
+--      seja, para quem cuida da unidade onde a pessoa bateu). Filtrar no cursor faria a batida
+--      sumir antes de poder virar pendencia.
+--
+-- O QUE NAO MUDA:
+--   - Lugar desconhecido de qualquer um dos lados = sem restricao. Nunca se recusa uma batida
+--     por falta de informacao.
+--   - Bloco que mistura unidades devolve lugar NULL e nao restringe nada — e o que torna esta
+--     migration segura de aplicar sozinha, antes da 20260908140000.
+--   - O teto de 720 min, o piso de meia-noite, a regra do dono, a deduplicacao e o espelho da
+--     batida de transicao ficam exatamente como estavam.
+--
+-- ============================================================================
+

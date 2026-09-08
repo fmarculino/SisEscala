@@ -1,0 +1,95 @@
+
+-- ============================================================================
+-- CONFERENCIA — roda junto e ABORTA a migration se qualquer assercao falhar
+-- ============================================================================
+-- Ela EXECUTA fn_blocos_previstos_dia (armadilha 42: conferir que a funcao existe nao prova
+-- nada — plpgsql so resolve nome de coluna e de funcao no momento em que o statement roda).
+--
+-- Confere os DOIS sentidos: nenhum bloco misturando unidades, e a fusao da MESMA unidade
+-- continuando de pe. So um dos lados nao serve — proibir demais aqui quebraria o caso
+-- dominante (Regular + Extra + Plantao emendados), que e a razao de a fusao existir.
+--
+-- Nada aqui e' fixado em matricula: homologacao e producao tem conteudos diferentes
+-- (armadilha 3), e assercao presa a um dado que so existe num dos bancos reprova a migration
+-- pelo motivo errado.
+
+DO $conf$
+DECLARE
+    v_pares_multi     integer;
+    v_mistos          integer;
+    v_pares_mesma     integer;
+    v_fundidos_mesma  integer;
+BEGIN
+    -- 1. NENHUM bloco pode misturar unidades, em par (servidor, dia) nenhum da base.
+    WITH pares AS (
+        SELECT em.servidor_id AS sid, make_date(em.ano, em.mes, ed.dia) AS d
+          FROM public.escala_diaria ed
+          JOIN public.escala_mensal em ON em.id = ed.escala_mensal_id
+         WHERE ed.categoria IN ('Regular', 'Plantão', 'Extra')
+         GROUP BY em.servidor_id, make_date(em.ano, em.mes, ed.dia)
+        HAVING count(DISTINCT em.unidade_id) > 1
+    )
+    SELECT (SELECT count(*) FROM pares),
+           count(*) FILTER (WHERE (
+                SELECT count(DISTINCT em2.unidade_id)
+                  FROM unnest(b.escala_diaria_ids) AS x(id)
+                  JOIN public.escala_diaria ed2 ON ed2.id = x.id
+                  JOIN public.escala_mensal em2 ON em2.id = ed2.escala_mensal_id) > 1)
+      INTO v_pares_multi, v_mistos
+      FROM pares p
+      CROSS JOIN LATERAL public.fn_blocos_previstos_dia(p.sid, p.d) b;
+
+    IF v_mistos <> 0 THEN
+        RAISE EXCEPTION 'ABORTADO: % bloco(s) ainda fundem turnos de unidades diferentes.', v_mistos;
+    END IF;
+    RAISE NOTICE 'ok  nenhum bloco funde unidades diferentes (% par(es) servidor/dia com escala em 2+ unidades examinados)', v_pares_multi;
+
+    -- 2. O OUTRO SENTIDO: a fusao da MESMA unidade continua acontecendo. Se este numero vier
+    --    zero HAVENDO pares para examinar, a condicao nova esta proibindo fusao legitima — o
+    --    que seria muito pior que o defeito corrigido, porque atinge o caso dominante.
+    WITH pares AS (
+        SELECT em.servidor_id AS sid, make_date(em.ano, em.mes, ed.dia) AS d
+          FROM public.escala_diaria ed
+          JOIN public.escala_mensal em ON em.id = ed.escala_mensal_id
+         WHERE ed.categoria IN ('Regular', 'Plantão', 'Extra')
+         GROUP BY em.servidor_id, make_date(em.ano, em.mes, ed.dia)
+        HAVING count(*) > 1 AND count(DISTINCT em.unidade_id) = 1
+         LIMIT 300
+    )
+    SELECT (SELECT count(*) FROM pares),
+           count(*) FILTER (WHERE COALESCE(array_length(b.escala_diaria_ids, 1), 0) > 1)
+      INTO v_pares_mesma, v_fundidos_mesma
+      FROM pares p
+      CROSS JOIN LATERAL public.fn_blocos_previstos_dia(p.sid, p.d) b;
+
+    IF v_pares_mesma > 0 AND v_fundidos_mesma = 0 THEN
+        RAISE EXCEPTION 'ABORTADO: nenhum dos % par(es) de turnos da MESMA unidade fundiu — a condicao nova esta proibindo fusao legitima.', v_pares_mesma;
+    END IF;
+    RAISE NOTICE 'ok  fusao da mesma unidade preservada (% bloco(s) fundido(s) em % par(es) da amostra)', v_fundidos_mesma, v_pares_mesma;
+
+    IF v_pares_multi = 0 AND v_pares_mesma = 0 THEN
+        RAISE NOTICE 'ATENCAO: esta base nao tem nenhum par para examinar — a conferencia nao provou nada aqui.';
+    END IF;
+END;
+$conf$;
+
+-- ============================================================================
+-- CONFERENCIA MANUAL (rodar depois, com os olhos)
+-- ============================================================================
+-- Como cada dia dos afetados ficou. Esperado: a coluna `unidades` com UM nome por linha.
+--
+--   SELECT s.matricula, s.nome, b.bloco_ordem, b.categoria,
+--          b.inicio_previsto, b.fim_previsto, b.permite_intervalo,
+--          (SELECT string_agg(DISTINCT u.nome, ' + ')
+--             FROM unnest(b.escala_diaria_ids) AS x(id)
+--             JOIN public.escala_diaria ed2 ON ed2.id = x.id
+--             JOIN public.escala_mensal em2 ON em2.id = ed2.escala_mensal_id
+--             JOIN public.unidades u ON u.id = em2.unidade_id) AS unidades
+--     FROM public.servidores s
+--     CROSS JOIN LATERAL public.fn_blocos_previstos_dia(s.id, '2026-09-01'::date) b
+--    WHERE s.matricula IN ('1272', '68184', '67689', '55905')
+--    ORDER BY s.matricula, b.bloco_ordem;
+--
+-- Medido em producao em 08/09/2026, ANTES de aplicar: 25 pares (servidor, dia) com escala em
+-- 2+ unidades, dos quais 18 caiam em bloco que funde unidades. Depois de aplicar, o esperado
+-- e' 0 — e e' isso que a assercao 1 acima verifica sozinha.

@@ -1,0 +1,101 @@
+
+-- ============================================================================
+-- CONFERENCIA — roda junto e ABORTA a migration se qualquer assercao falhar
+-- ============================================================================
+-- EXECUTA fn_alocar_marcacoes_dia (armadilha 42: conferir que a funcao existe nao prova nada).
+-- Confere os DOIS sentidos: a batida de outra unidade parou de casar, E a batida da unidade
+-- certa continua casando. Proibir demais aqui esvaziaria a folha do parque inteiro.
+
+DO $conf$
+DECLARE
+    v_jeoseane   uuid;
+    v_aloc       jsonb;
+    v_cruzadas   integer;
+    v_pend_uni   integer;
+    v_normais    integer;
+    v_total      integer;
+BEGIN
+    -- 1. O CASO QUE MOTIVOU: JEOSEANE (mat. 67689), 07/09/2026.
+    --    Nenhuma alocacao daquele dia pode usar batida de unidade diferente da escala do passo.
+    SELECT id INTO v_jeoseane FROM public.servidores WHERE matricula = '67689' LIMIT 1;
+
+    IF v_jeoseane IS NOT NULL THEN
+        v_aloc := public.fn_alocar_marcacoes_dia(v_jeoseane, '2026-09-07'::date);
+
+        SELECT count(*) INTO v_cruzadas
+          FROM jsonb_array_elements(v_aloc->'alocacoes') a
+          JOIN public.marcacoes_ponto m ON m.id = (a->>'marcacao_id')::uuid
+         WHERE m.origem = 'rep'
+           AND m.dispositivo_id IS NOT NULL
+           AND m.unidade_id IS NOT NULL
+           AND EXISTS (
+                 SELECT 1
+                   FROM unnest(ARRAY(SELECT (jsonb_array_elements_text(a->'escala_diaria_ids'))::uuid)) AS x(id)
+                   JOIN public.escala_diaria ed ON ed.id = x.id
+                   JOIN public.escala_mensal em ON em.id = ed.escala_mensal_id
+                  WHERE em.unidade_id <> m.unidade_id);
+
+        IF v_cruzadas <> 0 THEN
+            RAISE EXCEPTION 'ABORTADO: o caso de referencia (mat. 67689, 07/09/2026) ainda tem % alocacao(oes) com batida de outra unidade.', v_cruzadas;
+        END IF;
+        RAISE NOTICE 'ok  caso de referencia sem alocacao cruzada';
+
+        -- 2. E a batida recusada tem de aparecer como pendencia, com o motivo verdadeiro.
+        --    Se ela sumisse, teriamos trocado um erro por perda de dado.
+        SELECT count(*) INTO v_pend_uni
+          FROM jsonb_array_elements(v_aloc->'pendencias') p
+         WHERE p->>'tipo' = 'outra_unidade';
+        RAISE NOTICE 'ok  pendencias do tipo outra_unidade no caso de referencia: %', v_pend_uni;
+    END IF;
+
+    -- 3. O OUTRO SENTIDO, e o que mais importa: o dia NORMAL continua sendo alocado. Amostra de
+    --    dias reais com batida de relogio; se a taxa de alocacao desabar, a restricao esta
+    --    recusando o que deveria aceitar.
+    SELECT count(*) FILTER (WHERE jsonb_array_length(x.aloc->'alocacoes') > 0),
+           count(*)
+      INTO v_normais, v_total
+      FROM (
+            SELECT public.fn_alocar_marcacoes_dia(t.servidor_id, t.d) AS aloc
+              FROM (
+                    SELECT m.servidor_id, (m.ocorrido_em AT TIME ZONE 'America/Sao_Paulo')::date AS d
+                      FROM public.marcacoes_ponto m
+                     WHERE m.origem = 'rep'
+                       AND m.dispositivo_id IS NOT NULL
+                       AND m.ocorrido_em >= now() - interval '10 days'
+                     GROUP BY 1, 2
+                     LIMIT 150
+                   ) t
+           ) x;
+
+    IF v_total > 0 AND v_normais * 2 < v_total THEN
+        RAISE EXCEPTION 'ABORTADO: so % de % dias da amostra tiveram alguma alocacao — a restricao de unidade esta recusando alocacao legitima.', v_normais, v_total;
+    END IF;
+    RAISE NOTICE 'ok  dias com alocacao na amostra: % de %', v_normais, v_total;
+END;
+$conf$;
+
+-- ============================================================================
+-- CONFERENCIA MANUAL (rodar depois, com os olhos)
+-- ============================================================================
+-- Quantos passos JA GRAVADOS continuam apontando para batida de outra unidade. Aplicar estas
+-- duas migrations NAO reescreve escala_diaria — a projecao so' e' regravada quando o dia e'
+-- reconciliado. Este numero e' a fila de correcao, e a lista fechada tem de ser conferida
+-- ANTES de reconciliar (armadilha 46: reconciliar em massa piora mais do que corrige).
+--
+--   SELECT s.matricula, s.nome, em.mes, ed.dia, ed.categoria,
+--          ue.nome AS unidade_da_escala, um.nome AS unidade_da_batida, m.ocorrido_em
+--     FROM public.escala_diaria ed
+--     JOIN public.escala_mensal em ON em.id = ed.escala_mensal_id
+--     JOIN public.servidores s     ON s.id  = em.servidor_id
+--     JOIN public.unidades ue      ON ue.id = em.unidade_id
+--     CROSS JOIN LATERAL (VALUES (ed.presenca_entrada_marcacao_id),
+--                                (ed.presenca_intervalo_saida_marcacao_id),
+--                                (ed.presenca_intervalo_retorno_marcacao_id),
+--                                (ed.presenca_saida_marcacao_id)) AS p(mid)
+--     JOIN public.marcacoes_ponto m ON m.id = p.mid
+--     JOIN public.unidades um       ON um.id = m.unidade_id
+--    WHERE m.origem = 'rep' AND m.dispositivo_id IS NOT NULL
+--      AND m.unidade_id <> em.unidade_id
+--    ORDER BY em.ano, em.mes, ed.dia;
+--
+-- Medido em 08/09/2026, antes de aplicar: 18 linhas, 8 pares (servidor, dia), 4 pessoas.

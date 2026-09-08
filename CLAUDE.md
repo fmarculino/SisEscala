@@ -4488,6 +4488,135 @@ nas 6** — entre elas o retorno do caso das 21:49. Transpile antes com
 `npx tsc src/utils/reconciliacaoPendente.ts --outDir scratchpad/_sim --module commonjs --target es2020`.
 Medição: `scratchpad/an_celulas_sem_presenca.mjs` → `an_pares_elegiveis.mjs`.
 
+### 55. A batida não sabia ONDE foi feita, e virava ponto na escala de outra unidade (08/09/2026)
+
+🚨 **`marcacoes_ponto.unidade_id` sempre existiu, sempre esteve certo para origem `rep` (vem de
+`dispositivos_rep.unidade_id`) — e NENHUMA das duas funções que decidem a presença o consultava.**
+A batida feita no relógio de uma unidade preenchia o passo da escala de outra, sem erro em lugar
+nenhum e sem nada em tela que denunciasse.
+
+Caso que motivou (JEOSEANE, mat. 67689, 07/09/2026): Regular 07:00–16:00 no **CRISMU** e Plantão
+`N` no **HMI**. As batidas das **07:14, 12:59 e 14:03 — todas no `REP-iDClass-HMI-02`** — foram
+gravadas como entrada, retorno de intervalo e saída do Regular **do CRISMU**, onde ela não esteve.
+E no sentido inverso: a batida das 06:54 do dia 8, feita no relógio do CRISMU, virou a **saída do
+plantão do HMI**, deixando a entrada do dia 8 no CRISMU vazia.
+
+**São DOIS defeitos independentes, e só os dois juntos fecham o caso:**
+
+| # | onde | o que era |
+|---|---|---|
+| **A** | `fn_alocar_marcacoes_dia` | a busca de candidatas filtra por servidor, origem e janela de tempo; os slots não sabiam a que unidade pertenciam. O DP alinhava por proximidade de horário e mais nada |
+| **B** | `fn_blocos_previstos_dia` e `fn_confirmar_presenca` | o cursor que lista os turnos do dia filtra por servidor, mês, dia e categoria — **nunca por unidade**. Dois turnos encostados de unidades diferentes viravam **um bloco só** |
+
+🚨 **O defeito B é o pior, e não estava no relato.** A fronteira interna de um bloco tem os dois
+slots previstos no **mesmo instante** (a saída do turno que fecha e a entrada do que abre), e o
+desempate é por ordem de inserção, não por lugar — então as duas batidas da virada **trocam de
+lado**. Medido (MARIA DA CONCEIÇÃO, mat. 1272, 01/09/2026): Plantão HMI 06:00–12:00 + Regular
+USF-DAA 12:00–18:00, batidas `06:07 HMI / 12:10 HMI / 12:20 DAA / 18:10 DAA` — a saída do plantão
+do HMI ficou com a batida da USF-DAA e a entrada do Regular da USF-DAA com a batida do HMI.
+Repetiu em 01, 03 e 08/09. Some-se que **um bloco carrega UM intervalo só** (armadilha 6): os
+cinco blocos HMI+USF-DAA de 09/2026 saíram com **11h contínuas e nenhum intervalo previsto**.
+
+✅ **Extensão medida em 08/09/2026** (base inteira: 37.017 linhas de `escala_diaria`, 25.6 mil
+marcações referenciadas): **15 passos**, 8 pares (servidor, dia), **4 pessoas**; **25 pares** com
+escala em 2+ unidades, todos em 09/2026, dos quais **18 fundiam**. **Zero** passos de origem
+`terminal` com unidade divergente e **zero** escalas de 09/2026 em unidade sem relógio. Nenhuma
+folha gerada para os afetados. ⚠️ **Produção é viva**: a mesma medição deu 18 passos de manhã e 15
+à tarde, porque o coordenador mexeu na escala no meio. Reconfira antes de decidir.
+
+| migration | o que faz |
+|---|---|
+| `20260908140000` | o **bloco** não funde turnos de unidades diferentes (12 sítios de fusão, gerados por `scratchpad/gen_bloco_unidade.js`) |
+| `20260908150000` | o **casamento** batida↔passo não atravessa unidade (`scratchpad/gen_alocacao_unidade.js`) |
+| `20260908160000` | `fn_marcacoes_mes` passa a devolver o **lugar** da batida, para a tela poder rotular |
+
+**Quatro decisões que não podem ser desfeitas:**
+
+⚠️ **PROIBIR, NÃO PENALIZAR.** O casamento entre unidades diferentes tem custo infinito (o ramo do
+DP não é considerado), não um custo alto. Com penalidade a troca volta sempre que não houver
+candidata melhor, e o preço de errar é ponto de servidor público em folha.
+
+🚨 **SÓ VALE PARA `origem = 'rep'` COM `dispositivo_id`.** Em origem `terminal`,
+`marcacoes_ponto.unidade_id` é a **LOTAÇÃO** do servidor (`fn_registrar_ponto` lê
+`servidores.unidade_id`), **não** o lugar da batida — aplicar a regra ali derrubaria o ponto do
+**Servidor Externo** (v1.2.4), lotado em A e escalado em B. `ajuste_coordenador`/`ajuste_servidor`
+são declaração: também ficam de fora. Mesmo campo, significado diferente por origem.
+
+⚠️ **NUNCA DESCARTAR BATIDA.** O cursor de candidatas continua **sem** filtro de unidade: a batida
+é lida, disputa o DP e, se não casar, vira pendência de tipo próprio **`outra_unidade`** — que a
+aba Pendências de `/marcacoes` já lista sozinha (`fn_marcacoes_pendentes_revisao` mostra toda
+marcação não referenciada em `escala_diaria`, filtrando por `m.unidade_id`, ou seja, para quem
+cuida da unidade **onde a pessoa bateu**). Filtrar no cursor faria a batida sumir antes de virar
+pendência.
+
+🚨 **AS DUAS METADES ANDAM JUNTAS: o sistema não decide sozinho E o coordenador não decide às
+cegas.** Sem o rótulo na tela, a correção troca um erro silencioso por outro — a batida some da
+presença, aparece na lista do modal idêntica às demais, e o coordenador a devolve à folha sem
+saber que foi feita a quilômetros dali. Daí a migration `20260908160000` e
+`classificarLugarDaBatida` (`src/utils/janelaBatidas.ts`), que pinta **bateu em `<unidade> ·
+<relógio>`** em vermelho. ⚠️ **Na dúvida, não acusa**: só se afirma "outra unidade" quando os dois
+lados são conhecidos e diferem — a mesma assimetria do banco. Aviso que grita à toa é o caminho
+mais curto para ninguém mais ler nenhum.
+
+⚠️ **A restrição usa `IS NOT DISTINCT FROM`, não `=`.** Unidade nula dos dois lados com `=` daria
+`NULL`, e a condição inteira indefinida proibiria **toda** fusão.
+
+⚠️ **A unidade tem de entrar na REORDENAÇÃO dos slots.** `fn_alocar_marcacoes_dia` reordena os
+arrays de slot por instante previsto (20260819200000); reordenar seis e deixar o sétimo parado
+desalinha o lugar do próprio slot, e a restrição passa a comparar a batida com a unidade de
+**outro passo**. O gerador aborta se a reordenação não incluir `v_slot_unidade`.
+
+ℹ️ **O bloco misto devolve lugar `NULL` e não restringe nada** — é o que torna a `20260908150000`
+segura de aplicar sozinha, antes da `20260908140000`.
+
+✅ **Validadas em homologação com cenário sintético revertido por `RAISE EXCEPTION`**, nos dois
+sentidos cada: turnos contíguos em unidades diferentes → **2 blocos, 0 mistos**, e os mesmos
+turnos na mesma unidade (setores diferentes) → **1 bloco com 2 turnos**; batida no relógio de
+outra unidade → **0 alocações + 1 pendência `outra_unidade`**, e batida no relógio da própria →
+**1 alocação**. As conferências das migrations **executam** as funções (armadilha 42) e conferem
+os dois sentidos — proibir demais aqui quebraria o caso dominante (Regular + Extra + Plantão
+emendados), que é a razão de a fusão existir.
+
+⚠️ **Corrigir os dados é lista fechada com ensaio antes/depois**
+(`scratchpad/fix_batida_outra_unidade.mjs`), nunca reconciliação em massa (armadilha 46).
+**08/2026 fica de fora**: escala `Fechada`, e os 4 passos de lá são testes de relógio do
+administrador do parque, cujo caminho é `marcacoes_tratamentos` com `desconsiderar`.
+
+✅ **Aplicadas e conferidas em produção em 08/09/2026.** 4 pares reconciliados por lista fechada;
+os passos preenchidos por batida de outra unidade caíram de **15 → 8**, e os 8 restantes são
+exatamente os deixados de fora de propósito (4 do administrador do parque em 08/2026 e 4 da
+JULIANA). Nenhum campo passou de correto para errado.
+
+🚨 **A separação dos blocos EXPÔS escala com previsto sobreposto, e o DP monotônico não casa a
+virada dela.** Este é o efeito colateral, e é preciso conhecê-lo antes de diagnosticar o próximo
+caso. MARIA (mat. 1272), 01/09: Plantão `M` no HMI **07:00–13:00** e Regular na USF-DAA
+**12:00–18:00** — 1h de sobreposição no previsto. Ela saiu do HMI 12:10 e entrou na DAA 12:20,
+mas os slots ordenados por instante ficam `12:00 (entrada DAA)` **antes** de `13:00 (saída HMI)`,
+e o alinhamento é monotônico: casar as duas exigiria **cruzar**. Resultado: a entrada da DAA fica
+certa (12:20) e a saída do plantão do HMI vira **pendência**, com a batida real das 12:10
+disponível no modal — do próprio HMI, portanto sem rótulo vermelho, a um clique.
+
+⚠️ **Não é regressão, e não se conserta no DP.** Antes esses dois turnos eram **um bloco só**, e a
+fronteira interna escondia a sobreposição — ao custo de gravar a batida da DAA como saída do HMI
+e a do HMI como entrada da DAA, as duas **falsas**. O saldo é estritamente melhor: um campo passa
+a correto, o outro passa de errado para vazio-e-visível. **A raiz é a escala**: 18 fronteiras
+sobrepostas medidas em 08/09/2026, todas em 09/2026 e de **2 pessoas só** — 60 min na MARIA (erro
+de lançamento: plantão até 13:00 e regular desde 12:00) e 660 min na JULIANA (o previsto
+invertido da jornada, logo abaixo). Ajustada a escala, o DP casa sozinho.
+`scratchpad/an_blocos_sobrepostos.mjs` mede. Diário em
+[`docs/evolucao/2026-09-08-batida-de-uma-unidade-virando-ponto-em-outra.md`](docs/evolucao/2026-09-08-batida-de-uma-unidade-virando-ponto-em-outra.md).
+
+🚨 **E há um TERCEIRO defeito, de cadastro, que a correção não alcança: `Regular` com turno `N`
+herda o horário do NOME DA JORNADA.** JULIANA (mat. 68184) faz plantão noturno no HMI e expediente
+diurno na SMS — a escala está certa (`Regular N` + `Plantão M@08:00`) —, mas a jornada dela é
+`07H ÀS 19H`, e o nível 3 da cascata (armadilha 4) resolve `Regular` por regex sobre o nome. O
+previsto do `N` sai **07:00→19:00, invertido**, e engole as batidas da SMS: em 09/2026 o Plantão
+dela na SMS está com **todos os passos vazios** apesar de ela bater lá todo dia útil. Agrava que
+`Regular` **não aceita** `hora_inicio_prevista` (constraint `chk_hora_prevista_nao_regular`) —
+não há como informar a hora na célula, só corrigindo a jornada para `19H ÀS 07H`. Por isso ela
+está **excluída** da lista de reconciliação: reconciliar contra previsto invertido troca um erro
+por outro.
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.

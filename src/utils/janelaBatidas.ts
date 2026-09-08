@@ -164,3 +164,53 @@ export function compararBatidasParaExibir(
   if (d !== 0) return d
   return a.instante - b.instante
 }
+
+/* ==========================================================================================
+ * ONDE A BATIDA FOI FEITA (08/09/2026)
+ * ==========================================================================================
+ * Desde 20260908150000 a alocacao automatica nao atravessa unidade: a batida feita no relogio
+ * de uma unidade nao preenche mais o passo da escala de outra. Ela nao some — vira pendencia e
+ * continua selecionavel aqui, porque o coordenador e a autoridade e existe caso legitimo (o
+ * relogio da unidade quebrado, a pessoa bate no da vizinha).
+ *
+ * 🚨 Mas "continua selecionavel" sem dizer de onde veio troca um erro silencioso por outro: a
+ * batida aparece na lista igual as demais e o coordenador a devolve a folha sem saber que foi
+ * feita a quilometros dali. As duas metades andam juntas — o sistema nao decide sozinho E o
+ * coordenador nao decide as cegas.
+ *
+ * ⚠️ SO A BATIDA DE RELOGIO TEM LUGAR. Em origem `terminal`, marcacoes_ponto.unidade_id e a
+ * LOTACAO do servidor (fn_registrar_ponto le servidores.unidade_id), nao onde ele bateu — por
+ * isso fn_marcacoes_mes ja devolve unidade_id NULO fora de `rep`. Tratar aquilo como lugar
+ * acusaria de "outra unidade" justamente o Servidor Externo, que e' lotado em A e escalado em B.
+ *
+ * ⚠️ NA DUVIDA, NAO ACUSA. So se afirma "outra unidade" quando os DOIS lados sao conhecidos e
+ * diferem — a mesma assimetria que o banco aplica: lugar desconhecido de qualquer lado nao
+ * restringe nada. Rotular por falta de informacao poria um aviso vermelho em batida legitima,
+ * e aviso que grita a toa e o caminho mais curto para ninguem mais ler nenhum.
+ */
+
+export type BatidaComLugar = {
+  unidade_id?: string | null
+  unidade_nome?: string | null
+  dispositivo_nome?: string | null
+}
+
+export type LugarDaBatida = {
+  /** Batida de relogio de unidade DIFERENTE da escala. Falso sempre que houver duvida. */
+  outraUnidade: boolean
+  /** Texto curto para a tela (unidade e, quando houver, o relogio). `null` quando nada a dizer. */
+  rotulo: string | null
+}
+
+export function classificarLugarDaBatida(
+  batida: BatidaComLugar | null | undefined,
+  unidadeDaEscalaId: string | null | undefined,
+): LugarDaBatida {
+  const uni = batida?.unidade_id
+  if (!uni || !unidadeDaEscalaId || uni === unidadeDaEscalaId) {
+    return { outraUnidade: false, rotulo: null }
+  }
+  const nome = batida?.unidade_nome || 'outra unidade'
+  const relogio = batida?.dispositivo_nome
+  return { outraUnidade: true, rotulo: relogio ? `${nome} · ${relogio}` : nome }
+}

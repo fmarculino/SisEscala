@@ -123,6 +123,11 @@ export const ponto: Capitulo = {
                 'Se o turno foi lançado depois de a pessoa bater, pode ser preciso reprocessar aquele dia. Fale com quem administra o sistema — o horário não se perdeu.',
             },
             {
+              titulo: 'A pessoa bateu no relógio de outra unidade?',
+              texto:
+                'Quem trabalha em duas unidades bate em cada uma delas, e o sistema encaixa a batida na escala **daquela** unidade. Se ela bateu no relógio errado, o horário fica em Pendências e não entra na folha sozinho.',
+            },
+            {
               titulo: 'A folha já foi gerada antes da correção?',
               texto:
                 'A folha é uma fotografia. Corrigiu depois de gerar? Clique em **Sincronizar** na folha.',
@@ -294,6 +299,53 @@ export const ponto: Capitulo = {
             'Errou a resposta? Reabra a folha e decida de novo. Toda mudança fica no histórico com o nome de quem fez. Competências anteriores a setembro de 2026 não são afetadas.',
         },
         { tipo: 'veja', secaoId: 'atraso-compensacao', texto: 'A decisão que vem antes desta' },
+      ],
+    },
+
+    {
+      id: 'duas-unidades',
+      titulo: 'Quem trabalha em duas unidades',
+      resumo: 'Cada batida conta para a unidade onde o dedo encostou — e não para a outra.',
+      papeis: ['Coordenador', 'Ass. Administrativo', 'RH da Unidade', 'RH Geral', 'Administrador Geral'],
+      blocos: [
+        {
+          tipo: 'p',
+          texto:
+            'É cada vez mais comum a mesma pessoa ter escala em duas unidades no mesmo dia — plantão em um hospital de manhã e expediente em uma unidade básica à tarde, por exemplo. Ela bate o ponto no relógio de cada lugar, e o sistema encaixa **cada batida na escala da unidade onde ela foi feita**.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'A batida no relógio errado não entra na folha sozinha',
+          texto:
+            'Se a pessoa tinha turno na unidade A e bateu no relógio da unidade B, aquele horário **não** preenche a escala de A. Ele não se perde: fica em Marcações → Pendências, para quem cuida da unidade B. O passo em A aparece vazio, esperando decisão.',
+        },
+        {
+          tipo: 'titulo',
+          texto: 'Quando a pessoa realmente trabalhou aqui, mas bateu no relógio de lá',
+        },
+        {
+          tipo: 'p',
+          texto:
+            'Acontece — o relógio da unidade fora do ar, e a pessoa bate no da unidade vizinha. Nesse caso você usa a batida normalmente: abra a validação manual do dia, e ela estará na lista, marcada em vermelho com **bateu em** e o nome da unidade e do relógio. Selecione, e o horário real vai para a folha.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'cuidado',
+          titulo: 'A etiqueta vermelha existe para você não decidir às cegas',
+          texto:
+            'Antes, uma batida feita a quilômetros dali podia virar o horário desta escala sem ninguém notar. Hoje o sistema não faz mais isso sozinho — mas ainda deixa você fazer, de propósito, porque só você sabe se a pessoa cumpriu o turno aqui. Use quando tiver certeza; na dúvida, confirme com a chefia da outra unidade.',
+        },
+        {
+          tipo: 'titulo',
+          texto: 'Turnos que se encostam, em unidades diferentes',
+        },
+        {
+          tipo: 'p',
+          texto:
+            'Sair de um plantão às 12:00 em uma unidade e entrar às 12:00 em outra são **dois turnos**, não um só. O sistema trata cada um separadamente: cada unidade tem sua entrada, sua saída e seu intervalo. Espere duas batidas próximas na virada — uma fechando lá, outra abrindo aqui — e isso é o certo.',
+        },
+        { tipo: 'veja', secaoId: 'nao-apareceu', texto: 'Bati o ponto e não apareceu' },
       ],
     },
 

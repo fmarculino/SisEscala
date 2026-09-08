@@ -3,8 +3,8 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { formatarData, formatarDataHora, formatarHora, formatarHoraComSegundos, dataISOLocal } from '@/utils/horario'
 import {
-  batidaVisivelNaCelula, classificarBatida, compararBatidasParaExibir, dataDaCelula,
-  type PosicaoDaBatida,
+  batidaVisivelNaCelula, classificarBatida, classificarLugarDaBatida, compararBatidasParaExibir,
+  dataDaCelula, type LugarDaBatida, type PosicaoDaBatida,
 } from '@/utils/janelaBatidas'
 import {
   avaliarSequenciaPresenca, PASSOS_EM_ORDEM, ROTULO_PASSO, type PassoPresenca,
@@ -322,16 +322,29 @@ export function ScaleGrid({
     if (!rpcErr && pendRpc) {
       setMarcacoesPendentes(pendRpc)
     } else {
+      // ⚠️ O fallback precisa trazer os MESMOS campos da RPC. Sem unidade_id/dispositivo aqui, a
+      // batida de outra unidade viria sem o rótulo "bateu em ..." e o coordenador a devolveria à
+      // folha sem saber de onde veio — o defeito que 20260908150000/130000 fecharam, de volta
+      // por um caminho que só roda quando a RPC falha, ou seja, sem ninguém perceber.
       const { data: pend } = await supabase
         .from('marcacoes_ponto')
-        .select('id, servidor_id, ocorrido_em, observacao, origem')
+        .select('id, servidor_id, ocorrido_em, observacao, origem, unidade_id, dispositivo_id, unidades(nome), dispositivos_rep(nome)')
         .in('servidor_id', servantIds)
         .in('origem', ['terminal', 'rep', 'ajuste_servidor', 'ajuste_coordenador'])
         .gte('ocorrido_em', startRange)
         .lte('ocorrido_em', endRange)
         .order('ocorrido_em')
 
-      setMarcacoesPendentes(pend || [])
+      // Normaliza para a MESMA forma que fn_marcacoes_mes devolve: o embed vem aninhado
+      // (`unidades: { nome }`) e classificarLugarDaBatida lê campos planos. E a regra de que só
+      // batida de relógio tem lugar é espelhada aqui — em origem `terminal`, unidade_id é a
+      // LOTAÇÃO do servidor, não onde ele bateu.
+      setMarcacoesPendentes((pend || []).map((m: any) => ({
+        ...m,
+        unidade_id: m.origem === 'rep' && m.dispositivo_id ? m.unidade_id : null,
+        unidade_nome: m.origem === 'rep' && m.dispositivo_id ? (m.unidades?.nome ?? null) : null,
+        dispositivo_nome: m.dispositivos_rep?.nome ?? null,
+      })))
     }
   }, [supabase, escalaMensalInicial, mes, ano])
 
@@ -8696,6 +8709,14 @@ export function ScaleGrid({
           posicao: PosicaoDaBatida
           /** `+1D` / `−1D` em relação ao dia da célula; null no mesmo dia. */
           rotuloDia: string | null
+          /**
+           * Onde a batida foi feita, quando for de relógio e de OUTRA unidade.
+           *
+           * Desde 20260908150000 essa batida não vira presença sozinha — mas continua aqui,
+           * selecionável, porque existe caso legítimo (o relógio da unidade quebrado). O rótulo
+           * é o que impede o coordenador de devolvê-la à folha sem saber de onde veio.
+           */
+          lugar: LugarDaBatida
         }
         const posicionar = (iso: string) => classificarBatida(iso, dataCelulaISO, blocoCelula)
         const todasBatidas: BatidaDoDia[] = cellPendentes.map((m): BatidaDoDia => {
@@ -8703,6 +8724,7 @@ export function ScaleGrid({
           return {
             fonte: 'marcacao', id: m.id, quando: new Date(m.ocorrido_em), elegivel: true,
             posicao: c.posicao, rotuloDia: c.rotulo,
+            lugar: classificarLugarDaBatida(m, unidadeId),
           }
         })
         for (const l of cellDeniedAttempts) {
@@ -8720,6 +8742,9 @@ export function ScaleGrid({
             elegivel: !!l.elegivel, motivo: l.mensagem_erro,
             previstoNaEpoca: l.escala_prevista_inicio,
             posicao: c.posicao, rotuloDia: c.rotulo,
+            // Tentativa recusada vem de logs_tentativas_presenca, que é do terminal e não
+            // carrega relógio nenhum: aqui não há lugar a afirmar.
+            lugar: { outraUnidade: false, rotulo: null },
           })
         }
         // Primeiro as do turno previsto, depois as que só dividem o dia civil (a saída do plantão
@@ -9015,6 +9040,19 @@ export function ScaleGrid({
                               title="Esta batida está fora do horário previsto para este turno. Confira a data antes de usar."
                             >
                               fora do turno previsto
+                            </span>
+                          )}
+                          {/* Batida feita no relógio de OUTRA unidade. Ela deixou de virar
+                              presença sozinha (20260908150000) mas continua selecionável, porque
+                              existe caso legítimo — o relógio da unidade quebrado, a pessoa bate
+                              no da vizinha. O rótulo é a outra metade da regra: o sistema não
+                              decide sozinho E o coordenador não decide às cegas. */}
+                          {b.lugar.outraUnidade && (
+                            <span
+                              className="text-[10px] px-1 py-0.5 rounded bg-rose-100 dark:bg-rose-900/40 text-rose-800 dark:text-rose-200 font-semibold"
+                              title={`Esta batida foi registrada em ${b.lugar.rotulo}, que não é a unidade desta escala. Só use se souber que a pessoa realmente cumpriu este turno aqui.`}
+                            >
+                              bateu em {b.lugar.rotulo}
                             </span>
                           )}
 
