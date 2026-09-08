@@ -4473,6 +4473,20 @@ batida nova pelo coletor; o dia que deixou de ser "só acréscimo" é recusado c
 nada mudou de valor. O número exibido vem da diferença medida antes/depois, e dia com `status: ok`
 e `campos: 0` **não conta** como sucesso.
 
+🚨 **`router.refresh()` NÃO atualiza a grade, e isso derrubou a percepção da v2.49.0.** A presença
+da grade vive em **estado local** (`gridData`/`presence`), carregado por `fetchData` — um fetch do
+cliente sobre `escala_diaria`. Refazer o Server Component não repopula esse estado, então o
+coordenador via *"720 horários preenchidos"* sobre uma grade **visualmente inalterada** e concluía
+que o botão não tinha funcionado; só recarregando a página à mão o efeito aparecia. Corrigido na
+**v2.50.1** com `await fetchData()` **antes** de fechar o modal — o mesmo padrão que a validação
+manual célula a célula já usava. ⚠️ **Ao escrever qualquer ação nova que grave presença pela
+grade, chame `fetchData()`; `router.refresh()` só serve para o que vem por props do servidor**
+(é por isso que "Transferir Escala" o usa: lá a escala sai da grade).
+
+⚠️ **Relatar sucesso sem mostrar o resultado é quase tão ruim quanto não fazer nada.** O usuário
+não tem como distinguir "executou e não mudou nada" de "mudou e a tela não mostrou" — e a
+conclusão natural é a primeira. Vale para toda ação em lote.
+
 ℹ️ **A folha não se move sozinha** — é snapshot (`folha_ponto.registros`). O horário recuperado
 chega lá no "Sincronizar", porque campo de origem `real` é regerado (`preservacao.ts`). O relato
 final diz isso ao coordenador.

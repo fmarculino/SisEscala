@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.50.1] - 2026-09-08
+
+### Fixed
+
+- 🚨 **"Preencher pelas Batidas" dizia que tinha preenchido e a grade não mudava.** O coordenador
+  via *"720 horários preenchidos"* sobre uma tela **visualmente inalterada** e precisava recarregar
+  a página à mão para ver o efeito — do lado dele, o botão simplesmente não funcionava.
+- **A causa:** a ação chamava `router.refresh()`, que refaz o Server Component. Mas a presença da
+  grade vive em **estado local**, carregado por `fetchData` (um fetch do cliente sobre
+  `escala_diaria`) — o refresh do servidor não repopula esse estado. Agora a ação faz
+  `await fetchData()` **antes** de fechar o modal: quando o aviso de resultado aparece, os
+  horários já estão na tela. É o mesmo padrão que a validação manual célula a célula já usava.
+- ⚠️ **Nada foi gravado errado pela v2.49.0** — os horários entravam corretamente no banco. O
+  defeito era de exibição, e por isso mesmo levava a repetir a operação achando que não pegou.
+
+### Nota
+
+- ℹ️ **Relatar sucesso sem mostrar o resultado é quase tão ruim quanto não fazer nada:** o usuário
+  não tem como distinguir "executou e não mudou nada" de "mudou e a tela não mostrou", e a
+  conclusão natural é a primeira. Vale para toda ação em lote. `router.refresh()` só serve para o
+  que vem por props do servidor.
+
 ## [2.50.0] - 2026-09-08
 
 ⚠️ **Requer aplicar `20260908140000`, `20260908150000` e `20260908160000`** (as três já

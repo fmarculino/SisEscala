@@ -7125,6 +7125,15 @@ export function ScaleGrid({
 
                       // Relata O QUE MUDOU, e nomeia o que ficou de fora (armadilha 22/25).
                       const relato = descreverResultado(res.resultados)
+
+                      // ⚠️ `router.refresh()` NÃO basta e foi o defeito da v2.49.0: a presença da
+                      // grade vive em estado local, carregado por `fetchData` — refazer o Server
+                      // Component não repopula esse estado, então o coordenador via a mensagem de
+                      // sucesso sobre uma grade inalterada e concluía que o botão não funcionou.
+                      // Recarregar ANTES de fechar o modal: quando o aviso aparece, os horários
+                      // já estão na tela. É o mesmo padrão da validação manual célula a célula.
+                      if (relato.horarios > 0) await fetchData()
+
                       setReconciliarModal(p => ({ ...p, isOpen: false, aplicando: false }))
 
                       const linhas = [relato.frase]
@@ -7143,7 +7152,6 @@ export function ScaleGrid({
                         message: linhas.join('\n'),
                         type: relato.horarios > 0 ? (relato.recusados.length > 0 ? 'warning' : 'success') : 'warning',
                       })
-                      router.refresh()
                     }}
                     disabled={ocupado}
                     className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-4 py-2 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
