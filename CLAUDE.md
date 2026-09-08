@@ -4349,6 +4349,58 @@ seria risco sem ganho.
 equipamento atende (o caso da ALA - PSICOSSOCIAL do HMM, que aguarda relógio próprio). Some quando
 o setor for vinculado a um relógio.
 
+### 54. A Cobertura de Ponto vivia a 1,4s do statement_timeout, e a tela pedia a MESMA consulta duas vezes (08/09/2026)
+
+🚨 **Perfil de RH abria `/marcacoes` → Cobertura de Ponto e recebia `canceling statement due to
+statement timeout`, com `Nenhum relógio de ponto no seu escopo` logo abaixo.** A segunda mensagem
+é **consequência** da primeira — a consulta morreu, a lista veio vazia — e aponta para a
+investigação errada (permissão, papel, `profile_unidades`). O escopo do RH estava certo. Diário em
+[`docs/evolucao/2026-09-08-cobertura-de-ponto-no-fio-do-statement-timeout.md`](docs/evolucao/2026-09-08-cobertura-de-ponto-no-fio-do-statement-timeout.md).
+
+⚠️ **O papel não era a causa, e medir isso primeiro economiza o dia.** Os 8 perfis `rh` têm
+`acesso_todas_unidades = true` e enxergam os **mesmos 31 relógios** do Administrador Geral;
+`rh_unidade` vê 3 (HMI) ou 5 (HMM) — **menos** trabalho. Não existe caminho em que o RH pague mais
+caro. O que existia era uma consulta cara para todos, com quem passa passando por pouco:
+`statement_timeout` do papel `authenticated` é **8s** e `fn_cobertura_ponto_resumo` levava
+**4,6s a 6,6s**; o HMM-04 sozinho estourou 8s com cache frio.
+
+⚠️ **`fn_cobertura_ponto_resumo` é um `LATERAL` sobre `fn_cobertura_ponto_dispositivo`, e o detalhe
+materializa uma linha por PESSOA de cada relógio** — 615 no HMM, ~5.200 pares (pessoa, relógio) no
+parque —, cada uma com quatro buscas correlacionadas. **Nenhuma tinha índice pelo caminho que usa**
+(medido: ~1,1 ms por par, quase todo aí). `20260908100000` cria os cinco que faltavam, **sem tocar
+em função nenhuma** (armadilha 1):
+
+| busca | índice que existia |
+|---|---|
+| `rep_usuarios_dispositivo` por (dispositivo, **servidor**) | só `(dispositivo_id, identificador_afd)` |
+| `rep_vinculos_servidor` por (dispositivo, **servidor**) | só por `identificador_afd` |
+| `rep_cadastros_fila` por (dispositivo, servidor), **qualquer status** | só o parcial `WHERE status = 'pendente'` |
+| `rep_afd_registros` por (dispositivo, identificador, data) | só `(identificador_afd) WHERE tipo_registro = '3'` — **3,17M de linhas, AFD desde 2019** |
+
+Resultado medido depois de aplicar: **4,6–5,7s → 0,49–1,60s** (~9×), e 0,56s/0,62s no caso de duas
+em paralelo. ⚠️ **`idx_afd_identificador` NÃO foi substituído** — `fn_reparse_afd_dispositivo` e as
+sondas de auditoria buscam por identificador **sem** dispositivo.
+
+⚠️ **A tela disparava a mesma consulta duas vezes**: o badge da aba (`MarcacoesClient`, no mount) e
+a própria aba (`CoberturaTab`, ao abrir). Duas cópias de 5s competindo — e a única pista disso era
+**o badge preenchido (`622`) ao lado do erro**. Hoje o pai passa `ResumoPrecarregado` e a aba
+**espera** por ele; os dois pedem mês/ano **explícitos e iguais**, senão o badge resolve o mês no
+fuso configurado (dentro da RPC) e a aba no fuso do navegador (armadilha 12).
+
+⚠️ **Índice que muda resultado não é índice.** A conferência foi por três caminhos: coerência
+interna nos 31 relógios (`ok + … + sem_snapshot = total_pessoas`), universo reconstruído por fora
+(LACEM 47=47, CEI 65=65, zero faltando/sobrando) e `batidas_perdidas` conferida batida a batida na
+USF-DAA — justamente a subconsulta que o índice novo do AFD serve.
+
+⚠️ **`total_pessoas` divergiu em 8 relógios entre a medição de antes e a de depois, e NÃO foi o
+índice:** **371 servidores criados em 24h** (o HMI subiu 508→509 nos **três** relógios ao mesmo
+tempo, assinatura de lotação nova). Pelo mesmo motivo o badge foi de **622** para **1.871**: o
+HMM-04 nasceu em 07/09 com 620 pessoas no escopo. **Não compare medições de horários diferentes.**
+
+ℹ️ **O parque cresce e esta consulta não escala sozinha** — eram 6 relógios em 19/08 e são 31 hoje,
+com o universo de lotados ∪ escalados desde 05/09. Ao acrescentar coluna nova ao detalhe, meça o
+resumo antes de subir.
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.

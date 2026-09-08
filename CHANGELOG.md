@@ -2,6 +2,56 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.48.1] - 2026-09-08
+
+⚠️ **Requer aplicar `20260908100000`.** São só índices — **nenhum número muda por aplicá-la**, e
+reverter é `DROP INDEX`. O índice de `rep_afd_registros` pega `ACCESS EXCLUSIVE` por alguns
+segundos sobre 3,17M de linhas: prefira fora do pico de batida. Lote do coletor que caia na janela
+volta para a fila offline e é reenviado, sem perda — o AFD permanece no equipamento.
+
+### Fixed
+
+- 🚨 **A aba Cobertura de Ponto morria com `canceling statement due to statement timeout`.**
+  Relatado como "só acontece no perfil de RH"; **o papel não era a causa**. Os 8 perfis `rh` têm
+  `acesso_todas_unidades = true` e enxergam os mesmos 31 relógios do Administrador Geral, e
+  `rh_unidade` vê 3 ou 5 — menos trabalho. A consulta é que estava cara **para todo mundo**:
+  `statement_timeout` do papel `authenticated` é de 8s e `fn_cobertura_ponto_resumo` levava
+  **4,6s a 6,6s** (o REP-iDClass-HMM-04 sozinho estourou 8s com cache frio). Quem passava, passava
+  por pouco.
+- ⚠️ **`Nenhum relógio de ponto no seu escopo` aparecia junto com o erro, e é conselho errado** —
+  é a lista vazia que sobra depois do timeout, não um diagnóstico de permissão. Mandou a
+  investigação para o lado errado por uma hora.
+- **Cinco índices que faltavam** (`20260908100000`), **sem tocar em função nenhuma**: o detalhe
+  materializa uma linha por pessoa de cada relógio (~5.200 pares pessoa/relógio no parque) e faz
+  quatro buscas correlacionadas por linha — `rep_usuarios_dispositivo` e `rep_vinculos_servidor`
+  por **servidor** (os índices eram por `identificador_afd`), `rep_cadastros_fila` em qualquer
+  status (o índice é parcial, só `pendente`) e `rep_afd_registros` por dispositivo + data (o
+  índice só conhece `identificador_afd`, sobre 3,17M de linhas com AFD desde 2019). Custo medido:
+  ~1,1 ms por par, quase todo aí.
+- **A tela pedia a MESMA consulta duas vezes**: o badge da aba (`MarcacoesClient`, no mount) e a
+  própria aba (`CoberturaTab`, ao abrir). Duas cópias de 5s competindo — e a única pista era o
+  badge preenchido ao lado do erro. Agora o pai passa `ResumoPrecarregado` e a aba **espera** por
+  ele, com mês/ano explícitos e iguais nos dois (senão o badge resolveria o mês no fuso configurado
+  e a aba no fuso do navegador).
+
+### Medido em produção (08/09/2026)
+
+| | antes | depois |
+|---|---|---|
+| resumo do parque (31 relógios), 5 execuções | 4,6s – 5,7s | **0,49s · 0,61s · 0,64s · 0,77s · 1,60s** |
+| duas em paralelo (badge + aba) | 5,7s e 6,6s | **0,56s e 0,62s** |
+
+**Os números da tela não mudaram**, conferido por três caminhos: coerência interna nos 31 relógios,
+universo reconstruído por fora (LACEM 47=47, CEI 65=65, zero faltando/sobrando) e `batidas_perdidas`
+batida a batida na USF-DAA — justamente a subconsulta que o índice novo do AFD serve.
+
+⚠️ `total_pessoas` divergiu em 8 relógios entre as duas medições e **não é o índice**: foram **371
+servidores criados em 24h** (o HMI subiu 508→509 nos três relógios ao mesmo tempo). Pelo mesmo
+motivo o badge foi de 622 para 1.871 — o HMM-04 nasceu em 07/09 com 620 pessoas no escopo.
+
+Diário em `docs/evolucao/2026-09-08-cobertura-de-ponto-no-fio-do-statement-timeout.md`;
+armadilha 54 no `CLAUDE.md`.
+
 ## [2.48.0] - 2026-09-06
 
 ⚠️ **Requer aplicar `20260906150000`.** Ela só cria a chave de vigência — **nenhum valor de folha

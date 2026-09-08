@@ -91,12 +91,30 @@ const CLASSES_CHIP: Record<string, string> = {
   emerald: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400',
 }
 
-function mesAtual() {
+export function mesAtual() {
   const agora = new Date()
   return { mes: agora.getMonth() + 1, ano: agora.getFullYear() }
 }
 
-export function CoberturaTab({ isAdmin }: { isAdmin: boolean }) {
+/**
+ * O resumo que o MarcacoesClient ja carregou para o badge, no mesmo mes.
+ *
+ * Existe porque a MESMA consulta (fn_cobertura_ponto_resumo) custa 5-8s no parque inteiro e o
+ * statement_timeout do PostgREST e de 8s: disparar duas copias em paralelo (o badge no mount +
+ * esta aba ao ser aberta) fazia as duas competirem e uma delas morrer com "canceling statement
+ * due to statement timeout" - deixando a tela com o erro em vermelho e "Nenhum relogio de ponto
+ * no seu escopo" por baixo, que e conselho errado: o escopo estava certo, a consulta e que nao
+ * terminou.
+ */
+export interface ResumoPrecarregado {
+  mes: number
+  ano: number
+  carregando: boolean
+  dados: CoberturaResumo[]
+  erro: string | null
+}
+
+export function CoberturaTab({ isAdmin, inicial }: { isAdmin: boolean; inicial?: ResumoPrecarregado | null }) {
   const [{ mes, ano }, setPeriodo] = useState(mesAtual)
   const [resumo, setResumo] = useState<CoberturaResumo[]>([])
   const [carregando, setCarregando] = useState(true)
@@ -126,7 +144,21 @@ export function CoberturaTab({ isAdmin }: { isAdmin: boolean }) {
 
   const recarregarResumo = () => recarregar(false)
 
-  useEffect(() => { recarregar() /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [mes, ano])
+  // Reaproveita o resumo que o MarcacoesClient ja pediu para o mesmo mes, em vez de pedir de
+  // novo. Enquanto ele estiver em voo, esta aba ESPERA por ele (spinner) - disparar a segunda
+  // copia "so para nao esperar" e exatamente o que produzia o timeout.
+  useEffect(() => {
+    if (inicial && inicial.mes === mes && inicial.ano === ano) {
+      setCarregando(inicial.carregando)
+      if (!inicial.carregando) {
+        setErro(inicial.erro)
+        setResumo(inicial.erro ? [] : inicial.dados)
+      }
+      return
+    }
+    recarregar()
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [mes, ano, inicial])
 
   async function carregarDetalhe(id: string) {
     setCarregandoDetalhe(true)

@@ -10,7 +10,7 @@ import { PendenciasTab } from './PendenciasTab'
 import { BiometriaTab } from './BiometriaTab'
 import { HigieneDispositivoTab } from './HigieneDispositivoTab'
 import { ImportarPendriveTab } from './ImportarPendriveTab'
-import { CoberturaTab } from './CoberturaTab'
+import { CoberturaTab, mesAtual, type ResumoPrecarregado } from './CoberturaTab'
 import { CoberturaEscalaTab } from './CoberturaEscalaTab'
 import { AutorizacoesPontoTab } from './AutorizacoesPontoTab'
 import { IdCopyBadge } from './IdCopyBadge'
@@ -126,7 +126,16 @@ export function MarcacoesClient({ isAdmin, podeAutorizar, opcoes }: { isAdmin: b
   const [carregandoLista, setCarregandoLista] = useState(false)
   const [versaoColetorServidor, setVersaoColetorServidor] = useState<string | null>(null)
 
-  const [alertaCobertura, setAlertaCobertura] = useState<number | null>(null)
+  // Uma unica carga do resumo de cobertura serve o badge da aba E a propria aba. Ver
+  // ResumoPrecarregado em CoberturaTab: duas copias simultaneas desta consulta estouravam o
+  // statement_timeout de 8s do PostgREST.
+  const [periodoInicial] = useState(mesAtual)
+  const [resumoCobertura, setResumoCobertura] = useState<ResumoPrecarregado>(
+    { ...periodoInicial, carregando: true, dados: [], erro: null },
+  )
+  const alertaCobertura = resumoCobertura.carregando || resumoCobertura.erro
+    ? null
+    : resumoCobertura.dados.reduce((soma, d) => soma + d.nao_conseguem_bater, 0)
 
   const [modalTerminal, setModalTerminal] = useState<{ aberto: boolean; terminal: any | null }>({ aberto: false, terminal: null })
   const [modalDispositivo, setModalDispositivo] = useState<{ aberto: boolean; dispositivo: any | null }>({ aberto: false, dispositivo: null })
@@ -184,11 +193,14 @@ export function MarcacoesClient({ isAdmin, podeAutorizar, opcoes }: { isAdmin: b
       .catch(() => setAlertaEscala(null))
   }, [])
 
+  // Mes/ano EXPLICITOS, os mesmos que a aba usa: sem eles a RPC resolve o mes corrente no fuso
+  // configurado e a aba resolve no fuso do navegador - nas ultimas horas do ultimo dia do mes as
+  // duas pediriam competencias diferentes e o reaproveitamento nao valeria (armadilha 12).
   useEffect(() => {
-    listarCoberturaResumo()
-      .then((res) => setAlertaCobertura(res.error ? null : res.dados.reduce((s, d) => s + d.nao_conseguem_bater, 0)))
-      .catch(() => setAlertaCobertura(null))
-  }, [])
+    listarCoberturaResumo(periodoInicial.mes, periodoInicial.ano)
+      .then((res) => setResumoCobertura({ ...periodoInicial, carregando: false, dados: res.dados, erro: res.error }))
+      .catch((e) => setResumoCobertura({ ...periodoInicial, carregando: false, dados: [], erro: e?.message || 'Falha ao carregar a cobertura.' }))
+  }, [periodoInicial])
 
   const abas: { id: Aba; label: string; icon: any; visivel: boolean; alerta?: number | null }[] = [
     { id: 'terminais', label: 'Terminais Locais', icon: Monitor, visivel: isAdmin },
@@ -391,7 +403,7 @@ export function MarcacoesClient({ isAdmin, podeAutorizar, opcoes }: { isAdmin: b
         </div>
       )}
 
-      {aba === 'cobertura' && <CoberturaTab isAdmin={isAdmin} />}
+      {aba === 'cobertura' && <CoberturaTab isAdmin={isAdmin} inicial={resumoCobertura} />}
       {aba === 'cobertura_escala' && <CoberturaEscalaTab />}
       {aba === 'pendencias' && <PendenciasTab opcoes={opcoes} />}
       {aba === 'biometria' && <BiometriaTab />}
