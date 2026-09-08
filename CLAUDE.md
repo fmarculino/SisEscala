@@ -4397,9 +4397,96 @@ USF-DAA — justamente a subconsulta que o índice novo do AFD serve.
 tempo, assinatura de lotação nova). Pelo mesmo motivo o badge foi de **622** para **1.871**: o
 HMM-04 nasceu em 07/09 com 620 pessoas no escopo. **Não compare medições de horários diferentes.**
 
+🚨 **Os índices sozinhos NÃO bastaram: faltava `ANALYZE`.** Depois de aplicá-los, o resumo caiu
+para 0,5s mas o detalhe do **REP-iDClass-HMM-04** estourava **10 de 10 vezes** — e o mesmo
+`SELECT` alternava entre ~200 ms e 8s cravados, o que é assinatura de **plano ruim**, não de
+volume (aquele relógio é o *menor* dos quatro do HMM: 331 no snapshot, 2 batidas em 30 dias). O
+planner ainda decidia com estatísticas anteriores a tudo: os cinco índices eram do mesmo dia, o
+HMM-04 nascera na véspera e **371 servidores** tinham entrado em 24h. Um `ANALYZE` nas oito tabelas
+(`scratchpad/analyze_cobertura.sql`) resolveu na hora: **8s/timeout → 137–179 ms**, o pior dos 31
+relógios virou 436 ms, e os 31 detalhes em sequência caíram de **29,1s para 3,0s**.
+
+⚠️ **Isso volta.** O autovacuum refaz as estatísticas sozinho, mas fica para trás em tabela que
+cresce em **rajada** — que é exatamente o que acontece ao instalar um relógio novo ou cadastrar uma
+unidade inteira. Ao ver a Cobertura de Ponto lenta **em um relógio recém-instalado**, rode o
+`ANALYZE` antes de suspeitar da consulta. Se ainda assim oscilar, o passo seguinte é
+`ALTER FUNCTION public.fn_cobertura_ponto_dispositivo(uuid, integer, integer) SET plan_cache_mode = 'force_custom_plan'`
+— replanejar custa milissegundos contra 8s de timeout.
+
 ℹ️ **O parque cresce e esta consulta não escala sozinha** — eram 6 relógios em 19/08 e são 31 hoje,
 com o universo de lotados ∪ escalados desde 05/09. Ao acrescentar coluna nova ao detalhe, meça o
 resumo antes de subir.
+
+### 55. Escala lançada DEPOIS da batida não reconcilia, e o conserto era clique a clique (08/09/2026)
+
+⚠️ **É a armadilha 46 vista pelo lado do coordenador.** `fn_ingerir_afd` reconcilia o dia **da
+batida** e `trg_reconciliar_apos_marcacao` é inerte até a Fase 5 — então quem lança a escala depois
+que o pessoal já bateu fica com a célula vazia enquanto a alocação, no banco, **já sabe a
+resposta**. O caminho existente é abrir o modal de validação manual célula a célula e selecionar a
+batida que o banco escolheria sozinho.
+
+Medido em produção em 08/09/2026, competência 09/2026, dias já passados:
+
+| célula com turno lançado | quantidade |
+|---|---|
+| presença completa | 3.036 |
+| presença **parcial** | 376 (355 com batida física no dia) |
+| **sem presença nenhuma** | 1.333 (321 com batida física no dia) |
+
+Rodando `fn_projecao_marcacoes_dia` nos 619 pares (servidor, dia) resultantes: **275 pares em que
+reconciliar SÓ ACRESCENTA → 720 horários**, 20 pares com troca/perda junto, e 324 sem ganho
+nenhum — nesses a projeção **recusa** a batida, e a recusa está certa.
+
+🚨 **O botão NÃO pode ser "preencher o que está vazio", e é isso que separa solução de estrago.**
+Caso real de 07/09/2026: a batida das 21:49 está gravada como **saída** e a projeção diz que ela é
+a **entrada** (a saída é 10:03 do dia seguinte). Preencher só o campo vazio deixaria
+`entrada 21:49 → saída 21:49` — **jornada zero**, pior que o estado atual, que ao menos é
+visivelmente incompleto. Por isso a unidade de decisão é o **par (servidor, dia)**: qualquer troca
+ou perda contamina o dia inteiro, que volta para a validação manual — **listado, com o motivo
+escrito**, nunca escondido.
+
+⚠️ **Isso NÃO contradiz "não reconcilie em massa" (armadilha 46).** Lá o universo era todos os
+pares do mês, e deu 4 ganhos contra 43 trocas e 7 perdas. O que inverte a relação para 275:20 é o
+**filtro**, não a operação. Reconciliação sem recorte continua proibida.
+
+| peça (`20260908110000`) | o que faz |
+|---|---|
+| `fn_pode_reconciliar_presenca` | espelha `podeValidarPresenca` do `ScaleGrid` — quem valida célula a célula pode em lote. Não cria autoridade nova |
+| `fn_reconciliacao_pendente_escala(uuid[])` | a **prévia**, read-only, campo a campo, com `dia_elegivel` e `impedimento` |
+| `fn_reconciliar_dia_pendente(uuid, date)` | **envelope** de `fn_reconciliar_marcacoes_dia`: papel, escopo, competência encerrada, escala Fechada, e **recalcula a elegibilidade** antes de escrever |
+| `src/utils/reconciliacaoPendente.ts` | agrupa e relata; só pode ser **mais** restritivo que o banco |
+| Ferramentas → **Preencher pelas Batidas** | prévia obrigatória; nada é gravado até o clique |
+
+⚠️ **`fn_reconciliar_marcacoes_dia` é caminho de MÁQUINA** (`GRANT` só a `service_role`): não
+confere papel, escopo nem escala Fechada, porque quem a chama é a ingestão do AFD. Expor a
+reconciliação ao coordenador exige envelope **no banco** — Server Action é POST chamável direto
+(armadilha 33), e a tela não é defesa (armadilha 12).
+
+⚠️ **A elegibilidade é recalculada na hora de aplicar.** Entre a prévia e o clique pode chegar
+batida nova pelo coletor; o dia que deixou de ser "só acréscimo" é recusado com motivo.
+
+⚠️ **`p_limpar_sem_marcacao` continua `false`** — só pode ser ligado depois do corte por
+`unidades.fonte_ponto_oficial` (Fase 5).
+
+⚠️ **O relato conta o que MUDOU** (armadilha 22/25): `fn_reconciliar_marcacoes_dia` devolve
+`atualizadas` = linhas tocadas pelo `UPDATE`, que é o total de linhas da projeção mesmo quando
+nada mudou de valor. O número exibido vem da diferença medida antes/depois, e dia com `status: ok`
+e `campos: 0` **não conta** como sucesso.
+
+ℹ️ **A folha não se move sozinha** — é snapshot (`folha_ponto.registros`). O horário recuperado
+chega lá no "Sincronizar", porque campo de origem `real` é regerado (`preservacao.ts`). O relato
+final diz isso ao coordenador.
+
+ℹ️ **O botão da folha ("Auto-Corrigir") NÃO faz isso e nunca fez**: `normalizarRegistrosFolha`
+rearranja horários **que já estão na folha** (desacopla batida de dia vizinho, reordena invertido)
+e escreve só em `folha_ponto.registros`. Ele não busca batida em `marcacoes_ponto` e não toca em
+`escala_diaria` — a folha lê da escala, nunca o contrário.
+
+Portões: `node scratchpad/sim_reconciliacao_pendente.js` (53 asserções) e
+`node scratchpad/val_sim_reconciliacao_pendente.js`, que injeta **6 regressões e exige reprovação
+nas 6** — entre elas o retorno do caso das 21:49. Transpile antes com
+`npx tsc src/utils/reconciliacaoPendente.ts --outDir scratchpad/_sim --module commonjs --target es2020`.
+Medição: `scratchpad/an_celulas_sem_presenca.mjs` → `an_pares_elegiveis.mjs`.
 
 ## Convenções
 

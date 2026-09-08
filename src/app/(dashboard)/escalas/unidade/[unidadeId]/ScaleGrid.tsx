@@ -15,7 +15,8 @@ import {
   Save, Loader2, Info, Zap, Lock, Unlock, FileText, Plus, UserPlus, Users, 
   CheckCircle, Trash2, Globe, X, Copy, Check, Clock, Navigation2, Send, CheckSquare,
   Shield, ShieldCheck, ShieldAlert, AlertTriangle, LayoutTemplate,
-  ChevronLeft, ChevronRight, ChevronDown, Sparkles, ExternalLink, ArrowRightLeft, Wrench
+  ChevronLeft, ChevronRight, ChevronDown, Sparkles, ExternalLink, ArrowRightLeft, Wrench,
+  Wand2
 } from 'lucide-react'
 import { gerarFolhaPonto } from '@/app/(dashboard)/folha-ponto/actions'
 import { ScalePrintView } from '@/components/ScalePrintView'
@@ -58,6 +59,11 @@ import { buildSectorPathMap, formatSectorsHierarchy } from '@/utils/sectors'
 import { decomporPlantao } from '@/utils/plantaoUnidades'
 import { SeletorSetorArvore } from '@/components/setores/SeletorSetorArvore'
 import { moverEscalasParaSetor } from './escalaMovimentoActions'
+import { previewReconciliacaoPendente, aplicarReconciliacaoPendente } from './reconciliacaoActions'
+import {
+  agruparPorDia, resumirPrevia, diasParaAplicar, descreverResultado, rotuloImpedimento,
+  type DiaPendente,
+} from '@/utils/reconciliacaoPendente'
 import { opcoesParaEscolha, rotularInativo } from '@/utils/opcoesAtivas'
 import { celulaTemPassosDeIntervalo } from '@/utils/intervaloIntrajornada'
 import { statusAcionamento } from '@/utils/sobreaviso/statusAcionamento'
@@ -592,6 +598,26 @@ export function ScaleGrid({
     isOpen: false, escalaIds: [], unidadeDestinoId: '', setorDestinoId: '',
     justificativa: '', salvando: false, erro: null,
   })
+
+  /**
+   * "Preencher pelas Batidas": traz para a grade o horário que a batida real já resolve.
+   *
+   * Existe porque escala lançada DEPOIS da batida não dispara reconciliação nenhuma — a
+   * alocação sabe qual passo cada batida preenche, e a célula continua vazia. Sem isto o
+   * coordenador abre o modal de validação manual célula a célula para escolher a batida que o
+   * banco já escolheu. Medido em 09/2026: 720 horários assim, em 275 dias.
+   *
+   * ⚠️ `dias` guarda a PRÉVIA, que é leitura pura. Nada é escrito até o clique em Preencher, e
+   * mesmo então o banco recalcula a elegibilidade (`fn_reconciliar_dia_pendente`).
+   */
+  const [reconciliarModal, setReconciliarModal] = useState<{
+    isOpen: boolean
+    carregando: boolean
+    aplicando: boolean
+    dias: DiaPendente[]
+    erro: string | null
+  }>({ isOpen: false, carregando: false, aplicando: false, dias: [], erro: null })
+
   const [jornadas, setJornadas] = useState<any[]>([])
   const [externalData, setExternalData] = useState({
     unidadeId: '',
@@ -5085,6 +5111,22 @@ export function ScaleGrid({
       })
     }
 
+    // Abre já carregando a prévia: perguntar "quer ver?" antes de mostrar o que há para ver
+    // faria o coordenador clicar duas vezes para descobrir que não há nada.
+    const abrirReconciliar = async () => {
+      if (escalaMensal.length === 0) {
+        setAlertModal({ isOpen: true, title: 'Sem Servidores', message: 'Não há escala nesta grade para verificar.', type: 'warning' })
+        return
+      }
+      setReconciliarModal({ isOpen: true, carregando: true, aplicando: false, dias: [], erro: null })
+      const res = await previewReconciliacaoPendente(escalaMensal.map(em => em.id))
+      if (res.error) {
+        setReconciliarModal(p => ({ ...p, carregando: false, erro: res.error! }))
+        return
+      }
+      setReconciliarModal(p => ({ ...p, carregando: false, dias: agruparPorDia(res.linhas) }))
+    }
+
     const abrirValidacaoEmMassa = () => {
       if (escalaMensal.length === 0) {
         setAlertModal({ isOpen: true, title: 'Sem Servidores', message: 'Adicione pelo menos um servidor à grade antes de realizar a validação em massa.', type: 'warning' })
@@ -5148,6 +5190,15 @@ export function ScaleGrid({
         item: 'text-teal-700 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-950/20',
       },
       {
+        chave: 'reconciliar',
+        rotulo: 'Preencher pelas Batidas',
+        descricao: 'Traz o horário que a batida real já resolve',
+        Icone: Wand2,
+        onClick: abrirReconciliar,
+        botao: 'border-sky-200 text-sky-700 bg-sky-50/50 hover:bg-sky-100 dark:border-sky-800 dark:text-sky-400 dark:bg-sky-950/20',
+        item: 'text-sky-700 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/20',
+      },
+      {
         chave: 'validar',
         rotulo: 'Validar em Massa',
         descricao: 'Atesta a jornada de vários servidores de uma vez',
@@ -5156,8 +5207,11 @@ export function ScaleGrid({
         botao: 'border-emerald-300 text-emerald-700 bg-emerald-50/50 hover:bg-emerald-100 dark:border-emerald-800 dark:text-emerald-400 dark:bg-emerald-950/20',
         item: 'text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/20',
       },
-    ]
-  }, [escalaMensal, turnos, unidadeId, daysInMonth, maxValidDay, handleClearScale])
+    // "Preencher pelas Batidas" grava presença: só aparece para quem já pode validar presença
+    // célula a célula. Não é a defesa — o banco recusa de qualquer forma (armadilha 12) —, é
+    // não oferecer o que a pessoa não pode fazer.
+    ].filter(f => f.chave !== 'reconciliar' || podeValidarPresenca)
+  }, [escalaMensal, turnos, unidadeId, daysInMonth, maxValidDay, handleClearScale, podeValidarPresenca])
 
   return (
     <>
@@ -6891,6 +6945,200 @@ export function ScaleGrid({
                   {moverModal.salvando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowRightLeft className="h-3.5 w-3.5" />}
                   Transferir {moverModal.escalaIds.length > 0 ? `(${moverModal.escalaIds.length})` : ''}
                 </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* Preencher pelas Batidas — prévia read-only e aplicação por dia.
+          ⚠️ A lista mostra os três grupos: o que será preenchido, o que precisa de decisão
+          manual e o que está bloqueado. Esconder os dois últimos faria o coordenador procurar
+          por horários que o botão nunca traria (armadilha 44: não instrua o que não existe;
+          armadilha 31: nada cinza sem explicação). */}
+      {reconciliarModal.isOpen && (() => {
+        const resumo = resumirPrevia(reconciliarModal.dias)
+        const elegiveis = reconciliarModal.dias.filter(d => d.elegivel)
+        const conflitantes = reconciliarModal.dias.filter(d => !d.elegivel && !d.impedimento && d.conflitos.length > 0)
+        const bloqueados = reconciliarModal.dias.filter(d => !!d.impedimento)
+        const ocupado = reconciliarModal.carregando || reconciliarModal.aplicando
+
+        return (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-2xl border border-zinc-200 dark:border-zinc-800 w-full max-w-2xl max-h-[90vh] flex flex-col">
+              <div className="p-5 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between bg-zinc-50 dark:bg-zinc-900/50 rounded-t-xl">
+                <div>
+                  <h3 className="font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+                    <Wand2 className="h-4 w-4 text-sky-500" />
+                    Preencher pelas Batidas
+                  </h3>
+                  <p className="text-xs text-zinc-500 mt-0.5">
+                    Traz para a grade de {String(mes).padStart(2, '0')}/{ano} o horário que a batida real
+                    já resolve — o mesmo que você escolheria célula a célula.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setReconciliarModal(p => ({ ...p, isOpen: false }))}
+                  disabled={reconciliarModal.aplicando}
+                  className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 disabled:opacity-40"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4 overflow-y-auto">
+                {reconciliarModal.carregando && (
+                  <div className="flex items-center justify-center gap-2 py-10 text-sm text-zinc-500">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Conferindo as batidas desta escala…
+                  </div>
+                )}
+
+                {reconciliarModal.erro && (
+                  <div className="rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 p-3 text-xs text-red-700 dark:text-red-400 whitespace-pre-line">
+                    {reconciliarModal.erro}
+                  </div>
+                )}
+
+                {!reconciliarModal.carregando && !reconciliarModal.erro && reconciliarModal.dias.length === 0 && (
+                  <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4 text-center">
+                    <CheckCircle className="h-6 w-6 text-emerald-500 mx-auto mb-2" />
+                    <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">Nada a preencher</p>
+                    <p className="text-xs text-zinc-500 mt-1">
+                      Não há dia com batida registrada que a grade ainda não tenha aproveitado.
+                    </p>
+                  </div>
+                )}
+
+                {!reconciliarModal.carregando && elegiveis.length > 0 && (
+                  <div>
+                    <div className="rounded-lg border border-sky-200 dark:border-sky-900/40 bg-sky-50 dark:bg-sky-950/20 p-3 mb-3">
+                      <p className="text-sm font-bold text-sky-900 dark:text-sky-300">
+                        {resumo.horarios} {resumo.horarios === 1 ? 'horário' : 'horários'} em {resumo.diasElegiveis} {resumo.diasElegiveis === 1 ? 'dia' : 'dias'} de {resumo.servidores} {resumo.servidores === 1 ? 'servidor' : 'servidores'}
+                      </p>
+                      <p className="text-[11px] text-sky-700 dark:text-sky-400 mt-0.5">
+                        Só dias em que nada do que já está gravado muda. Nenhum horário é inventado:
+                        cada um vem de uma batida registrada.
+                      </p>
+                    </div>
+                    <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+                      {elegiveis.map(d => (
+                        <div key={d.chave} className="rounded-lg border border-zinc-200 dark:border-zinc-800 px-3 py-2">
+                          <div className="flex items-baseline justify-between gap-2">
+                            <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 truncate">{d.servidorNome}</span>
+                            <span className="text-[11px] text-zinc-500 shrink-0">dia {d.dia}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
+                            {d.ganhos.map(g => (
+                              <span key={g.campo + g.categoria} className="text-[11px] text-zinc-600 dark:text-zinc-400">
+                                {g.rotulo}:{' '}
+                                <strong className="text-emerald-700 dark:text-emerald-400">
+                                  {g.valorProjetado ? formatarHora(g.valorProjetado) : '—'}
+                                </strong>
+                                {g.origem ? <span className="text-zinc-400"> ({g.origem})</span> : null}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {!reconciliarModal.carregando && conflitantes.length > 0 && (
+                  <div>
+                    <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-500 uppercase mb-1.5">
+                      Precisam da sua decisão ({conflitantes.length})
+                    </p>
+                    <p className="text-[11px] text-zinc-500 mb-2">
+                      Nestes dias a batida não só preenche: ela mudaria um horário já gravado. Abra a
+                      célula na grade e resolva pela validação manual.
+                    </p>
+                    <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                      {conflitantes.map(d => (
+                        <div key={d.chave} className="rounded-lg border border-amber-200 dark:border-amber-900/40 bg-amber-50/50 dark:bg-amber-950/10 px-3 py-2">
+                          <div className="flex items-baseline justify-between gap-2">
+                            <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 truncate">{d.servidorNome}</span>
+                            <span className="text-[11px] text-zinc-500 shrink-0">dia {d.dia}</span>
+                          </div>
+                          {d.conflitos.map(c => (
+                            <p key={c.campo + c.categoria} className="text-[11px] text-zinc-600 dark:text-zinc-400">
+                              {c.rotulo}: {c.valorAtual ? formatarHora(c.valorAtual) : '—'} → {c.valorProjetado ? formatarHora(c.valorProjetado) : 'vazio'}
+                            </p>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {!reconciliarModal.carregando && bloqueados.length > 0 && (
+                  <div>
+                    <p className="text-[11px] font-semibold text-zinc-500 uppercase mb-1.5">
+                      Bloqueados ({bloqueados.length})
+                    </p>
+                    <div className="space-y-1 max-h-32 overflow-y-auto pr-1">
+                      {bloqueados.map(d => (
+                        <p key={d.chave} className="text-[11px] text-zinc-500">
+                          {d.servidorNome} — dia {d.dia}: {rotuloImpedimento(d.impedimento)}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-4 border-t border-zinc-100 dark:border-zinc-800 flex justify-end gap-2 bg-zinc-50 dark:bg-zinc-900/50 rounded-b-xl">
+                <button
+                  onClick={() => setReconciliarModal(p => ({ ...p, isOpen: false }))}
+                  disabled={reconciliarModal.aplicando}
+                  className="rounded-lg bg-zinc-100 dark:bg-zinc-800 px-4 py-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:opacity-50"
+                >
+                  {elegiveis.length > 0 ? 'Cancelar' : 'Fechar'}
+                </button>
+                {elegiveis.length > 0 && (
+                  <button
+                    onClick={async () => {
+                      setReconciliarModal(p => ({ ...p, aplicando: true, erro: null }))
+                      const res = await aplicarReconciliacaoPendente({
+                        dias: diasParaAplicar(reconciliarModal.dias),
+                        unidadeId,
+                      })
+
+                      if (res.error || !res.resultados) {
+                        setReconciliarModal(p => ({ ...p, aplicando: false, erro: res.error || 'Erro desconhecido.' }))
+                        return
+                      }
+
+                      // Relata O QUE MUDOU, e nomeia o que ficou de fora (armadilha 22/25).
+                      const relato = descreverResultado(res.resultados)
+                      setReconciliarModal(p => ({ ...p, isOpen: false, aplicando: false }))
+
+                      const linhas = [relato.frase]
+                      if (relato.recusados.length > 0) {
+                        linhas.push('', 'Ficaram de fora:')
+                        linhas.push(...relato.recusados.map(r => `• ${r.rotulo}: ${r.motivo}`))
+                      }
+                      if (relato.horarios > 0) {
+                        linhas.push('', 'A folha de ponto é um documento à parte: use "Sincronizar" nela para que estes horários apareçam lá.')
+                      }
+                      setAlertModal({
+                        isOpen: true,
+                        title: relato.horarios > 0
+                          ? (relato.recusados.length > 0 ? 'Preenchimento parcial' : 'Grade preenchida')
+                          : 'Nada foi preenchido',
+                        message: linhas.join('\n'),
+                        type: relato.horarios > 0 ? (relato.recusados.length > 0 ? 'warning' : 'success') : 'warning',
+                      })
+                      router.refresh()
+                    }}
+                    disabled={ocupado}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-4 py-2 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
+                  >
+                    {reconciliarModal.aplicando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
+                    Preencher ({resumo.horarios})
+                  </button>
+                )}
               </div>
             </div>
           </div>

@@ -284,6 +284,77 @@ export const escalas: Capitulo = {
           texto:
             'Dá para validar vários dias de uma vez. A validação em massa **pula automaticamente** os dias que têm batida pendente de revisão — onde existe horário real disponível, ele ganha do declarado. Os dias pulados aparecem na mensagem, para você tratar um a um.',
         },
+        { tipo: 'veja', secaoId: 'preencher-batidas', texto: 'Quando há muitos dias assim, comece por aqui' },
+      ],
+    },
+
+    {
+      id: 'preencher-batidas',
+      titulo: 'Preencher pelas batidas de uma vez',
+      resumo: 'Quando a escala foi lançada depois que o pessoal já bateu o ponto.',
+      papeis: ['Coordenador', 'Ass. Administrativo', 'RH da Unidade', 'RH Geral', 'Diretor'],
+      blocos: [
+        {
+          tipo: 'p',
+          texto:
+            'Acontece muito no começo do mês: o pessoal bate o ponto normalmente, mas a escala ainda não foi lançada. Quando você lança os turnos depois, as células ficam **vazias** — as batidas existem, só não foram encaixadas nos dias. Uma a uma, isso é muito clique.',
+        },
+        {
+          tipo: 'caminho',
+          itens: ['Escalas', 'abrir a grade do setor', 'Ferramentas', 'Preencher pelas Batidas'],
+        },
+        {
+          tipo: 'passos',
+          itens: [
+            {
+              titulo: 'O sistema confere e mostra antes de mexer',
+              texto: 'Ao abrir, ele lista o que encontrou. **Nada é gravado nesse momento** — é só uma conferência.',
+            },
+            {
+              titulo: 'Você lê o que vai ser preenchido',
+              texto: 'Cada dia aparece com o servidor e os horários que entrariam, com a origem de cada um.',
+            },
+            {
+              titulo: 'Clica em Preencher',
+              texto: 'Só então os horários entram na grade, como batida real — do mesmo jeito que se você tivesse selecionado uma a uma.',
+            },
+          ],
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'Ele só preenche o que está vazio',
+          texto:
+            'Se em algum dia a batida mudaria um horário que já está gravado, esse dia **não entra**. Ele aparece na lista "Precisam da sua decisão", com o horário atual e o que a batida diria — e você resolve na célula, como sempre. Isso é proposital: trocar um horário já registrado é decisão sua, não do sistema.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'dica',
+          titulo: 'Nenhum horário é inventado',
+          texto:
+            'Todo horário preenchido vem de uma batida que existe. Onde não houver batida, a célula continua vazia — e aí o caminho é a validação manual, digitando com justificativa.',
+        },
+        {
+          tipo: 'p',
+          texto:
+            'Se a lista vier vazia, está tudo certo: não há dia com batida que a grade ainda não tenha aproveitado. É o resultado mais comum depois da primeira rodada do mês.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'A folha de ponto é um documento à parte',
+          texto:
+            'Preencher a grade não mexe na folha já gerada. Depois de usar o botão, abra a folha da competência e clique em **Sincronizar** para que os horários apareçam lá.',
+        },
+        {
+          tipo: 'lista',
+          itens: [
+            'Dias de hoje nunca entram — pode faltar a saída só porque a pessoa ainda está trabalhando.',
+            'Escala **Fechada** e competência encerrada aparecem como bloqueadas: reabra antes.',
+            'Sobreaviso não entra: ele não marca presença.',
+          ],
+        },
+        { tipo: 'veja', secaoId: 'validar-presenca', texto: 'Como validar dia a dia' },
       ],
     },
 

@@ -2,6 +2,85 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.49.0] - 2026-09-08
+
+⚠️ **Requer aplicar `20260908110000`** (já aplicada e conferida em produção em 08/09/2026). Ela
+só **acrescenta** três funções — nenhuma existente é alterada, nenhum número muda por aplicá-la.
+
+### Added
+
+- 🚨 **"Preencher pelas Batidas" na grade de escala** (Ferramentas). Resolve o caso mais comum do
+  início de mês: o pessoal bate o ponto, a escala é lançada **depois**, e as células ficam vazias
+  mesmo com a batida registrada. Ninguém reprojeta esses dias — `fn_ingerir_afd` reconcilia o dia
+  **da batida**, e o gatilho de marcação é inerte até a Fase 5. O conserto era abrir o modal de
+  validação manual célula a célula e selecionar a batida que o banco **já sabia** qual era.
+- **A prévia é obrigatória e não escreve nada.** Ao abrir, a ferramenta lista dia a dia o que
+  entraria, com o horário e a origem de cada passo. Nada é gravado até o clique em Preencher.
+- **Relata o que MUDOU, e nomeia o que ficou de fora e por quê.** Dia com `status: ok` e zero
+  campos preenchidos **não** conta como sucesso.
+- **Manual do usuário**: nova seção "Preencher pelas batidas de uma vez", em Escalas.
+
+### Medido em produção (08/09/2026, competência 09/2026, dias já passados)
+
+| célula com turno lançado | quantidade |
+|---|---|
+| presença completa | 3.036 |
+| presença **parcial** | 376 (355 com batida física no dia) |
+| **sem presença nenhuma** | 1.333 (321 com batida física no dia) |
+
+Rodando `fn_projecao_marcacoes_dia` nos 619 pares (servidor, dia) resultantes:
+
+| resultado ao reconciliar o dia | pares |
+|---|---|
+| **só acrescenta** — preenche vazio e não mexe em nada gravado | **275 → 720 horários** |
+| o dia tem **troca ou perda** junto | 20 |
+| não rende nada (a projeção recusa a batida, e a recusa está certa) | 324 |
+
+### O desenho, e o que ele deliberadamente NÃO faz
+
+- 🚨 **Não é "preencher o que está vazio".** Caso real de 07/09/2026: a batida das 21:49 está
+  gravada como **saída** e a projeção diz que ela é a **entrada** (a saída é 10:03 do dia
+  seguinte). Preencher só o campo vazio deixaria `entrada 21:49 → saída 21:49` — **jornada zero**,
+  pior que o estado atual, que ao menos é visivelmente incompleto. Por isso a unidade de decisão é
+  o **par (servidor, dia)**: qualquer troca ou perda contamina o dia inteiro, que volta para a
+  validação manual — **listado, com o motivo escrito**, nunca escondido.
+- ⚠️ **Não contradiz "não reconcilie em massa"** (o ensaio de 03/09/2026 deu 4 ganhos contra 43
+  trocas e 7 perdas). O que inverte a relação para 275:20 é o **filtro**, não a operação.
+  Reconciliação sem recorte continua proibida.
+- **Nenhuma regra de alocação nova.** A prévia e a aplicação usam `fn_projecao_marcacoes_dia`, a
+  mesma fonte única do terminal e da ingestão do AFD. Uma segunda conta no cliente divergiria da
+  que o banco grava.
+- **Nenhum horário é fabricado.** Todo valor vem de uma batida registrada; onde não há batida, a
+  célula continua vazia e o caminho segue sendo a validação manual com justificativa.
+
+### Security
+
+- **Os guards vivem no banco, não na Server Action.** `fn_reconciliar_marcacoes_dia` é caminho de
+  máquina (`GRANT` só a `service_role`) e não confere papel, escopo nem escala Fechada — quem a
+  chama hoje é a ingestão do AFD. O envelope `fn_reconciliar_dia_pendente` confere papel, escopo
+  (unidade **ou** setor alcançável), competência encerrada e escala Fechada, e **recalcula a
+  elegibilidade** antes de escrever: entre a prévia e o clique pode ter chegado batida nova pelo
+  coletor. Server Action é um POST chamável direto, e a tela não é defesa.
+- **O cliente manda o par (servidor, dia), nunca o horário** — mandar horário faria uma batida real
+  virar declaração do coordenador.
+- `fn_pode_reconciliar_presenca` espelha `podeValidarPresenca` do `ScaleGrid`: quem já valida
+  presença célula a célula pode fazê-lo em lote. **Não cria autoridade nova.**
+- As três funções nascem com `REVOKE ... FROM PUBLIC, anon`.
+- `p_limpar_sem_marcacao` continua `false` — só pode ser ligado depois do corte por
+  `unidades.fonte_ponto_oficial` (Fase 5).
+
+### Notas
+
+- ℹ️ **A folha não se move sozinha** — é snapshot. O horário recuperado chega lá no
+  **Sincronizar**, porque campo de origem `real` é regerado. O relato final diz isso ao coordenador.
+- ℹ️ **O botão "Auto-Corrigir" da folha nunca fez isso**: `normalizarRegistrosFolha` rearranja
+  horários **que já estão na folha** e escreve só em `folha_ponto.registros`. Não busca batida em
+  `marcacoes_ponto` e não toca em `escala_diaria` — a folha lê da escala, nunca o contrário.
+- Portões: `scratchpad/sim_reconciliacao_pendente.js` (53 asserções) e
+  `scratchpad/val_sim_reconciliacao_pendente.js`, que injeta **6 regressões e exige reprovação nas
+  6** — entre elas o retorno do caso das 21:49. Medição:
+  `scratchpad/an_celulas_sem_presenca.mjs` → `an_pares_elegiveis.mjs`.
+
 ## [2.48.1] - 2026-09-08
 
 ⚠️ **Requer aplicar `20260908100000`.** São só índices — **nenhum número muda por aplicá-la**, e
