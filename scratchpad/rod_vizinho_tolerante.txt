@@ -1,0 +1,114 @@
+COMMENT ON FUNCTION public.fn_alocar_marcacoes_dia(uuid, date, integer, integer) IS
+'Casa as batidas do dia com os passos previstos (DP monotonico). A batida e da PESSOA: os outros
+cadastros Ativos com o mesmo CPF tambem disputam, e os passos deles entram como sombra. Na
+FRONTEIRA entre dois vinculos (saida de um e entrada do outro no mesmo instante) a sombra nao
+desqualifica. O dia VIZINHO tolera recusa de escopo; o dia CONSULTADO nao. Ver 20260909130000,
+20260909160000 e 20260909170000.';
+
+-- CREATE OR REPLACE com a MESMA assinatura preserva privilegios; reafirmado por ser barato.
+GRANT EXECUTE ON FUNCTION public.fn_alocar_marcacoes_dia(uuid, date, integer, integer)
+    TO service_role;
+
+-- ============================================================================
+-- CONFERENCIA - roda junto e ABORTA se falhar (armadilha 42: EXECUTA a funcao)
+-- ============================================================================
+-- O guard so age quando auth.uid() NAO e nulo, e uma migration roda como service_role
+-- (auth.uid() = NULL), onde ele bypassa. Para exercitar o caminho de verdade, a conferencia
+-- PUBLICA um JWT sintetico com set_config(..., true) - local a transacao, revertido no fim.
+--
+-- Confere os DOIS sentidos. Afrouxar demais aqui abriria a projecao de qualquer servidor a
+-- qualquer authenticated, que e exatamente o que 20260812130000 fechou.
+DO $conf$
+DECLARE
+    v_super   uuid;
+    v_serv    uuid;
+    v_data    date;
+    v_res     jsonb;
+    v_ok_viz  boolean := false;
+    v_ok_prot boolean := false;
+BEGIN
+    -- 1) Estrutura: o bloco 1 usa a tolerante; os outros dois tratamentos sobreviveram.
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname = 'public' AND p.proname = 'fn_blocos_previstos_dia_vizinho'
+    ) THEN
+        RAISE EXCEPTION 'ABORTADO: fn_blocos_previstos_dia_vizinho nao foi criada.';
+    END IF;
+
+    PERFORM 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'public' AND p.proname = 'fn_alocar_marcacoes_dia'
+        AND p.prosrc LIKE '%fn_blocos_previstos_dia_vizinho(p_servidor_id, d.dia_ref)%';
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'ABORTADO: fn_alocar_marcacoes_dia nao passou a usar a chamada tolerante '
+                        'no bloco de slots candidatos.';
+    END IF;
+
+    PERFORM 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'public' AND p.proname = 'fn_alocar_marcacoes_dia'
+        AND (length(p.prosrc) - length(replace(p.prosrc, 'WHEN insufficient_privilege THEN', ''))) / 32 = 2;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'ABORTADO: os 2 tratamentos de insufficient_privilege (sombras e irmaos) '
+                        'nao sobreviveram a copia.';
+    END IF;
+
+    -- 2) Comportamento. Precisa de um super_admin real: ele alcanca a escala do MES CONSULTADO
+    -- (entao o dia p_data passa) e nao tem escala no mes ANTERIOR para alcancar (entao o dia
+    -- vizinho e recusado pelo guard). E exatamente o caso que derrubava a tela.
+    SELECT id INTO v_super FROM public.profiles WHERE role = 'super_admin' LIMIT 1;
+
+    -- servidor com escala no mes M e NENHUMA no mes M-1; a data de teste e o dia 1 de M.
+    SELECT em.servidor_id, make_date(em.ano, em.mes, 1)
+      INTO v_serv, v_data
+      FROM public.escala_mensal em
+     WHERE NOT EXISTS (
+             SELECT 1 FROM public.escala_mensal ant
+              WHERE ant.servidor_id = em.servidor_id
+                AND make_date(ant.ano, ant.mes, 1) = make_date(em.ano, em.mes, 1) - interval '1 month')
+       AND EXISTS (SELECT 1 FROM public.escala_diaria ed WHERE ed.escala_mensal_id = em.id)
+     ORDER BY em.ano DESC, em.mes DESC
+     LIMIT 1;
+
+    IF v_super IS NULL OR v_serv IS NULL THEN
+        RAISE NOTICE 'CONFERENCIA PARCIAL: sem super_admin ou sem caso vivo (mes sem antecessor). '
+                     'A checagem estrutural acima passou.';
+        RETURN;
+    END IF;
+
+    -- 2a) COM sessao de super_admin: tem que ALOCAR, nao levantar.
+    PERFORM set_config('request.jwt.claims',
+                       json_build_object('sub', v_super::text, 'role', 'authenticated')::text, true);
+    BEGIN
+        v_res := public.fn_alocar_marcacoes_dia(v_serv, v_data);
+        v_ok_viz := (v_res IS NOT NULL);
+    EXCEPTION
+        WHEN insufficient_privilege THEN
+            v_ok_viz := false;
+    END;
+
+    -- 2b) COM sessao que nao alcanca NADA: o dia CONSULTADO tem que continuar recusando.
+    PERFORM set_config('request.jwt.claims',
+                       json_build_object('sub', '00000000-0000-0000-0000-000000000000',
+                                         'role', 'authenticated')::text, true);
+    BEGIN
+        PERFORM public.fn_alocar_marcacoes_dia(v_serv, v_data);
+        v_ok_prot := false;
+    EXCEPTION
+        WHEN insufficient_privilege THEN
+            v_ok_prot := true;
+    END;
+
+    PERFORM set_config('request.jwt.claims', '', true);
+
+    RAISE NOTICE 'servidor % em % | super_admin aloca: % | sem escopo continua recusado: %',
+                 v_serv, v_data, v_ok_viz, v_ok_prot;
+
+    IF NOT v_ok_viz THEN
+        RAISE EXCEPTION 'ABORTADO: com sessao de super_admin a alocacao do dia 1 ainda levanta '
+                        'insufficient_privilege - a correcao nao pegou.';
+    END IF;
+    IF NOT v_ok_prot THEN
+        RAISE EXCEPTION 'ABORTADO: sessao sem escopo nenhum passou a alcancar a projecao deste '
+                        'servidor - a correcao afrouxou o guard do dia consultado.';
+    END IF;
+END;
+$conf$;

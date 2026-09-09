@@ -1,0 +1,98 @@
+-- ============================================================================
+-- 20260909170000 - O DIA VIZINHO FORA DO ESCOPO NAO PODE DERRUBAR A ALOCACAO
+-- ============================================================================
+--
+-- SINTOMA (09/09/2026): "Preencher pelas Batidas" devolvia
+--   "Sem permissao para acessar a escala deste servidor."
+-- para o Administrador Geral - que alcanca qualquer escala. A mensagem apontava
+-- para permissao; a causa era outra.
+--
+-- CAUSA: fn_alocar_marcacoes_dia monta os slots candidatos a partir de DOIS dias,
+-- (p_data - 1) e (p_data), porque um bloco de ontem pode atravessar a meia-noite.
+-- O guard de escopo de fn_blocos_previstos_dia (20260812130000) exige escala_mensal
+-- do servidor NO MES E ANO DA DATA CONSULTADA. No dia 1 do mes, a chamada do dia
+-- vizinho cai no mes ANTERIOR: servidor sem escala naquele mes faz o guard levantar
+-- insufficient_privilege, e a excecao derruba a alocacao inteira - para qualquer
+-- papel logado, inclusive super_admin. So service_role escapa (auth.uid() IS NULL).
+--
+-- Medido em producao em 09/09/2026: os 21 servidores do BLOCO B (HMI) com escala em
+-- 09/2026 tem ZERO escalas em 08/2026, e fn_reconciliacao_pendente_escala roda com
+-- HTTP 200 quando chamada como service_role. O guard era a unica diferenca.
+--
+-- POR QUE FICOU LATENTE: ate a v2.49.0 toda a cadeia (fn_reconciliar_marcacoes_dia,
+-- fn_conferir_reconciliacao, a ingestao do AFD) rodava como service_role. "Preencher
+-- pelas Batidas" foi o primeiro caminho a chama-la com sessao de usuario.
+--
+-- O QUE MUDA: o dia VIZINHO passa a tolerar a recusa de escopo (nenhum bloco de
+-- ontem, que e o mesmo que o servidor teria se nao houvesse escala mesmo). O DIA
+-- CONSULTADO continua propagando a recusa - ali o guard e o que impede um
+-- authenticated qualquer de ler a projecao de um servidor que nao alcanca.
+--
+-- Nao afrouxa nada: e exatamente a decisao que os blocos 1.b (sombras, 20260823100000)
+-- e 1.c (irmaos, 20260909160000) ja tomavam para os MESMOS dias vizinhos. Faltava o
+-- bloco 1.
+--
+-- IDEMPOTENTE. Gerada por scratchpad/gen_vizinho_tolerante.js a partir de
+-- 20260909160000_fronteira_entre_vinculos.sql - NAO EDITAR A MAO (armadilha 1).
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- 1. O envelope tolerante
+-- ----------------------------------------------------------------------------
+-- Assinatura e RETURNS TABLE identicos aos de fn_blocos_previstos_dia (vigente em
+-- 20260908140000). Nao replica regra nenhuma: so chama e engole a recusa de escopo.
+--
+-- STABLE e SECURITY DEFINER como a original. SECURITY DEFINER aqui NAO burla o
+-- guard: auth.uid() le o JWT do request, nao o usuario do banco, entao a checagem
+-- de dentro de fn_blocos_previstos_dia continua valendo por inteiro - o que muda e
+-- so o que fazemos com a recusa.
+CREATE OR REPLACE FUNCTION public.fn_blocos_previstos_dia_vizinho(
+    p_servidor_id uuid,
+    p_data        date
+)
+RETURNS TABLE (
+    bloco_ordem               integer,
+    escala_diaria_ids         uuid[],
+    categoria                 text,
+    inicio_previsto           timestamptz,
+    fim_previsto              timestamptz,
+    intervalo_inicio_previsto timestamptz,
+    intervalo_fim_previsto    timestamptz,
+    permite_intervalo         boolean,
+    turnos_inicio             timestamptz[],
+    turnos_fim                timestamptz[]
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $fnviz$
+BEGIN
+    RETURN QUERY
+        SELECT b.bloco_ordem, b.escala_diaria_ids, b.categoria,
+               b.inicio_previsto, b.fim_previsto,
+               b.intervalo_inicio_previsto, b.intervalo_fim_previsto,
+               b.permite_intervalo, b.turnos_inicio, b.turnos_fim
+          FROM public.fn_blocos_previstos_dia(p_servidor_id, p_data) b;
+EXCEPTION
+    -- Dia vizinho fora do escopo de quem chama: nenhum bloco de ontem. Nunca um erro.
+    WHEN insufficient_privilege THEN
+        RETURN;
+END;
+$fnviz$;
+
+COMMENT ON FUNCTION public.fn_blocos_previstos_dia_vizinho(uuid, date) IS
+    'fn_blocos_previstos_dia para o dia VIZINHO: devolve vazio quando o guard de escopo '
+    'recusa aquele dia (servidor sem escala no mes anterior/seguinte dentro do escopo de '
+    'quem chama), em vez de derrubar a alocacao do dia consultado. 09/09/2026.';
+
+-- Objeto NOVO nasce com EXECUTE para PUBLIC (armadilhas 24/41): o REVOKE tem que ser
+-- escrito aqui, agora, que e quando somos comprovadamente o dono.
+REVOKE ALL ON FUNCTION public.fn_blocos_previstos_dia_vizinho(uuid, date) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_blocos_previstos_dia_vizinho(uuid, date) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_blocos_previstos_dia_vizinho(uuid, date)
+    TO authenticated, service_role;
+
+-- ----------------------------------------------------------------------------
+-- 2. fn_alocar_marcacoes_dia - copia mecanica de 20260909160000, uma substituicao
+-- ----------------------------------------------------------------------------

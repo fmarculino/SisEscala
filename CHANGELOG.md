@@ -2,6 +2,41 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.53.2] - 2026-09-09
+
+Migration `20260909170000`. Corrige o erro que impedia **Preencher pelas Batidas** de rodar —
+relatado como falta de permissao do Administrador Geral, e que nao era permissao.
+
+### Fixed
+
+- 🚨 **"Sem permissao para acessar a escala deste servidor" derrubava a ferramenta para TODOS os
+  papeis, inclusive `super_admin`.** `fn_alocar_marcacoes_dia` monta os slots a partir de dois dias
+  (`p_data - 1` e `p_data`, porque um bloco de ontem pode atravessar a meia-noite), e o guard de
+  escopo de `fn_blocos_previstos_dia` exige `escala_mensal` **no mes da data consultada**. No dia 1
+  do mes o vizinho cai no mes ANTERIOR: servidor sem escala la levantava `insufficient_privilege`, e
+  a excecao derrubava a alocacao inteira.
+- **Medido em producao:** os 21 servidores do BLOCO B (HMI) com escala em 09/2026 tem **zero**
+  escalas em 08/2026, e a mesma chamada devolve **HTTP 200** como `service_role` (que bypassa o
+  guard). O papel era a unica coisa que o erro NAO explicava.
+- **Por que so apareceu agora:** ate a v2.49.0 toda a cadeia rodava como `service_role`. "Preencher
+  pelas Batidas" foi o primeiro caminho a chama-la com sessao de usuario.
+- **A correcao e `fn_blocos_previstos_dia_vizinho`**, que devolve vazio quando o guard recusa. O dia
+  **consultado** continua propagando a recusa; so o **vizinho** a tolera — exatamente a decisao que
+  os blocos de sombra (`20260823100000`) e de vinculos irmaos (`20260909160000`) ja tomavam para os
+  mesmos dias vizinhos.
+- ⚠️ **RH Geral e RH da Unidade ja tinham a permissao** (`fn_pode_reconciliar_presenca`, desde
+  `20260908110000`). Nada mudou de papel: o que os bloqueava era este mesmo defeito, que a mensagem
+  disfarcava de falta de acesso.
+
+### Security
+
+- A conferencia da migration **publica um JWT sintetico** (`set_config`, local a transacao) para
+  exercitar o guard de verdade — migration roda como `service_role`, onde ele bypassa — e exige os
+  **dois sentidos**: com sessao de `super_admin` a alocacao do dia 1 passa a funcionar, **e** uma
+  sessao sem escopo continua sendo recusada. Sem a segunda, afrouxar o guard passaria despercebido.
+- `fn_blocos_previstos_dia_vizinho` nasce com `REVOKE ... FROM PUBLIC, anon` na mesma migration
+  (armadilhas 24/41). Conferido em producao: **401** com a chave anon.
+
 ## [2.53.1] - 2026-09-09
 
 Sem migration. Complementa a v2.53.0 do mesmo dia: o motor passou a atribuir a batida à matricula

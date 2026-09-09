@@ -4938,6 +4938,62 @@ Portões: `node scratchpad/sim_conflito_pessoa.js` (26) e `val_sim_conflito_pess
 diário em
 [`docs/evolucao/2026-09-09-duplo-vinculo-a-batida-e-da-pessoa.md`](docs/evolucao/2026-09-09-duplo-vinculo-a-batida-e-da-pessoa.md).
 
+### 59. O guard do dia CONSULTADO derrubava o dia VIZINHO, e a mensagem culpava o papel (09/09/2026)
+
+🚨 **"Sem permissao para acessar a escala deste servidor." em "Preencher pelas Batidas", para o
+Administrador Geral** — que alcanca qualquer escala. A mensagem mandou investigar papel, escopo e
+`profile_unidades`; o usuario chegou a pedir a permissao para RH Geral e RH da Unidade, **que ja
+existia** em `fn_pode_reconciliar_presenca` desde `20260908110000`. Diario em
+[`docs/evolucao/2026-09-09-dia-vizinho-fora-do-escopo.md`](docs/evolucao/2026-09-09-dia-vizinho-fora-do-escopo.md).
+
+⚠️ **A causa: `fn_alocar_marcacoes_dia` monta os slots a partir de DOIS dias** (`p_data - 1` e
+`p_data`, porque um bloco de ontem pode atravessar a meia-noite), e o guard de escopo de
+`fn_blocos_previstos_dia` (`20260812130000`) exige `escala_mensal` **no mes e ano da data
+consultada**. No **dia 1 do mes** o vizinho cai no mes ANTERIOR: servidor sem escala la faz o guard
+levantar `insufficient_privilege`, e a excecao derruba a alocacao inteira — **para qualquer papel
+logado, inclusive `super_admin`**. So `service_role` escapa (`auth.uid() IS NULL`).
+
+✅ **Medido em 09/09/2026:** os 21 servidores do BLOCO B (HMI) com escala em 09/2026 tem **zero**
+escalas em 08/2026, e `fn_reconciliacao_pendente_escala` devolve **HTTP 200** como `service_role`.
+O guard era a unica diferenca entre funcionar e falhar.
+
+⚠️ **Ficou latente um mes porque a cadeia so tinha chamador de MAQUINA.** `fn_reconciliar_marcacoes_dia`,
+`fn_conferir_reconciliacao` e a ingestao do AFD rodam como `service_role`, onde o guard bypassa. A
+**v2.49.0** foi o primeiro caminho a chama-la com sessao de usuario. **Ao expor a um usuario logado
+uma funcao que so tinha chamador de maquina, exercite-a COM sessao antes de subir** — guard que
+nunca rodou nao e guard testado.
+
+🚨 **E o proprio arquivo ja continha a resposta.** Os blocos **1.b (sombras)** e **1.c (irmaos)** da
+mesma funcao ja tratavam essa excecao, com comentario descrevendo exatamente este caso (*"dia 1 e
+dia 31, chamada por usuario autenticado"*). O bloco 1, logo acima, ficou sem. Ao tratar um caso de
+borda numa funcao grande, **procure os outros sitios que fazem a mesma chamada**.
+
+Fonte unica desde `20260909170000`: **`fn_blocos_previstos_dia_vizinho`**, que devolve vazio quando
+o guard recusa.
+
+| dia | fonte | recusa de escopo |
+|---|---|---|
+| `p_data` (o consultado) | `fn_blocos_previstos_dia` | **propaga** — e ela que impede um authenticated qualquer de ler a projecao de quem nao alcanca |
+| `p_data - 1` (o vizinho) | `fn_blocos_previstos_dia_vizinho` | **tolerada** — nenhum bloco de ontem, o mesmo estado de quem nao tem escala la |
+
+🚨 **MIGRATION RODA COMO `service_role`, ENTAO CONFERENCIA DE GUARD PRECISA SIMULAR SESSAO.** Sem
+isso a conferencia exercita justamente o caminho em que o guard **bypassa**, e "passa" sem ter
+testado nada. A de `20260909170000` publica um JWT sintetico
+(`set_config('request.jwt.claims', ..., true)`, local a transacao) e exige os **dois sentidos**: com
+sessao de `super_admin` a alocacao do dia 1 funciona, **e** sessao sem escopo continua recusada.
+Afrouxar so o primeiro lado reabriria a projecao de qualquer servidor a qualquer autenticado.
+
+⚠️ **Gerador tem que DETECTAR o EOL da fonte, nunca assumi-lo.** A convencao do projeto e CRLF, mas
+`20260909160000` esta em **LF** — montar o padrao de busca com o EOL errado faz a substituicao
+virar **no-op silencioso** e o gerador "passar" sem ter trocado nada (armadilha 48). Aqui ele
+abortou, porque conta ocorrencias; um gerador que so faz `replace` teria produzido uma migration
+identica a fonte.
+
+⚠️ **A mensagem do guard continua enganosa e nao foi trocada.** Ela diz "sem permissao" quando a
+causa pode ser "nao ha escala nesse mes" — sao coisas diferentes, e a de fora ja custou um dia de
+diagnostico. Distingui-las exige mexer no guard, que e codigo de seguranca copiado mecanicamente
+para `fn_confirmar_presenca`; ficou como pendencia conhecida.
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.
