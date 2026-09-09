@@ -246,7 +246,14 @@ export function ScalePrintView({
                             <td rowSpan={4} className={isHighlighted ? 'highlight-row' : ''}>{globalIdx + 1}</td>
                             <td rowSpan={4} className={`text-left font-bold ${isHighlighted ? 'highlight-row' : ''}`} style={{ fontSize: '9.5pt' }}>
                               {em.servidores?.nome}
-                              <div style={{ fontSize: '6.5pt', fontWeight: 'normal', lineHeight: '1.0' }}>{em.servidores?.cargo}</div>
+                              {/* A matrícula é o que distingue duas linhas com o MESMO nome —
+                                  duplo vínculo (mesma pessoa, dois vínculos) ou homônimos. Num
+                                  documento que é impresso e assinado, sem ela as duas linhas
+                                  ficam indistinguíveis depois, e não há como voltar e perguntar. */}
+                              <div style={{ fontSize: '6.5pt', fontWeight: 'normal', lineHeight: '1.0' }}>
+                                {em.servidores?.cargo}
+                                {em.servidores?.matricula ? `${em.servidores?.cargo ? ' · ' : ''}MAT ${em.servidores.matricula}` : ''}
+                              </div>
                             </td>
                           </>
                         )}

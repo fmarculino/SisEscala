@@ -65,6 +65,13 @@ export const pessoas: Capitulo = {
         },
         {
           tipo: 'aviso',
+          tom: 'dica',
+          titulo: 'Confira a matrícula quando o nome aparecer duas vezes',
+          texto:
+            'Na grade de escala, o número da matrícula fica embaixo do nome, ao lado do cargo. Quando o **mesmo nome aparece mais de uma vez** na grade, a matrícula fica destacada em amarelo — é o sinal de que você precisa conferir em qual das duas linhas está lançando. Isso acontece em dois casos: a mesma pessoa com **dois vínculos**, ou **duas pessoas diferentes com o mesmo nome**. Nos dois, só a matrícula distingue. Ela também sai na escala impressa, e aparece nas listas de Aplicar Template, Revezamento de Vigias e Validação em Massa.',
+        },
+        {
+          tipo: 'aviso',
           tom: 'cuidado',
           titulo: 'As duas matrículas não podem ter turnos no mesmo horário',
           texto:

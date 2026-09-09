@@ -1554,6 +1554,44 @@ export function ScaleGrid({
     return 0
   }, [ano, mes, daysInMonth])
 
+  /**
+   * Nomes que aparecem MAIS DE UMA VEZ na grade.
+   *
+   * Duas causas, e as duas produzem exatamente a mesma tela: a pessoa com **duplo vínculo**
+   * (mesmo CPF, duas matrículas — 21 casos medidos em 09/09/2026) e dois **homônimos** (pessoas
+   * diferentes com o mesmo nome). Sem a matrícula, as duas linhas ficam indistinguíveis e o
+   * coordenador não tem como saber em qual está lançando — nem depois, ao conferir a folha.
+   *
+   * A matrícula é exibida em TODA linha (é como o RH identifica o vínculo, e não custa espaço:
+   * vai na mesma linha do cargo); o realce só entra onde há ambiguidade de fato.
+   */
+  const nomesRepetidosNaGrade = useMemo(() => {
+    const contagem = new Map<string, number>()
+    for (const em of escalaMensal) {
+      const nome = (em.servidores?.nome || '').trim().toUpperCase()
+      if (!nome) continue
+      contagem.set(nome, (contagem.get(nome) || 0) + 1)
+    }
+    return new Set([...contagem.entries()].filter(([, n]) => n > 1).map(([nome]) => nome))
+  }, [escalaMensal])
+
+  /**
+   * Rótulo do servidor para LISTA e SELETOR (template, revezamento, validação em massa).
+   *
+   * A matrícula entra só quando o nome se repete na grade: nesses controles o espaço é curto e
+   * acrescentar a matrícula em toda linha custa legibilidade sem resolver nada. Onde há
+   * ambiguidade, porém, escolher errado aplica um mês de escala — ou grava PONTO — na matrícula
+   * errada, e nada na tela deixaria isso perceptível depois.
+   */
+  const rotuloServidor = useCallback((em: any) => {
+    const nome = em?.servidores?.nome || 'Servidor'
+    const matricula = em?.servidores?.matricula
+    if (!matricula) return nome
+    return nomesRepetidosNaGrade.has(nome.trim().toUpperCase())
+      ? `${nome} (mat ${matricula})`
+      : nome
+  }, [nomesRepetidosNaGrade])
+
   const shiftTotals = useMemo(() => {
     const totals = {
       M: {} as Record<number, number>,
@@ -5658,7 +5696,35 @@ export function ScaleGrid({
                               })()}
                             </div>
                           </div>
-                          <div className="text-[8px] font-normal text-zinc-600 dark:text-zinc-400 uppercase">{em.servidores?.cargo}</div>
+                          {(() => {
+                            const nomeNormalizado = (em.servidores?.nome || '').trim().toUpperCase()
+                            const ambiguo = nomesRepetidosNaGrade.has(nomeNormalizado)
+                            const matricula = em.servidores?.matricula
+                            return (
+                              <div className="text-[8px] font-normal text-zinc-600 dark:text-zinc-400 uppercase">
+                                {em.servidores?.cargo}
+                                {matricula && (
+                                  <>
+                                    {em.servidores?.cargo ? ' · ' : ''}
+                                    <span
+                                      className={
+                                        ambiguo
+                                          ? 'font-bold text-amber-700 dark:text-amber-400'
+                                          : 'font-medium'
+                                      }
+                                      title={
+                                        ambiguo
+                                          ? `Matrícula ${matricula}. Este nome aparece mais de uma vez nesta grade — confira a matrícula antes de lançar. Pode ser a mesma pessoa com dois vínculos ou dois servidores homônimos.`
+                                          : `Matrícula ${matricula}`
+                                      }
+                                    >
+                                      MAT {matricula}
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                            )
+                          })()}
                           {isExternal && (
                             <div className="text-[8px] text-blue-600 dark:text-blue-400 font-medium italic mt-1 leading-tight">
                               Origem: {allUnidades.find(u => u.id === em.servidores?.unidade_id)?.nome || '...'}
@@ -7353,7 +7419,7 @@ export function ScaleGrid({
                   onChange={(e) => setTemplateModal(prev => prev ? { ...prev, servidorId: e.target.value } : null)}
                 >
                   {sortedEscalaMensal.map(em => (
-                    <option key={em.servidor_id} value={em.servidor_id}>{em.servidores?.nome}</option>
+                    <option key={em.servidor_id} value={em.servidor_id}>{rotuloServidor(em)}</option>
                   ))}
                 </select>
               </div>
@@ -7747,7 +7813,7 @@ export function ScaleGrid({
                               return { ...prev, servidorIds: novosIds, servidorInicialId, preview: null }
                             })}
                           />
-                          <span className="flex-1 truncate text-zinc-900 dark:text-white">{em.servidores?.nome}</span>
+                          <span className="flex-1 truncate text-zinc-900 dark:text-white">{rotuloServidor(em)}</span>
                           {marcado && (
                             <span className="text-[10px] font-bold text-teal-600 dark:text-teal-400 shrink-0">#{posicao + 1}</span>
                           )}
@@ -9410,7 +9476,7 @@ export function ScaleGrid({
                       }}
                       className="h-3.5 w-3.5 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
                     />
-                    <span className="font-semibold">{em.servidores?.nome}</span>
+                    <span className="font-semibold">{rotuloServidor(em)}</span>
                   </label>
                 ))}
               </div>

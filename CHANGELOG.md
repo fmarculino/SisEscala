@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.53.1] - 2026-09-09
+
+Sem migration. Complementa a v2.53.0 do mesmo dia: o motor passou a atribuir a batida à matricula
+certa, mas a TELA continuava mostrando duas linhas identicas.
+
+### Fixed
+
+- 🚨 **Duas linhas com o mesmo nome eram indistinguiveis na grade.** Relatado pelo usuario com o
+  caso real de EDILEUZA LIMA FARIAS (mat 67454 e 15892, HMI): a coluna Servidor mostrava nome e
+  cargo, e as duas matriculas tem o mesmo cargo — nao havia **nada** na tela dizendo em qual
+  vinculo o coordenador estava lancando.
+- ⚠️ **E o problema e mais amplo que duplo vinculo:** dois servidores **homonimos** (pessoas
+  diferentes, mesmo nome) produzem exatamente a mesma tela. A matricula e a unica coisa que
+  separa os dois casos, e e por ela que o RH identifica o vinculo.
+- **A matricula passa a aparecer em toda linha da grade**, na mesma linha do cargo
+  (`TEC.ENFERM_CONTRATADO · MAT 67454`) — sem custo de espaco. Quando o nome se **repete na
+  grade**, ela fica em **ambar e negrito**, com explicacao no tooltip.
+- **No PDF impresso** a matricula tambem entra. E o documento que e assinado e arquivado: sem ela,
+  as duas linhas ficam indistinguiveis depois, e nao ha a quem perguntar.
+- **Nos tres seletores que escolhem servidor** — Aplicar Template, Revezamento de Vigias e
+  **Validacao em Massa** — o nome ganha `(mat NNNNN)` **somente no caso ambiguo**: ali o espaco e
+  curto e a matricula em toda linha custaria legibilidade sem resolver nada. A Validacao em Massa e
+  a mais grave das tres, porque grava **ponto**.
+
 ## [2.53.0] - 2026-09-09
 
 ✅ **As tres primeiras migrations (`20260909130000`, `20260909140000`, `20260909150000`) foram
