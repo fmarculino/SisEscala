@@ -1,0 +1,50 @@
+-- ============================================================================
+-- A FRONTEIRA ENTRE DOIS VINCULOS DA MESMA PESSOA
+-- ============================================================================
+-- Gerado por scratchpad/gen_fronteira_entre_vinculos.js a partir de
+-- 20260909130000_alocacao_considera_vinculos_irmaos.sql (a VIGENTE de fn_alocar_marcacoes_dia).
+-- Nao editar a mao: regerar pelo script.
+--
+-- Fecha o unico efeito colateral que o ensaio de 20260909130000 revelou em producao.
+--
+-- O QUE MUDA: quando a saida de um turno e a entrada do outro estao previstas para o MESMO
+-- instante em DUAS matriculas da mesma pessoa, a regra do dono deixa de desqualificar a
+-- candidata. Fora dessa combinacao exata (mesmo instante + um lado 'saida' + outro lado
+-- 'entrada' + sombra de IRMAO), nada muda.
+--
+-- POR QUE
+--
+-- A regra do dono existe para impedir que a MESMA batida sirva ao MESMO passo em dois lugares.
+-- Ela nao deve impedir que o fim de um turno encoste no inicio do outro — isso o sistema ja
+-- trata como DESEJADO entre blocos encostados do mesmo servidor (armadilha 6 do CLAUDE.md, e os
+-- slots de fronteira de 20260819200000, que ate ESPELHAM a mesma marcacao nos dois lados).
+--
+-- MEDIDO em 09/09/2026, no ensaio antes de aplicar (ELAYNE DE SOUSA PEIXOTO, mat 54464 e 68140,
+-- HMI/ACOLHIMENTO, 02/09/2026):
+--
+--   previsto:  mat 68140  MT 07:00 -> 19:00      mat 54464  N 19:00 -> 07:00
+--   batidas:   07:01  13:00  14:00  19:00  19:05
+--
+--   a 54464 ficava com a 19:00 como ENTRADA (dist 0)
+--   a 68140 ficava com PENDENCIA na saida das 19:00
+--   e a batida das 19:05 NAO era usada por ninguem — a regra do dono a desqualificava dos DOIS
+--   lados, porque o instante previsto empata (19:00 = 19:00) e o desempate por servidor_id
+--   entrega a candidata a um so.
+--
+-- Quatro dias so' nessa pessoa (02, 04, 06 e 08/09), mais um da MARIZANI. Sem esta correcao, a
+-- folha do turno da manha fica sem a saida — pendencia visivel, nao erro silencioso, mas
+-- pendencia que nao precisa existir: a batida esta la.
+--
+-- O QUE **NAO** MUDA, e e deliberado:
+--
+--   * O desempate por servidor_id CONTINUA, e continua sendo o que impede a dupla contagem
+--     quando os dois lados disputam o MESMO passo (entrada x entrada, saida x saida). E' so a
+--     combinacao complementar que passa a ser tratada como fronteira.
+--
+--   * Sombra de DIA VIZINHO (v_som_serv IS NULL) nao e afetada: a regra do dono entre dias
+--     continua exatamente como em 20260819180000. Um bloco que termina as 07:00 e outro que
+--     comeca as 07:00 no dia seguinte continuam disputando pela regra antiga.
+--
+--   * O intervalo nao entra: so 'entrada' e 'saida'. Intervalo de um vinculo coincidindo com
+--     entrada/saida do outro nao e fronteira de turno, e tratar como tal fabricaria um par.
+-- ============================================================================

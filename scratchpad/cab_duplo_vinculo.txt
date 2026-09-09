@@ -1,0 +1,90 @@
+-- ============================================================================
+-- DUPLO VINCULO: A BATIDA E DA PESSOA; A ESCALA DIZ DE QUAL MATRICULA
+-- ============================================================================
+-- Gerado por scratchpad/gen_alocacao_duplo_vinculo.js a partir de
+-- 20260908150000_alocacao_nao_atravessa_unidade.sql (a migration VIGENTE de
+-- fn_alocar_marcacoes_dia). Nao editar a mao: regerar pelo script.
+--
+-- Par de 20260909140000 (pessoa unica na trava de sobreposicao de escala). Aplicar as duas.
+-- Esta e segura sozinha; a outra e o que impede o caso ambiguo de nascer.
+--
+-- O QUE MUDA: ao alocar o dia de uma matricula, as batidas de RELOGIO dos OUTROS cadastros da
+-- mesma pessoa (mesmo CPF, Ativos) tambem disputam os passos daquele dia — e os passos deles
+-- entram como sombra, entao exatamente um dos vinculos fica com cada batida. Para os 2.477
+-- servidores sem cadastro irmao, v_pessoa_ids e vazio e NADA muda.
+--
+-- POR QUE
+--
+-- O relogio nao consegue, e por norma nao pode, distinguir dois vinculos da mesma pessoa:
+--
+--   1. O AFD nao tem campo de contrato. O registro tipo 3 carrega
+--      "NSR + data/hora + identificador(12) + CRC", e a Portaria 671/2021 define esse campo
+--      (posicoes 035-046) como o PIS, CPF ou sua composicao — do TRABALHADOR. Isso vale para
+--      qualquer REP-C certificado: trocar de marca de relogio nao resolve.
+--
+--   2. O equipamento RECUSA o segundo cadastro. Medido em producao (09/09/2026): os 42
+--      cadastros das 21 pessoas com CPF duplicado acumulam 1.531 falhas em rep_cadastros_fila,
+--      com a resposta do proprio device — "PIS ja cadastrado: 25896334249",
+--      "CPF ja cadastrado: 88556093191", "Matricula ja cadastrada". Lido direto do REP da SMS:
+--      300 usuarios, 300 `pis` DISTINTOS.
+--
+--   3. A digital e 1:N e nao pergunta nada. O modo 1:1 existe (get_system_configuration
+--      devolve one_to_one_enabled: false) mas e configuracao do equipamento INTEIRO: ligar
+--      obrigaria os 323 usuarios daquele relogio a digitar antes do dedo, para resolver 10
+--      pessoas. Descartado por desproporcao.
+--
+-- Entao a desambiguacao e do PTRP — que e exatamente o papel dele na Portaria 671:
+-- complementar e tratar, NUNCA alterar o dado original. E o dado para isso ja existe: a
+-- escala.
+--
+-- O QUE TORNA ISSO POSSIVEL (medido em 08 e 09/2026, os 10 casos de mesma unidade):
+--   41 dias em que AS DUAS matriculas tem turno
+--   40 com janelas de horario DISJUNTAS  <- a escala desambigua sozinha
+--    1 sobreposta, e e ERRO DE LANCAMENTO (EDILEUZA 01/09, dois plantoes N simultaneos)
+-- O padrao e sempre o mesmo: MT 07:00-19:00 numa matricula, N 19:00-07:00 na outra. Uma
+-- batida as 07:03 e do MT; as 19:04 e do N.
+--
+-- O DANO QUE ISTO CORRIGE (09/2026, os mesmos 10 casos):
+--   13 matriculas com escala; 6 delas com ZERO batida propria
+--   174 dias de escala, 149 (86%) sem presenca registrada
+--   163 batidas no mes, 29 gravadas numa matricula que NAO tinha turno naquele dia
+-- E qual matricula ganhava o ponto era acidente: o vinculo nasce por ordem de chegada da fila
+-- de cadastro, e no HMM os quatro relogios irmaos apontavam para matriculas DIFERENTES
+-- (PAULINO: HMM-01/02 -> mat 67469, HMM-03/04 -> mat 65562). Em qual matricula o ponto caia
+-- dependia de em qual dos quatro a pessoa encostou o dedo.
+--
+-- O QUE **NAO** MUDA, e e deliberado:
+--
+--   * marcacoes_ponto NAO e tocada. A marcacao continua com o dono que tem, o AFD original
+--     continua intocado e o trigger de imutabilidade NAO ganha excecao nova (hoje sao tres:
+--     reparse de AFD, fusao de setor, mesclagem de cadastro). A batida e da PESSOA; o que
+--     passa a ser resolvido pela escala e em qual matricula ela e APLICADA.
+--
+--   * Os 11 casos de vinculo em unidades DIFERENTES continuam como estao — ja funcionavam,
+--     porque rep_vinculos_servidor e unico por (dispositivo, identificador) e cada relogio
+--     resolve para a matricula da sua unidade. Conferido: ANA LUCIA bate 25x na SMS e 16x no
+--     HMI, cada batida na matricula certa. A restricao de unidade (20260908150000) segue
+--     valendo por cima disto.
+--
+--   * "Nunca fabricar horario" e "nunca descartar batida" seguem intactos: vinculo sem batida
+--     que case continua virando pendencia, e batida que nao casa com nenhum dos dois continua
+--     gravada e visivel.
+--
+-- TRES DECISOES QUE PRECISAM SOBREVIVER A QUALQUER RECRIACAO:
+--
+--   1. SO A BATIDA DE RELOGIO DO IRMAO DISPUTA. Em origem `terminal`,
+--      marcacoes_ponto.unidade_id e a LOTACAO do servidor (fn_registrar_ponto le
+--      servidores.unidade_id), nao onde a pessoa bateu — sem lugar confiavel nao da para
+--      afirmar que as duas matriculas disputam a mesma batida fisica. E ajuste_coordenador /
+--      ajuste_servidor sao declaracao de alguem sobre UMA matricula: nunca disputam.
+--
+--   2. EXATAMENTE UM DONO. Os passos do irmao viram SOMBRA e so desqualificam candidata —
+--      a mesma mecanica da regra do dono entre dias vizinhos (20260819180000), sem uma linha
+--      nova de algoritmo. E quando o instante previsto EMPATA entre os dois vinculos, o
+--      desempate por servidor_id fecha o caso: sem ele nenhum dos dois perderia e a MESMA
+--      batida seria gravada nas duas matriculas — a dupla contagem da armadilha 23, agora
+--      dentro da mesma pessoa.
+--
+--   3. CADASTRO MESCLADO NAO VOLTA. o.mesclado_em_servidor_id IS NULL: a duplicata ja
+--      absorvida (armadilha 50) nao pode ressuscitar aqui como se fosse um vinculo vivo.
+-- ============================================================================

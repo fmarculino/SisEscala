@@ -1,0 +1,151 @@
+
+COMMENT ON FUNCTION public.fn_alocar_marcacoes_dia(uuid, date, integer, integer) IS
+'Casa as batidas do dia com os passos previstos (DP monotonico). A batida e da PESSOA: os
+outros cadastros Ativos com o mesmo CPF (duplo vinculo) tambem disputam, e os passos deles
+entram como sombra, entao exatamente um vinculo fica com cada batida. So a batida de RELOGIO
+do irmao disputa — em origem terminal, unidade_id e a lotacao, nao o lugar. Ver
+20260909130000 e docs/planos/2026-09-09-duplo-vinculo-e-registro-de-ponto-no-rep.md.';
+
+-- ============================================================================
+-- CONFERENCIA — roda junto e ABORTA a migration se qualquer assercao falhar
+-- ============================================================================
+-- EXECUTA fn_alocar_marcacoes_dia (armadilha 42: conferir que a funcao existe nao prova nada).
+-- Confere os DOIS sentidos: a batida do vinculo irmao passou a ser alcancavel, E ninguem ficou
+-- com a mesma batida duas vezes. Afrouxar aqui recria a dupla contagem; apertar demais
+-- esvaziaria a folha de quem nao tem irmao nenhum.
+
+DO $conf$
+DECLARE
+    v_pessoas    integer;
+    v_dupla      integer := 0;
+    v_ganhos     integer := 0;
+    v_amostra    integer := 0;
+    v_com_aloc   integer := 0;
+    r            record;
+    v_a          jsonb;
+BEGIN
+    -- 1. Quantas pessoas tem cadastro irmao Ativo (so para registrar o alcance no log)
+    SELECT count(*) INTO v_pessoas
+      FROM (
+        SELECT right(regexp_replace(COALESCE(s.cpf, ''), '\D', '', 'g'), 11) AS cpf11
+          FROM public.servidores s
+         WHERE s.status = 'Ativo'
+           AND s.mesclado_em_servidor_id IS NULL
+           AND length(regexp_replace(COALESCE(s.cpf, ''), '\D', '', 'g')) >= 11
+         GROUP BY 1
+        HAVING count(*) > 1) x;
+
+    RAISE NOTICE 'pessoas com 2+ cadastros Ativos (mesmo CPF): %', v_pessoas;
+
+    -- 2. EXCLUSIVIDADE: rodando os dois lados do mesmo dia, nenhuma marcacao pode aparecer
+    --    alocada nas DUAS matriculas. E a assercao central desta migration.
+    FOR r IN
+        WITH pess AS (
+            SELECT s.id,
+                   right(regexp_replace(COALESCE(s.cpf, ''), '\D', '', 'g'), 11) AS cpf11
+              FROM public.servidores s
+             WHERE s.status = 'Ativo'
+               AND s.mesclado_em_servidor_id IS NULL
+               AND length(regexp_replace(COALESCE(s.cpf, ''), '\D', '', 'g')) >= 11
+        ),
+        dup AS (SELECT cpf11 FROM pess GROUP BY cpf11 HAVING count(*) > 1),
+        dias AS (
+            SELECT DISTINCT p.cpf11, p.id AS servidor_id,
+                   (m.ocorrido_em AT TIME ZONE COALESCE(
+                       (SELECT (valor#>>'{}')::text FROM public.configuracoes_globais WHERE chave = 'timezone'),
+                       'America/Sao_Paulo'))::date AS d
+              FROM public.marcacoes_ponto m
+              JOIN pess p ON p.id = m.servidor_id
+              JOIN dup  ON dup.cpf11 = p.cpf11
+             WHERE m.origem = 'rep'
+               AND m.dispositivo_id IS NOT NULL
+               AND m.ocorrido_em >= (now() - interval '90 days')
+        )
+        SELECT cpf11, d, array_agg(servidor_id) AS servidores FROM dias GROUP BY cpf11, d
+    LOOP
+        DECLARE
+            v_ids   uuid[] := '{}';
+            v_todos uuid[] := '{}';
+            v_um    uuid;
+            v_irmaos uuid[];
+        BEGIN
+            -- todos os cadastros daquela pessoa, nao so os que tem batida propria hoje
+            SELECT array_agg(s.id) INTO v_irmaos
+              FROM public.servidores s
+             WHERE s.status = 'Ativo'
+               AND s.mesclado_em_servidor_id IS NULL
+               AND right(regexp_replace(COALESCE(s.cpf, ''), '\D', '', 'g'), 11) = r.cpf11;
+
+            FOREACH v_um IN ARRAY v_irmaos LOOP
+                BEGIN
+                    v_a := public.fn_alocar_marcacoes_dia(v_um, r.d);
+                EXCEPTION WHEN OTHERS THEN
+                    CONTINUE;
+                END;
+                SELECT COALESCE(array_agg((x->>'marcacao_id')::uuid), '{}')
+                  INTO v_ids
+                  FROM jsonb_array_elements(v_a->'alocacoes') x;
+                v_todos := v_todos || v_ids;
+            END LOOP;
+
+            IF array_length(v_todos, 1) IS NOT NULL
+               AND array_length(v_todos, 1) <> (SELECT count(DISTINCT u) FROM unnest(v_todos) u) THEN
+                v_dupla := v_dupla + 1;
+                RAISE WARNING 'DUPLA CONTAGEM: cpf %, dia % -> %', r.cpf11, r.d, v_todos;
+            END IF;
+            IF array_length(v_todos, 1) IS NOT NULL THEN
+                v_ganhos := v_ganhos + array_length(v_todos, 1);
+            END IF;
+        END;
+    END LOOP;
+
+    IF v_dupla > 0 THEN
+        RAISE EXCEPTION 'ABORTADO: a mesma batida ficou alocada em DUAS matriculas em % dia(s). '
+                        'O desempate da regra do dono entre vinculos nao esta fechando — '
+                        'confira v_sombra_serv / v_som_serv < p_servidor_id.', v_dupla;
+    END IF;
+    RAISE NOTICE 'exclusividade ok: nenhuma batida alocada em duas matriculas (% alocacoes conferidas)', v_ganhos;
+
+    -- 3. NAO REGREDIU para quem NAO tem irmao: uma amostra de dias que hoje tem presenca
+    --    gravada precisa continuar produzindo alocacao. Pega erro grosseiro (funcao que passou
+    --    a nao casar nada), que e o modo de falha que esvaziaria a folha do parque.
+    FOR r IN
+        SELECT em.servidor_id,
+               make_date(em.ano, em.mes, ed.dia) AS d
+          FROM public.escala_diaria ed
+          JOIN public.escala_mensal em ON em.id = ed.escala_mensal_id
+         WHERE ed.presenca_entrada_em IS NOT NULL
+           AND ed.presenca_entrada_origem = 'rep'
+           AND make_date(em.ano, em.mes, ed.dia) >= (now() - interval '45 days')::date
+           AND NOT EXISTS (
+               SELECT 1 FROM public.servidores a
+                JOIN public.servidores b
+                  ON b.id <> a.id
+                 AND b.status = 'Ativo'
+                 AND b.mesclado_em_servidor_id IS NULL
+                 AND right(regexp_replace(COALESCE(b.cpf, ''), '\D', '', 'g'), 11)
+                   = right(regexp_replace(COALESCE(a.cpf, ''), '\D', '', 'g'), 11)
+                WHERE a.id = em.servidor_id
+                  AND length(regexp_replace(COALESCE(a.cpf, ''), '\D', '', 'g')) >= 11)
+         LIMIT 40
+    LOOP
+        v_amostra := v_amostra + 1;
+        BEGIN
+            v_a := public.fn_alocar_marcacoes_dia(r.servidor_id, r.d);
+            IF jsonb_array_length(v_a->'alocacoes') > 0 THEN
+                v_com_aloc := v_com_aloc + 1;
+            END IF;
+        EXCEPTION WHEN OTHERS THEN
+            RAISE EXCEPTION 'ABORTADO: fn_alocar_marcacoes_dia falhou para servidor % em % : %',
+                            r.servidor_id, r.d, SQLERRM;
+        END;
+    END LOOP;
+
+    IF v_amostra > 0 AND v_com_aloc = 0 THEN
+        RAISE EXCEPTION 'ABORTADO: nenhum dos % dias da amostra (servidores SEM cadastro irmao, '
+                        'com presenca de origem rep ja gravada) produziu alocacao. A funcao '
+                        'parou de casar batida — isto esvaziaria a folha do parque.', v_amostra;
+    END IF;
+    RAISE NOTICE 'sem regressao: % de % dias da amostra (sem irmao) continuam alocando', v_com_aloc, v_amostra;
+END;
+$conf$;

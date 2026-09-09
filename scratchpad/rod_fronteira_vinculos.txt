@@ -1,0 +1,79 @@
+
+COMMENT ON FUNCTION public.fn_alocar_marcacoes_dia(uuid, date, integer, integer) IS
+'Casa as batidas do dia com os passos previstos (DP monotonico). A batida e da PESSOA: os outros
+cadastros Ativos com o mesmo CPF tambem disputam, e os passos deles entram como sombra. Na
+FRONTEIRA entre dois vinculos (saida de um e entrada do outro no mesmo instante) a sombra nao
+desqualifica — uma batida ali fecha um turno e abre o seguinte. Ver 20260909130000 e
+20260909160000.';
+
+-- ============================================================================
+-- CONFERENCIA — roda junto e ABORTA se falhar (armadilha 42: EXECUTA a funcao)
+-- ============================================================================
+-- Confere os DOIS sentidos: a fronteira parou de perder a batida, E a exclusividade continua
+-- valendo fora dela (nenhuma batida no mesmo passo de duas matriculas).
+
+DO $conf$
+DECLARE
+    r          record;
+    v_a        jsonb;
+    v_dupla    integer := 0;
+    v_pend     integer := 0;
+    v_aloc     integer := 0;
+BEGIN
+    FOR r IN
+        WITH pess AS (
+            SELECT s.id, right(regexp_replace(COALESCE(s.cpf, ''), '\D', '', 'g'), 11) AS cpf11
+              FROM public.servidores s
+             WHERE s.status = 'Ativo' AND s.mesclado_em_servidor_id IS NULL
+               AND length(regexp_replace(COALESCE(s.cpf, ''), '\D', '', 'g')) >= 11),
+        dup AS (SELECT cpf11 FROM pess GROUP BY cpf11 HAVING count(*) > 1),
+        dias AS (
+            SELECT DISTINCT p.cpf11,
+                   (m.ocorrido_em AT TIME ZONE COALESCE(
+                       (SELECT (valor#>>'{}')::text FROM public.configuracoes_globais WHERE chave = 'timezone'),
+                       'America/Sao_Paulo'))::date AS d
+              FROM public.marcacoes_ponto m
+              JOIN pess p ON p.id = m.servidor_id
+              JOIN dup ON dup.cpf11 = p.cpf11
+             WHERE m.origem = 'rep' AND m.dispositivo_id IS NOT NULL
+               AND m.ocorrido_em >= (now() - interval '60 days'))
+        SELECT * FROM dias
+    LOOP
+        DECLARE
+            v_irmaos uuid[];
+            v_um     uuid;
+            v_par    text[] := '{}';
+            v_chave  text;
+        BEGIN
+            SELECT array_agg(s.id) INTO v_irmaos
+              FROM public.servidores s
+             WHERE s.status = 'Ativo' AND s.mesclado_em_servidor_id IS NULL
+               AND right(regexp_replace(COALESCE(s.cpf, ''), '\D', '', 'g'), 11) = r.cpf11;
+
+            FOREACH v_um IN ARRAY v_irmaos LOOP
+                BEGIN
+                    v_a := public.fn_alocar_marcacoes_dia(v_um, r.d);
+                EXCEPTION WHEN OTHERS THEN CONTINUE; END;
+                v_aloc := v_aloc + jsonb_array_length(v_a->'alocacoes');
+                v_pend := v_pend + jsonb_array_length(v_a->'pendencias');
+                -- chave (marcacao, passo): a MESMA batida no MESMO passo em duas matriculas e
+                -- que seria dupla contagem. Em passos diferentes (fronteira) e legitimo.
+                SELECT COALESCE(array_agg((x->>'marcacao_id') || '|' || (x->>'passo')), '{}')
+                  INTO v_par FROM jsonb_array_elements(v_a->'alocacoes') x;
+                FOREACH v_chave IN ARRAY v_par LOOP
+                    IF v_chave = ANY(v_par[1:array_position(v_par, v_chave) - 1]) THEN
+                        v_dupla := v_dupla + 1;
+                    END IF;
+                END LOOP;
+            END LOOP;
+        END;
+    END LOOP;
+
+    RAISE NOTICE 'alocacoes: % | pendencias: % | (marcacao,passo) repetidos: %', v_aloc, v_pend, v_dupla;
+
+    IF v_dupla > 0 THEN
+        RAISE EXCEPTION 'ABORTADO: a mesma batida foi alocada ao MESMO passo mais de uma vez '
+                        '(% ocorrencia(s)). A fronteira afrouxou demais.', v_dupla;
+    END IF;
+END;
+$conf$;

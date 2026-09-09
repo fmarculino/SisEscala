@@ -2,6 +2,90 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.53.0] - 2026-09-09
+
+✅ **As tres primeiras migrations (`20260909130000`, `20260909140000`, `20260909150000`) foram
+aplicadas e conferidas em producao em 09/09/2026** (`scratchpad/ver_migrations_duplo.mjs`):
+`fn_cadastros_irmaos` devolve os 42 pares e e simetrica, `anon` recebe 401, a RPC de conflito
+acusa o dia sobreposto **nomeando a outra matricula**, e na ELIETE (02/09) as batidas sairam da
+matricula sem turno (0 alocacoes) para a matricula certa (**3 alocacoes**).
+
+✅ **A `20260909160000` (a fronteira entre vinculos) tambem foi aplicada.** Ela nasceu do
+**ensaio** da correcao de dados, que revelou o unico efeito colateral: com `MT 07-19` numa
+matricula e `N 19-07` na outra e **duas** batidas na fronteira (19:00 e 19:05), a do noturno
+ficava com a 19:00 e a do MT ficava **sem saida** — e a de 19:05 nao era usada por ninguem.
+Depois dela o ensaio passou de 51 para **60 ganhos** e as perdas cairam de 5 para 4.
+
+✅ **Os dados de 09/2026 foram corrigidos por LISTA FECHADA, com ensaio antes/depois**
+(`scratchpad/fix_duplo_vinculo_setembro.mjs`): **113 pares reconciliados, 0 erros** — 59 ganhos,
+15 trocas (horario sintetico `12:00` dando lugar a batida real `11:47`) e **1 perda**, que e
+correta (batida a 6h12 do previsto, fora da tolerancia de 360 min, virando pendencia visivel).
+Rodando de novo, a diferenca e **zero**: a operacao e idempotente. **Dias sem presenca caíram de
+149 para 131.**
+
+⚠️ **Um dia ficou de FORA da lista, de proposito:** EDILEUZA LIMA FARIAS (mat 67454 e 15892, HMI),
+**01/09/2026**, com dois plantoes `Regular N` simultaneos no mesmo setor. E o **unico** caso de
+escala sobreposta da base inteira (89 pares medidos, competencias 06 a 10/2026), esta em
+**Rascunho**, e o previsto dele esta errado — reconciliar contra previsto errado troca um erro por
+outro e apagaria entrada e intervalo ja gravados. **Corrija a escala na grade e rode o script de
+novo**; ele tem a exclusao explicita e comentada.
+
+Nenhuma das quatro migrations toca `marcacoes_ponto` nem o AFD.
+
+### Added
+
+- **Duplo vinculo: a batida e da PESSOA, e a escala diz de qual matricula.** No relogio **nada
+  muda** — uma pessoa, um cadastro, uma digital. Ao alocar o dia de uma matricula, as batidas de
+  **relogio** dos outros cadastros Ativos com o mesmo CPF tambem disputam os passos daquele dia, e
+  os passos deles entram como **sombra**: e a mesma mecanica da regra do dono de 19/08/2026, agora
+  entre **vinculos** em vez de dias. Investigacao completa em
+  [`docs/planos/2026-09-09-duplo-vinculo-e-registro-de-ponto-no-rep.md`](docs/planos/2026-09-09-duplo-vinculo-e-registro-de-ponto-no-rep.md);
+  diario em [`docs/evolucao/2026-09-09-duplo-vinculo-a-batida-e-da-pessoa.md`](docs/evolucao/2026-09-09-duplo-vinculo-a-batida-e-da-pessoa.md).
+- **A fronteira entre dois vinculos** (`20260909160000`): quando a saida de um turno e a entrada
+  do outro estao previstas para o **mesmo instante** em duas matriculas da mesma pessoa, a regra
+  do dono deixa de desqualificar a batida — uma batida ali **fecha um turno e abre o seguinte**,
+  que e o comportamento que o sistema ja trata como desejado entre blocos encostados (armadilha 6).
+  O desempate por `servidor_id` **continua** para quando os dois lados disputam o MESMO passo.
+- **`fn_cadastros_irmaos`** (`20260909150000`): os outros cadastros da mesma pessoa, para a grade
+  avisar **antes** do upsert em lote em vez de levar a recusa crua do trigger.
+
+### Fixed
+
+- 🚨 **A segunda matricula nao recebia ponto nenhum, e a primeira recebia ponto que nao era dela.**
+  Medido em 09/2026 nos 10 casos de mesma unidade: **6 matriculas com escala e ZERO batida
+  propria**, **149 de 174 dias** sem presenca registrada, e **29 batidas gravadas numa matricula
+  que nao tinha turno naquele dia**. Exemplo: ELIETE MATOS DIAS, 02/09 — previsto so na mat 67766
+  (`MT`), e as batidas 06:54/13:00/19:03 foram todas para a mat 1009.
+- 🚨 **Qual matricula ganhava o ponto era ACIDENTE.** O vinculo nasce por ordem de chegada da fila
+  de cadastro, e no HMM os quatro relogios irmaos apontavam para matriculas **diferentes**
+  (PAULINO: HMM-01/02 → mat 67469, HMM-03/04 → mat 65562). Os quatro atendem os mesmos setores:
+  em qual matricula o ponto caia dependia de em qual deles a pessoa encostou o dedo.
+- 🚨 **A trava de sobreposicao de escala nao enxergava duplo vinculo** (`20260909140000`). Ela
+  compara por `servidor_id`, e duas matriculas sao dois `servidor_id` — entao a mesma pessoa podia
+  ser escalada em dois turnos no mesmo horario e nada reclamava (EDILEUZA, dois plantoes `N`
+  simultaneos em 01/09/2026). `fn_check_shift_conflicts` e `fn_prevent_cross_sector_shift_overlap`
+  passam a enxergar a **pessoa**. Decisao do usuario: duplo vinculo nao autoriza estar em dois
+  lugares no mesmo horario. O criterio continua sendo **slot sobreposto**, nunca "mesmo dia" —
+  `MT 07-19` numa matricula e `N 19-07` na outra e o arranjo real dessas pessoas (40 dos 41 dias).
+
+### Investigado (e o que NAO tem solucao no equipamento)
+
+- **O impedimento e da NORMA, nao do iDClass.** A Portaria 671/2021 define o registro tipo 3 como
+  `NSR + data/hora + identificador(12) + CRC`, e o identificador (posicoes 035-046) e o **PIS/CPF
+  do trabalhador**: nao existe campo de contrato em REP-C nenhum. **Trocar de marca de relogio nao
+  resolve.** Some-se que o equipamento **recusa** o segundo cadastro (`PIS ja cadastrado` /
+  `CPF ja cadastrado` — 1.531 falhas medidas na fila; 300 usuarios do REP da SMS, 300 `pis`
+  distintos), e que a digital e **1:N** (o modo 1:1 existe mas e configuracao do equipamento
+  inteiro: 323 pessoas digitando antes do dedo para resolver 10).
+- ✅ **Metade dos casos ja funcionava:** dos 21 CPFs com dois cadastros Ativos, **11 tem os vinculos
+  em unidades diferentes** e sempre estiveram corretos — `rep_vinculos_servidor` e unico por
+  `(dispositivo, identificador)`, e cada relogio resolve para a matricula da sua unidade.
+- ℹ️ **Achado de brinde:** `load_users.fcgi` devolve `rfid`, `code`, `bars` **e `password` em
+  texto** — o que responde o Passo 1 do plano de copia de cartao/codigo/senha (06/09/2026) sem
+  ninguem precisar ir ao HMM.
+- ⚠️ **Aberto, nao tocado:** `fn_servidor_por_identificador_afd` desempata por escala usando
+  `extract(month from now())` — o mes **corrente**, nao o mes da batida.
+
 ## [2.52.0] - 2026-09-09
 
 ✅ **As duas migrations (`20260909110000` e `20260909120000`) já foram aplicadas e conferidas em

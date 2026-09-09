@@ -1,0 +1,159 @@
+
+-- A assinatura NAO muda, entao CREATE OR REPLACE preserva os privilegios (armadilha 41 so
+-- morde quando a lista de parametros muda). Reafirmados assim mesmo, junto do REVOKE de
+-- PUBLIC/anon que a armadilha 24 exige de toda funcao alcancavel pelo PostgREST.
+REVOKE ALL ON FUNCTION public.fn_check_shift_conflicts(UUID, INTEGER, INTEGER, INTEGER, UUID, TEXT, UUID) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_check_shift_conflicts(UUID, INTEGER, INTEGER, INTEGER, UUID, TEXT, UUID) TO authenticated, service_role;
+
+COMMENT ON FUNCTION public.fn_check_shift_conflicts(UUID, INTEGER, INTEGER, INTEGER, UUID, TEXT, UUID) IS
+    'Conflito de lancamento de turno: afastamento que ANULA o turno, e sobreposicao de slot com '
+    'outra escala da PESSOA — todos os cadastros Ativos de mesmo CPF, nao so a matricula. Duplo '
+    'vinculo nao permite dois turnos no mesmo horario. Ver 20260909140000.';
+
+COMMENT ON FUNCTION public.fn_prevent_cross_sector_shift_overlap() IS
+    'Recusa lancamento de turno quando a mesma PESSOA (qualquer cadastro Ativo de mesmo CPF) ja '
+    'tem, no mesmo dia e competencia, outro turno com slot sobreposto. Turnos adjacentes (dobra) '
+    'continuam permitidos. Nao reavalia escrita de presenca. Ver 20260909140000.';
+
+-- O trigger e recriado porque a funcao mudou de corpo; a definicao em si e identica.
+DROP TRIGGER IF EXISTS trg_escala_diaria_sem_sobreposicao_setor ON public.escala_diaria;
+CREATE TRIGGER trg_escala_diaria_sem_sobreposicao_setor
+    BEFORE INSERT OR UPDATE ON public.escala_diaria
+    FOR EACH ROW EXECUTE FUNCTION public.fn_prevent_cross_sector_shift_overlap();
+
+-- ============================================================================
+-- CONFERENCIA — roda junto e ABORTA a migration se qualquer assercao falhar
+-- ============================================================================
+-- EXECUTA fn_check_shift_conflicts (armadilha 42) contra TODAS as linhas de escala das pessoas
+-- com cadastro irmao, e confere os DOIS sentidos:
+--
+--   (a) slot sobreposto entre as duas matriculas -> TEM de acusar conflito
+--   (b) turnos complementares (MT x N) -> NAO pode acusar
+--
+-- Apertar demais aqui quebraria o arranjo que essas pessoas praticam (40 dos 41 dias medidos
+-- sao complementares); afrouxar recria o caso que a migration existe para impedir.
+
+DO $conf$
+DECLARE
+    r              record;
+    v_conf         boolean;
+    v_msg          text;
+    v_esperado     boolean;
+    v_erros        integer := 0;
+    v_falsos_neg   integer := 0;
+    v_falsos_pos   integer := 0;
+    v_linhas       integer := 0;
+    v_pessoas      integer;
+BEGIN
+    SELECT count(*) INTO v_pessoas
+      FROM (SELECT right(regexp_replace(COALESCE(cpf, ''), '\D', '', 'g'), 11)
+              FROM public.servidores
+             WHERE status = 'Ativo' AND mesclado_em_servidor_id IS NULL
+               AND length(regexp_replace(COALESCE(cpf, ''), '\D', '', 'g')) >= 11
+             GROUP BY 1 HAVING count(*) > 1) x;
+    RAISE NOTICE 'pessoas com 2+ cadastros Ativos (mesmo CPF): %', v_pessoas;
+
+    FOR r IN
+        WITH pess AS (
+            SELECT s.id, right(regexp_replace(COALESCE(s.cpf, ''), '\D', '', 'g'), 11) AS cpf11
+              FROM public.servidores s
+             WHERE s.status = 'Ativo' AND s.mesclado_em_servidor_id IS NULL
+               AND length(regexp_replace(COALESCE(s.cpf, ''), '\D', '', 'g')) >= 11
+        ),
+        dup AS (SELECT cpf11 FROM pess GROUP BY cpf11 HAVING count(*) > 1)
+        SELECT ed.id, ed.dia, ed.categoria::text AS categoria, ed.dicionario_turnos_id,
+               em.mes, em.ano, em.servidor_id, em.id AS escala_mensal_id,
+               p.cpf11, dt.slots
+          FROM public.escala_diaria ed
+          JOIN public.escala_mensal em ON em.id = ed.escala_mensal_id
+          JOIN pess p ON p.id = em.servidor_id
+          JOIN dup ON dup.cpf11 = p.cpf11
+          JOIN public.dicionario_turnos dt ON dt.id = ed.dicionario_turnos_id
+         WHERE ed.dicionario_turnos_id IS NOT NULL
+           AND dt.slots IS NOT NULL
+    LOOP
+        v_linhas := v_linhas + 1;
+
+        -- O que a verdade diz: existe linha de OUTRA matricula da mesma pessoa, no mesmo dia e
+        -- competencia, com slot sobreposto?
+        SELECT EXISTS (
+            SELECT 1
+              FROM public.escala_diaria ed2
+              JOIN public.escala_mensal em2 ON em2.id = ed2.escala_mensal_id
+              JOIN public.servidores s2 ON s2.id = em2.servidor_id
+              JOIN public.dicionario_turnos dt2 ON dt2.id = ed2.dicionario_turnos_id
+             WHERE s2.status = 'Ativo'
+               AND s2.mesclado_em_servidor_id IS NULL
+               AND right(regexp_replace(COALESCE(s2.cpf, ''), '\D', '', 'g'), 11) = r.cpf11
+               AND em2.servidor_id <> r.servidor_id
+               AND em2.mes = r.mes AND em2.ano = r.ano
+               AND ed2.dia = r.dia
+               AND dt2.slots && r.slots
+        ) INTO v_esperado;
+
+        BEGIN
+            SELECT c.conflito, c.mensagem INTO v_conf, v_msg
+              FROM public.fn_check_shift_conflicts(
+                       r.servidor_id, r.dia, r.mes, r.ano,
+                       r.dicionario_turnos_id, r.categoria, r.escala_mensal_id) c;
+        EXCEPTION WHEN OTHERS THEN
+            RAISE EXCEPTION 'ABORTADO: fn_check_shift_conflicts falhou (servidor %, dia %/%/%): %',
+                            r.servidor_id, r.dia, r.mes, r.ano, SQLERRM;
+        END;
+
+        -- Afastamento tambem devolve conflito, e ele nao e o que se mede aqui: so conta como
+        -- falso positivo o conflito que fala de OUTRA MATRICULA.
+        IF v_esperado AND NOT COALESCE(v_conf, false) THEN
+            v_falsos_neg := v_falsos_neg + 1;
+            RAISE WARNING 'NAO ACUSOU sobreposicao: servidor % dia %/%/% (cpf %)',
+                          r.servidor_id, r.dia, r.mes, r.ano, r.cpf11;
+        ELSIF NOT v_esperado AND COALESCE(v_conf, false)
+              AND v_msg LIKE '%outra matricula%' THEN
+            v_falsos_pos := v_falsos_pos + 1;
+            RAISE WARNING 'ACUSOU A TOA: servidor % dia %/%/% -> %',
+                          r.servidor_id, r.dia, r.mes, r.ano, v_msg;
+        END IF;
+    END LOOP;
+
+    v_erros := v_falsos_neg + v_falsos_pos;
+    RAISE NOTICE 'linhas conferidas: % | falsos negativos: % | falsos positivos: %',
+                 v_linhas, v_falsos_neg, v_falsos_pos;
+
+    IF v_falsos_neg > 0 THEN
+        RAISE EXCEPTION 'ABORTADO: % linha(s) com sobreposicao real entre matriculas da mesma '
+                        'pessoa NAO foram acusadas. A trava por pessoa nao esta valendo.', v_falsos_neg;
+    END IF;
+    IF v_falsos_pos > 0 THEN
+        RAISE EXCEPTION 'ABORTADO: % linha(s) de turnos COMPLEMENTARES foram acusadas como '
+                        'sobreposicao. Isso quebraria o arranjo MT x N que o duplo vinculo '
+                        'pratica — o criterio precisa continuar sendo SLOT sobreposto.', v_falsos_pos;
+    END IF;
+END;
+$conf$;
+
+-- ============================================================================
+-- ⚠️ DEPOIS DE APLICAR: a linha ja sobreposta continua no banco
+-- ============================================================================
+-- O trigger e BEFORE INSERT OR UPDATE: ele nao apaga o que ja existe, so recusa o proximo
+-- lancamento. Enquanto a linha sobreposta estiver la, o setor dela nao consegue salvar aquela
+-- celula. Para listar o que precisa de correcao manual na grade:
+--
+--   WITH pess AS (
+--     SELECT s.id, right(regexp_replace(COALESCE(s.cpf,''), '\D','','g'), 11) AS cpf11
+--       FROM public.servidores s
+--      WHERE s.status = 'Ativo' AND s.mesclado_em_servidor_id IS NULL
+--        AND length(regexp_replace(COALESCE(s.cpf,''), '\D','','g')) >= 11)
+--   SELECT a.servidor_id, b.servidor_id, em.ano, em.mes, ed.dia
+--     FROM public.escala_diaria ed
+--     JOIN public.escala_mensal em  ON em.id  = ed.escala_mensal_id
+--     JOIN pess a ON a.id = em.servidor_id
+--     JOIN pess b ON b.cpf11 = a.cpf11 AND b.id <> a.id
+--     JOIN public.escala_mensal em2 ON em2.servidor_id = b.id
+--          AND em2.mes = em.mes AND em2.ano = em.ano
+--     JOIN public.escala_diaria ed2 ON ed2.escala_mensal_id = em2.id AND ed2.dia = ed.dia
+--     JOIN public.dicionario_turnos t1 ON t1.id = ed.dicionario_turnos_id
+--     JOIN public.dicionario_turnos t2 ON t2.id = ed2.dicionario_turnos_id
+--    WHERE t1.slots && t2.slots;
+--
+-- Em 09/09/2026 isso devolvia UM caso: EDILEUZA LIMA FARIAS (mat 67454 x 15892), 01/09/2026,
+-- dois plantoes Regular N no mesmo setor do HMI, escala em Rascunho.

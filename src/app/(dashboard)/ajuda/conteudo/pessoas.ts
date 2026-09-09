@@ -58,6 +58,20 @@ export const pessoas: Capitulo = {
         },
         {
           tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'Duplo vínculo e o relógio de ponto',
+          texto:
+            'O relógio identifica a **pessoa**, não a matrícula — é assim por lei, e por isso ele não aceita a mesma pessoa cadastrada duas vezes. **Ela bate o ponto uma vez só, com a digital de sempre.** Quem separa as batidas entre as duas matrículas é o sistema, pelo horário previsto em cada escala: a batida das 07h vai para a matrícula do turno da manhã, a das 19h para a do turno da noite. Não é preciso fazer nada de diferente no equipamento.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'cuidado',
+          titulo: 'As duas matrículas não podem ter turnos no mesmo horário',
+          texto:
+            'A pessoa continua sendo uma só: ela não pode estar em dois lugares ao mesmo tempo. Se você tentar escalar as duas matrículas em horários que se cruzam, a grade recusa e **diz qual é a outra matrícula** — procurar o lançamento na sua própria escala não vai adiantar, ele está na escala da outra. Turnos que se completam (manhã numa matrícula, noite na outra) continuam liberados: é justamente o arranjo mais comum de quem tem dois vínculos.',
+        },
+        {
+          tipo: 'aviso',
           tom: 'dica',
           titulo: 'PIN de acesso',
           texto:

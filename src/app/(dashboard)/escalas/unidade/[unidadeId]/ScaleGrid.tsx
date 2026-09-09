@@ -39,7 +39,7 @@ import {
   type DiaVigiaGerado,
   type ClassificacaoDiaVigia
 } from '@/utils/vigiaRevezamento'
-import { encontrarConflitoExterno, diasComConflitoExterno } from '@/utils/conflitoEscala'
+import { encontrarConflitoExterno, diasComConflitoExterno, type IdsDaPessoa } from '@/utils/conflitoEscala'
 import {
   avaliarCarga,
   avisoAoAdicionar,
@@ -835,6 +835,15 @@ export function ScaleGrid({
   }, [sobreavisoHistoryModal, supabase])
 
   const [externalOccupancy, setExternalOccupancy] = useState<any[]>([])
+  /**
+   * Os cadastros que sao a MESMA PESSOA de cada servidor da grade (duplo vinculo).
+   *
+   * A grade compara por servidor_id, e duas matriculas da mesma pessoa sao dois ids — entao
+   * a sobreposicao entre elas passava despercebida ate 09/09/2026 (EDILEUZA, dois plantoes N
+   * simultaneos). O banco recusa (20260909140000), mas o "Salvar Previsao" e upsert EM LOTE:
+   * sem avisar antes, uma linha recusada derruba o mes inteiro de todos os servidores.
+   */
+  const [idsDaPessoa, setIdsDaPessoa] = useState<IdsDaPessoa>({})
 
   /**
    * Carga do servidor em TODAS as escalas da competência (`fn_carga_mensal_servidor`), indexada
@@ -899,8 +908,23 @@ export function ScaleGrid({
 
   const fetchOccupancy = useCallback(async (servidorIds: string[]) => {
     if (servidorIds.length === 0) return
+
+    // Os outros cadastros da mesma pessoa entram na MESMA consulta: sem as linhas deles no
+    // resultado nao ha o que comparar, e o aviso so chegaria como recusa do trigger no lote.
+    // fn_get_monthly_occupancy NAO foi tocada de proposito — ela foi criada fora do
+    // versionamento (armadilha 2) e so existe no banco.
+    const { data: irmaos } = await supabase.rpc('fn_cadastros_irmaos', { p_servidor_ids: servidorIds })
+    const mapa: IdsDaPessoa = {}
+    for (const r of (irmaos || []) as { servidor_id: string; irmao_id: string }[]) {
+      const atual = mapa[r.servidor_id] || [r.servidor_id]
+      if (!atual.includes(r.irmao_id)) atual.push(r.irmao_id)
+      mapa[r.servidor_id] = atual
+    }
+    setIdsDaPessoa(mapa)
+
+    const idsComIrmaos = Array.from(new Set([...servidorIds, ...Object.values(mapa).flat()]))
     const { data, error } = await supabase.rpc('fn_get_monthly_occupancy', {
-      p_servidor_ids: servidorIds,
+      p_servidor_ids: idsComIrmaos,
       p_mes: mes,
       p_ano: ano
     })
@@ -2659,7 +2683,7 @@ export function ScaleGrid({
     const afastamento = getAfastamentoBloqueante(servidorId, dia, 'Regular', slots)
     if (afastamento) return { permitido: false, motivo: 'afastamento' }
 
-    const conflito = encontrarConflitoExterno(externalOccupancy, servidorId, em.id, dia, slots)
+    const conflito = encontrarConflitoExterno(externalOccupancy, servidorId, em.id, dia, slots, idsDaPessoa)
     if (conflito) return { permitido: false, motivo: conflito.descricao }
 
     return { permitido: true }
@@ -4161,7 +4185,8 @@ export function ScaleGrid({
             const day = parseInt(dayStr)
             const turnoCel = turnos.find(t => t.id === turnoId)
             const conflito = encontrarConflitoExterno(
-              ocupacaoFresca || externalOccupancy, em.servidor_id, em.id, day, turnoCel?.slots || []
+              ocupacaoFresca || externalOccupancy, em.servidor_id, em.id, day, turnoCel?.slots || [],
+              idsDaPessoa
             )
             if (conflito) {
               conflitosSobreposicao.push(`Dia ${day} — ${em.servidores?.nome || 'Servidor'} (${categoria}: ${turnoCel?.codigo || '?'}) já está em ${conflito.descricao}`)
@@ -7455,7 +7480,8 @@ export function ScaleGrid({
                   const conflitosExternos = diasComConflitoExterno(
                     externalOccupancy, sId, em.id,
                     templateModal.startDay, daysInMonth,
-                    turnoTemplate?.slots || []
+                    turnoTemplate?.slots || [],
+                    idsDaPessoa
                   )
                   const conflictDays = new Set<number>(conflitosExternos.map(c => c.dia))
 
@@ -8225,7 +8251,7 @@ export function ScaleGrid({
                             // do servidor — ele prevê a partir do histórico DESTE setor. Sem esta
                             // rede o gerador escala alguém que já está em outro lugar no mesmo
                             // horário, e o trigger do banco derruba o lote inteiro no salvar.
-                            if (em && encontrarConflitoExterno(externalOccupancy, servidorId, em.id, day, turnoGerado?.slots || [])) {
+                            if (em && encontrarConflitoExterno(externalOccupancy, servidorId, em.id, day, turnoGerado?.slots || [], idsDaPessoa)) {
                               puladasPorConflito++
                               return
                             }

@@ -269,6 +269,11 @@ cadastros" entrega essa pessoa no relógio novo **sem nenhum meio de bater**. Pe
 testar no **HMM** (os três cenários convivem lá): plano, ordem do diagnóstico e as duas armadilhas
 já conhecidas em
 [`docs/planos/2026-09-06-copia-de-cartao-codigo-e-senha-entre-relogios.md`](docs/planos/2026-09-06-copia-de-cartao-codigo-e-senha-entre-relogios.md).
+✅ **O passo 1 do diagnóstico foi respondido em 09/09/2026, sem ir ao HMM**: `load_users.fcgi`
+devolve `rfid`, `code`, `bars` **e `password`** — a senha vem em **texto** (`"0"` para quem não
+tem), então há o que copiar. Medido na SMS (300 usuários): 25 com senha, 15 com código de barras,
+11 com `code`, 10 com cartão. O coletor é que descarta os quatro campos na leitura.
+
 ⚠️ **A conferência por relistagem NÃO protege esse caso**: ela olha biometria ganha e tamanho do
 cadastro, nunca os **campos de quem ficou**. Antes de escrever cartão em cadastro real, a
 conferência precisa comparar os campos do alvo antes/depois.
@@ -2042,8 +2047,19 @@ mesma pessoa/mesmo CPF — 110 CPFs assim na base — mas `uq_vinculo_vigente` s
 vínculo vigente por `(dispositivo_id, identificador_afd)`. Se as duas matrículas precisam bater
 no mesmo relógio, hoje só uma pode ter vínculo — o relógio identifica pela digital cadastrada,
 não sabe distinguir "qual matrícula" a pessoa está representando. É limitação de hardware/
-protocolo AFD, não só de schema. Direções possíveis e o que falta decidir em
-[`docs/planos/2026-08-13-vinculo-duplo-e-identificacao-no-rele.md`](docs/planos/2026-08-13-vinculo-duplo-e-identificacao-no-rele.md).
+protocolo AFD, não só de schema. ✅ **INVESTIGADO em 09/09/2026 — leia o plano NOVO**,
+[`docs/planos/2026-09-09-duplo-vinculo-e-registro-de-ponto-no-rep.md`](docs/planos/2026-09-09-duplo-vinculo-e-registro-de-ponto-no-rep.md);
+o de 13/08 está superado. **O equipamento RECUSA o 2º cadastro** (`PIS já cadastrado` /
+`CPF já cadastrado`, 1.531 falhas medidas na fila), e o AFD **não tem campo de contrato** — tipo 3
+carrega só `NSR + data/hora + identificador(12) + CRC`, e a Portaria 671 define esse campo como o
+**CPF/PIS do trabalhador**. Trocar de marca de relógio não resolve. 🚨 **Mas 11 dos 21 casos já
+funcionam**: o vínculo é único por `(dispositivo, identificador)`, então vínculo em unidades
+diferentes resolve sozinho. O problema são os **10 da mesma unidade** — 6 matrículas com escala e
+**zero batida própria**, 149 de 174 dias sem presença, e **29 batidas na matrícula errada** em
+09/2026. ✅ **A escala desambigua**: 40 dos 41 dias com as duas escaladas têm janelas **disjuntas**
+(sempre `MT 07-19` × `N 19-07`) — o 41º é erro de lançamento. ⚠️ E **qual matrícula ganha o ponto
+é acidente**: o vínculo nasce por ordem de chegada da fila, e no HMM os 4 relógios irmãos apontam
+para matrículas **diferentes** (PAULINO: HMM-01/02 → 67469, HMM-03/04 → 65562).
 
 ### 11. O campo de data/hora do AFD tem 12 dígitos, não 24 (não é ISO 8601)
 
@@ -4823,6 +4839,104 @@ produção nos dois sentidos), **validado injetando três regressões de propós
 detecção estrutural, remover as marcas do Windows e tirar a guarda de `recusou` da frente. As três
 reprovam.
 
+
+### 59. Duplo vínculo: a batida é da PESSOA, e o AFD não tem campo de contrato (09/09/2026)
+
+🚨 **O relógio não distingue duas matrículas da mesma pessoa — e isso é da NORMA, não do**
+**iDClass.** Portaria 671/2021, registro tipo 3, posições 035-046: *PIS, CPF ou sua composição*.
+A linha carrega `NSR + data/hora + identificador(12) + CRC` e **nada mais**. Não existe campo de
+contrato em REP-C nenhum: **trocar de marca de relógio não resolve.** Some-se, medido:
+
+| camada | evidência |
+|---|---|
+| o equipamento **recusa** o 2º cadastro | `PIS já cadastrado` / `CPF já cadastrado` — **1.531 falhas** em `rep_cadastros_fila`; 300 usuários do REP da SMS, **300 `pis` distintos** |
+| a digital é **1:N** | `get_system_configuration` → `one_to_one_enabled: false`. O modo 1:1 existe, mas é do equipamento **inteiro**: 323 pessoas digitando antes do dedo para resolver 10 |
+
+✅ **Metade dos casos SEMPRE funcionou, e é bom saber antes de investigar.** Dos **21** CPFs com
+dois cadastros Ativos, **11 têm os vínculos em unidades diferentes** e estavam corretos:
+`rep_vinculos_servidor` é único por `(dispositivo, identificador)`, então cada relógio resolve
+para a matrícula da sua unidade (ANA LUCIA: 25 batidas na SMS, 16 no HMI, cada uma na matrícula
+certa). O problema são os **10 de mesma unidade**.
+
+🚨 **E qual matrícula ganhava o ponto era ACIDENTE.** O vínculo nasce por ordem de chegada da fila
+de cadastro, e no HMM os quatro relógios irmãos apontavam para matrículas **diferentes** (PAULINO:
+HMM-01/02 → mat 67469, HMM-03/04 → mat 65562). Os quatro atendem os mesmos setores — **em qual
+matrícula o ponto caía dependia de em qual deles a pessoa encostou o dedo**, e nada em tela
+nenhuma dizia isso. Dano medido em 09/2026: **6 matrículas com escala e zero batida própria**,
+149 de 174 dias sem presença, **29 batidas numa matrícula sem turno naquele dia**.
+
+✅ **A escala desambigua, e é isso que torna a solução possível:** dos 41 dias com as duas
+matrículas escaladas, **40 têm janelas DISJUNTAS** — sempre `MT 07:00→19:00` numa e
+`N 19:00→07:00` na outra. Uma batida às 07:03 é do MT; às 19:04 é do N.
+
+Fonte única desde `20260909130000`: a alocação considera os **vínculos irmãos** (mesmo CPF,
+Ativos, não mesclados) — as batidas de relógio deles disputam os passos do dia, e os passos deles
+entram como **sombra**. É a **regra do dono** de 19/08/2026 sem uma linha nova de algoritmo, agora
+entre vínculos em vez de dias.
+
+⚠️ **Só a batida de RELÓGIO do irmão disputa.** Em origem `terminal`,
+`marcacoes_ponto.unidade_id` é a **lotação**, não o lugar da batida (armadilha 55) — sem lugar
+confiável não dá para dizer que as duas matrículas disputam a mesma batida física.
+`ajuste_coordenador`/`ajuste_servidor` são declaração sobre **uma** matrícula: nunca disputam.
+
+⚠️ **Instante previsto que EMPATA entre os dois vínculos precisa de desempate por `servidor_id`.**
+Sem esse ramo nenhum dos dois perde e a **mesma batida** é gravada nas duas matrículas — a dupla
+contagem da armadilha 23, dentro da mesma pessoa. É arbitrário, mas **determinístico e
+simétrico**: os dois lados decidem o oposto e exatamente um fica com ela.
+
+🚨 **E a regra do dono NÃO pode desqualificar na FRONTEIRA entre os dois vínculos**
+(`20260909160000`, achado pelo **ensaio** antes de aplicar). Com `MT 07-19` numa matrícula e
+`N 19-07` na outra, os dois passos são previstos para **19:00** — empate exato, e o desempate por
+`servidor_id` entregava a batida a um só. Medido (ELAYNE, 02/09): havia **duas** batidas na
+fronteira (19:00 e 19:05); a do noturno ficou com a 19:00, a do MT ficou **sem saída**, e a de
+**19:05 não foi usada por ninguém** — desqualificada dos dois lados. Uma batida na fronteira
+**fecha um turno e abre o seguinte**, exatamente como já é desejado entre blocos encostados
+(armadilha 6). A exceção é estreita de propósito: mesmo instante **e** um lado `entrada` **e** o
+outro `saida` **e** sombra de irmão. Disputa pelo MESMO passo continua desempatada por
+`servidor_id`, e sombra de dia vizinho não é afetada.
+
+⚠️ **`marcacoes_ponto` NÃO é tocada, e o trigger de imutabilidade não ganha exceção nova** (seguem
+três: reparse de AFD, fusão de setor, mesclagem de cadastro). A batida é da pessoa; o que a escala
+resolve é em qual matrícula ela é **aplicada**.
+
+🚨 **A trava de sobreposição não enxergava duplo vínculo** (`20260909140000`). Ela compara por
+`servidor_id`, e duas matrículas são dois `servidor_id` — a mesma pessoa podia ser escalada em
+dois turnos no mesmo horário e **nada reclamava** (EDILEUZA, dois plantões `N` simultâneos no mesmo
+setor, 01/09/2026). Decisão do usuário: **duplo vínculo não autoriza estar em dois lugares no mesmo
+horário**. E é isso que torna a desambiguação por horário confiável — se a escala nunca sobrepõe, a
+batida nunca fica ambígua. **As duas migrations se sustentam.**
+
+⚠️ **O critério continua sendo SLOT sobreposto, nunca "mesmo dia"** — `MT` numa matrícula e `N` na
+outra é o arranjo que essas pessoas praticam. E **a exclusão da própria linha no trigger mudou**: era
+`ed.escala_mensal_id <> NEW.escala_mensal_id` ("outra escala = outro setor"), que deixou de bastar,
+porque a escala da outra matrícula também tem id diferente e é justamente ela que precisa
+conflitar. Quem exclui a própria linha é `ed.id IS DISTINCT FROM NEW.id`.
+
+⚠️ **`fn_get_monthly_occupancy` NÃO foi tocada** — criada fora do versionamento (armadilha 2),
+só existe no banco. A grade manda os ids dos irmãos junto em `p_servidor_ids`
+(`fn_cadastros_irmaos`, `20260909150000`) e `conflitoEscala.ts` casa por pessoa. O aviso **diz que
+é a outra matrícula**: sem isso o coordenador procura na grade dele um lançamento que está na
+escala da outra, que ele pode nem saber que existe.
+
+❌ **Descartados:** identificador **sintético** (falsificaria o artefato legal — mesma razão do
+`nsr_offset`), **modo 1:1** global, **dedos diferentes** por matrícula (erro silencioso) e
+**proibir** duplo vínculo no REP. 🔷 O caminho complementar — vínculo A pelo **CPF** e B pelo
+**PIS**, dois identificadores legítimos que cabem em dois vínculos no mesmo relógio — está
+descrito no plano, **não implementado** e sem caso que o exija (exigiria cartão/senha para o
+segundo, porque a digital continua identificando a pessoa).
+
+ℹ️ **Achado de brinde:** `load_users.fcgi` devolve `rfid`, `code`, `bars` **e `password` em
+texto** — responde o Passo 1 do plano de cópia de cartão/senha (06/09/2026) sem ir ao HMM.
+
+⚠️ **Aberto, não tocado:** `fn_servidor_por_identificador_afd` desempata por escala com
+`extract(month from now())` — o mês **corrente**, não o da batida.
+
+Portões: `node scratchpad/sim_conflito_pessoa.js` (26) e `val_sim_conflito_pessoa.js`, que injeta
+**5 regressões e exige reprovação nas 5**. Geradores: `gen_alocacao_duplo_vinculo.js` e
+`gen_pessoa_unica_sobreposicao.js` (este lê **duas** fontes). Plano em
+[`docs/planos/2026-09-09-duplo-vinculo-e-registro-de-ponto-no-rep.md`](docs/planos/2026-09-09-duplo-vinculo-e-registro-de-ponto-no-rep.md),
+diário em
+[`docs/evolucao/2026-09-09-duplo-vinculo-a-batida-e-da-pessoa.md`](docs/evolucao/2026-09-09-duplo-vinculo-a-batida-e-da-pessoa.md).
 
 ## Convenções
 

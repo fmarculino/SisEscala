@@ -3,7 +3,12 @@
 **Data:** 13/08/2026
 **Origem:** preocupação levantada pelo usuário, registrada para retomar — nada decidido, nada
 implementado.
-**Estado:** ❓ problema aberto, sem solução escolhida.
+**Estado:** 🚫 **SUPERADO em 09/09/2026.** As três perguntas de "O que falta pra decidir" foram
+respondidas medindo produção e sondando o equipamento real: a direção B está descartada (o
+equipamento RECUSA cadastro duplicado — `PIS já cadastrado`), e o número de 110 CPFs está
+desatualizado (são **21**, e 11 deles já funcionam hoje). Leia
+[`2026-09-09-duplo-vinculo-e-registro-de-ponto-no-rep.md`](2026-09-09-duplo-vinculo-e-registro-de-ponto-no-rep.md)
+no lugar deste. O que segue é histórico.
 
 ---
 

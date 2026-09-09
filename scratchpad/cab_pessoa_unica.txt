@@ -1,0 +1,66 @@
+-- ============================================================================
+-- SOBREPOSICAO DE ESCALA E POR PESSOA, NAO POR MATRICULA
+-- ============================================================================
+-- Gerado por scratchpad/gen_pessoa_unica_sobreposicao.js a partir das versoes VIGENTES de
+-- DUAS funcoes, cada uma da sua migration. Nao editar a mao: regerar pelo script.
+--
+--   fn_check_shift_conflicts              <- 20260904120000
+--   fn_prevent_cross_sector_shift_overlap <- 20260826220000
+--
+-- Par de 20260909130000 (a alocacao considera os vinculos irmaos). Esta e a que impede o caso
+-- ambiguo de NASCER; aquela resolve o que ja existe.
+--
+-- O QUE MUDA: as duas travas passam a enxergar a PESSOA — todos os cadastros Ativos com o
+-- mesmo CPF — em vez da matricula. Para quem nao tem cadastro irmao (2.477 dos 2.498 Ativos)
+-- o conjunto e ele mesmo e NADA muda.
+--
+-- POR QUE
+--
+-- servidores e "1 linha = 1 vinculo", e o indice unico de CPF foi derrubado de proposito
+-- (20260810140000) para permitir duas matriculas da mesma pessoa. Mas a trava de sobreposicao
+-- (20260826220000) compara por servidor_id — e duas matriculas sao dois servidor_id. Entao ela
+-- simplesmente NAO ENXERGAVA o caso: a mesma pessoa podia ser escalada em dois turnos no mesmo
+-- horario, e nada reclamava.
+--
+-- Foi assim que EDILEUZA LIMA FARIAS (mat 67454 e 15892, HMI) ficou com DOIS plantoes
+-- Regular N 19:00-07:00 no mesmo dia, no mesmo setor (01/09/2026).
+--
+-- Decisao do usuario (09/09/2026): "apesar da pessoa ter duplo vinculo essa pessoa continua
+-- sendo unica, ela nao pode ser alocada em duas escalas no mesmo horario; o sistema tem que
+-- rejeitar a sobreposicao tanto da escala regular como dos plantoes e sobreaviso da mesma
+-- forma que esta hoje."
+--
+-- E ISSO E O QUE TORNA A DESAMBIGUACAO POR HORARIO CONFIAVEL: se a escala nunca sobrepoe, a
+-- batida nunca fica ambigua entre os dois vinculos. As duas migrations se sustentam.
+--
+-- ALCANCE MEDIDO EM 09/09/2026 (21 CPFs com 2+ cadastros Ativos, competencias 06 a 10/2026):
+--   89 pares (dia com turno nas DUAS matriculas)
+--   85 disjuntos  -> continuam passando, sem mudanca
+--    3 sem horario resolvivel -> nao bloqueiam (nao inventar criterio onde falta dado)
+--    1 SOBREPOSTO -> EDILEUZA, 01/09/2026, escala em Rascunho
+--
+-- ⚠️ LIMPAR VEM ANTES DE LIGAR A TRAVA (armadilha 23). Com a linha sobreposta no lugar, o
+-- setor envolvido nao consegue salvar nada na competencia. O unico caso da base esta em
+-- Rascunho e e erro de lancamento: corrigir a escala da EDILEUZA em 01/09/2026 antes/junto.
+--
+-- O QUE **NAO** MUDA, e e deliberado:
+--
+--   * O criterio continua sendo SLOT SOBREPOSTO, nunca "mesmo dia". Dobra em turnos
+--     complementares e legitima e e o caso dominante do duplo vinculo: MT 07:00-19:00 numa
+--     matricula e N 19:00-07:00 na outra (40 dos 41 dias medidos). Proibir por dia quebraria
+--     exatamente o arranjo que essas pessoas praticam.
+--
+--   * O guard de UPDATE do trigger continua: escrita de PRESENCA (terminal, REP,
+--     reconciliacao, validacao manual) passa reto. Sem ele, toda batida atravessaria a
+--     checagem e qualquer linha em conflito passaria a derrubar o registro de ponto.
+--
+--   * A exclusao da propria celula (p_escala_mensal_id, 20260821100000) continua: sem ela,
+--     trocar um turno por outro que compartilhe slot conflita a celula com ela mesma.
+--
+-- ⚠️ A EXCLUSAO DA PROPRIA LINHA NO TRIGGER PRECISOU MUDAR. A condicao era
+-- "ed.escala_mensal_id <> NEW.escala_mensal_id", com o comentario "outra escala = outro
+-- setor/unidade". Isso deixou de bastar: a escala da OUTRA MATRICULA tambem tem
+-- escala_mensal_id diferente — e e justamente ela que precisa conflitar. Agora a busca aceita
+-- tambem a linha de outro servidor_id da mesma pessoa, e quem exclui a propria linha e
+-- "ed.id IS DISTINCT FROM NEW.id", que ja estava ali.
+-- ============================================================================
