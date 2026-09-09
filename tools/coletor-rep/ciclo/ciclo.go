@@ -5,11 +5,13 @@ package ciclo
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -22,7 +24,7 @@ import (
 	"github.com/sms-maraba/sisescala-coletor-rep/sisescala"
 )
 
-const Versao = "0.16.0"
+const Versao = "0.17.0"
 
 // LimiteCadastrosPorCiclo e' o teto do ciclo AUTOMATICO. O clique manual no menu passa 0 (sem
 // teto, envia todos).
@@ -516,13 +518,50 @@ func ehFalhaDeTransporte(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	// "recusou" e' a marca das mensagens que o proprio equipamento devolveu (aplicarCadastro).
+	// Vem primeiro: se o relogio respondeu, nao houve falha de transporte nenhuma.
 	if strings.Contains(msg, "recusou") {
 		return false
 	}
+
+	// Deteccao ESTRUTURAL, antes de qualquer teste de texto. E' o que faltava ate a v0.17.0: a
+	// lista de marcas abaixo foi escrita a partir das mensagens do Go em Linux, e o coletor so roda
+	// no Windows, onde uma conexao TCP que nao completa chega como
+	//
+	//     dial tcp 10.110.4.19:443: connectex: A connection attempt failed because the connected
+	//     party did not properly respond after a period of time [...]
+	//
+	// que nao contem "timeout", "connection refused" nem nenhuma outra marca da lista. O preco foi
+	// medido em producao: em 08/09/2026 o REP-iDClass-HMM-04 ficou 2h sem responder, 301 cadastros
+	// foram gravados como falha DEFINITIVA e 277 pessoas ficaram permanentemente fora daquele
+	// relogio. O TIPO do erro nao depende do idioma do Windows nem da versao do Go.
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		// *url.Error so aparece quando o http.Client nao chegou a ter resposta HTTP: DNS, dial, TLS,
+		// leitura do corpo ou timeout do proprio Client. Resposta com status ruim NAO passa por aqui
+		// - vira erro formatado por rep/client.go, que cai no "recusou" acima.
+		return true
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return true
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+
+	// Marcas de texto: rede de seguranca para o erro que chegou embrulhado em fmt.Errorf("%v") em
+	// algum caminho e por isso perdeu o tipo original.
 	for _, marca := range []string{
 		"timeout", "deadline exceeded", "connection refused", "no such host",
 		"network is unreachable", "connection reset", "i/o timeout", "eof",
 		"tls", "certificado do rep",
+		// Windows: nomes das syscalls do winsock, que nenhuma marca generica acima alcanca.
+		"connectex", "wsarecv", "wsasend", "dial tcp", "read tcp", "write tcp",
 	} {
 		if strings.Contains(msg, marca) {
 			return true

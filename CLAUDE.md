@@ -4728,6 +4728,102 @@ aplicada, senão "passaria" sem ter testado nada (armadilha 48).
 Diário das duas em
 [`docs/evolucao/2026-09-09-terminal-local-e-o-escopo-do-responsavel.md`](docs/evolucao/2026-09-09-terminal-local-e-o-escopo-do-responsavel.md).
 
+### 58. Queda de rede queimava o cadastro para sempre, e o teto de retentativa media a grandeza errada (09/09/2026)
+
+🚨 **O REP-iDClass-HMM-04 não alcançava a cobertura dos irmãos HMM-01/02/03 — que atendem os
+MESMOS 160 setores, rodam na MESMA máquina (RH04, `10.110.4.123`) e recebem o mesmo cron diário.**
+A tela mostrava **287 escalados "fora do relógio"** no 04 contra 10 no 01, e "Sincronizar
+cadastros" devolvia zero para eles — para sempre. Diário em
+[`docs/evolucao/2026-09-09-queda-de-rede-queimava-o-cadastro-do-rep.md`](docs/evolucao/2026-09-09-queda-de-rede-queimava-o-cadastro-do-rep.md).
+
+⚠️ **Os setores não eram a causa, e é a primeira coisa que se suspeita.** Medido: os quatro têm os
+mesmos 160 setores (o 04 tem um `CSST` raiz a mais — a duplicata já registrada na seção do HMM,
+com 5 lotados, que é caso de `fn_fundir_setor`, não de vínculo de relógio).
+
+**A causa: em 08/09/2026, das 06h às 08h UTC (03h–05h locais), só o HMM-04 (`10.110.4.19`) ficou
+sem responder** — os outros três, na mesma máquina e na mesma rede, seguiram normais. O coletor
+tentou gravar cadastros nessa janela, levou **301 erros de conexão, e os 301 foram gravados como
+`falhou`** — que é DEFINITIVO desde `20260905110000`. Resultado: **277 pessoas permanentemente
+bloqueadas** naquele equipamento, com o cron enfileirando todo dia e `fn_cadastro_rep_reprovado`
+descartando em silêncio.
+
+🚨 **São TRÊS defeitos empilhados, e nenhum dos três sozinho resolve o caso.**
+
+| # | onde | o que era |
+|---|---|---|
+| **A** | `ciclo.ehFalhaDeTransporte` | reconhecia transporte por **trecho de texto** (`timeout`, `connection refused`, `i/o timeout`…), e a mensagem real do Windows é `connectex: A connection attempt failed because the connected party did not properly respond` — **não casa com marca nenhuma** |
+| **B** | `fn_cadastro_rep_reprovado` | falha de transporte **já gravada** continuava reprovando o reenfileiramento |
+| **C** | `fn_confirmar_cadastro_rep` | mesmo marcado como transitório, o item virava `falhou` no **teto de 5 tentativas** |
+
+🚨 **O defeito A é o mais caro e o mais fácil de repetir: a lista de marcas foi escrita a partir
+das mensagens do Go em Linux, e o coletor só roda no Windows.** Na prática **toda** queda de rede
+queimava o cadastro da pessoa. Desde a v0.17.0 a detecção é **estrutural** — `errors.As` sobre
+`*url.Error`, `*net.OpError`, `*net.DNSError` e `net.Error` —, que não depende do idioma do
+sistema operacional nem da versão do Go; as marcas de texto ficam só como rede de segurança para
+erro que perdeu o tipo em algum `fmt.Errorf("%v")`. **A guarda de `recusou` continua vindo
+primeiro**: se o equipamento respondeu, não houve falha de transporte, e tratar recusa como
+transitória faz o ciclo bater no mesmo erro a cada 5 minutos, para sempre.
+
+🚨 **O defeito C é o que engana:** com a espera crescente de `5 min × (tentativas+1)`, cinco
+tentativas são **~70 minutos**. O HMM-04 ficou ~2h fora — **com o coletor corrigido, os mesmos 301
+teriam sido queimados assim mesmo.** O teto existe pelo motivo certo (relógio **removido** da
+unidade não pode deixar item `pendente` para sempre, invisível na tela de erro) — errada era a
+**grandeza medida**: contagem de tentativas não diz nada sobre o equipamento, porque 5 tentativas
+são indistinguíveis entre um blecaute de uma tarde, um fim de semana com a máquina desligada e um
+relógio que não existe mais. Desde `20260909120000` o critério é **tempo na fila** (7 dias), e a
+espera entre tentativas ganhou teto de 60 min — sem ele, item com 20 tentativas esperaria 1h45 e o
+relógio poderia voltar sem ninguém tentar.
+
+⚠️ **A correção do coletor NÃO dispensa a do banco, e vice-versa.** A fila já carrega **387**
+falhas de rede gravadas por versões que não distinguiam as duas coisas, e coletor antigo continua
+em campo (a auto-atualização tem atraso sorteado de até 4h e depende da máquina estar ligada). O
+banco é a defesa que vale para o parque inteiro no instante em que a migration é aplicada.
+
+✅ **Medido em produção em 09/09/2026, chamando `fn_cadastro_rep_reprovado` par a par** (armadilha:
+MEDIR EXECUTANDO, NUNCA ESTIMANDO): **553 pares com alguma falha, 324 reprovados, 290 deles por
+transporte** (275 no HMM-04, 5 em cada irmão) e **34 recusa legítima** — que **continuam
+reprovados, e devem continuar**. As 387 falhas de rede da fila inteira têm só três formas, todas
+inequívocas (`connectex: A connection attempt failed` 368 · `connectex: No connection could be
+made … actively refused` 18 · `wsarecv: An existing connection was forcibly closed` 1), e
+**nenhuma contém `recusou`**, que é a marca do que o próprio equipamento devolveu.
+
+⚠️ **Nada aqui afrouxa a trava de `20260905110000`.** Recusa do equipamento (`PIS já cadastrado`,
+`Matrícula já cadastrada`, `nenhum formato de add_users.fcgi funcionou`) continua definitiva no
+primeiro erro: entrada condenada não pode consumir a vaga de quem é novo, no teto de 20 cadastros
+por ciclo. As duas migrations conferem **os dois sentidos** e abortam se qualquer um quebrar — a
+de `fn_confirmar_cadastro_rep` **executa** a função contra cenário sintético (armadilha 42),
+incluindo a prova de que o guard de dono da fila sobreviveu à cópia.
+
+✅ **Aplicadas e conferidas em produção em 09/09/2026** por `scratchpad/ver_migrations_09_09.mjs`
+e `ver_transitorio_producao.mjs`, que **executam** as funções e saem com código 1 se qualquer
+asserção falhar: **324 → 34 reprovados**, nenhum par com só falha de transporte continua preso, as
+**34 recusas legítimas intactas**, `anon` recebendo 401, e — no ensaio revertido — a **101ª**
+tentativa transitória continuando `pendente` com espera de 56 min (sem o teto seriam 505),
+recusa do equipamento ainda definitiva e o guard de dono da fila devolvendo 403.
+
+ℹ️ **Os 2 que sobraram no HMM-04 são PAULINO e ELZENIR** — as mesmas duas pessoas de **duplo
+vínculo** já registradas na seção do HMM (mesmo CPF e mesmo PIS em duas matrículas). O PIS já está
+no equipamento pela outra matrícula, então `PIS já cadastrado` é recusa correta: o conserto é
+`fn_mesclar_servidores`, não a fila.
+ℹ️ **`fn_falha_rep_de_transporte` é fonte única do critério**, usada pela função **e** pela
+conferência da migration — se as duas divergissem, a conferência não valeria nada.
+
+⚠️ **Ao diagnosticar "este relógio tem menos cadastro que o irmão", olhe a fila antes dos
+setores.** Os dois lados são silenciosos: a tela não distingue "não foi enviado" de "foi recusado
+para sempre", e o botão devolve zero sem dizer por quê. `scratchpad/an_hmm04_fila.mjs` agrupa a
+fila por status e mensagem; `an_reprov_transporte.mjs` chama a função par a par e separa transporte
+de recusa.
+
+ℹ️ Achado de passagem, e a razão de nada andar sozinho naquele momento: **os quatro relógios do HMM
+estavam sem contato desde 08/09 às 19:31 locais** — a máquina RH04 é desligada à noite. Nenhuma
+correção de banco produz efeito enquanto o coletor daquela unidade não roda.
+
+Portão: `go test ./ciclo/` (`tools/coletor-rep/ciclo/transporte_test.go`, com as mensagens reais de
+produção nos dois sentidos), **validado injetando três regressões de propósito** — remover a
+detecção estrutural, remover as marcas do Windows e tirar a guarda de `recusou` da frente. As três
+reprovam.
+
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.

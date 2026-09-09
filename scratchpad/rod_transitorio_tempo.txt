@@ -1,0 +1,116 @@
+
+-- Assinatura inalterada, entao CREATE OR REPLACE preserva os privilegios. Reafirmados mesmo assim:
+-- em migration de funcao, o que vale e o que esta escrito aqui (armadilha 24). Esta funcao e'
+-- chamada por rota de MAQUINA (o coletor, autenticado por HMAC em /api/rep/v1/pendencias), entao
+-- so service_role.
+REVOKE EXECUTE ON FUNCTION public.fn_confirmar_cadastro_rep(uuid, boolean, bigint, text, text, boolean, uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_confirmar_cadastro_rep(uuid, boolean, bigint, text, text, boolean, uuid) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.fn_confirmar_cadastro_rep(uuid, boolean, bigint, text, text, boolean, uuid) FROM authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_confirmar_cadastro_rep(uuid, boolean, bigint, text, text, boolean, uuid) TO service_role;
+
+
+-- ============================================================================
+-- CONFERENCIA - EXECUTA a funcao contra um cenario sintetico e desfaz o que criou (armadilha 42:
+-- conferir que a funcao EXISTE nao serve; a versao quebrada de fn_avisos_ponto_pendentes existia).
+-- Aborta a transacao inteira se qualquer sentido falhar.
+-- ============================================================================
+DO $conf$
+DECLARE
+    v_disp    uuid;
+    v_serv    uuid;
+    v_fila    uuid;
+    v_status  text;
+    v_tent    integer;
+    v_prox    timestamptz;
+BEGIN
+    SELECT id INTO v_disp FROM public.dispositivos_rep ORDER BY created_at LIMIT 1;
+    SELECT id INTO v_serv FROM public.servidores      ORDER BY created_at LIMIT 1;
+    IF v_disp IS NULL OR v_serv IS NULL THEN
+        RAISE NOTICE 'fn_confirmar_cadastro_rep: sem dispositivo/servidor para o ensaio - conferencia pulada.';
+        RETURN;
+    END IF;
+
+    -- (A) Falha TRANSITORIA em item NOVO com muitas tentativas: tem que continuar 'pendente'.
+    -- E' exatamente o caso do HMM-04, onde o teto antigo de 5 tentativas queimava o cadastro.
+    INSERT INTO public.rep_cadastros_fila (dispositivo_id, servidor_id, status, tentativas, created_at)
+         VALUES (v_disp, v_serv, 'pendente', 12, now() - interval '2 hours')
+      RETURNING id INTO v_fila;
+    PERFORM public.fn_confirmar_cadastro_rep(
+        v_fila, false, NULL,
+        'Post "https://10.110.4.19:443/login.fcgi": dial tcp: connectex: A connection attempt failed',
+        '', true, v_disp);
+    SELECT status, tentativas, proxima_tentativa_em INTO v_status, v_tent, v_prox
+      FROM public.rep_cadastros_fila WHERE id = v_fila;
+    IF v_status IS DISTINCT FROM 'pendente' THEN
+        RAISE EXCEPTION 'ABORTADO: falha transitoria em item novo virou "%" - o teto de contagem continua queimando cadastro.', v_status;
+    END IF;
+    IF v_tent IS DISTINCT FROM 13 THEN
+        RAISE EXCEPTION 'ABORTADO: contador de tentativas nao avancou (%).', v_tent;
+    END IF;
+    -- (A2) A espera tem teto: 13 tentativas nao podem virar horas de silencio.
+    IF v_prox IS NULL OR v_prox > now() + interval '61 minutes' THEN
+        RAISE EXCEPTION 'ABORTADO: proxima tentativa em % - o teto de espera nao foi aplicado.', v_prox;
+    END IF;
+
+    -- (B) Falha TRANSITORIA em item VELHO (na fila ha mais de 7 dias): tem que virar 'falhou',
+    -- senao relogio removido da unidade fica pendente para sempre e ninguem ve.
+    UPDATE public.rep_cadastros_fila
+       SET status = 'pendente', created_at = now() - interval '30 days', proxima_tentativa_em = NULL
+     WHERE id = v_fila;
+    PERFORM public.fn_confirmar_cadastro_rep(v_fila, false, NULL, 'dial tcp: connectex: timeout', '', true, v_disp);
+    SELECT status INTO v_status FROM public.rep_cadastros_fila WHERE id = v_fila;
+    IF v_status IS DISTINCT FROM 'falhou' THEN
+        RAISE EXCEPTION 'ABORTADO: item transitorio com 30 dias de fila ficou "%" - o teto de tempo nao existe.', v_status;
+    END IF;
+
+    -- (C) RECUSA do equipamento: continua definitiva no PRIMEIRO erro. Afrouxar aqui recria o
+    -- laco que 20260905110000 fechou - entrada condenada consumindo a vaga de quem e novo.
+    UPDATE public.rep_cadastros_fila
+       SET status = 'pendente', tentativas = 0, created_at = now(), proxima_tentativa_em = NULL
+     WHERE id = v_fila;
+    PERFORM public.fn_confirmar_cadastro_rep(
+        v_fila, false, NULL, 'add_users.fcgi recusou (formato users:[{pis}]): PIS ja cadastrado: 1', '', false, v_disp);
+    SELECT status INTO v_status FROM public.rep_cadastros_fila WHERE id = v_fila;
+    IF v_status IS DISTINCT FROM 'falhou' THEN
+        RAISE EXCEPTION 'ABORTADO: recusa do equipamento ficou "%" em vez de falhou.', v_status;
+    END IF;
+
+    -- (D) O guard de dono da fila (item 10 da auditoria, 30/08/2026) sobreviveu a copia?
+    UPDATE public.rep_cadastros_fila SET status = 'pendente' WHERE id = v_fila;
+    BEGIN
+        PERFORM public.fn_confirmar_cadastro_rep(
+            v_fila, true, NULL, '', '', false,
+            '00000000-0000-0000-0000-000000000000'::uuid);
+        RAISE EXCEPTION 'ABORTADO: item confirmado por dispositivo que nao e o dono - o guard se perdeu.';
+    EXCEPTION WHEN insufficient_privilege THEN
+        NULL; -- esperado
+    END;
+
+    DELETE FROM public.rep_cadastros_fila WHERE id = v_fila;
+    RAISE NOTICE 'fn_confirmar_cadastro_rep: conferencia ok (transitorio novo persiste, transitorio velho falha, recusa e definitiva, guard de dono intacto).';
+END
+$conf$;
+
+
+-- ============================================================================
+-- CONFERENCIA MANUAL (rodar depois de aplicar)
+-- ============================================================================
+-- 1. Itens esperando retentativa (nenhum deve ter espera acima de 1h):
+--
+--    SELECT d.nome, count(*) AS pendentes,
+--           count(*) FILTER (WHERE f.proxima_tentativa_em > now()) AS esperando,
+--           max(f.proxima_tentativa_em - now())                    AS maior_espera
+--      FROM public.rep_cadastros_fila f
+--      JOIN public.dispositivos_rep d ON d.id = f.dispositivo_id
+--     WHERE f.status = 'pendente'
+--     GROUP BY d.nome ORDER BY 2 DESC;
+--
+-- 2. Depois do proximo blecaute de relogio, nenhuma falha de rede NOVA deve aparecer:
+--
+--    SELECT d.nome, count(*)
+--      FROM public.rep_cadastros_fila f
+--      JOIN public.dispositivos_rep d ON d.id = f.dispositivo_id
+--     WHERE f.status = 'falhou'
+--       AND public.fn_falha_rep_de_transporte(f.erro)
+--       AND COALESCE(f.processado_em, f.created_at) > now() - interval '1 day'
+--     GROUP BY d.nome;

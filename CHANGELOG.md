@@ -2,6 +2,52 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.52.0] - 2026-09-09
+
+✅ **As duas migrations (`20260909110000` e `20260909120000`) já foram aplicadas e conferidas em
+produção.** Nenhum número de folha muda; elas mexem só na fila de cadastro dos relógios.
+Acompanha o **coletor v0.17.0** — recompile/republique se distribuir o `.zip` manualmente.
+
+### Fixed
+
+- 🚨 **Queda de rede de um relógio queimava o cadastro das pessoas para sempre.** Em 08/09/2026,
+  das 03h às 05h locais, só o `REP-iDClass-HMM-04` ficou sem responder. O coletor levou **301
+  erros de conexão** naquela janela e os 301 foram gravados como `falhou` — que é **definitivo**
+  desde a v2.44.0. Resultado: **277 pessoas permanentemente fora daquele equipamento**, com o cron
+  enfileirando todo dia, a função descartando em silêncio e "Sincronizar cadastros" devolvendo zero.
+  A tela mostrava 287 escalados "fora do relógio" no 04 contra 10 no 01, com os quatro relógios
+  atendendo os **mesmos 160 setores** e rodando na **mesma máquina**.
+- **São três defeitos empilhados, e nenhum sozinho resolve:**
+  - **coletor** — `ehFalhaDeTransporte` reconhecia rede por trecho de **texto** (`timeout`,
+    `connection refused`, `i/o timeout`…), lista escrita a partir das mensagens do Go em Linux.
+    A do Windows é `connectex: A connection attempt failed…` e **não casa com nenhuma** — como o
+    coletor só roda no Windows, **toda** queda de rede virava recusa definitiva. Agora a detecção é
+    **estrutural** (`errors.As` sobre `*url.Error`, `*net.OpError`, `*net.DNSError`,
+    `net.Error`), imune ao idioma do sistema e à versão do Go.
+  - **`20260909110000`** — falha de transporte **já gravada** deixa de reprovar o
+    reenfileiramento. Necessária mesmo com o coletor corrigido: a fila carrega **387** falhas de
+    rede antigas e há coletor anterior em campo.
+  - **`20260909120000`** — mesmo marcado como transitório, o item virava definitivo no **teto de
+    5 tentativas**. Com a espera crescente de 5 min isso são **~70 minutos**: o HMM-04 ficou 2h
+    fora, então os mesmos 301 teriam sido queimados assim mesmo. O teto existe pelo motivo certo
+    (relógio *removido* não pode deixar item pendente para sempre, invisível), mas media a
+    **grandeza errada** — contagem de tentativas não distingue um blecaute de uma tarde, um fim de
+    semana com a máquina desligada e um relógio que não existe mais. O critério passa a ser **tempo
+    na fila** (7 dias), e a espera entre tentativas ganha teto de 60 min.
+- **Medido em produção chamando as funções par a par**, antes e depois: **553 pares com alguma
+  falha, 324 reprovados → 34**. Os **34 que ficam são recusa legítima** do equipamento
+  (`PIS já cadastrado`, `Matrícula já cadastrada`, matrícula não numérica) e **devem continuar
+  bloqueados** — o conserto deles é achar o cadastro antigo, não insistir na fila.
+- ⚠️ **Nada disso afrouxa a trava da v2.44.0.** Recusa do equipamento continua definitiva no
+  primeiro erro: entrada condenada não pode consumir a vaga de quem é novo, no teto de 20 cadastros
+  por ciclo. As duas migrations conferem **os dois sentidos** e abortam se qualquer um quebrar.
+- **O que fica garantido:** falta de energia, queda de rede, switch trocado ou máquina desligada no
+  fim de semana **não perdem mais o cadastro** — o item é retentado até o equipamento voltar.
+  Relógio removido de vez vira erro visível em 7 dias.
+- ⚠️ Falta a parte operacional, que não é automática: **enfileirar os 275 do HMM-04** (botão na aba
+  Cobertura de Ponto, ou o cron da madrugada) com a **máquina RH04 ligada** — 20 cadastros por
+  ciclo de 5 min, ~2 horas.
+
 ## [2.51.0] - 2026-09-09
 
 ⚠️ **Requer aplicar `20260909100000`.** Ela recria `fn_confirmar_presenca` acrescentando uma

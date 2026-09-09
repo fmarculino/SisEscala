@@ -1,0 +1,105 @@
+-- ============================================================================
+-- Falha de TRANSPORTE nao reprova o cadastro (09/09/2026)
+--
+-- SINTOMA: o REP-iDClass-HMM-04 nao alcanca a mesma cobertura dos irmaos HMM-01/02/03, que
+-- atendem os MESMOS 160 setores, estao na MESMA maquina (RH04, 10.110.4.123) e recebem o mesmo
+-- enfileiramento diario. A tela mostrava 287 escalados "fora do relogio" no 04 contra 10 no 01,
+-- e clicar em "Sincronizar cadastros" nao mudava nada - para sempre.
+--
+-- CAUSA: em 08/09/2026, das 06h as 08h UTC (03h as 05h locais), SO o HMM-04 (10.110.4.19) ficou
+-- sem responder. O coletor tentou gravar os cadastros nessa janela e levou 301 erros de conexao.
+-- Todos foram gravados como status 'falhou', que e DEFINITIVO - e desde 20260905110000 a fila
+-- respeita isso e nao reenfileira quem falhou.
+--
+-- O coletor JA distingue as duas coisas (`transitorio` devolve o item para 'pendente'), mas
+-- ciclo.ehFalhaDeTransporte reconhecia transporte por trecho de TEXTO:
+--
+--     "timeout", "deadline exceeded", "connection refused", "no such host",
+--     "network is unreachable", "connection reset", "i/o timeout", "eof", "tls"
+--
+-- e a mensagem real do Windows nao casa com nenhuma delas:
+--
+--     Post "https://10.110.4.19:443/login.fcgi": dial tcp 10.110.4.19:443: connectex:
+--     A connection attempt failed because the connected party did not properly respond
+--     after a period of time, or established connection failed because connected host
+--     has failed to respond.
+--
+-- Como o coletor SO roda no Windows, na pratica TODA queda de rede queimava o cadastro da pessoa.
+--
+-- MEDIDO EM PRODUCAO EM 09/09/2026, chamando fn_cadastro_rep_reprovado par a par (armadilha:
+-- MEDIR EXECUTANDO, NUNCA ESTIMANDO):
+--
+--     553 pares (dispositivo, servidor) com alguma falha
+--     324 reprovados hoje
+--     290 deles por falha de TRANSPORTE   <- o defeito (275 no HMM-04, 5 em cada irmao)
+--      34 recusa legitima do equipamento  <- CONTINUAM reprovados, e devem continuar
+--
+-- E as 387 falhas de rede da fila inteira do parque tem so tres formas, todas inequivocas:
+--
+--     368  connectex: A connection attempt failed because the connected party...
+--      18  connectex: No connection could be made because the target machine actively refused it
+--       1  wsarecv: An existing connection was forcibly closed by the remote host
+--
+-- Nenhuma delas contem "recusou", que e a marca das mensagens que o proprio equipamento devolveu.
+--
+-- A CORRECAO E' DUPLA, e as duas metades ficam:
+--   (a) coletor v0.17.0: ehFalhaDeTransporte passa a reconhecer o erro pela ESTRUTURA (errors.As
+--       sobre *net.OpError / net.Error), nao pelo idioma da mensagem do sistema operacional;
+--   (b) esta migration: o banco deixa de reprovar por falha de transporte JA GRAVADA. Sem ela,
+--       os 290 continuariam presos mesmo com o coletor novo - e ha coletor antigo em campo, cuja
+--       atualizacao automatica tem atraso sorteado de ate 4h e depende da maquina estar ligada.
+--
+-- ⚠️ Isto NAO afrouxa a trava de 20260905110000. Recusa do equipamento ("PIS ja cadastrado",
+-- "Matricula ja cadastrada", "nenhum formato de add_users.fcgi funcionou") continua sendo
+-- definitiva: entrada condenada nao pode consumir a vaga de quem e novo, no teto de 20 cadastros
+-- por ciclo. A conferencia abaixo confere OS DOIS SENTIDOS e aborta se qualquer um quebrar.
+--
+-- ⚠️ ESTE ARQUIVO E' GERADO. Nao edite a mao: rode
+--     node scratchpad/gen_falha_transporte.js
+-- O gerador copia a funcao da migration VIGENTE (20260907100000) e aborta se qualquer
+-- substituicao nao bater na contagem.
+--
+-- Assinatura inalterada: CREATE OR REPLACE puro, sem DROP e sem risco de PGRST203 (armadilha 41).
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- fn_falha_rep_de_transporte: fonte unica do criterio, para a funcao e para a conferencia
+-- usarem a MESMA regra. Se as duas divergissem, a conferencia nao valeria nada (armadilha 34).
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_falha_rep_de_transporte(p_erro text)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+AS $tr$
+    SELECT p_erro IS NOT NULL
+       -- "recusou" e a marca das mensagens que o EQUIPAMENTO devolveu (aplicarCadastro, em
+       -- rep/client.go). Vem primeiro de proposito: na duvida, NAO e transporte - o erro na
+       -- direcao contraria (achar que uma recusa e transitoria) faz o ciclo automatico bater no
+       -- mesmo erro a cada 5 minutos, para sempre.
+       AND p_erro NOT ILIKE '%recusou%'
+       AND (
+             -- Assinatura de *url.Error do Go: o http.Client nao chegou a ter resposta. Cobre as
+             -- tres formas medidas em producao e as que ainda nao apareceram.
+             p_erro LIKE 'Post "http%'
+          OR p_erro LIKE 'Get "http%'
+             -- Marcas genericas, para o caso de a mensagem chegar embrulhada de outro jeito.
+          OR p_erro ILIKE '%connectex%'
+          OR p_erro ILIKE '%dial tcp%'
+          OR p_erro ILIKE '%read tcp%'
+          OR p_erro ILIKE '%wsarecv%'
+          OR p_erro ILIKE '%wsasend%'
+          OR p_erro ILIKE '%i/o timeout%'
+          OR p_erro ILIKE '%deadline exceeded%'
+          OR p_erro ILIKE '%client.timeout%'
+          OR p_erro ILIKE '%connection reset%'
+          OR p_erro ILIKE '%connection refused%'
+          OR p_erro ILIKE '%no such host%'
+          OR p_erro ILIKE '%network is unreachable%'
+       );
+$tr$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_falha_rep_de_transporte(text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_falha_rep_de_transporte(text) FROM anon;
+GRANT  EXECUTE ON FUNCTION public.fn_falha_rep_de_transporte(text) TO authenticated, service_role;
+

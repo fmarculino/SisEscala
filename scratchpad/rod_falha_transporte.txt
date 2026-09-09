@@ -1,0 +1,116 @@
+
+-- Assinatura inalterada, entao CREATE OR REPLACE preserva os privilegios. Reafirmados mesmo assim:
+-- em migration de funcao, o que vale e o que esta escrito aqui (armadilha 24).
+REVOKE EXECUTE ON FUNCTION public.fn_cadastro_rep_reprovado(uuid, uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_cadastro_rep_reprovado(uuid, uuid) FROM anon;
+GRANT  EXECUTE ON FUNCTION public.fn_cadastro_rep_reprovado(uuid, uuid) TO authenticated, service_role;
+
+
+-- ============================================================================
+-- CONFERENCIA - EXECUTA a funcao (armadilha 42: conferir que ela EXISTE nao serve) e confere
+-- OS DOIS SENTIDOS. Aborta a transacao inteira se qualquer um quebrar.
+-- ============================================================================
+DO $conf$
+DECLARE
+    v_presos_por_transporte integer;
+    v_legitimos_perdidos    integer;
+    v_liberados             integer;
+BEGIN
+    -- Sanidade do criterio, sobre as mensagens reais que existem na fila hoje. Se a funcao nova
+    -- classificasse "recusou" como transporte, a trava de 20260905110000 cairia inteira.
+    IF public.fn_falha_rep_de_transporte(
+         'Post "https://10.110.4.19:443/login.fcgi": dial tcp 10.110.4.19:443: connectex: '
+      || 'A connection attempt failed because the connected party did not properly respond.') IS NOT TRUE THEN
+        RAISE EXCEPTION 'ABORTADO: o connectex do Windows nao foi reconhecido como transporte - a correcao nao faz nada.';
+    END IF;
+    IF public.fn_falha_rep_de_transporte('add_users.fcgi recusou (formato users:[{pis}]): PIS ja cadastrado: 123') IS NOT FALSE THEN
+        RAISE EXCEPTION 'ABORTADO: recusa do equipamento classificada como transporte - a trava de 20260905110000 cairia.';
+    END IF;
+    IF public.fn_falha_rep_de_transporte(
+         'nenhum formato de add_users.fcgi funcionou neste equipamento; tentativas: users:[{cpf}] -> '
+      || 'add_users.fcgi recusou (formato users:[{cpf}]): CPF ja cadastrado') IS NOT FALSE THEN
+        RAISE EXCEPTION 'ABORTADO: "nenhum formato funcionou" classificado como transporte.';
+    END IF;
+    IF public.fn_falha_rep_de_transporte(NULL) IS NOT FALSE THEN
+        RAISE EXCEPTION 'ABORTADO: erro nulo classificado como transporte.';
+    END IF;
+
+    -- (A) O defeito: par cujas falhas sao TODAS de transporte nao pode continuar reprovado.
+    SELECT count(*) INTO v_presos_por_transporte
+      FROM (
+        SELECT f.dispositivo_id, f.servidor_id
+          FROM public.rep_cadastros_fila f
+         WHERE f.status = 'falhou'
+         GROUP BY f.dispositivo_id, f.servidor_id
+        HAVING bool_and(public.fn_falha_rep_de_transporte(f.erro))
+      ) p
+     WHERE public.fn_cadastro_rep_reprovado(p.dispositivo_id, p.servidor_id);
+
+    IF v_presos_por_transporte > 0 THEN
+        RAISE EXCEPTION 'ABORTADO: % par(es) continuam reprovados tendo SO falha de transporte.', v_presos_por_transporte;
+    END IF;
+
+    -- (B) O sentido inverso, que e o mais facil de quebrar sem perceber: uma recusa LEGITIMA e
+    -- recente (nada mudou no cadastro, nenhum envio deu certo depois, aparelho nao substituido)
+    -- tem que CONTINUAR reprovada. Sao 34 em producao em 09/09/2026, quase todas matricula/PIS
+    -- ja ocupados no proprio equipamento por cadastro do sistema anterior - o conserto delas e
+    -- achar o cadastro antigo, nao insistir na fila.
+    SELECT count(*) INTO v_legitimos_perdidos
+      FROM (
+        SELECT f.dispositivo_id, f.servidor_id,
+               max(COALESCE(f.processado_em, f.created_at))
+                 FILTER (WHERE f.status = 'falhou'
+                           AND NOT public.fn_falha_rep_de_transporte(f.erro)) AS ult_recusa,
+               max(COALESCE(f.processado_em, f.created_at))
+                 FILTER (WHERE f.status = 'enviado')                          AS ult_ok
+          FROM public.rep_cadastros_fila f
+         GROUP BY f.dispositivo_id, f.servidor_id
+      ) p
+      JOIN public.servidores s ON s.id = p.servidor_id
+     WHERE p.ult_recusa IS NOT NULL
+       AND (p.ult_ok IS NULL OR p.ult_ok < p.ult_recusa)
+       AND p.ult_recusa > now() - interval '30 days'
+       AND p.ult_recusa >= COALESCE(s.updated_at, '-infinity'::timestamptz)
+       AND p.ult_recusa >= COALESCE(
+             (SELECT max(sb.created_at) FROM public.dispositivos_rep_substituicoes sb
+               WHERE sb.dispositivo_id = p.dispositivo_id), '-infinity'::timestamptz)
+       AND NOT public.fn_cadastro_rep_reprovado(p.dispositivo_id, p.servidor_id);
+
+    IF v_legitimos_perdidos > 0 THEN
+        RAISE EXCEPTION 'ABORTADO: % recusa(s) legitima(s) deixaram de reprovar - a funcao afrouxou demais.', v_legitimos_perdidos;
+    END IF;
+
+    SELECT count(*) INTO v_liberados
+      FROM (SELECT DISTINCT dispositivo_id, servidor_id
+              FROM public.rep_cadastros_fila WHERE status = 'falhou') p
+     WHERE NOT public.fn_cadastro_rep_reprovado(p.dispositivo_id, p.servidor_id);
+
+    RAISE NOTICE 'fn_cadastro_rep_reprovado: conferencia ok. % par(es) com falha nao estao reprovados.', v_liberados;
+END
+$conf$;
+
+
+-- ============================================================================
+-- CONFERENCIA MANUAL (rodar depois de aplicar)
+-- ============================================================================
+-- 1. Quantos continuam reprovados, por relogio (esperado: nenhum do HMM-04):
+--
+--    SELECT d.nome AS relogio, count(*) AS reprovados
+--      FROM (SELECT DISTINCT dispositivo_id, servidor_id FROM public.rep_cadastros_fila
+--             WHERE status = 'falhou') p
+--      JOIN public.dispositivos_rep d ON d.id = p.dispositivo_id
+--     WHERE public.fn_cadastro_rep_reprovado(p.dispositivo_id, p.servidor_id)
+--     GROUP BY d.nome ORDER BY 2 DESC;
+--
+-- 2. Reenfileirar de fato o HMM-04 (o botao "Sincronizar cadastros" da tela faz o mesmo; o cron
+--    diario tambem, mas ele so roda de madrugada). As duas RPCs, porque a por lotacao nao alcanca
+--    quem esta escalado ali e lotado noutro lugar:
+--
+--    SELECT public.fn_enfileirar_cadastros_rep(
+--             (SELECT id FROM public.dispositivos_rep WHERE nome = 'REP-iDClass-HMM-04'));
+--    SELECT public.fn_enfileirar_cadastros_por_escala(
+--             (SELECT id FROM public.dispositivos_rep WHERE nome = 'REP-iDClass-HMM-04'));
+--
+-- ⚠️ O coletor grava no maximo 20 cadastros por ciclo (5 min), entao ~280 pessoas levam cerca de
+--    24 ciclos = ~2h com a maquina RH04 ligada. Nada disso anda com o coletor parado: em
+--    09/09/2026 os quatro relogios do HMM estavam sem contato desde 08/09 as 19:31 locais.
