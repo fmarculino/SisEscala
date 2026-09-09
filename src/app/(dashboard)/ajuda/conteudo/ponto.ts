@@ -32,6 +32,13 @@ export const ponto: Capitulo = {
             ],
           ],
         },
+        {
+          tipo: 'aviso',
+          tom: 'dica',
+          titulo: 'Quem responde pelo terminal não precisa ser chefe de quem bate',
+          texto:
+            'No cadastro do terminal existe um **coordenador responsável** — ele é o supervisor do equipamento, para efeito de registro. Quem pode bater ali é decidido pela **unidade e pelo setor do próprio terminal**, não pelo escopo desse coordenador. Ele pode ser de outra unidade sem que isso atrapalhe ninguém.',
+        },
         { tipo: 'titulo', texto: 'Os quatro passos do dia' },
         {
           tipo: 'p',

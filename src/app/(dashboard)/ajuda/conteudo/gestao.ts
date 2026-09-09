@@ -223,6 +223,18 @@ export const gestao: Capitulo = {
             'Vincular a conta ao cadastro de servidor é o que faz o e-mail da ficha e o login andarem juntos.',
           ],
         },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'Quem tem dois vínculos tem uma conta só',
+          texto:
+            'Uma pessoa com dois vínculos aparece duas vezes em Servidores — mesmo CPF, matrículas diferentes, muitas vezes em unidades diferentes. Mas a conta de acesso é **uma só**, e o escopo dela é o que você marcar aqui: o sistema **não** o deduz da lotação. Ao vincular a conta, confira se o escopo cobre os dois lugares em que a pessoa trabalha.',
+        },
+        {
+          tipo: 'p',
+          texto:
+            'Quando o servidor escolhido tem outro vínculo fora do escopo marcado, a tela avisa em amarelo, dizendo em qual unidade. É só um aviso — quem decide o que a conta enxerga continua sendo você.',
+        },
         { tipo: 'titulo', texto: 'Backup e Segurança' },
         {
           tipo: 'p',

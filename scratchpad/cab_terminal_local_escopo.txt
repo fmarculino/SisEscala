@@ -1,0 +1,63 @@
+-- ============================================================================
+-- O TERMINAL LOCAL NAO HERDA O ESCOPO DO COORDENADOR RESPONSAVEL
+-- ============================================================================
+-- Gerado por scratchpad/gen_terminal_local_escopo.js a partir de
+-- 20260908140000_bloco_nao_atravessa_unidade.sql (a migration VIGENTE de
+-- fn_confirmar_presenca). Nao editar a mao: regerar pelo script, que aborta se a contagem
+-- de ocorrencias divergir.
+--
+-- O QUE MUDA: no caminho do terminal local (/presenca-local, app coletor-rep), o guard de
+-- escopo do COORDENADOR deixa de ser aplicado. Todo o resto da funcao fica byte a byte igual.
+--
+-- POR QUE:
+-- fn_registrar_ponto_terminal_local (20260811180000) confere o escopo do EQUIPAMENTO — a
+-- matricula tem de pertencer a unidade/setor gravados em terminais_locais — e recusa ANTES de
+-- checar o PIN. Feito isso, ela delega:
+--
+--     PERFORM set_config('sisescala.canal_ponto', 'terminal_local', true);
+--     RETURN public.fn_registrar_ponto(p_matricula, p_pin_servidor, v_responsavel_id, NULL);
+--
+-- E `v_responsavel_id` chega aqui como p_coordenador_id, onde um SEGUNDO guard — o do terminal
+-- CLASSICO — confere se aquele coordenador tem escopo sobre o servidor. No terminal classico
+-- isso e correto: o coordenador loga na maquina e a sessao dele fica aberta na sala, entao o
+-- guard impede que alguem de outro setor use aquela sessao. No terminal local nao existe sessao
+-- de coordenador: o "responsavel" e quem RESPONDE pelo equipamento, e o escopo real e o do
+-- proprio terminal, ja conferido uma chamada antes.
+--
+-- O CASO MEDIDO (08-09/09/2026): o terminal "POLO II - VELHA MARABA" (unidade SMS, setor CAF \
+-- POLO II) estava com uma coordenadora do HMI como responsavel. Ela tem DOIS vinculos — um na
+-- SMS/CAF e outro no HMI — mas o escopo da CONTA dela (profile_unidades/profile_setores, que e
+-- cadastro manual, nunca derivado da lotacao) tinha so o HMI. Resultado: TODA batida daquele
+-- terminal era recusada, para as 6 pessoas lotadas ali.
+--
+--   63 tentativas "Sem permissao para validar este servidor nesta unidade/setor", 9 pessoas;
+--   59 delas desse terminal — 20 em 03/09, 20 em 04/09, 16 em 08/09.
+--
+-- A batida nunca se perdeu (vira marcacao pendente em marcacoes_ponto), mas o servidor via
+-- "recusado" na tela e a folha ficava vazia ate alguem validar a mao. Os dias 02, 03 e 04/09
+-- estao todos gravados com origem `terminal` e horario real: alguem vinha validando as ~20
+-- batidas, uma a uma, todo dia util.
+--
+-- ⚠️ ISSO NAO E RESTRICAO DE HORARIO (Portaria 671/2021, vedacao 1) — mas era uma QUARTA causa
+-- de recusa, ao lado de matricula/PIN invalidos, que a conformidade da v1.22.0 nao previu. Pela
+-- regra da cor (CLAUDE.md), pintar de vermelho o que foi aceito ensina o servidor a nao
+-- insistir, produzindo o efeito que a lei quer evitar.
+--
+-- O QUE NAO MUDA:
+--   - O terminal CLASSICO (/presenca) continua com o guard inteiro. O bypass e restrito a
+--     canal_ponto = 'terminal_local', e o gerador aborta se essa comparacao afrouxar.
+--   - O escopo do terminal local continua sendo conferido, em
+--     fn_registrar_ponto_terminal_local: quem nao pertence a unidade/setor do equipamento
+--     continua recusado, antes do PIN.
+--   - O fallback por escala (ontem/hoje) e a recusa final continuam onde estavam, para o
+--     caminho classico.
+--   - `coordenador_id` continua sendo gravado na marcacao: o responsavel permanece registrado
+--     como supervisor do equipamento, que e o que a tela promete.
+--
+-- ⚠️ O GUC e LOCAL A TRANSACAO (set_config com terceiro argumento true) e cada RPC via
+--    PostgREST e uma transacao propria — nao ha como um chamador de fora publica-lo e depois
+--    entrar aqui. E o mesmo mecanismo que 20260827000000 ja usa para o terminal local nao ser
+--    barrado pelo desligamento do terminal classico; nenhum GUC novo foi criado.
+--
+-- ============================================================================
+

@@ -4631,6 +4631,103 @@ não há como informar a hora na célula, só corrigindo a jornada para `19H ÀS
 está **excluída** da lista de reconciliação: reconciliar contra previsto invertido troca um erro
 por outro.
 
+### 56. O terminal local herdava o escopo do COORDENADOR responsável, e isso recusava a unidade inteira (09/09/2026)
+
+🚨 **O terminal de ponto do CAF POLO II recusou 59 batidas em 4 dias úteis, das 6 pessoas lotadas
+ali** — e a mensagem não era sobre horário: *"Sem permissão para validar este servidor nesta
+unidade/setor."* O horário estava perfeito (07:58:25 contra previsto 08:00).
+
+**A causa:** `fn_registrar_ponto_terminal_local` confere o escopo do **equipamento** (a matrícula
+tem de pertencer à unidade/setor de `terminais_locais`, recusando antes do PIN) e então delega:
+
+```sql
+PERFORM set_config('sisescala.canal_ponto', 'terminal_local', true);
+RETURN public.fn_registrar_ponto(p_matricula, p_pin_servidor, v_responsavel_id, NULL);
+```
+
+`v_responsavel_id` chega como `p_coordenador_id` e `fn_confirmar_presenca` aplica um **segundo**
+guard — o do terminal CLÁSSICO, onde o coordenador loga na máquina e o guard impede que alguém de
+outro setor use aquela sessão. **No terminal local não existe sessão de coordenador**: o
+responsável é quem *responde* pelo equipamento, e o escopo real é o do próprio terminal, já
+conferido uma chamada antes.
+
+⚠️ **Era uma QUARTA causa de recusa que a conformidade da v1.22.0 não previu** (lá só
+matrícula/PIN inválidos recusam). A batida não se perdia — vira marcação pendente —, mas o
+servidor via **vermelho** na tela, e pela regra da cor isso ensina a não insistir. Os dias 02, 03
+e 04/09 estão todos gravados com origem `terminal` e horário real: alguém validava as ~20 batidas
+à mão, **todo dia útil**.
+
+✅ **`20260909100000`**: o guard é pulado quando `sisescala.canal_ponto = 'terminal_local'`.
+**Nenhum GUC novo** — esse sinal já era publicado desde `20260827000000` (para o terminal local
+não ser barrado pelo desligamento do clássico) e ninguém tinha percebido que servia aqui.
+Gerada por `scratchpad/gen_terminal_local_escopo.js`, que copia só `fn_confirmar_presenca` de
+`20260908140000` e aborta se a contagem divergir.
+
+⚠️ **O bypass tem de ficar restrito a `= 'terminal_local'`** — afrouxar a comparação mata o guard
+de escopo para o terminal clássico também. O gerador e a conferência da migration abortam se isso
+acontecer. ✅ Validada em homologação com cenário sintético revertido, nos **dois sentidos**:
+clássico → *"Sem permissão…"*; terminal local → *"Sem escala agendada para hoje"* (atravessou o
+guard e parou no ponto seguinte, que é o correto).
+
+⚠️ **A trava do canal (`fn_terminal_classico_habilitado`) NÃO vive em `fn_confirmar_presenca`** —
+ela está em `fn_registrar_ponto`. São duas funções e dois guards diferentes; conferir o guard
+errado faz um portão de texto abortar por engano (aconteceu ao escrever o gerador).
+
+ℹ️ **O conserto imediato é de cadastro, e vale saber para o próximo caso**: trocar o coordenador
+responsável do terminal por alguém com escopo naquele setor resolve na hora, sem deploy.
+
+### 57. Escopo de conta é AUTORIDADE, não lotação — e quem tem dois vínculos tem uma conta só (09/09/2026)
+
+⚠️ **O escopo de um usuário (`profile_unidades`/`profile_setores`) nunca é derivado da lotação:
+ele vem do formulário** (`formData.getAll('unidade_ids')` em `usuarios/actions.ts`). E
+`servidores` é "1 linha = 1 vínculo" (armadilha 50), enquanto `uq_profiles_servidor_id` permite
+**no máximo um usuário por servidor** — então quem tem dois vínculos tem `profiles.servidor_id`
+apontando para UM deles, e ninguém avisa que o outro ficou fora do escopo.
+
+Foi a lacuna por trás da armadilha 56: LUCILIA LIMA AZEVEDO tem vínculo na **SMS / CAF** e no
+**HMI**, a conta dela tinha escopo só do HMI, e ela era a responsável pelo terminal do CAF.
+
+✅ Medido em 09/09/2026: **19 CPFs com 2+ cadastros ativos**, só **2 com conta de usuário**, e
+**nos 2 o escopo não cobre um dos vínculos** (LUCILIA, ativa; DENISVAL, inativo). Era o único caso
+vivo no parque.
+
+🚨 **NÃO derivar escopo da lotação, e o motivo vale mais que a correção.** Escopo é **autoridade**;
+lotação é **onde a pessoa trabalha**. As duas não coincidem por desenho — um coordenador pode ser
+lotado num setor e coordenar outro, e RH/admin têm escopo amplo sem lotação correspondente.
+Automatizar daria acesso que ninguém autorizou: erro pior que o atual.
+
+A correção é **aviso, nunca automação**: `src/utils/vinculosDoUsuario.ts`
+(`vinculosForaDoEscopo`, `descreverVinculosForaDoEscopo`) pinta em âmbar, na tela de Usuários,
+*"Esta pessoa também tem vínculo em X, que não está no escopo desta conta"*. Quem decide continua
+sendo quem cadastra.
+
+⚠️ **A busca dos vínculos adicionais NÃO pode ser filtrada por unidade** — é o oposto do que a
+lista de servidores da tela faz para o `rh_unidade`. O vínculo que interessa é justamente o que
+está **fora** do escopo do gestor; filtrá-lo junto faria o aviso nunca aparecer para quem mais
+precisa dele. Trafega o mínimo: id, cpf, matrícula e nome da unidade.
+
+⚠️ **Na dúvida, não acusa** (mesma assimetria da armadilha 55): sem CPF não se afirma nada, e
+vínculo sem unidade não conta. **Setor vinculado conta como alcance da unidade** — é o caso do
+coordenador cujo acesso vem só de `profile_setores` (`fn_unidade_alcancavel_por_setor`); ignorar
+isso encheria a tela de aviso falso. Conferido em produção: o aviso aparece nos **2** casos reais
+e em **nenhuma** das outras 112 contas vinculadas.
+
+⚠️ **"Acesso Total" é protegido DUAS vezes** (o early-return e a checagem dentro de
+`escopoAlcancaUnidade`), e a redundância é boa — mas isso significa que uma regressão que remova
+só uma delas **não muda o resultado**. O validador do portão precisou derrubar as duas para provar
+o caso; injeção que não muda comportamento é injeção inútil.
+
+Portões: `node scratchpad/sim_vinculos_usuario.js` (14 asserções) e
+`node scratchpad/val_sim_vinculos_usuario.js`, que injeta **5 regressões e exige reprovação nas
+5**. Transpile antes com
+`npx tsc src/utils/vinculosDoUsuario.ts --outDir scratchpad/_sim --module commonjs --target es2020`.
+⚠️ As âncoras da injeção são o texto do **JS compilado**, não o do TypeScript (o `tsc` quebra
+`if (x) return []` em duas linhas) — o validador confere que cada substituição foi de fato
+aplicada, senão "passaria" sem ter testado nada (armadilha 48).
+
+Diário das duas em
+[`docs/evolucao/2026-09-09-terminal-local-e-o-escopo-do-responsavel.md`](docs/evolucao/2026-09-09-terminal-local-e-o-escopo-do-responsavel.md).
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.

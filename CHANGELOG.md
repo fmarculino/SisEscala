@@ -2,6 +2,61 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.51.0] - 2026-09-09
+
+⚠️ **Requer aplicar `20260909100000`.** Ela recria `fn_confirmar_presenca` acrescentando uma
+condição; nenhum número de folha muda por aplicá-la.
+
+### Fixed
+
+- 🚨 **O terminal local recusava TODA batida quando o coordenador responsável era de outra
+  unidade.** `fn_registrar_ponto_terminal_local` confere o escopo do **equipamento** — a matrícula
+  tem de pertencer à unidade/setor do terminal, recusando antes do PIN — e então delega para
+  `fn_registrar_ponto` passando o responsável como coordenador. Aí `fn_confirmar_presenca`
+  aplicava um **segundo** guard, o do terminal clássico (onde o coordenador loga na máquina e a
+  sessão dele fica aberta na sala). No terminal local não existe sessão de coordenador: o
+  responsável é quem **responde** pelo equipamento.
+- **Medido:** o terminal do CAF POLO II estava com uma coordenadora do HMI como responsável, e as
+  batidas das 6 pessoas lotadas ali eram todas recusadas — **63 tentativas, 9 pessoas, 59 daquele
+  terminal**: 20 em 03/09, 20 em 04/09, 16 em 08/09. Os dias anteriores estão gravados com
+  horário real porque alguém validava as ~20 batidas **à mão, todo dia útil**.
+- ⚠️ A batida nunca se perdeu (vira marcação pendente), mas o servidor via **"recusado"** na tela
+  — era uma **quarta causa de recusa**, ao lado de matrícula/PIN inválidos, que a conformidade da
+  v1.22.0 não previu.
+- **Nenhum GUC novo:** o sinal `sisescala.canal_ponto = 'terminal_local'` já era publicado desde
+  `20260827000000` para outra finalidade. O bypass fica **restrito** a esse valor — afrouxar a
+  comparação mataria o guard para o terminal clássico também, e o gerador e a conferência da
+  migration abortam se isso acontecer.
+
+### Added
+
+- **Aviso de vínculo fora do escopo, na tela de Usuários.** Uma pessoa com dois vínculos tem
+  **uma** conta de acesso, e o escopo dela **não é derivado da lotação** — vem do formulário.
+  Ninguém era avisado quando o segundo vínculo ficava de fora, e foi essa lacuna que pôs uma
+  coordenadora do HMI como responsável por um terminal da SMS. Agora a tela diz, em âmbar, *"Esta
+  pessoa também tem vínculo em X, que não está no escopo desta conta"*.
+- 🚨 **É aviso, nunca automação.** Derivar escopo da lotação foi considerado e descartado: escopo
+  é **autoridade**, lotação é **onde a pessoa trabalha**, e as duas não coincidem por desenho —
+  automatizar daria acesso que ninguém autorizou.
+- **Manual do usuário**: o papel do coordenador responsável pelo terminal (em Ponto) e o aviso de
+  duplo vínculo (em Configurações, Usuários, Backup e Segurança).
+
+### Medido em produção (09/09/2026)
+
+| | |
+|---|---|
+| CPFs com 2+ cadastros ativos | **19** |
+| desses, com conta de usuário | **2** |
+| em que o escopo não cobre um dos vínculos | **2** |
+| contas vinculadas em que o aviso apareceria | **2 de 114** |
+
+As duas são LUCILIA LIMA AZEVEDO (ativa, o caso que motivou) e DENISVAL RODRIGUES (conta
+inativa) — era o único caso vivo no parque, e **zero falso positivo** nas outras 112.
+
+Validada em homologação com cenário sintético revertido, nos **dois sentidos**: terminal clássico
+continua recusando por escopo, terminal local atravessa o guard. Portões:
+`sim_vinculos_usuario.js` (14 asserções) + `val_sim_vinculos_usuario.js` (5 regressões injetadas).
+
 ## [2.50.1] - 2026-09-08
 
 ### Fixed

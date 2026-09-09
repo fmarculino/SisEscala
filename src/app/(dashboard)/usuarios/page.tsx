@@ -167,6 +167,39 @@ export default async function UsuariosPage() {
     })
   }
 
+  // Vínculos ADICIONAIS da mesma pessoa (mesmo CPF, outra matrícula), para a tela poder avisar
+  // quando o escopo marcado não alcança um deles.
+  //
+  // 🚨 Esta busca NÃO pode ser filtrada por unidade, e é justamente o oposto do que a lista acima
+  // faz para o RH da Unidade. O vínculo que interessa é o que está FORA do escopo do gestor — se
+  // ele fosse filtrado junto, o aviso nunca apareceria para quem mais precisa dele. O que trafega
+  // é o mínimo: id, cpf, matrícula e o nome da unidade.
+  //
+  // Caso que motivou (09/09/2026): LUCILIA LIMA AZEVEDO tem vínculo na SMS/CAF e no HMI, a conta
+  // dela tinha escopo só do HMI, e como ela era a responsável pelo terminal de ponto do CAF isso
+  // recusou 59 batidas em 4 dias úteis. Ver src/utils/vinculosDoUsuario.ts.
+  const cpfsDaLista = Array.from(new Set(
+    Array.from(servidoresPorId.values()).map((s: any) => s.cpf).filter(Boolean)))
+
+  const vinculosAdicionais: any[] = []
+  for (let i = 0; i < cpfsDaLista.length; i += 200) {
+    const { data } = await supabaseAdmin
+      .from('servidores')
+      .select('id, cpf, matricula, nome, unidade_id, setor_id, unidades(nome)')
+      .in('cpf', cpfsDaLista.slice(i, i + 200))
+      .eq('status', 'Ativo')
+      .is('mesclado_em_servidor_id', null)
+    ;(data || []).forEach((s: any) => vinculosAdicionais.push({
+      id: s.id,
+      cpf: s.cpf,
+      matricula: s.matricula,
+      nome: s.nome,
+      unidade_id: s.unidade_id,
+      setor_id: s.setor_id,
+      unidade_nome: s.unidades?.nome || null,
+    }))
+  }
+
   // 4. Merge profiles with auth data and link server details (cargo, vinculo, lotacao)
   //
   // A fonte do vínculo é `profiles.servidor_id` (migration 20260822100000). O casamento por e-mail
@@ -249,6 +282,7 @@ export default async function UsuariosPage() {
         setores={setores || []}
         currentUserRole={profile!.role}
         servidores={servidores || []}
+        vinculosAdicionais={vinculosAdicionais}
         podeExcluir={podeExcluirUsuarios(profile!.role)}
       />
     </div>

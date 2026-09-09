@@ -1,0 +1,76 @@
+
+-- ============================================================================
+-- CONFERENCIA — roda junto e ABORTA a migration se qualquer assercao falhar
+-- ============================================================================
+-- Confere os DOIS sentidos: o terminal local passa a atravessar o guard, E o terminal
+-- classico continua barrado. So um dos lados nao serve — abrir demais aqui derruba o guard
+-- de escopo do coordenador para todo mundo.
+--
+-- ⚠️ A assercao EXECUTA a funcao (armadilha 42), com uma matricula que nao existe: o caminho
+--    de identidade invalida devolve "Matrícula ou PIN inválidos" ANTES de qualquer escrita,
+--    entao nada e gravado. O que se prova aqui e que a funcao COMPILA e RODA — a prova do
+--    comportamento do bypass e o teste de campo abaixo.
+
+DO $conf$
+DECLARE
+    v_prosrc text;
+    v_r      jsonb;
+BEGIN
+    SELECT p.prosrc INTO v_prosrc
+      FROM pg_proc p
+     WHERE p.proname = 'fn_confirmar_presenca'
+       AND p.pronamespace = 'public'::regnamespace;
+
+    IF v_prosrc IS NULL THEN
+        RAISE EXCEPTION 'ABORTADO: fn_confirmar_presenca nao existe depois do CREATE.';
+    END IF;
+
+    -- 1. O bypass entrou, e esta restrito ao canal do terminal local.
+    IF v_prosrc NOT LIKE '%sisescala.canal_ponto%' THEN
+        RAISE EXCEPTION 'ABORTADO: o bypass do terminal local nao esta no corpo da funcao.';
+    END IF;
+    IF v_prosrc NOT LIKE '%= ''terminal_local'' THEN%' THEN
+        RAISE EXCEPTION 'ABORTADO: o bypass nao esta restrito a canal_ponto = terminal_local.';
+    END IF;
+    RAISE NOTICE 'ok  bypass presente e restrito ao canal terminal_local';
+
+    -- 2. O OUTRO SENTIDO: o guard continua existindo para o terminal classico.
+    IF v_prosrc NOT LIKE '%Sem permissão para validar este servidor nesta unidade/setor.%' THEN
+        RAISE EXCEPTION 'ABORTADO: o guard de escopo do coordenador sumiu da funcao.';
+    END IF;
+    RAISE NOTICE 'ok  guard de escopo do coordenador preservado para o canal classico';
+
+    -- 3. E a correcao de 08/09 (o bloco nao atravessa unidade) continua no corpo.
+    IF v_prosrc NOT LIKE '%v_s1_unidade IS NOT DISTINCT FROM v_s2_unidade%' THEN
+        RAISE EXCEPTION 'ABORTADO: a copia perdeu a regra de 20260908140000 (bloco nao atravessa unidade).';
+    END IF;
+    RAISE NOTICE 'ok  regra de 20260908140000 preservada na copia';
+
+    -- 4. A funcao EXECUTA. Matricula inexistente: sai em "Matrícula ou PIN inválidos" antes de
+    --    escrever qualquer coisa.
+    v_r := public.fn_confirmar_presenca('__NAO_EXISTE__', '000000', NULL, NULL);
+    IF v_r IS NULL THEN
+        RAISE EXCEPTION 'ABORTADO: fn_confirmar_presenca nao devolveu nada.';
+    END IF;
+    RAISE NOTICE 'ok  fn_confirmar_presenca executou: %', v_r->>'message';
+END;
+$conf$;
+
+-- ============================================================================
+-- CONFERENCIA EM CAMPO (rodar depois, com os olhos)
+-- ============================================================================
+-- 1. Nao pode haver recusa nova por escopo vinda do terminal local:
+--
+--      SELECT date_trunc('day', l.data_hora_tentativa AT TIME ZONE 'America/Sao_Paulo') AS dia,
+--             count(*)
+--        FROM public.logs_tentativas_presenca l
+--       WHERE l.mensagem_erro ILIKE 'Sem permiss%'
+--         AND l.data_hora_tentativa >= now() - interval '7 days'
+--       GROUP BY 1 ORDER BY 1;
+--
+--    Esperado: zero linhas a partir da data desta migration. Medido ANTES: 20 em 03/09,
+--    20 em 04/09, 16 em 08/09 — todas do terminal POLO II - VELHA MARABA.
+--
+-- 2. E o terminal CLASSICO continua barrando quem esta fora do escopo. Nao ha como provar
+--    isso por consulta: exige uma batida real em /presenca com coordenador de outro setor.
+--    O que a assercao 2 acima garante e que o guard nao foi removido do corpo.

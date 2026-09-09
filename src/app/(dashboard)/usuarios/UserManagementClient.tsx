@@ -8,6 +8,7 @@ import { Modal } from '@/components/ui/Modal'
 import { ROLE_LABELS, getRoleLabel } from '@/utils/roles'
 import { opcoesParaEscolha, rotularInativo } from '@/utils/opcoesAtivas'
 import { PAPEIS_ATRIBUIVEIS, type PapelGestor } from '@/utils/gestaoUsuarios'
+import { vinculosForaDoEscopo, descreverVinculosForaDoEscopo } from '@/utils/vinculosDoUsuario'
 
 interface UserManagementClientProps {
   initialProfiles: any[]
@@ -15,6 +16,8 @@ interface UserManagementClientProps {
   setores: any[]
   currentUserRole: string
   servidores: any[]
+  /** Todos os cadastros ativos das MESMAS pessoas (mesmo CPF), sem filtro de unidade. */
+  vinculosAdicionais?: any[]
   podeExcluir: boolean
 }
 
@@ -24,6 +27,7 @@ export default function UserManagementClient({
   setores,
   currentUserRole,
   servidores,
+  vinculosAdicionais = [],
   podeExcluir
 }: UserManagementClientProps) {
   const router = useRouter()
@@ -48,6 +52,11 @@ export default function UserManagementClient({
   const [selectedSetores, setSelectedSetores] = useState<string[]>([])
   const [acessoTodasUnidades, setAcessoTodasUnidades] = useState(false)
   const [acessoTodosSetores, setAcessoTodosSetores] = useState(false)
+
+  const mapaSetorUnidade = useMemo(
+    () => new Map<string, string>((setores || []).map((s: any) => [s.id, s.unidade_id])),
+    [setores])
+
   const [formRole, setFormRole] = useState('coordenador')
   // Os papéis que ESTE gestor pode atribuir vêm da fonte única (src/utils/gestaoUsuarios.ts) — a
   // mesma lista que a server action aplica. Montar o <select> à mão aqui foi o que deixou
@@ -65,9 +74,23 @@ export default function UserManagementClient({
   const [formFullName, setFormFullName] = useState('')
   const [formEmail, setFormEmail] = useState('')
   const [selectedServidor, setSelectedServidor] = useState('')
+
   const [searchTerm, setSearchTerm] = useState('')
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+
+  /**
+   * Aviso de vínculo fora do escopo. Recalculado a cada mudança do formulário — o que importa é
+   * o que está marcado AGORA, não o que está salvo, senão o aviso só apareceria depois de gravar
+   * o escopo incompleto.
+   */
+  const avisoVinculoForaDoEscopo = useMemo(() => descreverVinculosForaDoEscopo(
+    vinculosForaDoEscopo(
+      selectedServidor || null,
+      vinculosAdicionais,
+      { acessoTodasUnidades, unidadeIds: selectedUnidades, setorIds: selectedSetores },
+      mapaSetorUnidade)),
+    [selectedServidor, vinculosAdicionais, acessoTodasUnidades, selectedUnidades, selectedSetores, mapaSetorUnidade])
 
   // Filters for User List
   const [userSearchTerm, setUserSearchTerm] = useState('')
@@ -702,6 +725,23 @@ export default function UserManagementClient({
                         )
                       })
                     )}
+                  </div>
+                )}
+
+                {/* Esta pessoa tem outro vínculo que o escopo marcado não alcança?
+                    O escopo NUNCA é derivado da lotação (é autoridade, não lugar de trabalho) —
+                    então isto AVISA e não corrige. Foi a lacuna que recusou 59 batidas do terminal
+                    do CAF em 4 dias úteis. Regra em src/utils/vinculosDoUsuario.ts. */}
+                {avisoVinculoForaDoEscopo && (
+                  <div className="mt-1 flex items-start gap-2 text-xs bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-200 p-2 rounded-md border border-amber-200 dark:border-amber-900/40">
+                    <AlertCircle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                    <span>
+                      {avisoVinculoForaDoEscopo}
+                      <span className="block mt-0.5 opacity-90">
+                        Marque também a unidade ou o setor do outro vínculo se esta conta precisa
+                        enxergá-lo — inclusive para ser responsável por um terminal de ponto de lá.
+                      </span>
+                    </span>
                   </div>
                 )}
 
