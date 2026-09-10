@@ -2,6 +2,60 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.53.3] - 2026-09-09
+
+Sem migration. Corrige o total da grade de escala que **nascia inflado e caia sozinho** alguns
+instantes depois — relatado como "atualizo a pagina, aparece o valor certo e logo volta ao antigo".
+
+### Fixed
+
+- 🚨 **As jornadas so chegavam a grade pelo fetch do CLIENTE, com o estado comecando vazio.**
+  `calculateTotals` so limita o Regular ao liquido diario da jornada **quando acha a jornada**
+  (armadilha 46: `LEAST(horas_computadas, horas_totais - intervalo/60)`). No primeiro paint nao
+  havia jornada, logo nao havia teto: a coluna **CH** e o **TOTAL H/MES** apareciam com a soma
+  **bruta** de `horas_computadas` e caiam quando o fetch respondia. Agora vem do servidor
+  (`jornadasIniciais`, em `page.tsx`).
+- ⚠️ **Nao era so o piscar.** Fetch lento, RLS ou falha de rede deixavam a grade exibindo total
+  inflado com cara de definitivo — e e sobre esse numero que o coordenador decide escala.
+- 🚨 **`calculateTotals` era uma QUARTA copia da regra de horas.** Passa a usar
+  `horasDaLinhaEscala` (`src/utils/escala/horasLinha.ts`), a mesma fonte do `/home`, do
+  `/relatorios/consolidado` e o mesmo `LEAST` de `fn_carga_mensal_servidor`. O proprio cabecalho
+  daquele arquivo ja citava `calculateTotals` como sitio a unificar; copias divergentes ja
+  produziram **37.223h** de diferenca entre duas telas do mesmo sistema (armadilha 52).
+- 🚨 **`calculateTotals` e `maxValidDay` liam o dia com `new Date().getDate()`** (armadilha 12).
+  A grade e renderizada **tambem no servidor**, e o container roda em UTC: depois das 21h o
+  `isPast` da coluna **VAL** divergia entre o HTML do servidor e o do navegador, e no cliente o
+  fuso lido era o da **maquina** de quem abriu a tela. Fonte unica agora e `hojeNoFusoDoSistema`,
+  sobre `partesLocais`. ⚠️ **Nao memoizado com `[]` de proposito**: a grade fica aberta por horas
+  e atravessa a meia-noite.
+
+### Changed
+
+- ⚠️ **O teto da jornada deixou de ser SILENCIOSO — e o teto em si NAO mudou.** Numa jornada de
+  6h (`07H AS 13H`), trocar `M` (6h) por `MT` (12h) na linha Regular nao move coluna nenhuma nem
+  o total: as duas valem **6h**. Isso esta correto e e o mesmo numero do banco, do consolidado, do
+  painel e da folha — mas a tela nao dizia por que, e era o que fazia concluir que "o total nao
+  atualiza" (armadilha 22). A coluna CH ganha a marca **`·`** e um tooltip com quanto ficou de
+  fora, em quantos dias, e que hora alem do expediente precisa ser lancada como **Extra** ou
+  **Plantao** para ser contada.
+- O tooltip do **TOTAL H/MES** passa a decompor as parcelas. ⚠️ O total nunca foi a soma do que se
+  ve na linha: as horas de plantao que **nao formam unidade PL** (a 7a hora de um `M7`, armadilha
+  16) entram no total e em **coluna nenhuma**, e o **Sobreaviso** aparece em coluna e **nao** entra
+  no total. Sem a decomposicao a conta nao fechava na tela e nada explicava.
+- Manual do usuario: nova secao **"As colunas de total, a direita"** em Ajuda -> Escalas ->
+  Entendendo a grade, com o aviso sobre o limite diario da jornada.
+
+### Notes
+
+- Portao: `node scratchpad/sim_totais_grade.js` (43 assercoes — roda a conta real sobre a fonte
+  unica, inclusive o caso relatado, e varre os invariantes da grade) e
+  `node scratchpad/val_sim_totais_grade.js`, que injeta **8 regressoes e exige reprovacao nas 8**.
+  Transpile antes com
+  `npx tsc src/utils/escala/horasLinha.ts src/utils/plantaoUnidades.ts --outDir scratchpad/_sim --module commonjs --target es2020`.
+- ℹ️ Divergencia conhecida, **nao tocada**: o Sobreaviso ignora `exigir_confirmacao_presenca` no
+  calculo do VAL (as outras tres categorias respeitam). Parece deliberado — sobreaviso nao marca
+  presenca, entao respeitar a chave zeraria a coluna —, mas nao esta documentado em lugar nenhum.
+
 ## [2.53.2] - 2026-09-09
 
 Migration `20260909170000`. Corrige o erro que impedia **Preencher pelas Batidas** de rodar —

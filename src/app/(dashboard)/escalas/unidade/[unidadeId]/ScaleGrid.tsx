@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
-import { formatarData, formatarDataHora, formatarHora, formatarHoraComSegundos, dataISOLocal } from '@/utils/horario'
+import { formatarData, formatarDataHora, formatarHora, formatarHoraComSegundos, dataISOLocal, partesLocais } from '@/utils/horario'
+import { horasDaLinhaEscala, tetoLiquidoJornada } from '@/utils/escala/horasLinha'
 import {
   batidaVisivelNaCelula, classificarBatida, classificarLugarDaBatida, compararBatidasParaExibir,
   dataDaCelula, type LugarDaBatida, type PosicaoDaBatida,
@@ -112,6 +113,15 @@ interface ScaleGridProps {
   todosServidoresSetor: any[]
   turnos: any[]
   escalaMensalInicial: any[]
+  /**
+   * As jornadas, vindas do SERVIDOR (page.tsx).
+   *
+   * 🚨 Nao e conveniencia: `calculateTotals` so limita o Regular ao liquido da jornada quando
+   *    ACHA a jornada do servidor. Enquanto esta lista chegava so pelo fetch do cliente, o
+   *    primeiro paint somava `horas_computadas` BRUTO -- CH e TOTAL H/MES nasciam inflados e
+   *    caiam sozinhos quando o fetch respondia. Ver o comentario em page.tsx.
+   */
+  jornadasIniciais: any[]
   escalaDiariaInicial: any[]
   feriados: any[]
   diasInativacao: number
@@ -167,6 +177,28 @@ function assinaturaDaGrade(
   return partes.join(';')
 }
 
+/**
+ * HOJE no fuso configurado (`configuracoes_globais.timezone`) — nunca `new Date().getDate()`.
+ *
+ * ⚠️ Armadilha 12. Esta grade é um client component, mas o Next a renderiza TAMBÉM no servidor,
+ *    e o container do Coolify roda em UTC: nas últimas 3 horas do dia `getDate()` já é amanhã
+ *    lá e ainda é hoje aqui. Quem depende disso é o `isPast` de `calculateTotals` (a coluna
+ *    VAL) e o `maxValidDay` (até que dia dá para validar presença) — os dois divergiam entre o
+ *    HTML do servidor e o do navegador depois das 21h, e a coluna VAL trocava de valor sozinha
+ *    na hidratação. No navegador, o fuso lido era o da MÁQUINA de quem abriu a tela.
+ *
+ * ⚠️ NÃO memoize isto com `[]`: a grade fica aberta por horas e atravessa a meia-noite. Um
+ *    valor congelado no mount deixaria "hoje" parado em ontem, e a coluna VAL pararia de
+ *    avançar sem ninguém perceber. É barato o bastante para ser recalculado a cada uso.
+ */
+function hojeNoFusoDoSistema() {
+  const p = partesLocais(new Date())
+  // `partesLocais` só devolve null para data inválida, e `new Date()` nunca é. O ramo existe
+  // para o tipo, e cai no comportamento antigo em vez de quebrar a grade.
+  const agora = new Date()
+  return p || { ano: agora.getFullYear(), mes: agora.getMonth() + 1, dia: agora.getDate() }
+}
+
 export function ScaleGrid({
   unidadeId,
   setorId,
@@ -177,6 +209,7 @@ export function ScaleGrid({
   todosServidoresSetor,
   turnos,
   escalaMensalInicial,
+  jornadasIniciais = [],
   escalaDiariaInicial,
   feriados = [],
   diasInativacao,
@@ -631,7 +664,9 @@ export function ScaleGrid({
     erro: string | null
   }>({ isOpen: false, carregando: false, aplicando: false, dias: [], erro: null })
 
-  const [jornadas, setJornadas] = useState<any[]>([])
+  // Nasce com o que o servidor ja mandou; o fetch do cliente so a REVALIDA (jornada criada ou
+  // editada noutra aba). Nunca volta a comecar vazia -- ver `jornadasIniciais`.
+  const [jornadas, setJornadas] = useState<any[]>(jornadasIniciais)
   const [externalData, setExternalData] = useState({
     unidadeId: '',
     setorId: '',
@@ -1540,10 +1575,12 @@ export function ScaleGrid({
   }, [logsSobreaviso, configs])
 
   const maxValidDay = useMemo(() => {
-    const today = new Date()
-    const currentYear = today.getFullYear()
-    const currentMonth = today.getMonth() + 1
-    const currentDayNum = today.getDate()
+    // Ver `hojeNoFusoDoSistema`. Este memo ja era recalculado so na troca de competencia; o
+    // que muda aqui e o FUSO de onde a data sai, nao a frequencia.
+    const hoje = hojeNoFusoDoSistema()
+    const currentYear = hoje.ano
+    const currentMonth = hoje.mes
+    const currentDayNum = hoje.dia
 
     if (ano < currentYear || (ano === currentYear && mes < currentMonth)) {
       return daysInMonth
@@ -2506,10 +2543,11 @@ export function ScaleGrid({
     let v_plAvulso = 0, p_plAvulso = 0
 
     const exigirPresenca = configs['exigir_confirmacao_presenca'] === 'true'
-    const today = new Date()
-    const currentDay = today.getDate()
-    const currentMonth = today.getMonth() + 1
-    const currentYear = today.getFullYear()
+    // Fuso configurado, nunca o da maquina nem o do container — ver `hojeNoFusoDoSistema`.
+    const hoje = hojeNoFusoDoSistema()
+    const currentDay = hoje.dia
+    const currentMonth = hoje.mes
+    const currentYear = hoje.ano
 
     // Ensure numeric comparison
     const nMes = Number(mes)
@@ -2517,7 +2555,16 @@ export function ScaleGrid({
 
     const emRecord = escalaMensal.find(x => x.servidor_id === servidorId)
     const jornada = jornadas.find(j => j.id === emRecord?.jornada_id)
-    const intervaloHoras = (jornada?.intervalo_minutos || 0) / 60
+
+    // Quanto o teto da jornada APAGOU do Regular, e em quantos dias.
+    //
+    // 🚨 O teto e correto e nao vai embora (armadilha 46: `horas_totais` e o vao do relogio),
+    //    mas ele era INVISIVEL: numa jornada de 6h, trocar `M` (6h) por `MT` (12h) na linha
+    //    Regular nao mexia em coluna nenhuma nem no total, e a tela nao dizia por que. Era o
+    //    que fazia o coordenador concluir que "o total nao atualiza". Agora vai no tooltip da
+    //    coluna CH — armadilha 22: relatar o que mudou, e por que o resto nao.
+    let p_chBruto = 0
+    let p_chDiasLimitados = 0
 
     // Sum Regular CH
     Object.entries(serverData['Regular']).forEach(([day, turnoId]) => {
@@ -2527,16 +2574,16 @@ export function ScaleGrid({
         const isPast = nAno < currentYear || (nAno === currentYear && nMes < currentMonth) || (nAno === currentYear && nMes === currentMonth && d < currentDay)
         const presence = presenceData[servidorId]?.['Regular']?.[d]
         
+        // ⚠️ Fonte unica da regra: src/utils/escala/horasLinha.ts, a mesma que o /home e o
+        //    /relatorios/consolidado usam e o mesmo `LEAST` de `fn_carga_mensal_servidor`.
+        //    Ate 09/09/2026 esta linha era uma QUARTA copia da conta — e o proprio cabecalho
+        //    de horasLinha.ts ja citava `calculateTotals` como um dos sitios a unificar.
         const shiftHours = Number(t.horas_computadas)
-        let liquidHours = shiftHours
+        const liquidHours = horasDaLinhaEscala('Regular', shiftHours, jornada)
 
-        if (jornada && Number(jornada.horas_totais) > 0) {
-          const journeyMaxLiquid = Math.max(0, Number(jornada.horas_totais) - intervaloHoras)
-          // Se o turno for reduzido (ex: M4=4h), usa as 4h.
-          // Se o turno for normal/longo (ex: MT=12h), limita ao teto da jornada (ex: 8h).
-          liquidHours = Math.min(shiftHours, journeyMaxLiquid)
-        }
-        
+        p_chBruto += shiftHours
+        if (liquidHours < shiftHours) p_chDiasLimitados += 1
+
         p_ch += liquidHours
         const isValidated = (isPast && !exigirPresenca) || presence?.entrada
         if (isValidated) {
@@ -2656,6 +2703,16 @@ export function ScaleGrid({
       p_sobreaviso_breakdown,
       v_sobreaviso_breakdown,
       p_ch, p_he100, p_he50, p_pl12, p_pl6, p_pl4,
+      // Quanto o teto da jornada tirou do Regular previsto, para a tela poder explicar.
+      p_chBruto,
+      p_chDiasLimitados,
+      p_chDescontado: Math.max(0, p_chBruto - p_ch),
+      tetoLiquidoDiario: tetoLiquidoJornada(jornada),
+      jornadaNome: jornada?.nome ?? null,
+      // Horas de plantao que nao formam unidade PL (armadilha 16). Entram no TOTAL e em coluna
+      // nenhuma — sem isto o total nao fecha com a soma visivel das colunas e nada explica.
+      p_plAvulso,
+      v_plAvulso,
       totalGeral: totalValidado,
       totalPlanejado
     }
@@ -6296,19 +6353,64 @@ export function ScaleGrid({
                         <>
                           {!isTotalsCollapsed && (
                             <>
-                              {/* CH */}
-                              <td rowSpan={4} className="sticky right-[296px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-blue-50 dark:bg-blue-900 text-blue-900 dark:text-blue-100">
-                                <div className="flex flex-col h-full divide-y divide-blue-200 dark:divide-blue-800">
-                                  <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
-                                    <span className="text-[6px] uppercase leading-none">Prev</span>
-                                    <span className="text-[10px] leading-tight">{totals.p_ch}</span>
-                                  </div>
-                                  <div className="flex-1 flex flex-col justify-center p-1 bg-blue-100/50 dark:bg-blue-800/30">
-                                    <span className="text-[6px] uppercase leading-none">Val</span>
-                                    <span className="text-[10px] leading-tight">{totals.chTotal}</span>
-                                  </div>
-                                </div>
-                              </td>
+                              {/*
+                                CH — carga horária REGULAR, já limitada ao líquido diário da
+                                jornada (`horasDaLinhaEscala`, o mesmo LEAST de
+                                `fn_carga_mensal_servidor`).
+
+                                🚨 O teto era invisível, e é isso que fazia a grade parecer
+                                   travada: numa jornada de 6h, trocar `M` por `MT` (12h) na
+                                   linha Regular não move coluna nenhuma nem o total — as duas
+                                   valem 6h. Sem explicação, quem lançou conclui que "o total não
+                                   atualiza". O tooltip diz quanto foi limitado e em quantos dias;
+                                   a marca "·" ao lado do número avisa que há o que ler.
+                              */}
+                              {(() => {
+                                const limitou = totals.p_chDescontado > 0
+                                const chTooltip = limitou
+                                  ? `Carga horária regular prevista: ${formatarHoras(totals.p_ch)}h\n\n`
+                                    + `Lançado na linha Regular: ${formatarHoras(totals.p_chBruto)}h\n`
+                                    + `Limite da jornada${totals.jornadaNome ? ` (${totals.jornadaNome})` : ''}: `
+                                    + `${formatarHoras(totals.tetoLiquidoDiario ?? 0)}h por dia\n`
+                                    + `Acima do limite: ${formatarHoras(totals.p_chDescontado)}h em `
+                                    + `${totals.p_chDiasLimitados} dia(s) — NÃO entram na CH.\n\n`
+                                    + 'A jornada regular não paga hora além do expediente contratual. '
+                                    + 'O que passa do limite tem que ser lançado como Extra ou Plantão '
+                                    + 'para ser contado.'
+                                  : `Carga horária regular prevista: ${formatarHoras(totals.p_ch)}h\n`
+                                    + `Validada: ${formatarHoras(totals.chTotal)}h`
+                                    + (totals.tetoLiquidoDiario !== null
+                                        ? `\n\nLimite da jornada${totals.jornadaNome ? ` (${totals.jornadaNome})` : ''}: `
+                                          + `${formatarHoras(totals.tetoLiquidoDiario)}h por dia`
+                                        : '\n\n⚠️ Jornada sem carga horária cadastrada: nenhum limite diário está sendo aplicado.')
+                                return (
+                                  <td rowSpan={4} title={chTooltip} className="sticky right-[296px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-blue-50 dark:bg-blue-900 text-blue-900 dark:text-blue-100 cursor-help">
+                                    <div className="flex flex-col h-full divide-y divide-blue-200 dark:divide-blue-800">
+                                      <div className="flex-1 flex flex-col justify-center p-1 opacity-60">
+                                        <span className="text-[6px] uppercase leading-none">Prev</span>
+                                        {/*
+                                          A marca "·" avisa que o teto da jornada cortou horas
+                                          lançadas — sem ela o número parece simplesmente não ter
+                                          mudado. A cor NUNCA vai sozinha (o item pode estar
+                                          esmaecido, e há quem não distinga âmbar de azul): o
+                                          veredito inteiro está no tooltip da célula, e por isso
+                                          este span não pode ganhar `title` próprio — um title
+                                          aninhado substituiria o da célula justamente em cima
+                                          da marca que manda ler.
+                                        */}
+                                        <span className={`text-[10px] leading-tight ${limitou ? 'text-amber-700 dark:text-amber-300' : ''}`}>
+                                          {totals.p_ch}
+                                          {limitou && <span aria-hidden>{' '}·</span>}
+                                        </span>
+                                      </div>
+                                      <div className="flex-1 flex flex-col justify-center p-1 bg-blue-100/50 dark:bg-blue-800/30">
+                                        <span className="text-[6px] uppercase leading-none">Val</span>
+                                        <span className="text-[10px] leading-tight">{totals.chTotal}</span>
+                                      </div>
+                                    </div>
+                                  </td>
+                                )
+                              })()}
                               {/* HE100 */}
                               <td rowSpan={4} className="sticky right-[258px] z-10 p-0 border border-zinc-200 dark:border-zinc-700 font-black bg-indigo-50 dark:bg-indigo-900 text-indigo-900 dark:text-indigo-100">
                                 <div className="flex flex-col h-full divide-y divide-indigo-200 dark:divide-indigo-800">
@@ -6416,6 +6518,26 @@ export function ScaleGrid({
                           {(() => {
                             const carga = cargaMes
                             const temOutras = carga.outras.length > 0
+                            /*
+                              De onde sai a PREVISÃO desta escala, parcela a parcela.
+                              ⚠️ O total nunca foi a soma do que se vê na linha: as horas de plantão que não formam
+                                 unidade PL (a 7ª hora de um M7, armadilha 16) entram no total e em COLUNA NENHUMA,
+                                 e o Sobreaviso aparece em coluna e NÃO entra no total. Sem esta decomposição a
+                                 conta não fecha na tela e nada explica por quê.
+                            */
+                            const composicao = [
+                                totals.p_ch > 0 ? `• CH regular — ${formatarHoras(totals.p_ch)}h` : null,
+                                totals.p_chDescontado > 0 ? `   (${formatarHoras(totals.p_chDescontado)}h lançadas acima do limite da jornada não entram)` : null,
+                                totals.p_he100 > 0 ? `• HE 100% — ${formatarHoras(totals.p_he100)}h` : null,
+                                totals.p_he50 > 0 ? `• HE 50% — ${formatarHoras(totals.p_he50)}h` : null,
+                                totals.p_pl12 > 0 ? `• PL12 — ${totals.p_pl12} un (${formatarHoras(totals.p_pl12 * 12)}h)` : null,
+                                totals.p_pl6 > 0 ? `• PL6 — ${totals.p_pl6} un (${formatarHoras(totals.p_pl6 * 6)}h)` : null,
+                                totals.p_pl4 > 0 ? `• PL4 — ${totals.p_pl4} un (${formatarHoras(totals.p_pl4 * 4)}h)` : null,
+                                totals.p_plAvulso > 0 ? `• plantão fora das unidades de pagamento — ${formatarHoras(totals.p_plAvulso)}h` : null,
+                                totals.p_soQtd > 0 ? `• sobreaviso — ${totals.p_soQtd} un (prontidão, fora do total de horas)` : null,
+                            ].filter(Boolean).join('\n')
+                            const detalhe = `Previsão desta escala: ${formatarHoras(totals.totalPlanejado)}h`
+                              + (composicao ? `\n${composicao}` : '')
                             const tooltip = temOutras
                               ? `Carga do mês inteiro: ${formatarHoras(carga.totalHoras)}h (teto ${formatarHoras(carga.tetoHoras)}h)\n\n`
                                 + `• esta escala — ${formatarHoras(carga.horasLocais)}h\n`
@@ -6423,7 +6545,8 @@ export function ScaleGrid({
                                     .map(o => `• ${o.unidade_nome} / ${o.setor_caminho} — ${formatarHoras(o.horas)}h${o.sobreavisos > 0 ? ` e ${o.sobreavisos} un de sobreaviso` : ''}`)
                                     .join('\n')
                                 + (carga.excede ? '\n\n⚠️ Acima do teto mensal. Exige Autorização Extraordinária.' : '')
-                              : `Previsão desta escala: ${formatarHoras(totals.totalPlanejado)}h (teto do mês: ${formatarHoras(carga.tetoHoras)}h)`
+                                + `\n\n${detalhe}`
+                              : `${detalhe}\n\nTeto do mês: ${formatarHoras(carga.tetoHoras)}h`
                             return (
                               <td
                                 rowSpan={4}

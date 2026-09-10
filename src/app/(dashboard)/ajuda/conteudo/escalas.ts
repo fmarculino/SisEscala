@@ -74,6 +74,37 @@ export const escalas: Capitulo = {
           texto:
             'Trocar de aba não muda os dados, muda o que está sendo exibido. A previsão continua lá quando você olha o validado, e vice-versa.',
         },
+        { tipo: 'titulo', texto: 'As colunas de total, à direita' },
+        {
+          tipo: 'p',
+          texto:
+            'No fim da grade ficam os totais de cada servidor. Cada coluna tem duas linhas: **Prev** é o previsto (o que foi lançado) e **Val** é o validado (o que já tem presença confirmada). Passe o mouse sobre **CH** e sobre **Total H/Mês** para ver a conta aberta.',
+        },
+        {
+          tipo: 'tabela',
+          colunas: ['Coluna', 'O que conta'],
+          linhas: [
+            ['CH', 'Horas da linha **Regular** — o expediente contratual.'],
+            ['HE 100% / HE 50%', 'Horas da linha **Extra**. Noturna, fim de semana e feriado vão em 100%; as demais em 50%.'],
+            ['PL12 / PL6 / PL4', 'Plantões, contados em **unidades de pagamento**. Um plantão de 24h vale 2 PL12, não 1.'],
+            ['SOB', 'Sobreavisos, em unidades. **Não** entram no total de horas: sobreaviso é prontidão, não trabalho presencial.'],
+            ['Total H/Mês', 'CH + horas extras + plantões. Passe o mouse para ver parcela por parcela.'],
+          ],
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'A CH nunca passa da jornada do servidor',
+          texto:
+            'A coluna CH respeita o **limite diário da jornada** escolhida na coluna Tipo. Se a jornada é `07H ÀS 13H` (6h por dia) e você lança um turno de 12h na linha Regular, a CH continua contando **6h naquele dia** — e o total não muda. Não é falha da tela: a jornada regular não paga hora além do expediente contratual. Aparece um **·** ao lado do número de CH quando isso acontece; passe o mouse para ver quantas horas ficaram de fora e em quantos dias.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'dica',
+          titulo: 'Trabalhou além do expediente? Lance na linha certa',
+          texto:
+            'Hora além da jornada só é contada se for lançada como **Extra** ou **Plantão**. Essas duas linhas não têm limite de jornada — é exatamente para isso que elas existem.',
+        },
         { tipo: 'titulo', texto: 'Salvar' },
         {
           tipo: 'p',

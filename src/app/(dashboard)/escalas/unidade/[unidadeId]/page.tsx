@@ -104,6 +104,23 @@ export default async function UnidadeEscalaPage({
     .select('*')
     .order('codigo')
 
+  // 4b. Jornadas.
+  //
+  // 🚨 Vem do SERVIDOR de propósito. Até 09/09/2026 a grade só as buscava no cliente, com o
+  //    estado começando vazio — e `calculateTotals` só aplica o teto líquido da jornada ao
+  //    Regular QUANDO ACHA a jornada (armadilha 46: `LEAST(horas_computadas, horas_totais −
+  //    intervalo/60)`). Sem elas no primeiro paint não há teto nenhum: a coluna CH e o TOTAL
+  //    H/MÊS apareciam com a soma BRUTA de `horas_computadas` e caíam sozinhos alguns instantes
+  //    depois, quando o fetch do cliente chegava. O sintoma relatado em 09/09/2026 é exatamente
+  //    esse — "atualizo a página, aparece o valor certo e logo volta ao antigo".
+  //
+  // ⚠️ Não é só o piscar: fetch lento, RLS ou falha de rede deixam a grade exibindo total
+  //    inflado com cara de definitivo, e é sobre esse número que o coordenador decide escala.
+  const { data: jornadas } = await supabase
+    .from('jornadas')
+    .select('*')
+    .order('nome')
+
   // 5. Fetch existing monthly scales for this combination
   const { data: escalaMensal } = await supabase
     .from('escala_mensal')
@@ -166,6 +183,7 @@ export default async function UnidadeEscalaPage({
         todosServidoresSetor={todosServidores || []}
         turnos={turnos || []}
         escalaMensalInicial={escalaMensal || []}
+        jornadasIniciais={jornadas || []}
         escalaDiariaInicial={escalaDiaria || []}
         feriados={feriados || []}
         diasInativacao={diasInativacao}
