@@ -6,7 +6,7 @@ import { EditServidorForm } from './EditServidorForm'
 import { StatusToggle } from '@/components/servidores/StatusToggle'
 import { Info, History, User, Calendar, FileText, ArrowRight, Clock, MapPin, CheckCircle, ExternalLink, Plus, Trash2 } from 'lucide-react'
 import Link from 'next/link'
-import { createJornadaTemporaria, deleteJornadaTemporaria } from '../actions'
+import { createJornadaTemporaria, deleteJornadaTemporaria, getImpactoVigenciaJornada } from '../actions'
 import { useDialog } from '@/components/ui/DialogProvider'
 import { MOTIVO_OBRIGATORIO } from '@/utils/vigenciaJornada'
 
@@ -50,6 +50,11 @@ export function ServidorDetalhesClient({
   const [dataInicio, setDataInicio] = useState('')
   const [dataFim, setDataFim] = useState('')
   const [motivo, setMotivo] = useState('')
+  // Remoção de vigência: `impacto` nulo = ainda perguntando ao banco o que a remoção causa.
+  const [removendo, setRemovendo] = useState<{ jt: any; impacto: any } | null>(null)
+  const [motivoRemocao, setMotivoRemocao] = useState('')
+  const [removendoLoading, setRemovendoLoading] = useState(false)
+  const [impactoErro, setImpactoErro] = useState<string | null>(null)
 
   // Helper: Format Portuguese month and year
   const getMesAnoFormatado = (mes: number, ano: number) => {
@@ -58,6 +63,11 @@ export function ServidorDetalhesClient({
   }
 
   // Helper: Calculate duration between two dates in months/days
+  //
+  // ⚠️ As datas da vigência são INCLUSIVAS nos dois extremos — `obter_jornada_servidor_data`
+  // resolve com `>= data_inicio AND <= data_fim`. Sem o `+ 1`, um período de 29/09 a 29/09
+  // aparecia como "0 dias", que é o valor que a tela mostrava em 50 das 69 vigências de
+  // produção (a maioria é de um dia só).
   const calculateDuration = (startDateStr: string, endDateStr: string) => {
     const start = new Date(startDateStr)
     const end = new Date(endDateStr)
@@ -65,7 +75,7 @@ export function ServidorDetalhesClient({
 
     // Difference in days
     const diffTime = Math.abs(end.getTime() - start.getTime())
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1
 
     if (diffDays < 30) {
       return `${diffDays} ${diffDays === 1 ? 'dia' : 'dias'}`
@@ -228,13 +238,56 @@ export function ServidorDetalhesClient({
     setLoading(false)
   }
 
-  const handleDeleteJornada = async (journeyId: string) => {
-    if (!(await dialog.confirm('Deseja realmente remover esta alteração temporária? Isso restaurará o horário padrão para este período.'))) {
+  /**
+   * Passo 1 da remoção: perguntar ao BANCO o que acontece, e só então abrir o modal.
+   *
+   * ⚠️ O aviso mostra a JANELA (de → para), nunca um total de horas. Medido em produção em
+   * 10/09/2026: em 97 dos 115 dias já batidos sob vigência a carga das duas jornadas é
+   * IDÊNTICA — só a janela desloca (179h na entrada, 179h na saída). Um aviso dizendo
+   * "0h de diferença" seria uma mentira tranquilizadora no caso mais comum.
+   */
+  const handleDeleteJornada = async (jt: any) => {
+    setImpactoErro(null)
+    setMotivoRemocao('')
+    setRemovendo({ jt, impacto: null })
+    const res = await getImpactoVigenciaJornada(jt.id)
+    if (res.error) {
+      setRemovendo(null)
+      void dialog.alert(`Não foi possível avaliar o impacto: ${res.error}`)
       return
     }
-    const res = await deleteJornadaTemporaria(journeyId, id)
+    setRemovendo({ jt, impacto: res.impacto })
+  }
+
+  const confirmarRemocao = async () => {
+    if (!removendo?.impacto) return
+    setImpactoErro(null)
+    setRemovendoLoading(true)
+    const res = await deleteJornadaTemporaria(removendo.jt.id, id, motivoRemocao)
+    setRemovendoLoading(false)
+
     if (res.error) {
-      void dialog.alert(`Erro ao remover: ${res.error}`)
+      setImpactoErro(res.error)
+      return
+    }
+
+    const dias: string[] = res.resultado?.dias_a_revisar || []
+    setRemovendo(null)
+    setMotivoRemocao('')
+
+    // Nada é sincronizado automaticamente (reconciliar em massa está medido e recusado), então
+    // os dias afetados precisam sair escritos — senão a mudança aparece semanas depois, na
+    // próxima sincronização, sem causa visível.
+    if (dias.length > 0) {
+      void dialog.alert({
+        type: 'warning',
+        title: 'Alteração removida — confira estes dias',
+        message:
+          `${dias.length} ${dias.length === 1 ? 'dia já tinha ponto' : 'dias já tinham ponto'} registrado neste período. ` +
+          `O horário previsto deles passou a ser ${res.resultado?.jornada_apos}. ` +
+          `A folha NÃO foi alterada: ela só muda quando alguém clicar em "Sincronizar".\n\n` +
+          dias.join(' · '),
+      })
     }
   }
 
@@ -466,7 +519,7 @@ export function ServidorDetalhesClient({
                           {podeGerirVigencia && (
                             <td className="px-6 py-4 text-right">
                               <button
-                                onClick={() => handleDeleteJornada(jt.id)}
+                                onClick={() => handleDeleteJornada(jt)}
                                 className="p-2 bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 hover:bg-red-100 rounded-lg transition-colors border border-red-100/30"
                                 title="Remover alteração de jornada"
                               >
@@ -626,6 +679,112 @@ export function ServidorDetalhesClient({
           </div>
         )}
       </div>
+
+      {/*
+        Remoção de vigência de jornada.
+
+        ⚠️ Isto NÃO é um "tem certeza?". A remoção muda o horário previsto de dias que já foram
+        trabalhados, e o efeito só aparece na próxima sincronização da folha — então o número de
+        dias com ponto e a janela de → para precisam estar na frente de quem clica, ANTES.
+      */}
+      {removendo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg bg-white dark:bg-zinc-900 rounded-2xl shadow-xl border border-zinc-200 dark:border-zinc-800 p-6 space-y-5">
+            <h3 className="text-lg font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-red-500" />
+              Remover alteração de horário
+            </h3>
+
+            {!removendo.impacto ? (
+              <p className="text-sm text-zinc-500 italic">Avaliando o impacto desta remoção…</p>
+            ) : (
+              <>
+                <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 divide-y divide-zinc-200 dark:divide-zinc-800 text-sm">
+                  <div className="px-4 py-3 flex justify-between gap-4">
+                    <span className="text-zinc-500">Período</span>
+                    <span className="font-semibold text-zinc-900 dark:text-white text-right">
+                      {formatarData(removendo.jt.data_inicio)} a {formatarData(removendo.jt.data_fim)}
+                      {' · '}{removendo.impacto.dias_no_periodo} {removendo.impacto.dias_no_periodo === 1 ? 'dia' : 'dias'}
+                    </span>
+                  </div>
+                  <div className="px-4 py-3 flex justify-between gap-4">
+                    <span className="text-zinc-500">Horário previsto</span>
+                    <span className="font-semibold text-zinc-900 dark:text-white text-right">
+                      {removendo.impacto.jornada_atual}
+                      <span className="text-zinc-400 font-normal"> → </span>
+                      {removendo.impacto.jornada_apos}
+                    </span>
+                  </div>
+                  <div className="px-4 py-3 flex justify-between gap-4">
+                    <span className="text-zinc-500">Dias com ponto registrado</span>
+                    <span className={`font-black text-right ${removendo.impacto.dias_com_ponto > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-zinc-900 dark:text-white'}`}>
+                      {removendo.impacto.dias_com_ponto}
+                    </span>
+                  </div>
+                </div>
+
+                {removendo.impacto.dias_com_ponto > 0 && removendo.impacto.pode_excluir && (
+                  <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-xl px-4 py-3">
+                    <strong>{removendo.impacto.dias_com_ponto} {removendo.impacto.dias_com_ponto === 1 ? 'dia já trabalhado passa' : 'dias já trabalhados passam'} a ser avaliado{removendo.impacto.dias_com_ponto === 1 ? '' : 's'} contra <span className="whitespace-nowrap">{removendo.impacto.jornada_apos}</span>.</strong>{' '}
+                    Nenhuma batida se perde e a folha não muda agora — o novo cálculo de atraso e
+                    hora extra só entra quando alguém sincronizar a folha.
+                  </p>
+                )}
+
+                {/* Botão cinza sem explicação ensina a contornar a tela: o motivo vem escrito. */}
+                {!removendo.impacto.pode_excluir && (
+                  <p className="text-xs text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/40 rounded-xl px-4 py-3">
+                    {removendo.impacto.impedimento}
+                  </p>
+                )}
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-2">
+                    Motivo da remoção
+                  </label>
+                  <textarea
+                    value={motivoRemocao}
+                    onChange={(e) => setMotivoRemocao(e.target.value)}
+                    rows={3}
+                    disabled={!removendo.impacto.pode_excluir || removendoLoading}
+                    placeholder="Ex.: horário cadastrado indevidamente no servidor errado"
+                    className="w-full rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-4 py-3 text-sm disabled:opacity-50"
+                  />
+                  <p className="text-xs text-zinc-400 mt-1">
+                    Fica registrado no histórico do servidor, junto com o que foi desfeito.
+                  </p>
+                </div>
+
+                {impactoErro && (
+                  <p className="text-xs text-red-600 dark:text-red-400 font-semibold">{impactoErro}</p>
+                )}
+              </>
+            )}
+
+            <div className="flex justify-end gap-3 pt-1">
+              <button
+                onClick={() => { setRemovendo(null); setImpactoErro(null) }}
+                disabled={removendoLoading}
+                className="px-4 py-2 text-sm font-bold text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmarRemocao}
+                disabled={
+                  !removendo.impacto ||
+                  !removendo.impacto.pode_excluir ||
+                  motivoRemocao.trim().length < 5 ||
+                  removendoLoading
+                }
+                className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl transition-colors"
+              >
+                {removendoLoading ? 'Removendo…' : 'Remover alteração'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

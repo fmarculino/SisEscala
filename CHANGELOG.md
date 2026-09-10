@@ -2,6 +2,59 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.54.0] - 2026-09-10
+
+Migration `20260910100000`. Remover uma **alteracao de horario por periodo** (jornada temporaria)
+deixa de ser um DELETE cru e vira ato registrado: motivo obrigatorio, historico append-only e
+recusa onde o resto do sistema ja recusa. Diario em
+[`docs/evolucao/2026-09-10-remover-vigencia-de-jornada-vira-ato-registrado.md`](docs/evolucao/2026-09-10-remover-vigencia-de-jornada-vira-ato-registrado.md).
+
+### Added
+
+- **`fn_vigencia_jornada_impacto`** — o que a remocao causa, consultado pela tela ANTES de
+  confirmar: periodo, horario previsto **de -> para**, quantos daqueles dias **ja tem ponto** e o
+  impedimento, quando houver.
+- **`fn_excluir_vigencia_jornada`** — unico caminho para remover. Exige motivo (5 caracteres),
+  grava `servidores_jornadas_temporarias_historico` (append-only, **sem policy de escrita**) e
+  devolve os dias afetados.
+- **`trg_vigencia_jornada_exclusao_registrada`** (`BEFORE DELETE`) — a rede de seguranca. Sem ela
+  a tela corrigida nao protegeria quem chama o PostgREST direto (armadilha 12).
+- Modal de remocao na ficha do servidor, com o impacto na frente e o campo de motivo.
+
+### Fixed
+
+- 🚨 **A remocao nao exigia nada e nao deixava rastro.** Criar a vigencia exige motivo; trocar a
+  jornada do mes exige justificativa e vira linha de historico; **apagar**, a mais destrutiva das
+  tres, nao exigia nada.
+- ⚠️ **Coluna DURACAO mostrava "0 dias" em periodo de um dia.** As datas sao inclusivas nos dois
+  extremos e `calculateDuration` nao somava o `+ 1` — e **50 das 69** vigencias de producao sao de
+  um dia so, entao o valor errado era o caso dominante.
+- ⚠️ **`set_config(..., true)` e local a TRANSACAO, nao a funcao** (achado no ensaio em
+  homologacao): com o GUC ligado, um `DELETE` cru na mesma transacao passava pela trigger. A RPC
+  passou a desliga-lo no statement seguinte. As funcoes irmas (`fundir_setor`,
+  `mesclar_servidor`, `reparse_afd`) tem a mesma folga e **nao foram tocadas** — pendencia
+  conhecida.
+
+### Notes
+
+- 🚨 **NAO e bloqueio por "ja tem batida", e isso e deliberado.** Desfazer um engano e a UNICA
+  razao legitima para apagar uma vigencia — mudanca real de horario e vigencia **nova**. Travar
+  quem tem ponto congelaria para sempre a vigencia cadastrada errada. Medido em producao em
+  10/09/2026: **38 das 69** vigencias ja cobrem dia com ponto (115 dias), e ha motivos como
+  "horario cadastrado indevido" na base.
+- 🚨 **O aviso mostra a JANELA, nunca um total de horas.** Em **97 dos 115** dias batidos a carga
+  das duas jornadas e IDENTICA — so a janela desloca (179h na entrada, 179h na saida). SILVIA
+  MERCEDES (28558): `10H AS 14H` contra `14H AS 18H`, 20 dias batidos, diferenca de horas **zero**
+  e entrada prevista mudando de 10:00 para 14:00.
+- ⚠️ **A RPC nao reconcilia nem sincroniza.** Reconciliar em massa esta medido e recusado (4
+  ganhos contra 43 trocas e 7 perdas): ela devolve os dias afetados e a tela os lista, para a
+  mudanca ser anunciada no clique em vez de aparecer sozinha na proxima sincronizacao.
+- As duas recusas duras tem saida: folha fora de Rascunho -> **reabrir a folha**; competencia
+  encerrada -> **reabrir em Configuracoes**.
+- Portoes: `node scratchpad/sim_vigencia_exclusao.js` (31 assercoes) e
+  `node scratchpad/val_sim_vigencia_exclusao.js` (9 regressoes injetadas, todas reprovam).
+  **Validado em homologacao** contra o banco real, ensaio revertido: 8 de 8 cenarios.
+
 ## [2.53.3] - 2026-09-09
 
 Sem migration. Corrige o total da grade de escala que **nascia inflado e caia sozinho** alguns

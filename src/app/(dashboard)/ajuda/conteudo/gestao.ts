@@ -180,6 +180,26 @@ export const gestao: Capitulo = {
           texto:
             'A jornada vale para **todos os dias** da competência, e não só dali para frente. Trocá-la no dia 12 muda também como os dias 1 a 11 são julgados — a batida não se perde, mas atraso e hora extra são recalculados contra um horário que não valia naqueles dias. Para mudança com data certa, use jornada temporária.',
         },
+        { tipo: 'titulo', texto: 'Remover uma alteração de horário por período' },
+        {
+          tipo: 'p',
+          texto:
+            'Na ficha do servidor, cada alteração de horário por período pode ser removida — mas a remoção **pede um motivo** e fica registrada no histórico dele. Antes de confirmar, a tela mostra o que muda: o período, o horário previsto de → para, e quantos daqueles dias **já têm ponto registrado**.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'cuidado',
+          titulo: 'Remover não apaga batida — muda como ela é avaliada',
+          texto:
+            'Nenhuma marcação se perde ao remover. O que muda é o horário **previsto** dos dias do período: eles voltam a ser avaliados contra a jornada normal do mês, e isso recalcula atraso e hora extra. A folha não muda na hora — só quando alguém clicar em **Sincronizar**. Por isso a tela lista os dias afetados: confira-os antes de fechar a competência.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'Dia com ponto em folha fechada: o sistema recusa',
+          texto:
+            'Se algum dia do período já tem ponto e a folha daquele mês não está mais em Rascunho, a remoção é recusada — a tela diz qual folha está travando. O caminho é **reabrir a folha** (RH e Administrador podem) e então remover. Se a competência inteira estiver encerrada, reabra-a em Configurações primeiro.',
+        },
         {
           tipo: 'aviso',
           tom: 'dica',

@@ -1370,6 +1370,50 @@ correção). Medido em produção em 19/08/2026, competência 08/2026: **zero** 
 praticado no meio do mês em 134 escalas mensuráveis, e **zero** jornadas desalinhadas do praticado
 em 145. O risco é estrutural; a ocorrência era nenhuma.
 
+### E APAGAR a vigência era a operação sem freio das três (10/09/2026)
+
+🚨 **`deleteJornadaTemporaria` era um `DELETE` cru** — sem motivo, sem rastro, sem guard — e **não
+existia trigger de `DELETE`** na tabela. Criar a vigência exige motivo; trocar a jornada do mês
+exige justificativa e vira linha de histórico; **apagar, a mais destrutiva das três, não exigia
+nada.** Diário em
+[`docs/evolucao/2026-09-10-remover-vigencia-de-jornada-vira-ato-registrado.md`](docs/evolucao/2026-09-10-remover-vigencia-de-jornada-vira-ato-registrado.md).
+
+Medido em produção em 10/09/2026: **69 vigências, 61 delas criadas em 09/2026, 50 de um dia só.**
+**38 das 69 (55%) já cobrem dia com ponto** — 115 dias, 68 em folha `Revisada` e **32 em folha
+fora de Rascunho com a competência ABERTA**, alcançáveis pelo botão "Corrigir Todas" da folha
+(que pula competência encerrada mas **não** pula folha `Revisada`).
+
+🚨 **MEDIR O ESTRAGO EM HORAS SUBESTIMA, E MUITO.** Em **97 dos 115 dias batidos a carga é
+IDÊNTICA** entre a vigência e a jornada do mês — delta zero. Mas em **43 deles a janela desloca**:
+179h na entrada e 179h na saída. SILVIA MERCEDES (28558), vigência `10H ÀS 14H` contra jornada do
+mês `14H ÀS 18H`, 20 dias batidos, folha `Revisada`: diferença de horas **zero**, entrada prevista
+mudando de 10:00 para 14:00. Por isso `fn_vigencia_jornada_impacto` devolve a **janela (de →
+para)** e nunca um total de horas — "0h de diferença" seria mentira tranquilizadora no caso comum.
+
+⚠️ **Não bloqueie por "já existe batida".** Mesmo motivo da troca de jornada, e aqui mais forte:
+**desfazer um engano é a ÚNICA razão legítima para apagar uma vigência** — mudança real de horário
+daqui pra frente é vigência **nova**. Travar quem tem ponto congelaria para sempre a vigência
+cadastrada errada, e a base já tem motivos como *"horário cadastrado indevido"*.
+
+Desde `20260910100000` a remoção é ato registrado: `fn_excluir_vigencia_jornada` (motivo de 5
+caracteres, histórico append-only em `servidores_jornadas_temporarias_historico` **sem policy de
+escrita**) mais `trg_vigencia_jornada_exclusao_registrada` (`BEFORE DELETE`) como rede de
+segurança. As duas recusas duras são só **onde o resto do sistema já recusa** e ambas têm saída:
+folha fora de Rascunho → reabrir a folha; competência encerrada → reabrir em Configurações.
+
+⚠️ **A RPC não reconcilia nem sincroniza** — reconciliar em massa está medido e recusado. Ela
+**devolve** os dias afetados e a tela os lista, para a mudança ser anunciada no clique em vez de
+aparecer sozinha na próxima sincronização.
+
+🚨 **`set_config(..., true)` é local à TRANSAÇÃO, não à função** (achado no ensaio em homologação,
+não pelo portão): com o GUC ligado, um `DELETE` cru na mesma transação **passava pela trigger**.
+A RPC passou a desligá-lo no statement seguinte ao `DELETE`. ⚠️ **`sisescala.fundir_setor`,
+`sisescala.mesclar_servidor` e `sisescala.reparse_afd` têm a mesma folga e não foram tocados** —
+pendência conhecida, mesma correção de uma linha.
+
+Portões: `node scratchpad/sim_vigencia_exclusao.js` (31) e `val_sim_vigencia_exclusao.js` (9
+regressões). **Validado em homologação, ensaio revertido: 8 de 8 cenários.**
+
 ⚠️ **`updated_at` de `escala_mensal` NÃO mede troca de jornada.** O `handleSave` da grade faz upsert
 de todas as linhas a cada "Salvar Previsão", então o carimbo sobe sempre (75% das escalas com
 batida, medido). Para medir troca, use a quebra no horário **praticado** — ou, agora, o histórico.

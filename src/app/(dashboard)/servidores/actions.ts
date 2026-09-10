@@ -1401,20 +1401,52 @@ export async function createJornadaTemporaria(
   return { success: true }
 }
 
-export async function deleteJornadaTemporaria(id: string, servidorId: string) {
+/**
+ * O que acontece se esta vigência for removida — para a tela avisar ANTES de confirmar.
+ *
+ * Quem responde é o banco (`fn_vigencia_jornada_impacto`), porque é o banco que resolve a
+ * jornada por data (`obter_jornada_servidor_data`). Replicar a conta aqui produziria uma
+ * segunda regra para a mesma pergunta.
+ */
+export async function getImpactoVigenciaJornada(id: string) {
   const supabase = await createClient()
 
-  const { error } = await supabase
-    .from('servidores_jornadas_temporarias')
-    .delete()
-    .eq('id', id)
+  const { data, error } = await supabase.rpc('fn_vigencia_jornada_impacto', {
+    p_vigencia_id: id,
+  })
+
+  if (error) return { error: error.message }
+  const impacto = Array.isArray(data) ? data[0] : data
+  if (!impacto) return { error: 'Alteração de horário não encontrada.' }
+  return { impacto }
+}
+
+/**
+ * Remove a vigência de jornada. É ATO REGISTRADO, não um DELETE.
+ *
+ * POR QUE NÃO É BLOQUEIO POR "JÁ TEM BATIDA"
+ *   Desfazer um engano é a única razão legítima que existe para apagar uma vigência — mudança
+ *   real de horário daqui pra frente é vigência NOVA. Travar quem tem ponto congelaria para
+ *   sempre a vigência cadastrada errada, junto com o julgamento errado dos dias dela.
+ *
+ * O que a RPC exige em troca: motivo (fica no histórico append-only) e competência aberta com
+ * folha em Rascunho nos dias que já têm ponto. Ela NÃO sincroniza a folha — devolve os dias
+ * afetados para uma pessoa decidir, porque reconciliar em massa está medido e recusado.
+ */
+export async function deleteJornadaTemporaria(id: string, servidorId: string, motivo: string) {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase.rpc('fn_excluir_vigencia_jornada', {
+    p_vigencia_id: id,
+    p_motivo: (motivo || '').trim(),
+  })
 
   if (error) {
     return { error: traduzirErroVigencia(error.message) }
   }
 
   revalidatePath(`/servidores/${servidorId}`)
-  return { success: true }
+  return { success: true, resultado: data }
 }
 
 /**
