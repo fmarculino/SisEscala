@@ -5,7 +5,7 @@ import { formatarData, formatarDataHora, formatarHora, formatarHoraComSegundos, 
 import { horasDaLinhaEscala, tetoLiquidoJornada } from '@/utils/escala/horasLinha'
 import {
   batidaVisivelNaCelula, classificarBatida, classificarLugarDaBatida, compararBatidasParaExibir,
-  dataDaCelula, type LugarDaBatida, type PosicaoDaBatida,
+  dataDaCelula, deltaDiaDaBatida, rotuloDiaRelativo, type LugarDaBatida, type PosicaoDaBatida,
 } from '@/utils/janelaBatidas'
 import {
   avaliarSequenciaPresenca, PASSOS_EM_ORDEM, ROTULO_PASSO, type PassoPresenca,
@@ -6038,8 +6038,21 @@ export function ScaleGrid({
                                   const previsto = !hora && !exige
                                     ? getShiftForecastTime(turno?.id || '', 'entrada', em.servidor_id, cat, day)
                                     : null
-                                  const label = hora || (exige ? '?h' : previsto)
-                                  if (!label) return null
+                                  // A hora informada é um `time`: não diz de que DIA ela é. Numa
+                                  // jornada que cruza a meia-noite (18H ÀS 06H) a hora extra de
+                                  // passagem de turno informada como 06:00 é a do dia SEGUINTE —
+                                  // quem resolve isso é o banco (20260910110000), e é de lá que o
+                                  // rótulo vem. Sem ele "06:00" numa linha de turno noturno é
+                                  // indecidível a olho, exatamente como o HH:MM de uma batida
+                                  // num turno de 24h (armadilha 45).
+                                  const inicioNoBloco = previstoDaLinhaNoBloco(
+                                    blocoDaCelula(em.servidor_id, cat, day), 'entrada', em.servidor_id, cat, day)
+                                  const rotuloDia = inicioNoBloco
+                                    ? rotuloDiaRelativo(deltaDiaDaBatida(inicioNoBloco, dataDaCelula(day, mes, ano)))
+                                    : null
+                                  const base = hora || (exige ? '?h' : previsto)
+                                  if (!base) return null
+                                  const label = rotuloDia && base !== '?h' ? `${base}${rotuloDia}` : base
                                   return (
                                     <button
                                       type="button"
@@ -6054,11 +6067,14 @@ export function ScaleGrid({
                                         ancorado: !exige,
                                         valor: hora || (exige ? sugerirHoraInicio(em.servidor_id, day, cat) : '')
                                       })}
-                                      title={hora
+                                      title={(hora
                                         ? `Início às ${hora} (informado pelo coordenador). Clique para alterar.`
                                         : exige
                                           ? `O código ${turno?.codigo} não define a hora de início. Clique para informar.`
-                                          : `Início previsto às ${previsto}, calculado pela escala do dia. Clique para informar outra hora.`}
+                                          : `Início previsto às ${previsto}, calculado pela escala do dia. Clique para informar outra hora.`)
+                                        + (rotuloDia
+                                          ? `\nEste turno começa no dia ${rotuloDia === '+1D' ? 'seguinte' : 'anterior'}: emenda no fim da jornada que atravessa a meia-noite.`
+                                          : '')}
                                       className={`absolute bottom-0 left-0 right-0 text-[7px] leading-none py-px font-bold ${
                                         hora
                                           ? 'text-blue-600 dark:text-blue-400'

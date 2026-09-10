@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.55.0] - 2026-09-10
+
+Migration `20260910110000`. `escala_diaria.hora_inicio_prevista` e um `time` e nao carrega dia: a
+hora extra de passagem de turno do vigia, informada como 06:00 numa jornada `18H AS 06H`, nascia
+**12 horas antes** do turno que ela emenda. Diario em
+[`docs/evolucao/2026-09-10-hora-informada-no-dia-errado.md`](docs/evolucao/2026-09-10-hora-informada-no-dia-errado.md).
+
+### Fixed
+
+- **O NIVEL 1 da cadeia de horario passa a saber a que DIA a hora informada pertence.** Novas
+  `fn_hora_prevista_dia_seguinte` (pura) e `fn_hora_prevista_no_eixo_do_dia`, aplicadas aos 4
+  cursores de `fn_confirmar_presenca` (2), `fn_confirmar_presenca_manual` e
+  `fn_blocos_previstos_dia`. Sobe um dia so quando o Regular do dia cruza a meia-noite, a hora e
+  exatamente a do fim dele e no dia civil o turno ficaria solto antes da jornada.
+- Com isso voltam a funcionar, no mesmo movimento: a **batida do dia seguinte aparece no modal** de
+  validacao manual, a **alocacao automatica** casa a batida com o passo da hora extra, e a **folha**
+  deixa de perder o turno noturno inteiro (ela consolida por min(entrada)/max(saida), e o Extra no
+  dia errado puxava a entrada para 06:00).
+
+### Added
+
+- A celula da grade mostra **`06:00+1D`** quando a hora informada resolve para o dia seguinte, com
+  o motivo no tooltip. O rotulo vem do bloco previsto do banco, nao e recalculado na tela.
+- Portoes `scratchpad/sim_hora_eixo_do_dia.js` (25 casos; TRADUZ o corpo SQL da regra em vez de
+  duplica-lo em JS), `val_sim_hora_eixo_do_dia.js` (10 regressoes injetadas) e
+  `ver_hora_eixo_aplicada.mjs` (conferencia contra o banco, executando as funcoes).
+- `scratchpad/_ponte_deploy_homolog.sql` — a ponte que `envia_homolog.mjs` usa passou a ser
+  versionada; ela era removida a cada validacao e ninguem sabia recria-la.
+
+### Nao incluido
+
+- **Correcao do dado ja gravado.** 26 linhas com presenca, todas 08/2026 em folhas `Revisada`:
+  ponto passado em documento assinado, por lista fechada e com ensaio antes/depois.
 ## [2.54.0] - 2026-09-10
 
 Migration `20260910100000`. Remover uma **alteracao de horario por periodo** (jornada temporaria)

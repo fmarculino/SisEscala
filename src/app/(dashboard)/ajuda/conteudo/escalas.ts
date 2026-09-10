@@ -147,6 +147,13 @@ export const escalas: Capitulo = {
             { titulo: 'Salve', texto: 'Clique em **Salvar Previsão** ao terminar.' },
           ],
         },
+        {
+          tipo: 'aviso',
+          tom: 'dica',
+          titulo: 'Turno noturno: a hora pode ser do dia seguinte, e a célula avisa',
+          texto:
+            'Quem faz jornada que atravessa a meia-noite (das 18h às 6h, por exemplo) costuma ter uma hora extra de passagem de turno logo depois — às 6h. Essa hora é do **dia seguinte**, não do dia em que o turno começou. Você informa **06:00** normalmente; a célula passa a mostrar **06:00+1D** para deixar claro de que dia é. Quando não aparece nada depois da hora, é o mesmo dia.',
+        },
         { tipo: 'titulo', texto: 'Os códigos mais usados' },
         {
           tipo: 'tabela',

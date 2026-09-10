@@ -5038,6 +5038,89 @@ causa pode ser "nao ha escala nesse mes" — sao coisas diferentes, e a de fora 
 diagnostico. Distingui-las exige mexer no guard, que e codigo de seguranca copiado mecanicamente
 para `fn_confirmar_presenca`; ficou como pendencia conhecida.
 
+### 60. `hora_inicio_prevista` é um `time` e não diz de que DIA é — o sistema chutava "hoje" (10/09/2026)
+
+🚨 **A hora extra de passagem de turno do vigia nascia 12 HORAS ANTES do turno que ela emenda.**
+Jornada `18H ÀS 06H`, hora informada `06:00`: o nível 1 da cascata fazia
+`extract(hour from ed.hora_inicio_prevista)::integer`, o resultado virava `start_hour * 60`, e isso
+é **sempre o dia civil da célula**. Medido chamando `fn_blocos_previstos_dia`:
+
+```
+bloco 1  Extra    01/09 06:00 -> 01/09 07:00     <- 12h antes
+bloco 2  Regular  01/09 18:00 -> 02/09 06:00
+```
+
+Diário em
+[`docs/evolucao/2026-09-10-hora-informada-no-dia-errado.md`](docs/evolucao/2026-09-10-hora-informada-no-dia-errado.md).
+
+⚠️ **O sintoma relatado era o menor dos três, e os três vêm do mesmo bloco fora do lugar:**
+
+| efeito | por quê |
+|---|---|
+| a batida das 07:0x **some do modal** de validação manual | a lista é a união do dia civil com a **janela do bloco** (armadilha 45); bloco 12h fora → a batida cai em `fora` |
+| a alocação nunca casa a batida com o passo do Extra | ela fica 25h longe do slot; sobra para a saída do Regular, que ela ultrapassa em 1h. **"Preencher pelas Batidas" não resolvia** — o cálculo já era sobre o previsto errado |
+| 🚨 **a FOLHA perde o turno inteiro** | ela consolida por `min(entrada)`/`max(saída)` sobre Regular+Extra; com o Extra às 06:00 do dia civil, `min` vira 06:00 e a folha de ILMAR (mat. 54457, 08/2026, **Revisada**) saiu com **`06:00 → 07:00`** para uma noite de 18:00 às 07:01 |
+
+🚨 **Os dias em que o Extra caiu no dia certo provam que não é o cálculo da folha.** Na mesma folha,
+mesmo mês, mesma pessoa: dias 4 e 6 saem `17:44 → 07:01`, corretos.
+
+**Alcance medido em 10/09/2026** (1.265 linhas com `hora_inicio_prevista`): **145 mudam de dia** —
+11 servidores, **8 unidades**, 08 e 09/2026; 132 código `1` e 13 `1N`. 844 em dia de jornada diurna
+e 274 sem Regular ficam **inalteradas**. Não é uma portaria: é o desenho da escala de vigia,
+repetido na rede.
+
+🚨 **A ironia: sem a hora informada, o sistema já acertava.** O último ramo da cascata legada
+resolve pelo **fim da jornada + 24**. Era **informar a hora que quebrava** — e informar é
+obrigatório, senão a célula fica `?h` e a coluna vai nula (armadilha 51). O Revezamento de Vigias
+seguia a regra escrita; a regra escrita é que tinha o buraco.
+
+Fonte única desde `20260910110000`: **`fn_hora_prevista_dia_seguinte`** (pura) +
+**`fn_hora_prevista_no_eixo_do_dia`** (busca o Regular do dia). Sobe um dia só quando **(a)** o
+Regular do dia cruza a meia-noite, **(b)** a hora é **exatamente** a do fim dele e **(c)** no dia
+civil o turno ficaria **solto antes** da jornada.
+
+⚠️ **(c) é o que separa o resolvível do ambíguo.** Extra de 1h @06:00 em `18H ÀS 06H` fica 11h
+solta no dia civil e emenda perfeito no seguinte — uma leitura só. Já **Plantão MT de 12h @07:00 em
+`19H ÀS 07H` emenda dos DOIS lados**, e aí não há como afirmar: essa linha — **a única da base** —
+fica inalterada, com o nível 2-A, que põe o plantão diurno *antes* da jornada noturna de propósito.
+
+⚠️ **NÃO afrouxar (b) para "hora ≤ fim da jornada"** — passaria a adivinhar qualquer hora da
+madrugada, inclusive as que caem **dentro** do turno. O caminho, se aparecer caso real, é dar ao
+coordenador como **dizer** o dia.
+
+ℹ️ **O guard (a) é redundante hoje e fica assim mesmo** (em jornada diurna, (b) e (c) já recusam).
+Por ser inalcançável, **nenhuma tabela-verdade o pega** — quem o protege é a checagem estrutural do
+portão. Não apague como código morto.
+
+⚠️ **O gerador pegou duas coisas que uma edição à mão teria feito em silêncio:** o **recuo do
+cursor não é o mesmo nas três funções** (16 espaços em `fn_confirmar_presenca` e
+`fn_blocos_previstos_dia`, **12** em `fn_confirmar_presenca_manual`) — recuo fixo vira **no-op
+silencioso** ali, o mesmo modo de falha do EOL errado (armadilhas 48 e 59); e
+**`fn_confirmar_presenca_manual` não funde blocos**, então exigir dela `dobra_diurna` reprova pelo
+motivo errado. Invariante de cópia mecânica é **por função**.
+
+⚠️ **Na grade a célula mostra `06:00+1D`, e as duas metades andam juntas.** Sem o rótulo a correção
+troca um erro silencioso por outro: `06:00` numa linha de turno noturno é indecidível a olho
+(mesma razão da armadilha 45). O rótulo vem do **bloco do banco**, não é recalculado — e é
+**inerte até a migration ser aplicada**, então não há ordem entre deploy e migration.
+
+⚠️ **Não corrige dado já gravado.** As 26 linhas com presença são de 08/2026 em folhas `Revisada`:
+ponto passado em documento assinado, decisão de quem responde pela folha, por lista fechada com
+ensaio antes/depois (armadilha 46).
+
+Portões: `node scratchpad/sim_hora_eixo_do_dia.js` (25 casos) e `val_sim_hora_eixo_do_dia.js`
+(**10 regressões**). ⚠️ **O portão não duplica a regra em JS: TRADUZ o corpo SQL** e roda a tabela
+em cima da tradução — cópia em JS passaria com o SQL quebrado. Conferência contra o banco:
+`node scratchpad/ver_hora_eixo_aplicada.mjs`.
+
+ℹ️ **A ponte de deploy de homologação (`_deploy_sql`/`_deploy_run`) não estava versionada** e some a
+cada validação; agora está em `scratchpad/_ponte_deploy_homolog.sql`. Sem `DATABASE_URL` de
+homologação nem `psql`, é o único caminho para validar migration antes de produção.
+
+ℹ️ **`fn_obter_horario_regular_dia` ainda não aceita `ÁS` com A agudo** (a correção de 06/09/2026
+alcançou 13 sítios em TypeScript e não este). Inofensivo hoje — as duas jornadas noturnas do
+catálogo usam crase e nenhuma jornada da base usa o agudo. Pendência conhecida.
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.
