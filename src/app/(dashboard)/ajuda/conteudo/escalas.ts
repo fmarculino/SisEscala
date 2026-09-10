@@ -180,7 +180,7 @@ export const escalas: Capitulo = {
           tom: 'atencao',
           titulo: 'Apagar um dia que já tem ponto',
           texto:
-            'Se o dia já tem presença registrada, a célula fica protegida — apagar ali apagaria o registro de que a pessoa trabalhou. Para **trocar** o turno de um dia com ponto, o sistema pede uma justificativa, que fica guardada junto com a alteração.',
+            'Se o dia já tem presença registrada, a célula fica protegida — apagar ali apagaria o registro de que a pessoa trabalhou. Para **trocar** o turno de um dia com ponto, o sistema pede uma justificativa, que fica guardada junto com a alteração e vale para qualquer linha, inclusive a do turno normal. Nas linhas de **Hora Extra, Plantão e Sobreaviso** esse motivo aparece também no relatório de justificativas; na linha do turno normal ele fica só no histórico da escala, porque aquele relatório é dos eventos.',
         },
       ],
     },

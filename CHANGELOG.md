@@ -2,6 +2,52 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.55.1] - 2026-09-10
+
+Migration `20260910120000`. Trocar o turno de um dia que ja tem ponto era **impossivel na linha
+Regular**: o modal pedia a justificativa, o coordenador escrevia, e o banco recusava a alteracao
+inteira com `justificativas_eventos_categoria_check`. Relatado do campo (MT lancado onde era M).
+Diario em
+[`docs/evolucao/2026-09-10-turno-regular-nao-e-evento.md`](docs/evolucao/2026-09-10-turno-regular-nao-e-evento.md).
+
+### Fixed
+
+- **A justificativa de EVENTO so e escrita onde ela existe.** `justificativas_eventos` aceita
+  apenas `Extra`, `Plantao` e `Sobreaviso` — o modulo inteiro e dos eventos, e as telas e
+  relatorios filtram exatamente essas tres. `fn_alterar_turno_escala_diaria` gravava a categoria
+  crua, entao `Regular` morria em `23514` e a transacao voltava atras: a troca **nao acontecia**, e
+  nao havia outro caminho para corrigir a celula (a trigger recusa troca sem justificativa).
+- **Afrouxar a CHECK foi considerado e descartado.** Uma linha `Regular` ali nao apareceria em tela
+  nem em relatorio nenhum e ainda ocuparia a chave `uq_justificativa_evento` — dado morto criado
+  para satisfazer um INSERT. O motivo do ato continua registrado onde sempre foi a prova: o
+  historico append-only `escala_diaria_turno_historico`, escrito pela trigger em **toda** categoria,
+  com de -> para, autor e `tinha_ponto`.
+- **O relato acompanha (armadilha 22).** A RPC devolve `justificativa_evento_registrada` e a grade
+  deixou de prometer que o motivo "sai no relatorio de Regular" — relatorio que nao existe.
+
+### Added
+
+- `fn_categoria_tem_justificativa_evento` — fonte unica no banco, espelho exato da CHECK — e
+  `src/utils/justificativaEvento.ts` — fonte unica dos textos da grade.
+- Portoes `scratchpad/sim_justificativa_evento.js` (36 assercoes: a regra, o texto das telas e a
+  estrutura da migration) e `val_sim_justificativa_evento.js` (7 regressoes injetadas, 7
+  reprovadas). A conferencia da migration **executa** a funcao nova e avalia a **expressao real** da
+  CHECK, abortando se as duas divergirem.
+- `scratchpad/envia_homolog_inteiro.mjs` — aplica um .sql inteiro em homologacao numa transacao so,
+  para a conferencia do fim poder reverter tudo, e `ver_troca_turno_aplicada.mjs` — conferencia
+  contra o banco, executando as funcoes.
+
+### Aplicada em producao
+
+- **10/09/2026, conferida por `ver_troca_turno_aplicada.mjs`: 11 de 11.** A funcao nova responde a
+  verdade nas 6 entradas exercitadas, `anon` recebe 401, a RPC responde com o comentario da versao
+  nova, e a CHECK continua barrando `Regular` com 23514 — a premissa do conserto nao mudou.
+
+### Nao incluido
+
+- **Correcao de dado.** Nada ficou pela metade quando o erro acontecia: a RPC e um statement so,
+  entao o UPDATE do turno e a linha do historico voltavam atras junto. Nao ha o que reparar.
+
 ## [2.55.0] - 2026-09-10
 
 Migration `20260910110000`. `escala_diaria.hora_inicio_prevista` e um `time` e nao carrega dia: a

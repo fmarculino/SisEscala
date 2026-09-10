@@ -67,6 +67,7 @@ import {
 } from '@/utils/reconciliacaoPendente'
 import { opcoesParaEscolha, rotularInativo } from '@/utils/opcoesAtivas'
 import { celulaTemPassosDeIntervalo } from '@/utils/intervaloIntrajornada'
+import { destinoDaJustificativaTurno, descreverTrocaAplicada } from '@/utils/justificativaEvento'
 import { statusAcionamento } from '@/utils/sobreaviso/statusAcionamento'
 import {
   gerarEscalaInteligente,
@@ -700,7 +701,8 @@ export function ScaleGrid({
   // Troca de turno em dia que JÁ TEM PONTO — o caso da dobra: a servidora estava no Plantão T,
   // o plantonista seguinte não compareceu e o coordenador a convocou a emendar a noite (T → TN).
   // Trocar o turno reescreve o previsto contra o qual aquele ponto é julgado, então o motivo é
-  // obrigatório e vira histórico + justificativa do evento (aparece no relatório de plantão).
+  // obrigatório e vira histórico sempre — mais justificativa do evento (a que aparece no
+  // relatório) só onde ela existe: Extra, Plantão e Sobreaviso. Ver @/utils/justificativaEvento.
   // A regra é do BANCO: trg_registrar_troca_turno recusa o UPDATE sem justificativa.
   const [trocaTurnoModal, setTrocaTurnoModal] = useState<{
     isOpen: boolean, servidorId: string, servidorNome: string, escalaMensalId: string,
@@ -2395,8 +2397,11 @@ export function ScaleGrid({
     }
 
     // Dia que JÁ TEM PONTO não troca de turno em silêncio: exige justificativa, que vira
-    // histórico (escala_diaria_turno_historico) e entra na justificativa do evento daquele dia,
-    // que é o que o relatório de plantão imprime. É o caso da dobra (Plantão T → TN).
+    // histórico (escala_diaria_turno_historico) em qualquer categoria e, SÓ em categoria de
+    // evento, entra também na justificativa do evento daquele dia, que é o que o relatório de
+    // plantão imprime. É o caso da dobra (Plantão T → TN). Turno Regular não tem justificativa de
+    // evento — a tabela recusa a linha, e era isso que travava a correção de um MT lançado por
+    // engano num dia já batido (10/09/2026, migration 20260910120000).
     // O banco recusa o UPDATE sem justificativa (trg_registrar_troca_turno); a tela existe para
     // coletar o texto e usar a RPC que sabe carregá-lo, em vez de deixar o "Salvar Previsão"
     // morrer em lote com a exceção crua do Postgres. Ver 20260821110000.
@@ -2507,7 +2512,16 @@ export function ScaleGrid({
       setAlertModal({
         isOpen: true,
         title: 'Turno Alterado',
-        message: `${m.servidorNome} — dia ${m.day}: ${m.codigoAnterior} → ${m.codigoNovo}.\n\nA alteração já está salva no banco, com a justificativa no histórico e no relatório de ${m.categoria}. As marcações de ponto do dia foram preservadas.`,
+        // Relata o que foi ESCRITO, não o que foi calculado: o relatório de justificativas só
+        // existe para Extra/Plantão/Sobreaviso, e prometê-lo para Regular seria mentira
+        // (fonte única em @/utils/justificativaEvento).
+        message: descreverTrocaAplicada({
+          servidorNome: m.servidorNome,
+          dia: m.day,
+          codigoAnterior: m.codigoAnterior,
+          codigoNovo: m.codigoNovo,
+          categoria: m.categoria
+        }),
         type: 'success'
       })
     } catch (err: any) {
@@ -8643,7 +8657,7 @@ export function ScaleGrid({
             Este dia <span className="font-bold">já tem ponto registrado</span>. Trocar o turno muda o
             horário previsto contra o qual esse ponto é julgado — hora extra, falta e o horário que o
             terminal vai cobrar. As marcações já registradas <span className="font-bold">não se perdem</span>.
-            Descreva o motivo: ele fica no histórico da escala e sai no relatório de {trocaTurnoModal.categoria}.
+            Descreva o motivo: {destinoDaJustificativaTurno(trocaTurnoModal.categoria)}
           </p>
           <textarea
             value={trocaTurnoModal.texto}

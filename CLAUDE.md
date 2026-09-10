@@ -5121,6 +5121,68 @@ homologação nem `psql`, é o único caminho para validar migration antes de pr
 alcançou 13 sítios em TypeScript e não este). Inofensivo hoje — as duas jornadas noturnas do
 catálogo usam crase e nenhuma jornada da base usa o agudo. Pendência conhecida.
 
+### 61. Turno Regular não é evento, e a troca de turno tentava justificá-lo como se fosse (10/09/2026)
+
+🚨 **Trocar o turno de um dia com ponto era IMPOSSÍVEL na linha Regular.** O coordenador lançou
+`MT` onde era `M`, o dia já tinha ponto, a grade abriu o modal de justificativa (correto), ele
+escreveu o motivo e recebeu
+
+```
+new row for relation "justificativas_eventos" violates check constraint
+"justificativas_eventos_categoria_check"
+```
+
+A alteração **não acontecia** — e não havia outra saída: `trg_registrar_troca_turno` recusa troca
+de turno em dia com ponto sem justificativa, e **só** `fn_alterar_turno_escala_diaria` sabe
+carregar o texto. A célula ficava congelada com o turno errado.
+
+⚠️ **A causa: a RPC grava o carimbo em DOIS lugares, e o segundo é só para EVENTO.**
+`escala_diaria_turno_historico` (append-only, pela trigger) recebe **qualquer** categoria;
+`justificativas_eventos` tem `CHECK (categoria = ANY (ARRAY['Extra','Plantão','Sobreaviso']))` — o
+módulo inteiro é *"Gestão e registro motivacional individual para Horas Extras, Plantões e
+Sobreavisos"*, e os três caminhos de leitura dele filtram exatamente essas três. A RPC escrevia
+`p_categoria` cru.
+
+⚠️ **A CHECK não está em migration nenhuma** — a tabela nasceu fora do versionamento e o
+`CREATE TABLE IF NOT EXISTS` de `20260805000000` nunca chegou a criá-la (armadilha 2). Confirmada
+por `pg_get_constraintdef` em 10/09/2026.
+
+🚨 **AFROUXAR A CHECK FOI A PRIMEIRA IDEIA E ESTÁ ERRADA.** Uma linha `Regular` ali não apareceria
+em tela nem em relatório nenhum, e ainda ocuparia a chave `uq_justificativa_evento`
+(servidor, dia, mês, ano, categoria) — dado morto criado para satisfazer um `INSERT`. **A CHECK
+está certa: é o banco dizendo que Regular não é evento.** Fonte única desde `20260910120000`:
+`fn_categoria_tem_justificativa_evento`, espelho **exato** da constraint (não normaliza acento nem
+caixa — aceitar `plantao` só adiantaria o INSERT até a CHECK, que é literal), e o bloco inteiro da
+justificativa de evento passa a viver dentro dela.
+
+⚠️ **O motivo nunca se perdeu, e é isso que torna a correção barata:** quem guarda o ato é o
+histórico append-only, com `de → para`, autor e `tinha_ponto`, em toda categoria. O que só existe
+para evento é a **aparição no relatório**.
+
+⚠️ **E o relato tem que acompanhar (armadilha 22):** a RPC devolve
+`justificativa_evento_registrada`, e a grade deixou de prometer *"sai no relatório de Regular"* —
+relatório que não existe. Fonte única dos textos em `src/utils/justificativaEvento.ts`; o portão
+reprova qualquer tela que volte a interpolar a categoria num "relatório de".
+
+⚠️ **A conferência da migration EXECUTA a função nova E a expressão real da CHECK** (lida de
+`pg_get_constraintdef`, com a coluna trocada pelo literal) e aborta se as duas divergirem — sem
+isso a função seria uma segunda opinião sobre a mesma pergunta, livre para envelhecer em silêncio.
+Confere os **dois sentidos**: Regular fora, e as três de evento dentro — fechar demais aqui
+apagaria a justificativa do plantão, que é o que o relatório imprime.
+
+ℹ️ Nada ficou pela metade nos casos que falharam: a RPC é um statement só, então o `UPDATE` do
+turno e a linha do histórico voltavam atrás junto. Não há dado a reparar.
+
+Portões: `node scratchpad/sim_justificativa_evento.js` (36) e
+`val_sim_justificativa_evento.js` (**7 regressões injetadas, 7 reprovadas**). Transpile antes com
+`npx tsc src/utils/justificativaEvento.ts --outDir scratchpad/_sim --module commonjs --target es2020`.
+✅ **Aplicada e conferida em produção em 10/09/2026** por `scratchpad/ver_troca_turno_aplicada.mjs`,
+que **executa** as funções e sai com código 1 se qualquer asserção falhar: **11 de 11**.
+**Validada em homologação com ensaio revertido, 3 de 3**: linha Regular troca de turno e **não**
+escreve justificativa de evento (com o motivo no histórico), linha Plantão continua escrevendo, e
+a CHECK continua barrando `Regular`. Diário em
+[`docs/evolucao/2026-09-10-turno-regular-nao-e-evento.md`](docs/evolucao/2026-09-10-turno-regular-nao-e-evento.md).
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.
