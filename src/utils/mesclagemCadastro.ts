@@ -35,13 +35,29 @@ export interface GrupoDuplicado {
   cadastros: CadastroDuplicado[]
 }
 
+/** Um cadastro como ele vem da lista de diagnóstico — menos campos que `CadastroDuplicado`. */
+export interface ServidorSuspeito {
+  id: string
+  nome: string
+  matricula: string | null
+  cpf: string | null
+  status: string
+  unidade: string | null
+}
+
 /** Um grupo da lista de diagnóstico ("Possíveis duplicidades"), agrupado por CPF/nome/tel/e-mail. */
 export interface GrupoSuspeito {
   criterio: 'cpf' | 'nome' | 'telefone' | 'email'
-  servidores: { cpf: string | null }[]
+  servidores: ServidorSuspeito[]
 }
 
-export type MesclagemDoGrupo = { cpf: string } | { motivo: string }
+export type MesclagemDoGrupo =
+  /** Os dois lados têm o mesmo CPF: o caminho de sempre, na seção "Cadastros duplicados". */
+  | { tipo: 'atalho'; cpf: string }
+  /** CPF divergente, mas o grupo admite a mesclagem com identidade declarada. Ver abaixo. */
+  | { tipo: 'declarar'; servidores: ServidorSuspeito[] }
+  /** Não dá — e o motivo sai escrito na tela, nunca um botão cinza e mudo. */
+  | { tipo: 'indisponivel'; motivo: string }
 
 const soDigitos = (v: string | null | undefined) => (v || '').replace(/\D/g, '')
 
@@ -69,25 +85,138 @@ export function mesclagemDoGrupoDuplicidade(
 
   if (cpfs.size === 1 && cpfs.has('')) {
     return {
+      tipo: 'indisponivel',
       motivo: 'Nenhum destes cadastros tem CPF — sem CPF não dá para afirmar que são a mesma '
         + 'pessoa. Preencha o CPF na ficha antes de mesclar.',
     }
   }
-  if (cpfs.size > 1) {
-    return {
-      motivo: 'Os cadastros deste grupo têm CPF diferente entre si — pode não ser a mesma pessoa. '
-        + 'Confira as fichas; a mesclagem exige o mesmo CPF nos dois lados.',
-    }
-  }
+  if (cpfs.size > 1) return declaravel(grupo)
 
   const cpf = [...cpfs][0]
   if (!gruposComAcao.some(g => soDigitos(g.cpf) === cpf)) {
     return {
+      tipo: 'indisponivel',
       motivo: 'Não há mais de um cadastro ativo com este CPF — nada a mesclar (um dos lados já foi '
         + 'mesclado ou não está mais ativo).',
     }
   }
-  return { cpf }
+  return { tipo: 'atalho', cpf }
+}
+
+/**
+ * CPF divergente: este grupo admite a mesclagem com IDENTIDADE DECLARADA?
+ *
+ * 🚨 Existe porque o CPF divergente pode ser o próprio defeito. Medido em produção em 11/09/2026:
+ * um grupo por nome idêntico (SAMU-SMS) com dois cadastros criados com 25 min de diferença no
+ * mesmo dia, mesma unidade, mesmo cargo, mesmo telefone, um com matrícula temporária — o segundo
+ * foi aberto com o CPF de outra pessoa. E a saída que a mensagem antiga mandava seguir ("corrija
+ * o CPF na ficha antes de mesclar") é CIRCULAR: gravar ali o CPF do outro cadastro exige marcar
+ * "vínculo adicional", que é a caixa cujo uso indevido cria a duplicata (armadilha 50).
+ *
+ * ⚠️ SÓ grupo de NOME IDÊNTICO, e o critério do agrupamento manda aqui — ao contrário do caminho
+ * de CPF igual, onde ele é irrelevante. Medido no mesmo dia: dos 10 grupos com CPF divergente, 6
+ * são por TELEFONE e 3 por E-MAIL, e um desses e-mails é compartilhado por 12 pessoas. Telefone e
+ * e-mail de família ou de setor não dizem nada sobre identidade; nome completo idêntico ao menos
+ * é uma coincidência específica. Liberar pelo agrupamento errado é literalmente oferecer "junte
+ * estas duas pessoas".
+ *
+ * ⚠️ Exatamente DOIS cadastros. Com três ou mais e CPFs diferentes entre si, não há como dizer
+ * qual par é a mesma pessoa — e a escolha errada move o ponto de alguém.
+ *
+ * ⚠️ Os dois Ativos. Cadastro já inativado não é duplicidade viva; se for para reativar e mesclar,
+ * isso é decisão à parte, tomada na ficha.
+ */
+function declaravel(grupo: GrupoSuspeito): MesclagemDoGrupo {
+  const semMesclagem = (motivo: string): MesclagemDoGrupo => ({ tipo: 'indisponivel', motivo })
+
+  if (grupo.criterio !== 'nome') {
+    return semMesclagem(
+      'Os cadastros deste grupo têm CPF diferente entre si, e o que os aproxima é só o '
+      + `${grupo.criterio === 'telefone' ? 'telefone' : 'e-mail'} — que costuma ser compartilhado `
+      + '(família, setor, um mesmo endereço para várias pessoas). Não há como afirmar que são a '
+      + 'mesma pessoa: confira as fichas uma a uma.',
+    )
+  }
+  if (grupo.servidores.length !== 2) {
+    return semMesclagem(
+      `São ${grupo.servidores.length} cadastros com o mesmo nome e CPF diferente entre si. Com mais `
+      + 'de dois não dá para dizer qual par é a mesma pessoa — resolva as fichas primeiro.',
+    )
+  }
+  if (grupo.servidores.some(s => s.status !== 'Ativo')) {
+    return semMesclagem(
+      'Os cadastros têm CPF diferente e um deles não está Ativo — cadastro inativado não é '
+      + 'duplicidade em aberto. Se ainda assim for a mesma pessoa, resolva pela ficha.',
+    )
+  }
+  if (grupo.servidores.some(s => soDigitos(s.cpf).length !== 11)) {
+    return semMesclagem(
+      'Um dos cadastros está sem CPF válido. Preencha o CPF nas duas fichas antes de decidir se é '
+      + 'a mesma pessoa.',
+    )
+  }
+  return { tipo: 'declarar', servidores: grupo.servidores }
+}
+
+/** Mínimo de caracteres do motivo na mesclagem declarada — espelho de `fn_mesclar_servidores`. */
+export const MOTIVO_DECLARACAO_MINIMO = 10
+
+/**
+ * O motivo escrito serve?
+ *
+ * ⚠️ Espelho, não substituto: quem recusa de verdade é o banco. O que isto faz é recusar ANTES,
+ * com o texto na frente da pessoa, em vez de deixá-la clicar em "Mesclar" e receber erro de
+ * Postgres depois de ter confirmado uma operação sem desfazer.
+ *
+ * ⚠️ Conta o texto com os espaços colapsados: dez espaços não são justificativa, e o banco faz a
+ * mesma normalização. Se as duas contas divergissem, a tela liberaria o botão para uma chamada
+ * que a RPC recusa.
+ */
+export function conferirMotivoDeclaracao(texto: string | null | undefined): { ok: true } | { ok: false; erro: string } {
+  const limpo = (texto || '').replace(/\s+/g, ' ').trim()
+  if (limpo.length >= MOTIVO_DECLARACAO_MINIMO) return { ok: true }
+  return {
+    ok: false,
+    erro: 'Escreva por que os dois cadastros são a mesma pessoa (ao menos '
+      + `${MOTIVO_DECLARACAO_MINIMO} caracteres). Com o CPF diferente, este texto é a única prova `
+      + 'que vai ficar registrada.',
+  }
+}
+
+/** Um campo de identidade que diverge entre os dois cadastros — vem de `fn_divergencias_identidade_servidor`. */
+export interface DivergenciaIdentidade {
+  campo: string
+  rotulo: string
+  valor_origem: string | null
+  valor_destino: string | null
+}
+
+/**
+ * O que a tela precisa dizer antes de alguém declarar que são a mesma pessoa.
+ *
+ * 🚨 Nunca resumir isto a "os CPFs são diferentes". No caso que motivou a funcionalidade, PIS,
+ * data de nascimento (20 anos de diferença) e nome da mãe também divergiam — e é isso, não o CPF,
+ * que sugere que a ficha duplicada foi preenchida com dados de outra pessoa. Quem só visse
+ * "CPF diferente, confirma?" decidiria sem o que importa.
+ */
+export function avisosDaDeclaracao(divergencias: DivergenciaIdentidade[]): string[] {
+  const avisos: string[] = []
+  const outros = divergencias.filter(d => d.campo !== 'cpf')
+
+  if (outros.length) {
+    avisos.push(
+      'Além do CPF, estes dados de identidade também são diferentes entre as duas fichas: '
+      + `${outros.map(d => d.rotulo).join(', ')}. Confira se o cadastro duplicado não foi `
+      + 'preenchido com os dados de outra pessoa — se foi, não é duplicidade: é ficha trocada.',
+    )
+  }
+
+  avisos.push(
+    'O cadastro que fica mantém a ficha dele como está. Esta mesclagem não copia nenhum dado '
+    + 'pessoal do cadastro duplicado, justamente porque a identidade dos dois não confere.',
+  )
+
+  return avisos
 }
 
 /** Nome de tabela → o que aquilo significa para quem está na tela. */

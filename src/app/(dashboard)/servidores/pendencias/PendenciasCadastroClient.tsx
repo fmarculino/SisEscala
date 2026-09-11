@@ -10,7 +10,10 @@ import { ImportacaoRhSection } from './ImportacaoRhSection'
 import { ImportacaoPlanilhaSection } from './ImportacaoPlanilhaSection'
 import { SolicitacoesTransferenciaSection } from './SolicitacoesTransferenciaSection'
 import { CadastrosDuplicadosSection, ancoraGrupoDuplicado } from './CadastrosDuplicadosSection'
-import { mesclagemDoGrupoDuplicidade, type GrupoDuplicado } from '@/utils/mesclagemCadastro'
+import { MesclagemDeclaradaModal } from './MesclagemDeclaradaModal'
+import {
+  mesclagemDoGrupoDuplicidade, type GrupoDuplicado, type ServidorSuspeito,
+} from '@/utils/mesclagemCadastro'
 
 interface DocumentoInvalido {
   tabela: string
@@ -198,6 +201,12 @@ export function PendenciasCadastroClient({
 }: PendenciasCadastroClientProps) {
   const [buscaSemCpf, setBuscaSemCpf] = useState('')
   const [gruposAbertos, setGruposAbertos] = useState<Set<string>>(new Set())
+  /**
+   * O par em mesclagem declarada (CPF divergente). Fica aqui, e não dentro do grupo, porque o
+   * modal é um só para a lista inteira — e porque fechar o grupo não pode fechar o modal por
+   * baixo de quem está lendo as divergências.
+   */
+  const [parDeclarado, setParDeclarado] = useState<ServidorSuspeito[] | null>(null)
 
   const semCpfFiltrado = useMemo(() => {
     const termo = buscaSemCpf.toLowerCase().trim()
@@ -434,7 +443,8 @@ export function PendenciasCadastroClient({
           </h2>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
             Agrupado por CPF, nome, telefone e e-mail. Homônimo parcial não é duplicata; confira antes de mexer.
-            Onde os cadastros têm o mesmo CPF, o grupo traz o botão que leva à mesclagem.
+            Onde os cadastros têm o mesmo CPF, o grupo traz o botão que leva à mesclagem; onde o nome é idêntico
+            e o CPF não, dá para mesclar declarando que é a mesma pessoa.
           </p>
         </div>
         <div className="p-5">
@@ -448,7 +458,11 @@ export function PendenciasCadastroClient({
                 const chaveUnica = `${grupo.criterio}:${grupo.chave}`
                 const aberto = gruposAbertos.has(chaveUnica)
                 const mesclagem = mesclagemDoGrupoDuplicidade(grupo, cadastrosDuplicados)
-                const podeMesclarAqui = podeMesclarCadastros && 'cpf' in mesclagem
+                const podeMesclarAqui = podeMesclarCadastros && mesclagem.tipo === 'atalho'
+                // O caminho declarado tem selo PRÓPRIO ("CPF diferente"), nunca o mesmo
+                // "dá para mesclar" do caso normal: são operações de risco diferente, e um selo
+                // só ensinaria que mesclar é sempre a mesma coisa.
+                const podeDeclararAqui = podeMesclarCadastros && mesclagem.tipo === 'declarar'
                 return (
                   <div key={chaveUnica} className="border border-zinc-200 dark:border-zinc-800 rounded-lg overflow-hidden">
                     <button
@@ -463,6 +477,11 @@ export function PendenciasCadastroClient({
                         {podeMesclarAqui && (
                           <span className="rounded bg-blue-100 dark:bg-blue-500/20 px-2 py-0.5 text-[11px] font-semibold text-blue-700 dark:text-blue-300">
                             dá para mesclar
+                          </span>
+                        )}
+                        {podeDeclararAqui && (
+                          <span className="rounded bg-amber-100 dark:bg-amber-500/20 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                            CPF diferente
                           </span>
                         )}
                         {aberto ? <ChevronUp className="h-4 w-4 text-zinc-400" /> : <ChevronDown className="h-4 w-4 text-zinc-400" />}
@@ -501,7 +520,7 @@ export function PendenciasCadastroClient({
                         {/* A saída fica JUNTO do grupo, não numa seção distante: é aqui que
                             quem olhou os dois cadastros decide que são a mesma pessoa. */}
                         <div className="border-t border-zinc-100 dark:border-zinc-800 px-4 py-3">
-                          {podeMesclarAqui && 'cpf' in mesclagem ? (
+                          {podeMesclarAqui && mesclagem.tipo === 'atalho' ? (
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <p className="text-xs text-zinc-500 dark:text-zinc-400">
                                 É a mesma pessoa? Mesclar move ponto, escala e folha do cadastro errado para o
@@ -514,6 +533,24 @@ export function PendenciasCadastroClient({
                                 <Merge className="h-3.5 w-3.5" /> Mesclar cadastros
                               </a>
                             </div>
+                          ) : podeDeclararAqui && mesclagem.tipo === 'declarar' ? (
+                            /* CPF divergente: existe saída, mas ela é uma DECLARAÇÃO, não um
+                               atalho. O botão é âmbar e diz o que está sendo assumido — o mesmo
+                               azul do caso normal ensinaria que as duas operações são iguais. */
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                                Mesmo nome, <strong>CPF diferente</strong>. Se um dos dois foi cadastrado com o
+                                CPF errado, dá para mesclar declarando que é a mesma pessoa — a tela mostra tudo
+                                que difere entre as fichas antes de você confirmar.
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => setParDeclarado(mesclagem.servidores)}
+                                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
+                              >
+                                <Merge className="h-3.5 w-3.5" /> Conferir e mesclar
+                              </button>
+                            </div>
                           ) : (
                             /* Sem botão, com o motivo escrito: botão cinza sem explicação ensina a
                                contornar a tela, e prometer ação que não existe é o defeito que a
@@ -521,9 +558,9 @@ export function PendenciasCadastroClient({
                             <p className="text-xs text-zinc-500 dark:text-zinc-400 flex items-start gap-1.5">
                               <Info className="h-3.5 w-3.5 mt-0.5 shrink-0 text-zinc-400" />
                               <span>
-                                {'motivo' in mesclagem
+                                {mesclagem.tipo === 'indisponivel'
                                   ? mesclagem.motivo
-                                  : 'Só o Administrador Geral pode mesclar cadastros.'}
+                                  : 'Mesclar cadastros é do RH Geral ou do Administrador Geral.'}
                               </span>
                             </p>
                           )}
@@ -537,6 +574,14 @@ export function PendenciasCadastroClient({
           )}
         </div>
       </section>
+
+      {/* Fora do laço dos grupos: o modal é um só, e recolher o grupo não pode fechá-lo por baixo
+          de quem está lendo as divergências de identidade. */}
+      <MesclagemDeclaradaModal
+        aberto={!!parDeclarado}
+        onFechar={() => setParDeclarado(null)}
+        servidores={parDeclarado || []}
+      />
     </div>
   )
 }

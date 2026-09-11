@@ -143,7 +143,7 @@ export const pessoas: Capitulo = {
           tom: 'atencao',
           titulo: 'Homônimo não é duplicata',
           texto:
-            'Agrupamento por nome, telefone ou e-mail é uma **pista**, não uma conclusão — duas pessoas podem dividir o mesmo telefone. Só há mesclagem onde o CPF é o mesmo nos dois lados, e é assim de propósito: mesclar pessoas diferentes faria o ponto de uma virar ponto da outra.',
+            'Agrupamento por nome, telefone ou e-mail é uma **pista**, não uma conclusão — duas pessoas podem dividir o mesmo telefone, e há um e-mail usado por doze servidores. Onde o CPF é o mesmo nos dois lados, o grupo traz o atalho para mesclar. Onde o **nome é idêntico e o CPF não**, existe um caminho separado, com conferência — veja "Quando o CPF é que está errado". Telefone e e-mail iguais com CPF diferente não abrem caminho nenhum, de propósito.',
         },
       ],
     },
@@ -192,7 +192,10 @@ export const pessoas: Capitulo = {
           tipo: 'tabela',
           colunas: ['Impedimento', 'Como resolver'],
           linhas: [
-            ['CPF diferente entre as fichas', 'Corrija o CPF errado, ou não mescle — pode não ser a mesma pessoa.'],
+            [
+              'CPF diferente entre as fichas',
+              'Se o nome for idêntico e o CPF é que foi digitado errado, use "Conferir e mesclar" na lista de possíveis duplicidades. Se não for a mesma pessoa, não mescle.',
+            ],
             [
               'As duas fichas escaladas no mesmo dia e horário',
               'Apague na grade o lançamento que não aconteceu.',
@@ -218,6 +221,59 @@ export const pessoas: Capitulo = {
           titulo: 'Escala e setor',
           texto:
             'Se o setor que cadastrou errado também escalou a pessoa, essa escala vem junto e continua no setor onde foi lançada. Quem decide qual é a escala "de verdade" é a grade — a mesclagem não adivinha.',
+        },
+
+        { tipo: 'titulo', texto: 'Quando o CPF é que está errado' },
+        {
+          tipo: 'p',
+          texto:
+            'Às vezes a ficha duplicada foi aberta com o CPF de outra pessoa. Aí o CPF diferente não é sinal de que são duas pessoas — é o próprio erro. Para esse caso existe **"Conferir e mesclar"**, no grupo de possíveis duplicidades marcado com a etiqueta *CPF diferente*.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'cuidado',
+          titulo: 'Aqui quem afirma que é a mesma pessoa é você',
+          texto:
+            'Nas outras mesclagens, o CPF igual é a prova. Nesta não há prova nenhuma: o sistema aceita porque **você declarou**. Se não for a mesma pessoa, o ponto de uma passa a ser da outra, e não há como desfazer. Sua declaração e o motivo que você escrever ficam gravados na ficha inativada e no registro do sistema.',
+        },
+        {
+          tipo: 'passos',
+          itens: [
+            {
+              titulo: 'Leia a tabela de diferenças',
+              texto:
+                'A tela lista lado a lado tudo que difere entre as duas fichas: CPF, PIS, data de nascimento, nome da mãe, RG. Se **só** o CPF diverge, é bem provável que seja erro de digitação mesmo.',
+            },
+            {
+              titulo: 'Desconfie quando diverge mais que o CPF',
+              texto:
+                'Data de nascimento e nome da mãe diferentes indicam que a ficha foi preenchida com os dados de outra pessoa. Isso não é duplicidade: é ficha trocada, e o conserto é corrigir a ficha, não mesclar.',
+            },
+            {
+              titulo: 'Abra as duas fichas e confirme com o RH',
+              texto:
+                'Matrícula, cargo, lotação e data do cadastro ajudam a decidir. Duas fichas criadas no mesmo dia, na mesma unidade e no mesmo cargo costumam ser recadastro por engano.',
+            },
+            {
+              titulo: 'Marque qual fica, declare e escreva o motivo',
+              texto:
+                'O motivo é obrigatório aqui, e não é burocracia: com o CPF diferente, ele é a única explicação que vai restar para quem olhar esse cadastro depois.',
+            },
+          ],
+        },
+        {
+          tipo: 'aviso',
+          tom: 'dica',
+          titulo: 'A ficha que fica não muda',
+          texto:
+            'Nesta mesclagem nenhum dado pessoal é copiado da ficha duplicada — nem para preencher campo vazio. Como a identidade das duas não confere, copiar poderia trazer o PIS ou a data de nascimento de um terceiro para o cadastro correto, sem ninguém notar. Só ponto, escala, folha e vínculos mudam de dono.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'Só para nome idêntico',
+          texto:
+            'Telefone ou e-mail iguais com CPF diferente **não** abrem esse caminho, e grupo com mais de duas fichas também não. Telefone e e-mail são compartilhados entre parentes e setores; com três fichas de CPF diferente não dá para dizer qual par é a mesma pessoa.',
         },
       ],
     },

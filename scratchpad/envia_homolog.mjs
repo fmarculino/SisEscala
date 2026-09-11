@@ -23,7 +23,9 @@ const sql = fs.readFileSync(arquivo, 'utf8')
 // Quebra em statements pelos delimitadores de dollar-quoting que o projeto usa. Cada fatia vai
 // do fim do statement anterior ate o fim do proprio delimitador — comentarios soltos entre
 // statements viajam junto com o seguinte, o que e' inofensivo.
-const FIMS = ['$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;', '$fnbloco$;', '$fnaloc$;', '$conf$;']
+// ⚠️ `$fn$;` entrou em 11/09/2026: sem ele, uma migration inteira vira UM statement e o erro de
+// sintaxe volta sem dizer onde está — foi o que aconteceu com a 20260911130000.
+const FIMS = ['$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;', '$fnbloco$;', '$fnaloc$;', '$fn$;', '$conf$;']
 const statements = []
 let pos = 0
 while (pos < sql.length) {

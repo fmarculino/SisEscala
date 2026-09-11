@@ -4079,6 +4079,49 @@ dos dois lados e são mescláveis; **3 dos 6 por telefone e 2 dos 5 por e-mail t
 um dos de e-mail é um endereço compartilhado por **12 pessoas**. Recusar pelo rótulo esconderia os
 16; aceitar pelo telefone mesclaria duas pessoas, e o ponto de uma viraria ponto da outra.
 
+🚨 **Mas o CPF divergente às vezes É O DEFEITO — e a saída que a tela mandava seguir era
+CIRCULAR** (`20260911130000`, 11/09/2026). A mensagem dizia *"corrija o CPF errado na ficha antes
+de mesclar"*; gravar ali o CPF do outro cadastro esbarra em `fn_cpf_ja_cadastrado`, cuja única
+saída é marcar **"vínculo adicional"** — a mesma caixa cujo uso indevido cria a duplicata. Não
+havia caminho nenhum (armadilha 44). Diário em
+[`docs/evolucao/2026-09-11-mesclar-cadastro-com-cpf-diferente.md`](docs/evolucao/2026-09-11-mesclar-cadastro-com-cpf-diferente.md).
+
+A saída é a **mesclagem com identidade declarada**: `p_confirmar_identidade` (`DEFAULT false`) em
+`fn_impedimentos_mesclagem_servidor` e `fn_mesclar_servidores`, suprimindo **só** o
+`cpf_divergente`.
+
+| regra | por quê |
+|---|---|
+| **só grupo de NOME IDÊNTICO, com exatamente 2 cadastros Ativos e CPF válido nos dois** | medido em 11/09/2026: dos **10 grupos com CPF divergente**, 6 são por telefone, 3 por e-mail (um com 12 pessoas) e **1 por nome**. Aqui o critério do agrupamento é decisivo — o oposto do caminho de CPF igual |
+| a declaração **só tem efeito quando o CPF de fato diverge** (`v_declarada`) | senão ela vira uma chave que muda o comportamento das outras 61 mesclagens, onde não tem nada a autorizar |
+| **motivo escrito obrigatório** (≥ 10 caracteres), gravado no `motivo_inativacao` e no log | nas outras o CPF igual é a prova; nesta, a única prova é o que a pessoa escreveu |
+| 🚨 **NENHUM campo de pessoa é copiado**, nem para preencher campo vazio | sem CPF igual não há prova de que a ficha duplicada é da mesma pessoa: copiar traria PIS ou nascimento de um terceiro para o cadastro correto, **em silêncio** (a cópia só alcança campo vazio, que é onde ninguém olha) |
+| `sem_cpf` continua **duro** | sem CPF em lado nenhum não há nem o que declarar |
+
+🚨 **A peça central NÃO é a escotilha, é `fn_divergencias_identidade_servidor`** — o que a tela põe
+na frente de quem vai declarar. No caso que motivou (SAMU-SMS, duas fichas criadas com 25 min de
+diferença no mesmo dia, mesma unidade, mesmo cargo, mesmo telefone), **6 campos divergem**: CPF,
+PIS, **data de nascimento (20 anos)**, **nome da mãe**, nome do pai e RG. Perguntar só "os CPFs são
+diferentes, confirma?" esconderia exatamente o que distingue duplicidade de **ficha trocada**.
+
+⚠️ **Campo preenchido em UM lado só não é divergência** — ausência não sugere pessoa diferente, e
+listá-la afogaria o sinal no ruído de ficha incompleta.
+
+⚠️ **As 5 server actions de mesclagem ficaram 1 dia exigindo `super_admin`** depois de a
+`20260911120000` abrir a mesclagem ao RH Geral **no banco**: a tela oferecia o botão e a action
+recusava. Hoje o papel vem de `@/utils/escopoGestao`, a mesma fonte da página. É a armadilha 44 —
+**ao abrir uma função do banco a um papel novo, confira a server action que a chama.**
+
+Portões: `node scratchpad/sim_mesclagem_da_lista.js` (44) e `val_sim_mesclagem_da_lista.js`
+(**8 regressões injetadas, 8 reprovadas**). Validada em homologação com ensaio sintético revertido
+(**9 de 9**, incluindo a prova de que o caminho de CPF igual continua completando campo vazio) e
+conferida em produção por `scratchpad/ver_mesclagem_declarada_producao.mjs`, que **executa** as
+funções sem escrever nada.
+
+⚠️ **`RAISE EXCEPTION` exige string LITERAL**: `RAISE EXCEPTION 'a ' || 'b'` dá `42601` — e só na
+execução do `CREATE`, que nenhum `tsc`/`build` alcança. Foi o erro que derrubou a primeira
+aplicação desta migration em produção.
+
 Portão: `node scratchpad/sim_mesclagem_da_lista.js` (21 asserções) +
 `node scratchpad/val_sim_mesclagem_da_lista.js`, que injeta 3 regressões e exige reprovação nas 3.
 

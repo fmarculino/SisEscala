@@ -2,6 +2,61 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.57.0] - 2026-09-11
+
+Migration `20260911130000`. **Cadastro duplicado com CPF diferente passa a ter saida.** Ate aqui
+a mesclagem exigia o mesmo CPF nos dois lados, e a mensagem mandava "corrigir o CPF errado na
+ficha antes de mesclar" — um caminho **circular**: gravar na ficha o CPF que ja esta no outro
+cadastro esbarra em `fn_cpf_ja_cadastrado`, cuja unica saida e marcar "vinculo adicional", que e
+exatamente a caixa cujo uso indevido cria a duplicata (armadilha 50). Nao havia caminho nenhum.
+
+### Added
+
+- **Mesclagem com identidade declarada.** No grupo de possiveis duplicidades com **nome identico
+  e CPF diferente**, o botao "Conferir e mesclar" abre uma tela propria: ela lista lado a lado
+  **tudo** que difere entre as duas fichas, exige a declaracao explicita de que sao a mesma
+  pessoa e um **motivo escrito** (minimo 10 caracteres). `fn_divergencias_identidade_servidor`
+  (nova) compara CPF, PIS, data de nascimento, nome da mae, nome do pai, sexo e RG.
+- **`fn_impedimentos_mesclagem_servidor` e `fn_mesclar_servidores` ganham `p_confirmar_identidade`**
+  (`DEFAULT false`). So o impedimento `cpf_divergente` e suprimido; todos os outros continuam.
+
+### Fixed
+
+- **As 5 server actions de mesclagem ainda exigiam `super_admin`** e nao acompanharam a v2.56.0,
+  que abriu a mesclagem ao RH Geral no banco: a tela oferecia o botao e a action recusava. O papel
+  passa a vir de `@/utils/escopoGestao`, a mesma fonte que a pagina usa (armadilha 44).
+
+### Nao muda
+
+- **Sem declaracao, nada muda.** `DEFAULT false` nos dois lados: quem nao declara continua barrado.
+  E a declaracao so tem efeito quando o CPF **de fato** diverge — nas outras 61 mesclagens por nome
+  ela nao autoriza nada.
+- **Telefone e e-mail com CPF diferente continuam fechados.** Medido em producao: dos 10 grupos com
+  CPF divergente, **6 sao por telefone e 3 por e-mail** (um deles compartilhado por 12 pessoas), e
+  so **1 e por nome**. Grupo com mais de duas fichas, ou com uma ja inativada, tambem nao abre.
+- **A ficha que fica nao recebe nada.** Na mesclagem declarada nenhum campo de pessoa e copiado,
+  nem para preencher campo vazio: sem CPF igual nao ha prova de que a ficha duplicada descreve a
+  mesma pessoa, e copiar traria PIS ou data de nascimento de um terceiro para o cadastro correto,
+  em silencio.
+- `sem_cpf`, `escala_sobreposta`, `escala_em_conflito`, competencia encerrada e colisao de
+  unicidade: intactos. Quem mescla continua sendo RH Geral ou Administrador Geral.
+
+### Medido em producao em 11/09/2026
+
+2.643 servidores ativos, 62 grupos com nome identico — **61 com o mesmo CPF** (ja mesclaveis) e
+**1 com CPF divergente**: SAMU-SMS, duas fichas criadas com 25 min de diferenca no mesmo dia,
+mesma unidade, mesmo cargo, mesmo telefone, uma com matricula temporaria. **Nesse par divergem 6
+campos** — CPF, PIS, data de nascimento, nome da mae, nome do pai e RG —, o que a tela agora
+mostra antes de qualquer confirmacao.
+
+### Portoes
+
+`node scratchpad/sim_mesclagem_da_lista.js` (44 assercoes) e `val_sim_mesclagem_da_lista.js`
+(**8 regressoes injetadas, 8 reprovadas**). Validada em **homologacao** com cenario sintetico
+revertido (**9 de 9**, incluindo a prova de que o caminho de CPF igual continua completando campo
+vazio) e conferida em **producao** por `scratchpad/ver_mesclagem_declarada_producao.mjs`, que
+executa as funcoes sem escrever nada.
+
 ## [2.56.0] - 2026-09-11
 
 Migrations `20260911100000`, `20260911110000` e `20260911120000`. **RH Geral e RH da Unidade

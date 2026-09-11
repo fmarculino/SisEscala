@@ -22,9 +22,10 @@ import { mensagemRecusaPin, gerarPin } from '@/utils/pin'
 import { gerarMensagemAcessoPortal } from '@/utils/servidorMensagens'
 import { sendPinEmailAction } from '@/app/actions/communication'
 import {
-  descreverEscalasFundidas, descreverMovimentacao,
-  type EscalaFundida, type GrupoDuplicado,
+  conferirMotivoDeclaracao, descreverEscalasFundidas, descreverMovimentacao,
+  type DivergenciaIdentidade, type EscalaFundida, type GrupoDuplicado,
 } from '@/utils/mesclagemCadastro'
+import { podeMesclarCadastros, podeVerDiagnosticoCadastro } from '@/utils/escopoGestao'
 
 const normalizarCpf = (cpf?: string | null) => (cpf || '').replace(/\D/g, '')
 
@@ -2083,24 +2084,45 @@ export async function avaliarSolicitacaoTransferencia(params: {
 // MESCLAGEM DE CADASTROS DUPLICADOS (04/09/2026)
 // ============================================================================
 // Regra inteira no banco: fn_cadastros_duplicados, fn_impedimentos_mesclagem_servidor e
-// fn_mesclar_servidores (migration 20260904130000). As três checam super_admin por conta própria.
+// fn_mesclar_servidores (migration 20260904130000, hoje vigentes em 20260911120000 e
+// 20260911130000).
 //
 // ⚠️ O papel é conferido AQUI também, e não por desconfiança do banco: server action é um POST
 // cujo id sai no bundle do navegador (armadilha 12 do CLAUDE.md). A diferença prática é a
 // mensagem — sem esta checagem, quem não pode receberia o erro cru do Postgres.
+//
+// ⚠️ O papel vem de `@/utils/escopoGestao`, a MESMA fonte que a página usa para decidir se mostra
+// o botão. Estas actions estavam com `super_admin` escrito à mão desde 04/09/2026 e não
+// acompanharam a 20260911120000, que abriu a mesclagem ao RH Geral: a tela oferecia o botão e a
+// action recusava. É a allowlist que envelhece da armadilha 44, agora resolvida na fonte única.
 
-/** Grupos de CPF com mais de um cadastro ainda não mesclado, com o peso de cada lado. */
-export async function listarCadastrosDuplicados() {
-  const supabase = await createClient()
-
+/** Quem está pedindo, e pode? Devolve o papel para o chamador decidir o que fazer com ele. */
+async function papelParaMesclagem(supabase: any): Promise<{ role: string } | { error: string }> {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Sessão expirada. Entre novamente.' }
 
   const { data: perfil } = await supabase
     .from('profiles').select('role').eq('id', user.id).single()
-  if (perfil?.role !== 'super_admin') {
-    return { error: 'Apenas o Administrador Geral pode mesclar cadastros.' }
+
+  if (!podeMesclarCadastros(perfil?.role)) {
+    // O RH da Unidade VÊ a lista (podeVerDiagnosticoCadastro) e não executa — dizer isso é o que
+    // separa "você não tem acesso" de "esta ação é de outra pessoa".
+    return {
+      error: podeVerDiagnosticoCadastro(perfil?.role)
+        ? 'Mesclar cadastros é do RH Geral ou do Administrador Geral. Você identifica a '
+          + 'duplicidade; a mesclagem move ponto, escala e folha entre cadastros.'
+        : 'Apenas o RH Geral ou o Administrador Geral podem mesclar cadastros.',
+    }
   }
+  return { role: perfil?.role as string }
+}
+
+/** Grupos de CPF com mais de um cadastro ainda não mesclado, com o peso de cada lado. */
+export async function listarCadastrosDuplicados() {
+  const supabase = await createClient()
+
+  const autorizado = await papelParaMesclagem(supabase)
+  if ('error' in autorizado) return { error: autorizado.error }
 
   const { data, error } = await supabase.rpc('fn_cadastros_duplicados')
   if (error) return { error: error.message }
@@ -2108,18 +2130,34 @@ export async function listarCadastrosDuplicados() {
   return { grupos: (data || []) as GrupoDuplicado[] }
 }
 
+/**
+ * Os campos de identidade que divergem entre dois cadastros.
+ *
+ * 🚨 É o que a tela põe na frente de quem vai declarar que os dois são a mesma pessoa apesar do
+ * CPF. No caso que motivou isto, PIS, data de nascimento e nome da mãe também divergiam — mostrar
+ * só o CPF esconderia justamente o sinal de que a ficha duplicada é de outra pessoa.
+ */
+export async function listarDivergenciasIdentidade(origemId: string, destinoId: string) {
+  const supabase = await createClient()
+
+  const autorizado = await papelParaMesclagem(supabase)
+  if ('error' in autorizado) return { error: autorizado.error }
+
+  const { data, error } = await supabase.rpc('fn_divergencias_identidade_servidor', {
+    p_origem: origemId,
+    p_destino: destinoId,
+  })
+  if (error) return { error: error.message }
+
+  return { divergencias: (data || []) as DivergenciaIdentidade[] }
+}
+
 /** Tudo que está pendurado num cadastro — é o que a mesclagem vai mover. */
 export async function listarDependenciasServidor(servidorId: string) {
   const supabase = await createClient()
 
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: 'Sessão expirada. Entre novamente.' }
-
-  const { data: perfil } = await supabase
-    .from('profiles').select('role').eq('id', user.id).single()
-  if (perfil?.role !== 'super_admin') {
-    return { error: 'Apenas o Administrador Geral pode mesclar cadastros.' }
-  }
+  const autorizado = await papelParaMesclagem(supabase)
+  if ('error' in autorizado) return { error: autorizado.error }
 
   const { data, error } = await supabase.rpc('fn_dependencias_servidor', {
     p_servidor_id: servidorId,
@@ -2134,21 +2172,24 @@ export async function listarDependenciasServidor(servidorId: string) {
  * problema enquanto ainda pode trocar — a MESMA checagem roda de novo dentro de
  * fn_mesclar_servidores, que é quem de fato decide.
  */
-export async function verificarMesclagemCadastro(origemId: string, destinoId: string) {
+export async function verificarMesclagemCadastro(
+  origemId: string,
+  destinoId: string,
+  /**
+   * "São a mesma pessoa, apesar do CPF não bater." Só suprime o impedimento por CPF divergente;
+   * todos os outros continuam. Default `false` — o lado seguro é o default (armadilha 41).
+   */
+  confirmarIdentidade: boolean = false,
+) {
   const supabase = await createClient()
 
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: 'Sessão expirada. Entre novamente.' }
-
-  const { data: perfil } = await supabase
-    .from('profiles').select('role').eq('id', user.id).single()
-  if (perfil?.role !== 'super_admin') {
-    return { error: 'Apenas o Administrador Geral pode mesclar cadastros.' }
-  }
+  const autorizado = await papelParaMesclagem(supabase)
+  if ('error' in autorizado) return { error: autorizado.error }
 
   const { data, error } = await supabase.rpc('fn_impedimentos_mesclagem_servidor', {
     p_origem: origemId,
     p_destino: destinoId,
+    p_confirmar_identidade: confirmarIdentidade,
   })
   if (error) return { error: error.message }
 
@@ -2165,26 +2206,30 @@ export async function mesclarCadastrosServidor(
   origemId: string,
   destinoId: string,
   motivo?: string | null,
+  /** Declaração de que são a mesma pessoa apesar do CPF — ver `verificarMesclagemCadastro`. */
+  confirmarIdentidade: boolean = false,
 ) {
   const supabase = await createClient()
 
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: 'Sessão expirada. Entre novamente.' }
-
-  const { data: perfil } = await supabase
-    .from('profiles').select('role').eq('id', user.id).single()
-  if (perfil?.role !== 'super_admin') {
-    return { error: 'Apenas o Administrador Geral pode mesclar cadastros.' }
-  }
+  const autorizado = await papelParaMesclagem(supabase)
+  if ('error' in autorizado) return { error: autorizado.error }
 
   if (!origemId || !destinoId || origemId === destinoId) {
     return { error: 'Escolha dois cadastros diferentes: o duplicado e o que fica.' }
+  }
+
+  // Motivo obrigatório na declaração. A RPC recusa de novo (é ela quem decide), mas recusar aqui
+  // devolve o texto em português em vez do erro cru do Postgres numa operação sem desfazer.
+  if (confirmarIdentidade) {
+    const conferido = conferirMotivoDeclaracao(motivo)
+    if (!conferido.ok) return { error: conferido.erro }
   }
 
   const { data, error } = await supabase.rpc('fn_mesclar_servidores', {
     p_origem: origemId,
     p_destino: destinoId,
     p_motivo: motivo?.trim() || null,
+    p_confirmar_identidade: confirmarIdentidade,
   })
 
   if (error) return { error: error.message }
@@ -2193,6 +2238,8 @@ export async function mesclarCadastrosServidor(
     movidos?: Record<string, number>
     campos_completados?: string[]
     escalas_fundidas?: EscalaFundida[]
+    identidade_declarada?: boolean
+    identidade_divergente?: string[]
   }
 
   // Relata o que MUDOU, não o que foi calculado (armadilha 22 do CLAUDE.md): quando o cadastro
@@ -2219,5 +2266,9 @@ export async function mesclarCadastrosServidor(
     movimentos,
     escalasFundidas,
     camposCompletados: resultado.campos_completados || [],
+    // Relata o que MUDOU (armadilha 22): a declaração de identidade é a diferença mais importante
+    // entre esta mesclagem e as outras, e é ela que fica no motivo da inativação e no log.
+    identidadeDeclarada: resultado.identidade_declarada === true,
+    identidadeDivergente: resultado.identidade_divergente || [],
   }
 }

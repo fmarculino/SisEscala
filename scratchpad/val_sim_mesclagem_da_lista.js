@@ -22,16 +22,50 @@ if (!fs.existsSync(ALVO)) {
 
 const original = fs.readFileSync(ALVO, 'utf8')
 
+// ⚠️ As ancoras sao o texto do JS COMPILADO, nao o do TypeScript: o tsc reescreve `if (x) return`
+// em duas linhas e some com as chaves de bloco de uma instrucao so. Por isso o laco abaixo confere
+// que a substituicao foi de fato aplicada antes de rodar o portao.
 const regressoes = [
   {
-    nome: 'aceita CPF diferente entre os cadastros (mescla DUAS PESSOAS)',
-    de: 'if (cpfs.size > 1) {',
-    para: 'if (false) {',
+    // A PIOR de todas: liberar a declaracao para telefone e e-mail. Medido em producao em
+    // 11/09/2026: 6 dos 10 grupos com CPF divergente sao por telefone e 3 por e-mail, e um desses
+    // enderecos e compartilhado por 12 pessoas. Isso seria oferecer "junte estas duas pessoas".
+    nome: 'declaracao liberada para telefone e e-mail (junta DUAS PESSOAS)',
+    de: "    if (grupo.criterio !== 'nome') {",
+    para: '    if (false) {',
+  },
+  {
+    nome: 'declaracao liberada com 3+ cadastros (nao da para dizer qual par)',
+    de: '    if (grupo.servidores.length !== 2) {',
+    para: '    if (false) {',
+  },
+  {
+    nome: 'declaracao liberada com cadastro ja inativado',
+    de: "    if (grupo.servidores.some(s => s.status !== 'Ativo')) {",
+    para: '    if (false) {',
+  },
+  {
+    nome: 'declaracao liberada com CPF invalido/incompleto',
+    de: '    if (grupo.servidores.some(s => soDigitos(s.cpf).length !== 11)) {',
+    para: '    if (false) {',
+  },
+  {
+    // Sem o motivo escrito, a unica prova de que sao a mesma pessoa deixa de existir.
+    nome: 'motivo da declaracao deixa de ser exigido',
+    de: '    if (limpo.length >= exports.MOTIVO_DECLARACAO_MINIMO)',
+    para: '    if (true)',
+  },
+  {
+    // O aviso voltaria a falar so do CPF — escondendo PIS, nascimento e nome da mae divergentes,
+    // que sao o que denuncia ficha de outra pessoa.
+    nome: 'aviso deixa de citar os outros campos de identidade divergentes',
+    de: "    const outros = divergencias.filter(d => d.campo !== 'cpf');",
+    para: '    const outros = [];',
   },
   {
     nome: 'oferece mesclagem sem o grupo existir no banco (promete o que nao ha)',
-    de: 'if (!gruposComAcao.some(g => soDigitos(g.cpf) === cpf)) {',
-    para: 'if (false) {',
+    de: '    if (!gruposComAcao.some(g => soDigitos(g.cpf) === cpf)) {',
+    para: '    if (false) {',
   },
   {
     nome: 'esconde a escala fundida do relato (armadilha 22)',
