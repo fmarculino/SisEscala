@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { readFile } from 'fs/promises'
 import path from 'path'
 import { createClient } from '@/utils/supabase/server'
+import { podeGerirMarcacoes, ERRO_SEM_GESTAO_MARCACOES } from '@/utils/escopoGestao'
 
 /**
  * Baixa `coletor-rep-cli.exe` puro — sem zip, sem config.yaml embutido. Diferente do
@@ -21,9 +22,11 @@ export async function GET() {
     return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 })
   }
 
+  // A CLI e diagnostico puro: nao carrega token nem senha (o operador a poe ao lado de um
+  // config.yaml JA instalado). Basta o papel — nao ha unidade a recortar.
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
-  if (!profile || !['admin', 'super_admin'].includes(profile.role)) {
-    return NextResponse.json({ error: 'Apenas administradores podem baixar a CLI de diagnóstico.' }, { status: 403 })
+  if (!podeGerirMarcacoes(profile?.role)) {
+    return NextResponse.json({ error: ERRO_SEM_GESTAO_MARCACOES }, { status: 403 })
   }
 
   let binario: Buffer

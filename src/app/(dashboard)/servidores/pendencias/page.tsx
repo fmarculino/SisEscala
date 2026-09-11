@@ -3,6 +3,7 @@ import { ShieldAlert } from 'lucide-react'
 import { PendenciasCadastroClient } from './PendenciasCadastroClient'
 import { buildSectorPathMap, formatSectorPaths } from '@/utils/sectors'
 import { avaliarPermissaoTransferencia, ehAvaliadorDeTransferencia, type EscopoAvaliador } from '@/utils/avaliacaoTransferencia'
+import { podeVerDiagnosticoCadastro, podeMesclarCadastros as papelMesclaCadastros, ehEscopadoPorUnidade } from '@/utils/escopoGestao'
 
 /**
  * Monta as linhas da seção de transferência. Vive fora do componente porque os DOIS ramos da
@@ -14,6 +15,31 @@ import { avaliarPermissaoTransferencia, ehAvaliadorDeTransferencia, type EscopoA
  * função que a server action aplica. A tela só decide o que mostrar; quem recusa de verdade é a
  * action (e, atrás dela, a policy de UPDATE).
  */
+/**
+ * Linha da lista "Servidores sem CPF". Vive fora dos dois ramos da pagina desde 10/09/2026:
+ * o ramo escopado passou a mostrar a mesma lista (recortada pela RLS de `servidores`), e duas
+ * copias divergiriam na primeira mudanca.
+ */
+function mapearSemCpf(linhas: any[], caminhoSetorPorId: Map<string, string>) {
+  return (linhas || []).map((s: any) => {
+    const setorData = Array.isArray(s.setores) ? s.setores[0] : s.setores
+    const dictData = setorData
+      ? (Array.isArray(setorData.dicionario_setores) ? setorData.dicionario_setores[0] : setorData.dicionario_setores)
+      : null
+    const unidadeData = Array.isArray(s.unidades) ? s.unidades[0] : s.unidades
+    return {
+      id: s.id,
+      nome: s.nome,
+      matricula: s.matricula,
+      status: s.status,
+      unidade_nome: unidadeData?.nome || null,
+      // Caminho completo quando o setor esta na lista; o nome do embed e o fallback (setor fora
+      // do escopo de leitura desta consulta nao teria caminho a montar).
+      setor_nome: caminhoSetorPorId.get(s.setor_id) || dictData?.nome || null,
+    }
+  })
+}
+
 function mapearSolicitacoes(
   linhas: any[],
   ctx: {
@@ -69,6 +95,12 @@ export default async function PendenciasCadastroPage() {
   // RH Geral (role 'rh', 12/08/2026) entra aqui — mesma visão irrestrita de admin/super_admin,
   // sem escopo por unidade.
   const isFullAdmin = role === 'super_admin' || role === 'admin' || role === 'rh'
+  // Desde 10/09/2026 o diagnostico (documentos invalidos, sem CPF, duplicidades, mesclaveis)
+  // alcanca tambem o RH da Unidade — recortado pelas unidades dele DENTRO das RPCs
+  // (20260911120000). Antes ele recebia `[]` literal e abria a tela sem nada.
+  const mostrarDiagnostico = podeVerDiagnosticoCadastro(role)
+  const escopoDoDiagnostico = ehEscopadoPorUnidade(role)
+  const podeMesclar = papelMesclaCadastros(role)
   // Só coordenador - ass_adm NÃO tem acesso a esta tela (decisão de 12/08/2026, corrigindo
   // 20260812020000 que tinha liberado os dois seguindo o mesmo agrupamento que a sidebar usa
   // pra outras decisões de menu). RH da Unidade (role 'rh_unidade') entra na MESMA visão
@@ -109,12 +141,16 @@ export default async function PendenciasCadastroPage() {
   const escopoAvaliador: EscopoAvaliador = { role, unidadesPermitidas: permittedUnidades }
   const podeAvaliarTransferencia = ehAvaliadorDeTransferencia(role)
 
-  // Coordenador: só a importação de RH importa pra ele, e só da própria unidade (a
-  // RLS nova de importacao_rh_pendentes já filtra isso sozinha - 20260812020000). As demais
-  // consultas (documentos inválidos, duplicidades, sem CPF) são SECURITY DEFINER e enxergam a
-  // base inteira de propósito - puladas aqui pra não vazar dado de outra unidade nem gastar
-  // consulta à toa. Transferências viraram exceção em 28/08/2026: a RLS delas já é escopada
-  // (20260812100000) e o RH da Unidade precisa da lista pra avaliar o que é da unidade dele.
+  // Ramo escopado: coordenador e RH da Unidade.
+  //
+  // A importação de RH sempre esteve aqui (a RLS de importacao_rh_pendentes filtra sozinha -
+  // 20260812020000), e as transferências entraram em 28/08/2026 pelo mesmo motivo.
+  //
+  // ⚠️ O DIAGNÓSTICO mudou em 10/09/2026. Ele era pulado porque as três RPCs eram SECURITY
+  // DEFINER sem recorte e devolveriam a base inteira; hoje elas escopam por unidade
+  // (20260911120000), então o RH da Unidade recebe os dados de verdade. O coordenador continua
+  // sem — `podeVerDiagnosticoCadastro` não o inclui, e o custo de pular é a consulta que não
+  // roda.
   if (isCoordEscopo) {
     async function buscarPendentesRhEscopado() {
       const linhas: any[] = []
@@ -144,7 +180,14 @@ export default async function PendenciasCadastroPage() {
         .order('solicitado_em')
     }
 
-    const [pendentesRhRes, unidadesRes, unidadesTodasRes, setoresRes, cargosRes, solicitacoesRes, profilesRes] = await Promise.all([
+    // `semCpf`, `totalServidores` e `semPisCount` NAO precisam de recorte em JS: vem por
+    // `createClient()` (sessao do usuario) e a RLS de `servidores` ja escopa `rh_unidade` por
+    // `profile_unidades` desde 20260818100000. As tres RPCs escopam dentro delas.
+    const vazio = Promise.resolve({ data: [] as any[], error: null })
+    const [
+      pendentesRhRes, unidadesRes, unidadesTodasRes, setoresRes, cargosRes, solicitacoesRes, profilesRes,
+      documentosInvalidosRes, duplicidadesRes, cadastrosDuplicadosRes, semCpfRes, totaisRes, semPisRes,
+    ] = await Promise.all([
       buscarPendentesRhEscopado(),
       // Unidade fora do escopo do coordenador nunca aparece no seletor - promover pra lá é
       // recusado pela RPC de qualquer forma, mas mostrar a opção seria confuso (CLAUDE.md:
@@ -164,6 +207,20 @@ export default async function PendenciasCadastroPage() {
       podeAvaliarTransferencia
         ? supabase.from('profiles').select('id, full_name')
         : Promise.resolve({ data: [] as any[], error: null }),
+      mostrarDiagnostico ? supabase.rpc('fn_documentos_invalidos') : vazio,
+      mostrarDiagnostico ? supabase.rpc('fn_possiveis_duplicidades_servidor') : vazio,
+      mostrarDiagnostico ? supabase.rpc('fn_cadastros_duplicados') : vazio,
+      mostrarDiagnostico
+        ? supabase
+            .from('servidores')
+            .select('id, nome, matricula, status, setor_id, unidade_id, unidades(nome), setores(dicionario_setores(nome))')
+            .is('cpf', null)
+            .order('nome')
+        : vazio,
+      mostrarDiagnostico ? supabase.from('servidores').select('id', { count: 'exact', head: true })
+        : Promise.resolve({ count: 0, data: null, error: null } as any),
+      mostrarDiagnostico ? supabase.from('servidores').select('id', { count: 'exact', head: true }).is('pis_pasep', null)
+        : Promise.resolve({ count: 0, data: null, error: null } as any),
     ])
 
     const pendentesRh = (pendentesRhRes.data || []).map((p: any) => {
@@ -203,16 +260,16 @@ export default async function PendenciasCadastroPage() {
 
     return (
       <PendenciasCadastroClient
-        documentosInvalidos={[]}
-        duplicidades={[]}
-        cadastrosDuplicados={[]}
-        erroCadastrosDuplicados={null}
-        podeMesclarCadastros={false}
-        semCpf={[]}
-        totalServidores={0}
-        semPisCount={0}
-        erroDocumentos={null}
-        erroDuplicidades={null}
+        documentosInvalidos={documentosInvalidosRes.data || []}
+        duplicidades={duplicidadesRes.data || []}
+        cadastrosDuplicados={(cadastrosDuplicadosRes.data || []) as any[]}
+        erroCadastrosDuplicados={cadastrosDuplicadosRes.error?.message || null}
+        podeMesclarCadastros={podeMesclar}
+        semCpf={mapearSemCpf(semCpfRes.data || [], caminhoSetorPorId)}
+        totalServidores={(totaisRes as any).count || 0}
+        semPisCount={(semPisRes as any).count || 0}
+        erroDocumentos={documentosInvalidosRes.error?.message || null}
+        erroDuplicidades={duplicidadesRes.error?.message || null}
         pendentesRh={pendentesRh}
         erroPendentesRh={pendentesRhRes.error?.message || null}
         unidades={unidadesRes.data || []}
@@ -221,7 +278,8 @@ export default async function PendenciasCadastroPage() {
         solicitacoesTransferencia={solicitacoesTransferencia}
         erroSolicitacoesTransferencia={solicitacoesRes.error?.message || null}
         podeAvaliarTransferencia={podeAvaliarTransferencia}
-        escopoLimitado
+        mostrarDiagnostico={mostrarDiagnostico}
+        escopoLimitado={escopoDoDiagnostico}
       />
     )
   }
@@ -253,10 +311,9 @@ export default async function PendenciasCadastroPage() {
   ] = await Promise.all([
     supabase.rpc('fn_documentos_invalidos'),
     supabase.rpc('fn_possiveis_duplicidades_servidor'),
-    // Cadastros duplicados com AÇÃO (mesclar) — só o Administrador Geral. A RPC recusa os
-    // demais papéis por conta própria; não chamar aqui evita um erro inútil na tela de quem
-    // não teria o que fazer com a resposta.
-    role === 'super_admin'
+    // A lista com AÇÃO. Desde 10/09/2026 quem VÊ é quem tem diagnóstico (inclusive o RH da
+    // Unidade, recortado pela RPC); quem EXECUTA continua sendo RH Geral / Administrador Geral.
+    mostrarDiagnostico
       ? supabase.rpc('fn_cadastros_duplicados')
       : Promise.resolve({ data: [] as any[], error: null }),
     supabase
@@ -295,23 +352,7 @@ export default async function PendenciasCadastroPage() {
   const caminhoSetorPorId = buildSectorPathMap(setoresRhFlat)
   const setoresRh = formatSectorPaths(setoresRhFlat)
 
-  const semCpf = (semCpfRes.data || []).map((s: any) => {
-    const setorData = Array.isArray(s.setores) ? s.setores[0] : s.setores
-    const dictData = setorData
-      ? (Array.isArray(setorData.dicionario_setores) ? setorData.dicionario_setores[0] : setorData.dicionario_setores)
-      : null
-    const unidadeData = Array.isArray(s.unidades) ? s.unidades[0] : s.unidades
-    return {
-      id: s.id,
-      nome: s.nome,
-      matricula: s.matricula,
-      status: s.status,
-      unidade_nome: unidadeData?.nome || null,
-      // Caminho completo quando o setor está na lista; o nome do embed é o fallback (setor fora
-      // do escopo de leitura desta consulta não teria caminho a montar).
-      setor_nome: caminhoSetorPorId.get(s.setor_id) || dictData?.nome || null,
-    }
-  })
+  const semCpf = mapearSemCpf(semCpfRes.data || [], caminhoSetorPorId)
 
   const pendentesRh = (pendentesRhRes.data || []).map((p: any) => {
     const unidadeData = Array.isArray(p.unidades) ? p.unidades[0] : p.unidades
@@ -346,7 +387,7 @@ export default async function PendenciasCadastroPage() {
       erroDuplicidades={duplicidadesRes.error?.message || null}
       cadastrosDuplicados={(cadastrosDuplicadosRes.data || []) as any[]}
       erroCadastrosDuplicados={cadastrosDuplicadosRes.error?.message || null}
-      podeMesclarCadastros={role === 'super_admin'}
+      podeMesclarCadastros={podeMesclar}
       pendentesRh={pendentesRh}
       erroPendentesRh={pendentesRhRes.error?.message || null}
       unidades={unidadesRes.data || []}
@@ -355,7 +396,8 @@ export default async function PendenciasCadastroPage() {
       solicitacoesTransferencia={solicitacoesTransferencia}
       erroSolicitacoesTransferencia={solicitacoesTransferenciaRes.error?.message || null}
       podeAvaliarTransferencia={podeAvaliarTransferencia}
-      escopoLimitado={false}
+      mostrarDiagnostico={mostrarDiagnostico}
+      escopoLimitado={escopoDoDiagnostico}
     />
   )
 }

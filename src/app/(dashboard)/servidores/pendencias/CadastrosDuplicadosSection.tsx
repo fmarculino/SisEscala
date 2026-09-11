@@ -36,6 +36,12 @@ import { verificarMesclagemCadastro, mesclarCadastrosServidor } from '../actions
 interface Props {
   grupos: GrupoDuplicado[]
   erro: string | null
+  /**
+   * Executa a mesclagem? O RH da Unidade VE esta secao e nao mescla (decisao de 10/09/2026):
+   * 27 dos 62 grupos atravessam unidade e 31 ja tem ponto/escala/folha, e mesclar move esses
+   * registros. Ele identifica e escala; o RH Geral executa.
+   */
+  podeMesclar: boolean
 }
 
 interface Impedimento { motivo: string; detalhe: string }
@@ -138,7 +144,7 @@ export function ancoraGrupoDuplicado(cpf: string): string {
   return `dup-${(cpf || '').replace(/D/g, '')}`
 }
 
-function Grupo({ grupo }: { grupo: GrupoDuplicado }) {
+function Grupo({ grupo, podeExecutar }: { grupo: GrupoDuplicado; podeExecutar: boolean }) {
   const router = useRouter()
   const sugestao = useMemo(() => sugerirDestino(grupo), [grupo])
   const ancora = ancoraGrupoDuplicado(grupo.cpf)
@@ -199,7 +205,7 @@ function Grupo({ grupo }: { grupo: GrupoDuplicado }) {
   const destino = grupo.cadastros.find(c => c.id === destinoId) || null
   const validacao = validarEscolha(grupo, { origemId, destinoId })
   const bloqueado = (impedimentos?.length || 0) > 0
-  const podeMesclar = validacao.ok && !bloqueado && !verificando && impedimentos !== null
+  const podeMesclar = podeExecutar && validacao.ok && !bloqueado && !verificando && impedimentos !== null
 
   async function confirmar() {
     if (!origem || !destino) return
@@ -363,6 +369,14 @@ function Grupo({ grupo }: { grupo: GrupoDuplicado }) {
             <p className="text-sm text-zinc-500 dark:text-zinc-400">{validacao.erro}</p>
           )}
 
+          {!podeExecutar && (
+            <p className="rounded-lg bg-amber-50 dark:bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
+              Você identifica a duplicidade, mas a mesclagem é do RH Geral ou do Administrador
+              Geral: ela move ponto, escala e folha entre cadastros — e boa parte dos grupos tem
+              um dos lados em outra unidade.
+            </p>
+          )}
+
           <div className="flex justify-end">
             <button
               type="button"
@@ -436,7 +450,7 @@ function Grupo({ grupo }: { grupo: GrupoDuplicado }) {
   )
 }
 
-export function CadastrosDuplicadosSection({ grupos, erro }: Props) {
+export function CadastrosDuplicadosSection({ grupos, erro, podeMesclar }: Props) {
   return (
     <section className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
       <div className="px-5 py-4 border-b border-zinc-200 dark:border-zinc-800">
@@ -445,7 +459,10 @@ export function CadastrosDuplicadosSection({ grupos, erro }: Props) {
         </h2>
         <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
           O mesmo CPF em mais de um cadastro. Mesclar move ponto, escala e folha do cadastro errado
-          para o correto e inativa o errado — nada é apagado. Só o Administrador Geral vê esta seção.
+          para o correto e inativa o errado — nada é apagado.
+          {podeMesclar
+            ? ' Mesclar é do RH Geral e do Administrador Geral.'
+            : ' Você vê os grupos para identificar; mesclar é do RH Geral ou do Administrador Geral.'}
         </p>
       </div>
       <div className="p-5 space-y-3">
@@ -460,7 +477,7 @@ export function CadastrosDuplicadosSection({ grupos, erro }: Props) {
             Nenhum CPF com mais de um cadastro.
           </div>
         ) : (
-          grupos.map(g => <Grupo key={g.cpf} grupo={g} />)
+          grupos.map(g => <Grupo key={g.cpf} grupo={g} podeExecutar={podeMesclar} />)
         )}
       </div>
     </section>

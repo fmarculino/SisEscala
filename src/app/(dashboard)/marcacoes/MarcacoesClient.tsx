@@ -117,8 +117,16 @@ function statusColetaDispositivo(d: any): { texto: string; classe: string } {
   return { texto: `Offline há ${texto}`, classe: CLASSES_STATUS_COLETA.vermelho }
 }
 
-export function MarcacoesClient({ isAdmin, podeAutorizar, opcoes }: { isAdmin: boolean; podeAutorizar: boolean; opcoes: Opcoes }) {
-  const [aba, setAba] = useState<Aba>(isAdmin ? 'terminais' : 'pendencias')
+export function MarcacoesClient({ podeGerir, podeAutorizar, escopoLimitado, opcoes }: {
+  /** Ve as abas de infraestrutura: Terminais, Dispositivos REP, Higiene, Pendrive. */
+  podeGerir: boolean
+  /** Concede/revoga dispensa de registro de ponto (RH; o Diretor fica de fora). */
+  podeAutorizar: boolean
+  /** Gere, mas so dentro das unidades vinculadas — hoje o RH da Unidade. */
+  escopoLimitado: boolean
+  opcoes: Opcoes
+}) {
+  const [aba, setAba] = useState<Aba>(podeGerir ? 'terminais' : 'pendencias')
   const [alertaEscala, setAlertaEscala] = useState<number | null>(null)
 
   const [terminais, setTerminais] = useState<any[]>([])
@@ -165,22 +173,22 @@ export function MarcacoesClient({ isAdmin, podeAutorizar, opcoes }: { isAdmin: b
   }
 
   useEffect(() => {
-    if (!isAdmin) return
+    if (!podeGerir) return
     if (aba === 'terminais') recarregarTerminais()
     if (aba === 'dispositivos') recarregarDispositivos()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aba, isAdmin])
+  }, [aba, podeGerir])
 
   // Versão do coletor publicada no servidor agora — mesma fonte que o app de bandeja consulta
   // (dist/VERSION). Falha em silêncio: sem ela o card mostra a versão instalada sem julgar se
   // está atrasada, que é melhor do que dizer "desatualizado" por indisponibilidade do endpoint.
   useEffect(() => {
-    if (!isAdmin) return
+    if (!podeGerir) return
     fetch('/api/coletor-rep/tray-version', { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => setVersaoColetorServidor(j?.versao || null))
       .catch(() => setVersaoColetorServidor(null))
-  }, [isAdmin])
+  }, [podeGerir])
 
   // O alerta de cobertura carrega junto com a página, não quando a aba é aberta: o valor dele é
   // justamente avisar quem não ia clicar. Falha em silêncio — um erro aqui não pode derrubar o
@@ -203,14 +211,14 @@ export function MarcacoesClient({ isAdmin, podeAutorizar, opcoes }: { isAdmin: b
   }, [periodoInicial])
 
   const abas: { id: Aba; label: string; icon: any; visivel: boolean; alerta?: number | null }[] = [
-    { id: 'terminais', label: 'Terminais Locais', icon: Monitor, visivel: isAdmin },
-    { id: 'dispositivos', label: 'Dispositivos REP', icon: Fingerprint, visivel: isAdmin },
+    { id: 'terminais', label: 'Terminais Locais', icon: Monitor, visivel: podeGerir },
+    { id: 'dispositivos', label: 'Dispositivos REP', icon: Fingerprint, visivel: podeGerir },
     { id: 'cobertura', label: 'Cobertura de Ponto', icon: HeartPulse, visivel: true, alerta: alertaCobertura },
     { id: 'cobertura_escala', label: 'Cobertura da Escala', icon: CalendarClock, visivel: true, alerta: alertaEscala },
     { id: 'pendencias', label: 'Pendências', icon: ListChecks, visivel: true },
     { id: 'biometria', label: 'Biometria Pendente', icon: Fingerprint, visivel: true },
-    { id: 'higiene', label: 'Higiene do Relógio', icon: ShieldCheck, visivel: isAdmin },
-    { id: 'pendrive', label: 'Importar por Pendrive', icon: UploadCloud, visivel: isAdmin },
+    { id: 'higiene', label: 'Higiene do Relógio', icon: ShieldCheck, visivel: podeGerir },
+    { id: 'pendrive', label: 'Importar por Pendrive', icon: UploadCloud, visivel: podeGerir },
     // Visível para todo gestor: o coordenador precisa conferir a vigência antes de declarar em
     // massa. Conceder e revogar é que ficam com o RH Geral (podeAutorizar).
     { id: 'autorizacoes', label: 'Autorizações do RH', icon: FileCheck2, visivel: true },
@@ -218,6 +226,15 @@ export function MarcacoesClient({ isAdmin, podeAutorizar, opcoes }: { isAdmin: b
 
   return (
     <div className="space-y-6">
+      {/* Dizer que a lista esta recortada e o que impede o RH da Unidade de concluir que um
+          relogio "sumiu" do cadastro — lista curta sem explicacao vira chamado. */}
+      {escopoLimitado && (
+        <p className="text-xs text-zinc-500 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl px-3 py-2">
+          Você está vendo apenas as unidades vinculadas ao seu perfil. Relógios e terminais de
+          outras unidades ficam com o RH Geral e o Administrador Geral.
+        </p>
+      )}
+
       <div className="flex gap-2 border-b border-zinc-200 dark:border-zinc-800">
         {abas.filter((a) => a.visivel).map((a) => (
           <button
@@ -240,7 +257,7 @@ export function MarcacoesClient({ isAdmin, podeAutorizar, opcoes }: { isAdmin: b
         ))}
       </div>
 
-      {aba === 'terminais' && isAdmin && (
+      {aba === 'terminais' && podeGerir && (
         <div className="space-y-4">
           <div className="flex justify-end">
             <button
@@ -308,7 +325,7 @@ export function MarcacoesClient({ isAdmin, podeAutorizar, opcoes }: { isAdmin: b
         </div>
       )}
 
-      {aba === 'dispositivos' && isAdmin && (
+      {aba === 'dispositivos' && podeGerir && (
         <div className="space-y-4">
           <div className="flex justify-end">
             <button
@@ -403,12 +420,12 @@ export function MarcacoesClient({ isAdmin, podeAutorizar, opcoes }: { isAdmin: b
         </div>
       )}
 
-      {aba === 'cobertura' && <CoberturaTab isAdmin={isAdmin} inicial={resumoCobertura} />}
+      {aba === 'cobertura' && <CoberturaTab inicial={resumoCobertura} />}
       {aba === 'cobertura_escala' && <CoberturaEscalaTab />}
       {aba === 'pendencias' && <PendenciasTab opcoes={opcoes} />}
       {aba === 'biometria' && <BiometriaTab />}
-      {aba === 'higiene' && isAdmin && <HigieneDispositivoTab />}
-      {aba === 'pendrive' && isAdmin && <ImportarPendriveTab />}
+      {aba === 'higiene' && podeGerir && <HigieneDispositivoTab />}
+      {aba === 'pendrive' && podeGerir && <ImportarPendriveTab />}
       {aba === 'autorizacoes' && <AutorizacoesPontoTab podeAutorizar={podeAutorizar} />}
     </div>
   )

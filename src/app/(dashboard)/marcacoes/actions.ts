@@ -6,17 +6,70 @@ import { revalidatePath } from 'next/cache'
 import { randomUUID, createHash } from 'crypto'
 import { formatSectorsHierarchy } from '@/utils/sectors'
 import { reconciliarSincronizacaoAfd } from '@/utils/reconciliacaoHelper'
+import {
+  montarEscopoGestao, podeGerirMarcacoes, unidadeNoEscopo, filtrarPorUnidade, gerenciaSemEscopo,
+  ehEscopadoPorUnidade,
+  ERRO_SEM_GESTAO_MARCACOES, ERRO_UNIDADE_FORA_DO_ESCOPO, type EscopoGestao,
+} from '@/utils/escopoGestao'
 
-async function exigirAdmin() {
+/**
+ * Perfil + escopo de gestao de quem esta chamando.
+ *
+ * ⚠️ `profile_setores(setores(unidade_id))` nao e' zelo: coordenador/RH cujo acesso vem
+ * inteiramente de setor vinculado tem `profile_unidades` vazio e veria a tela em branco sem
+ * nenhuma mensagem (e' o buraco que `fn_unidade_alcancavel_por_setor` existe para tapar).
+ */
+async function perfilComEscopo() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Não autenticado')
 
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
-  if (!profile || !['admin', 'super_admin'].includes(profile.role)) {
-    throw new Error('Apenas administradores podem gerenciar dispositivos e terminais.')
-  }
-  return user
+  const { data: perfil } = await supabase
+    .from('profiles')
+    .select('role, profile_unidades(unidade_id), profile_setores(setores(unidade_id))')
+    .eq('id', user.id)
+    .single()
+
+  return { user, escopo: montarEscopoGestao(perfil) }
+}
+
+/**
+ * Gere relogios e terminais? Substitui o antigo `exigirAdmin`, que era
+ * `['admin','super_admin']` — decisao do usuario em 10/09/2026 (RH Geral total, RH da Unidade
+ * nas unidades dele).
+ *
+ * ⚠️ Isto autoriza o PAPEL. Quem trabalha sobre um equipamento especifico precisa de
+ * `exigirUnidadeNoEscopo` por cima: sem ele, um RH da Unidade chamaria a action com o id de um
+ * relogio de outra unidade — server action e' um POST cujo id sai no bundle (armadilha 33).
+ */
+async function exigirGestaoMarcacoes() {
+  const ctx = await perfilComEscopo()
+  if (!podeGerirMarcacoes(ctx.escopo.role)) throw new Error(ERRO_SEM_GESTAO_MARCACOES)
+  return ctx
+}
+
+function exigirUnidadeNoEscopo(escopo: EscopoGestao, unidadeId: string | null | undefined) {
+  if (!unidadeNoEscopo(escopo, unidadeId)) throw new Error(ERRO_UNIDADE_FORA_DO_ESCOPO)
+}
+
+/**
+ * Resolve a unidade de um equipamento/terminal JA GRAVADO e confere o escopo contra ela.
+ *
+ * ⚠️ Conferir so o que veio no formulario nao basta: sem esta checagem, um RH da Unidade
+ * "puxaria" para dentro do escopo um relogio de outra unidade mandando a unidade certa no
+ * payload. Mesma licao de `updateUser` (o alcance e conferido sobre o estado ATUAL do alvo,
+ * antes do payload).
+ */
+async function exigirEscopoDoRegistro(
+  escopo: EscopoGestao,
+  tabela: 'dispositivos_rep' | 'terminais_locais',
+  id: string,
+) {
+  const admin = await createAdminClient()
+  const { data } = await admin.from(tabela).select('unidade_id').eq('id', id).single()
+  if (!data) throw new Error('Registro não encontrado.')
+  exigirUnidadeNoEscopo(escopo, data.unidade_id)
+  return data.unidade_id as string
 }
 
 async function exigirGestor() {
@@ -36,7 +89,7 @@ async function exigirGestor() {
 // ============================================================================
 
 export async function listarOpcoesFormulario() {
-  await exigirAdmin()
+  const { escopo } = await exigirGestaoMarcacoes()
   const supabase = await createAdminClient()
 
   // ⚠️ Unidade e setor INATIVOS vem na lista, com a flag `ativo` — e quem escolhe e' a tela.
@@ -49,24 +102,59 @@ export async function listarOpcoesFormulario() {
     supabase.from('setores').select('id, unidade_id, parent_id, ativo, dicionario_setores(nome)'),
     supabase
       .from('profiles')
-      .select('id, full_name, role')
+      .select('id, full_name, role, profile_unidades(unidade_id), profile_setores(setores(unidade_id))')
       .in('role', ['coordenador', 'admin', 'super_admin', 'ass_adm'])
       .order('full_name'),
   ])
 
+  const setoresFlat = (setores || []).map((s: any) => ({
+    id: s.id,
+    unidade_id: s.unidade_id,
+    parent_id: s.parent_id,
+    ativo: s.ativo,
+    nome: s.dicionario_setores?.nome || '(sem nome)',
+  }))
+
+  // Responsavel pelo terminal: so quem tem escopo DENTRO das unidades oferecidas. Oferecer a
+  // rede inteira aqui nao vaza dado (e' nome de coordenador), mas produz o defeito da armadilha
+  // 56: responsavel com escopo de outra unidade faz `fn_registrar_ponto_terminal_local` recusar
+  // TODA batida daquele terminal, com a mensagem errada ("sem permissao") na cara do servidor.
+  //
+  // ⚠️ Quem ja e' responsavel de um terminal no escopo NUNCA some da lista, mesmo estando fora
+  // dela hoje: sumir faria o <select> do modal abrir vazio e o proximo "Salvar" trocar o
+  // responsavel sem ninguem pedir (armadilha 28).
+  const escopoDeUmPerfil = (p: any) => {
+    const diretas = (p.profile_unidades || []).map((pu: any) => pu.unidade_id)
+    const porSetor = (p.profile_setores || [])
+      .map((ps: any) => (Array.isArray(ps.setores) ? ps.setores[0] : ps.setores)?.unidade_id)
+    return [...diretas, ...porSetor].filter(Boolean)
+  }
+
+  let listaCoordenadores = coordenadores || []
+  if (!gerenciaSemEscopo(escopo.role)) {
+    const { data: jaResponsaveis } = await supabase
+      .from('terminais_locais')
+      .select('responsavel_coordenador_id, unidade_id')
+    const preservar = new Set(
+      (jaResponsaveis || [])
+        .filter((t: any) => unidadeNoEscopo(escopo, t.unidade_id))
+        .map((t: any) => t.responsavel_coordenador_id)
+        .filter(Boolean),
+    )
+    listaCoordenadores = listaCoordenadores.filter((p: any) =>
+      preservar.has(p.id) || escopoDeUmPerfil(p).some((u: string) => unidadeNoEscopo(escopo, u)),
+    )
+  }
+
   return {
-    unidades: unidades || [],
+    // Unidade e setor fora do escopo nao sao oferecidos — e o guard da action recusa de
+    // qualquer forma, entao oferecer seria armadilha (mesma regra de opcoesAtivas.ts).
+    unidades: filtrarPorUnidade(escopo, unidades || [], (u: any) => u.id),
     // Cru, com `parent_id` e `ativo`: a arvore de setores do modal do relogio precisa da relacao
     // pai/filho de verdade (marcar um pai marca os descendentes), nao do recuo dentro do texto.
     // Quem usa <select> aplica formatSectorsHierarchy na hora.
-    setores: (setores || []).map((s: any) => ({
-      id: s.id,
-      unidade_id: s.unidade_id,
-      parent_id: s.parent_id,
-      ativo: s.ativo,
-      nome: s.dicionario_setores?.nome || '(sem nome)',
-    })),
-    coordenadores: coordenadores || [],
+    setores: filtrarPorUnidade(escopo, setoresFlat, (s: any) => s.unidade_id),
+    coordenadores: listaCoordenadores.map((p: any) => ({ id: p.id, full_name: p.full_name, role: p.role })),
   }
 }
 
@@ -75,7 +163,7 @@ export async function listarOpcoesFormulario() {
 // ============================================================================
 
 export async function listarTerminaisLocais() {
-  await exigirAdmin()
+  const { escopo } = await exigirGestaoMarcacoes()
   const supabase = await createAdminClient()
 
   const { data, error } = await supabase
@@ -88,7 +176,10 @@ export async function listarTerminaisLocais() {
     .order('created_at', { ascending: false })
 
   if (error) throw new Error(error.message)
-  return data || []
+  // ⚠️ O filtro tem que ser AQUI: a consulta usa `createAdminClient` (service_role, BYPASSRLS),
+  // entao a policy "Leitura de dispositivos por escopo" nao roda. Sem esta linha o RH da Unidade
+  // veria o parque inteiro.
+  return filtrarPorUnidade(escopo, data || [], (t: any) => t.unidade_id)
 }
 
 function lerCamposTerminal(formData: FormData) {
@@ -100,11 +191,12 @@ function lerCamposTerminal(formData: FormData) {
 }
 
 export async function criarTerminalLocal(formData: FormData) {
-  await exigirAdmin()
+  const { escopo } = await exigirGestaoMarcacoes()
   const campos = lerCamposTerminal(formData)
   if (!campos.nome || !campos.unidade_id || !campos.responsavel_coordenador_id) {
     return { error: 'Nome, unidade e responsável são obrigatórios.' }
   }
+  exigirUnidadeNoEscopo(escopo, campos.unidade_id)
 
   const supabase = await createAdminClient()
   const { data, error } = await supabase.from('terminais_locais').insert(campos).select('id').single()
@@ -115,12 +207,17 @@ export async function criarTerminalLocal(formData: FormData) {
 }
 
 export async function atualizarTerminalLocal(id: string, formData: FormData) {
-  await exigirAdmin()
+  const { escopo } = await exigirGestaoMarcacoes()
   const campos = lerCamposTerminal(formData)
   if (!campos.nome || !campos.unidade_id || !campos.responsavel_coordenador_id) {
     return { error: 'Nome, unidade e responsável são obrigatórios.' }
   }
   const ativo = formData.get('ativo') === 'true'
+  // Os DOIS lados: a unidade em que o terminal esta hoje e a que veio no formulario. Conferir
+  // so o payload deixaria um RH da Unidade adotar terminal de outra unidade; conferir so o
+  // estado atual o deixaria empurrar o terminal dele para fora do proprio escopo.
+  await exigirEscopoDoRegistro(escopo, 'terminais_locais', id)
+  exigirUnidadeNoEscopo(escopo, campos.unidade_id)
 
   const supabase = await createAdminClient()
   const { error } = await supabase
@@ -134,7 +231,8 @@ export async function atualizarTerminalLocal(id: string, formData: FormData) {
 }
 
 export async function excluirTerminalLocal(id: string) {
-  await exigirAdmin()
+  const { escopo } = await exigirGestaoMarcacoes()
+  await exigirEscopoDoRegistro(escopo, 'terminais_locais', id)
   // Terminal local nao e referenciado por marcacoes_ponto nem por nenhuma outra tabela — a
   // marcacao gravada por ele carrega origem 'terminal', igual ao terminal classico, sem FK para
   // terminais_locais.id. Exclusao e sempre segura, ao contrario de dispositivos_rep.
@@ -147,7 +245,8 @@ export async function excluirTerminalLocal(id: string) {
 }
 
 export async function gerarTokenTerminalLocal(id: string) {
-  await exigirAdmin()
+  const { escopo } = await exigirGestaoMarcacoes()
+  await exigirEscopoDoRegistro(escopo, 'terminais_locais', id)
   // Precisa da sessão do usuário (não createAdminClient): fn_gerar_token_terminal_local lê
   // auth.uid() para registrar quem gerou o token.
   const supabase = await createClient()
@@ -163,7 +262,7 @@ export async function gerarTokenTerminalLocal(id: string) {
 // ============================================================================
 
 export async function listarDispositivosRep() {
-  await exigirAdmin()
+  const { escopo } = await exigirGestaoMarcacoes()
   const supabase = await createAdminClient()
 
   const { data, error } = await supabase
@@ -204,7 +303,10 @@ export async function listarDispositivosRep() {
     if (!ultimaColetaPendrive.has(s.dispositivo_id)) ultimaColetaPendrive.set(s.dispositivo_id, s.concluida_em)
   }
 
-  return (data || []).map((d: any) => ({
+  // ⚠️ Filtro AQUI: a consulta usa `createAdminClient` (service_role, BYPASSRLS), entao a
+  // policy "Leitura de dispositivos por escopo" nao roda. Sem isto o RH da Unidade veria os
+  // 32 relogios do parque.
+  return filtrarPorUnidade(escopo, data || [], (d: any) => d.unidade_id).map((d: any) => ({
     ...d,
     ultima_coleta_pendrive: ultimaColetaPendrive.get(d.id) || null,
   }))
@@ -239,11 +341,12 @@ function lerCamposDispositivo(formData: FormData) {
 }
 
 export async function criarDispositivoRep(formData: FormData) {
-  await exigirAdmin()
+  const { escopo } = await exigirGestaoMarcacoes()
   const { setor_ids, ...campos }: any = lerCamposDispositivo(formData)
   if (!campos.nome || !campos.unidade_id) {
     return { error: 'Nome e unidade são obrigatórios.' }
   }
+  exigirUnidadeNoEscopo(escopo, campos.unidade_id)
   // ponto_valido_desde é NOT NULL: mandar null apagaria o DEFAULT em vez de aceitá-lo.
   if (campos.ponto_valido_desde === null) delete campos.ponto_valido_desde
 
@@ -265,11 +368,14 @@ export async function criarDispositivoRep(formData: FormData) {
 }
 
 export async function atualizarDispositivoRep(id: string, formData: FormData) {
-  await exigirAdmin()
+  const { escopo } = await exigirGestaoMarcacoes()
   const { setor_ids, ...campos }: any = lerCamposDispositivo(formData)
   if (!campos.nome || !campos.unidade_id) {
     return { error: 'Nome e unidade são obrigatórios.' }
   }
+  // Os DOIS lados — ver o comentario gemeo em atualizarTerminalLocal.
+  await exigirEscopoDoRegistro(escopo, 'dispositivos_rep', id)
+  exigirUnidadeNoEscopo(escopo, campos.unidade_id)
   const ativo = formData.get('ativo') === 'true'
   // Campo de senha vem em branco quando o admin nao digitou uma nova (o valor salvo nunca e
   // reenviado ao formulario) - omitir do update preserva a senha ja gravada em vez de apagar.
@@ -296,7 +402,8 @@ export async function atualizarDispositivoRep(id: string, formData: FormData) {
 }
 
 export async function excluirDispositivoRep(id: string) {
-  await exigirAdmin()
+  const { escopo } = await exigirGestaoMarcacoes()
+  await exigirEscopoDoRegistro(escopo, 'dispositivos_rep', id)
   const supabase = await createAdminClient()
   const { error } = await supabase.from('dispositivos_rep').delete().eq('id', id)
   if (error) {
@@ -317,7 +424,8 @@ export async function excluirDispositivoRep(id: string) {
 }
 
 export async function gerarTokenDispositivoRep(id: string) {
-  await exigirAdmin()
+  const { escopo } = await exigirGestaoMarcacoes()
+  await exigirEscopoDoRegistro(escopo, 'dispositivos_rep', id)
   const supabase = await createClient()
   const { data, error } = await supabase.rpc('fn_gerar_token_dispositivo_rep', { p_dispositivo_id: id })
   if (error) return { error: error.message }
@@ -351,7 +459,8 @@ export async function gerarTokenDispositivoRep(id: string) {
  * dominante: UMA máquina que enxerga a unidade inteira.
  */
 export async function gerarTokensUnidadeRep(unidadeId: string, dispositivoIds?: string[]) {
-  await exigirAdmin()
+  const { escopo } = await exigirGestaoMarcacoes()
+  exigirUnidadeNoEscopo(escopo, unidadeId)
   const supabase = await createClient()
 
   const admin = await createAdminClient()
@@ -435,7 +544,8 @@ export async function listarPendenciasBiometria(dispositivoId?: string | null) {
 // via `coletor-rep higiene-remover`.
 
 export async function listarHigieneUsuariosDispositivo(dispositivoId: string) {
-  await exigirAdmin()
+  const { escopo } = await exigirGestaoMarcacoes()
+  await exigirEscopoDoRegistro(escopo, 'dispositivos_rep', dispositivoId)
   const supabase = await createClient()
   const { data, error } = await supabase.rpc('fn_higiene_usuarios_dispositivo', { p_dispositivo_id: dispositivoId })
   if (error) throw new Error(error.message)
@@ -443,7 +553,8 @@ export async function listarHigieneUsuariosDispositivo(dispositivoId: string) {
 }
 
 export async function enfileirarRemocaoUsuariosDispositivo(dispositivoId: string, identificadoresAfd: string[]) {
-  await exigirAdmin()
+  const { escopo } = await exigirGestaoMarcacoes()
+  await exigirEscopoDoRegistro(escopo, 'dispositivos_rep', dispositivoId)
   const supabase = await createClient()
   const { data, error } = await supabase.rpc('fn_enfileirar_remocao_usuarios_dispositivo', {
     p_dispositivo_id: dispositivoId,
@@ -604,7 +715,8 @@ export async function registrarSubstituicaoDispositivo(
   motivo: string,
   numeroSerieNovo?: string | null,
 ) {
-  await exigirAdmin()
+  const { escopo } = await exigirGestaoMarcacoes()
+  await exigirEscopoDoRegistro(escopo, 'dispositivos_rep', dispositivoId)
   const supabase = await createClient()
   const { data, error } = await supabase.rpc('fn_registrar_substituicao_dispositivo', {
     p_dispositivo_id: dispositivoId,
@@ -626,7 +738,8 @@ export async function registrarSubstituicaoDispositivo(
 
 /** Histórico de trocas de equipamento daquele ponto, mais recente primeiro. */
 export async function listarSubstituicoesDispositivo(dispositivoId: string) {
-  await exigirGestor()
+  const { escopo } = await exigirGestaoMarcacoes()
+  await exigirEscopoDoRegistro(escopo, 'dispositivos_rep', dispositivoId)
   const supabase = await createAdminClient()
   const { data, error } = await supabase
     .from('dispositivos_rep_substituicoes')
@@ -901,7 +1014,8 @@ function parseArquivoSisrep(buffer: Buffer): { cabecalho: Record<string, string>
 }
 
 export async function importarPendriveAfd(dispositivoId: string, formData: FormData) {
-  await exigirAdmin()
+  const { escopo } = await exigirGestaoMarcacoes()
+  await exigirEscopoDoRegistro(escopo, 'dispositivos_rep', dispositivoId)
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Não autenticado.' }
@@ -1011,20 +1125,32 @@ export async function aceitarMarcacaoPendente(input: {
 // Quem concede é o RH Geral — nunca o coordenador, que é justamente quem vai USAR a autorização
 // na grade. Conferido aqui E dentro da função do banco: a RPC é chamável direto (armadilha 12).
 
-async function exigirRhGeral() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Não autenticado')
+/**
+ * Quem concede/revoga dispensa de registro de ponto.
+ *
+ * Ate 10/09/2026 era `[rh, super_admin]`, pela decisao de 27/08/2026 ("o oficio e enderecado a
+ * RH central"). O usuario ampliou em 10/09/2026: o RH da Unidade tambem concede, DENTRO das
+ * unidades dele — o recorte por servidor e aplicado dentro da RPC.
+ *
+ * ⚠️ O DIRETOR (`admin`) continua de fora, e por isso esta lista existe em vez de
+ * `podeGerirMarcacoes`: aquele predicado trata `admin` como irrestrito (e assim que ele se
+ * comporta no resto de /marcacoes), o que daria a um Diretor de uma unidade o poder de
+ * dispensar de bater ponto qualquer servidor da rede. A decisao de 27/08/2026 o exclui
+ * nominalmente. A mesma allowlist esta nas duas RPCs (20260911110000).
+ */
+const PAPEIS_AUTORIZACAO_PONTO = ['super_admin', 'rh', 'rh_unidade']
 
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
-  if (!profile || !['rh', 'super_admin'].includes(profile.role)) {
-    throw new Error('Apenas o RH Geral pode autorizar validação coletiva de ponto.')
+async function exigirRhAutorizador() {
+  const ctx = await perfilComEscopo()
+  if (!PAPEIS_AUTORIZACAO_PONTO.includes(String(ctx.escopo.role))) {
+    throw new Error('Apenas o RH pode autorizar validação coletiva de ponto.')
   }
-  return user
+  return ctx
 }
 
 export async function listarAutorizacoesPontoColetivo() {
   await exigirGestor()
+  const { escopo } = await perfilComEscopo()
   const supabase = await createAdminClient()
 
   const { data, error } = await supabase
@@ -1032,19 +1158,29 @@ export async function listarAutorizacoesPontoColetivo() {
     .select(`
       id, passos, vigencia_inicio, vigencia_fim, documento, motivo,
       created_at, revogado_em, revogacao_motivo,
-      servidores(id, nome, matricula, unidades(nome), setores(dicionario_setores(nome)))
+      servidores(id, nome, matricula, unidade_id, unidades(nome), setores(dicionario_setores(nome)))
     `)
     .order('created_at', { ascending: false })
 
   if (error) return { error: error.message, dados: [] as any[] }
 
-  const dados = (data || []).map((a: any) => ({
-    ...a,
-    servidor_nome: a.servidores?.nome || '—',
-    servidor_matricula: a.servidores?.matricula || null,
-    unidade_nome: a.servidores?.unidades?.nome || null,
-    setor_nome: a.servidores?.setores?.dicionario_setores?.nome || null,
-  }))
+  // Consulta por `createAdminClient` (BYPASSRLS), entao o recorte e AQUI. Escopado pela
+  // unidade de lotacao do servidor — a mesma que a RPC usa para decidir quem pode conceder.
+  //
+  // ⚠️ So para quem o recorte novo descreve. Coordenador e Ass. Administrativo sempre viram
+  // esta lista inteira (a aba existe para eles conferirem a vigencia antes de declarar em
+  // massa); zera-los aqui seria regressao silenciosa fora do que foi pedido.
+  const listaBruta = ehEscopadoPorUnidade(escopo.role)
+    ? filtrarPorUnidade(escopo, data || [], (a: any) => a.servidores?.unidade_id)
+    : (data || [])
+  const dados = listaBruta
+    .map((a: any) => ({
+      ...a,
+      servidor_nome: a.servidores?.nome || '—',
+      servidor_matricula: a.servidores?.matricula || null,
+      unidade_nome: a.servidores?.unidades?.nome || null,
+      setor_nome: a.servidores?.setores?.dicionario_setores?.nome || null,
+    }))
 
   return { error: null, dados }
 }
@@ -1056,13 +1192,14 @@ export async function listarAutorizacoesPontoColetivo() {
  */
 export async function listarServidoresParaAutorizacao(setorId?: string | null, termo?: string | null) {
   await exigirGestor()
+  const { escopo } = await perfilComEscopo()
   const supabase = await createAdminClient()
 
   const todos: any[] = []
   for (let from = 0; ; from += 1000) {
     let query = supabase
       .from('servidores')
-      .select('id, nome, matricula, setor_id, unidades(nome), setores(dicionario_setores(nome))')
+      .select('id, nome, matricula, setor_id, unidade_id, unidades(nome), setores(dicionario_setores(nome))')
       .eq('status', 'Ativo')
       .order('nome')
       .range(from, from + 999)
@@ -1076,9 +1213,15 @@ export async function listarServidoresParaAutorizacao(setorId?: string | null, t
     if (!data || data.length < 1000) break
   }
 
+  // Servidor fora do escopo nem aparece para escolher: a RPC o recusaria um a um, e oferecer
+  // quem sera recusado e o convite a erro da armadilha 31. So para quem o recorte descreve —
+  // ver o comentario gemeo em listarAutorizacoesPontoColetivo.
+  const elegiveis = ehEscopadoPorUnidade(escopo.role)
+    ? filtrarPorUnidade(escopo, todos, (s: any) => s.unidade_id)
+    : todos
   return {
     error: null,
-    dados: todos.map((s: any) => ({
+    dados: elegiveis.map((s: any) => ({
       id: s.id,
       nome: s.nome,
       matricula: s.matricula,
@@ -1096,7 +1239,7 @@ export async function concederAutorizacaoPontoColetivo(input: {
   documento: string
   motivo: string
 }) {
-  await exigirRhGeral()
+  await exigirRhAutorizador()
   const supabase = await createClient()
 
   const { data, error } = await supabase.rpc('fn_conceder_autorizacao_ponto_coletivo', {
@@ -1115,7 +1258,7 @@ export async function concederAutorizacaoPontoColetivo(input: {
 }
 
 export async function revogarAutorizacaoPontoColetivo(id: string, motivo: string) {
-  await exigirRhGeral()
+  await exigirRhAutorizador()
   const supabase = await createClient()
 
   const { error } = await supabase.rpc('fn_revogar_autorizacao_ponto_coletivo', {

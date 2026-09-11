@@ -3,26 +3,42 @@ import { AcessoNegado } from '@/components/AcessoNegado'
 import { Radio } from 'lucide-react'
 import { MarcacoesClient } from './MarcacoesClient'
 import { listarOpcoesFormulario } from './actions'
+import { montarEscopoGestao, podeGerirMarcacoes, gerenciaSemEscopo } from '@/utils/escopoGestao'
 
 const ROLES_COM_ACESSO = ['admin', 'super_admin', 'coordenador', 'ass_adm', 'rh', 'rh_unidade']
-const ROLES_ADMIN = ['admin', 'super_admin']
+
+// Conceder dispensa de registro de ponto. NAO usa `podeGerirMarcacoes`: o Diretor (`admin`) e'
+// irrestrito naquele predicado e ficaria com o poder de dispensar qualquer servidor da rede — a
+// decisao de 27/08/2026 o exclui nominalmente. Mesma lista das duas RPCs (20260911110000).
+const ROLES_AUTORIZACAO_PONTO = ['super_admin', 'rh', 'rh_unidade']
 
 export default async function MarcacoesPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return <AcessoNegado />
 
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
+  // `profile_setores` entra junto porque um perfil pode alcancar a unidade so por um setor
+  // vinculado (fn_unidade_alcancavel_por_setor) — sem isso ele abriria a tela vazia.
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role, profile_unidades(unidade_id), profile_setores(setores(unidade_id))')
+    .eq('id', user.id)
+    .single()
+
   if (!profile || !ROLES_COM_ACESSO.includes(profile.role)) return <AcessoNegado />
 
-  const isAdmin = ROLES_ADMIN.includes(profile.role)
-  // Conceder autorização de validação coletiva é do RH Geral (e do Administrador Geral) — nunca
-  // do coordenador, que é quem vai USAR a autorização na grade.
-  const podeAutorizar = ['rh', 'super_admin'].includes(profile.role)
-  // Dispositivos e terminais são gestão administrativa (infraestrutura de TI); coordenador e
-  // RH Geral (12/08/2026 — só vê a tela, não ganhou acesso a device) só usam a aba Pendências,
-  // que já é filtrada por escopo dentro de fn_marcacoes_pendentes_revisao (fn_unidade_no_escopo).
-  const opcoes = isAdmin
+  const escopo = montarEscopoGestao(profile)
+
+  // Infraestrutura (Terminais Locais, Dispositivos REP, Higiene, Importar por Pendrive) deixou de
+  // ser exclusividade de Administrador Geral / Diretor em 10/09/2026: RH Geral em qualquer
+  // unidade, RH da Unidade nas dele. Quem recorta o QUE cada um ve sao as actions e, atras
+  // delas, `fn_escopo_gestao_alcanca` — esta flag decide so quais abas aparecem.
+  const podeGerir = podeGerirMarcacoes(profile.role)
+  const podeAutorizar = ROLES_AUTORIZACAO_PONTO.includes(profile.role)
+
+  // Coordenador e Ass. Administrativo continuam sem as abas de infraestrutura: para eles o
+  // formulario nao tem uso, e carregar unidades/setores/coordenadores seria consulta a toa.
+  const opcoes = podeGerir
     ? await listarOpcoesFormulario()
     : { unidades: [], setores: [], coordenadores: [] }
 
@@ -38,7 +54,12 @@ export default async function MarcacoesPage() {
         </div>
       </div>
 
-      <MarcacoesClient isAdmin={isAdmin} podeAutorizar={podeAutorizar} opcoes={opcoes} />
+      <MarcacoesClient
+        podeGerir={podeGerir}
+        podeAutorizar={podeAutorizar}
+        escopoLimitado={podeGerir && !gerenciaSemEscopo(profile.role)}
+        opcoes={opcoes}
+      />
     </div>
   )
 }

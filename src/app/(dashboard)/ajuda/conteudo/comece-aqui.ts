@@ -180,17 +180,17 @@ export const comeceAqui: Capitulo = {
             [
               'RH da Unidade',
               'As unidades vinculadas, com todos os setores delas.',
-              'Operação completa naquelas unidades, reabertura de folha, avaliação de transferência e criação de usuários dentro do escopo.',
+              'Operação completa naquelas unidades, reabertura de folha, avaliação de transferência, criação de usuários, gestão dos relógios e terminais e as pendências de cadastro — tudo dentro do escopo.',
             ],
             [
               'RH Geral',
               'A rede inteira.',
-              'Tudo do RH da Unidade, sem limite de unidade. Transfere servidor direto, autoriza carga em qualquer lugar.',
+              'Tudo do RH da Unidade, sem limite de unidade. Transfere servidor direto, autoriza carga em qualquer lugar e mescla cadastros duplicados.',
             ],
             [
               'Administrador Geral',
               'A rede inteira.',
-              'Tudo, incluindo Configurações, Backup, Segurança, exclusão de usuário e mesclagem de cadastros duplicados.',
+              'Tudo, incluindo Configurações, Backup, Segurança e exclusão de usuário.',
             ],
             [
               'Servidor',

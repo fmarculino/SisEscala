@@ -4,6 +4,10 @@ import { readFile } from 'fs/promises'
 import path from 'path'
 import { createClient } from '@/utils/supabase/server'
 import { criarZipSemCompressao } from '@/utils/zip'
+import {
+  montarEscopoGestao, podeGerirMarcacoes, unidadeNoEscopo,
+  ERRO_SEM_GESTAO_MARCACOES, ERRO_UNIDADE_FORA_DO_ESCOPO,
+} from '@/utils/escopoGestao'
 
 /**
  * Devolve um .zip com o app de bandeja (tools/coletor-rep/dist/coletor-rep-tray.exe) + um
@@ -22,9 +26,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 })
   }
 
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
-  if (!profile || !['admin', 'super_admin'].includes(profile.role)) {
-    return NextResponse.json({ error: 'Apenas administradores podem baixar o aplicativo.' }, { status: 403 })
+  // ⚠️ O .zip carrega o TOKEN e a senha do relogio dentro do config.yaml. O papel autoriza,
+  // e o escopo por unidade e conferido abaixo, depois de resolver de qual unidade e cada
+  // equipamento pedido — id vem do corpo do POST, nunca da tela.
+  const { data: perfil } = await supabase
+    .from('profiles')
+    .select('role, profile_unidades(unidade_id), profile_setores(setores(unidade_id))')
+    .eq('id', user.id)
+    .single()
+  const escopo = montarEscopoGestao(perfil)
+  if (!podeGerirMarcacoes(escopo.role)) {
+    return NextResponse.json({ error: ERRO_SEM_GESTAO_MARCACOES }, { status: 403 })
   }
 
   let body: any
@@ -63,11 +75,19 @@ export async function POST(request: Request) {
 
   let configYaml: string
   if (tipo === 'terminal') {
+    const { data: term } = await supabase
+      .from('terminais_locais').select('unidade_id').eq('id', id).single()
+    if (!term) {
+      return NextResponse.json({ error: 'Terminal local não encontrado.' }, { status: 404 })
+    }
+    if (!unidadeNoEscopo(escopo, term.unidade_id)) {
+      return NextResponse.json({ error: ERRO_UNIDADE_FORA_DO_ESCOPO }, { status: 403 })
+    }
     configYaml = montarConfigTerminal(origem, id, token)
   } else if (tipo === 'unidade') {
     const { data: encontrados, error: erroLista } = await supabase
       .from('dispositivos_rep')
-      .select('id, nome, endereco_ip, usuario_rep, senha_rep, porta, usa_https')
+      .select('id, nome, unidade_id, endereco_ip, usuario_rep, senha_rep, porta, usa_https')
       .in('id', dispositivosPedidos.map((d) => d.id))
     if (erroLista) {
       return NextResponse.json({ error: erroLista.message }, { status: 500 })
@@ -83,6 +103,16 @@ export async function POST(request: Request) {
         { status: 404 }
       )
     }
+    // Escopo relogio a relogio. Recusar o pacote inteiro (e nao filtrar em silencio) e a
+    // mesma regra do "faltando UM" logo acima: pacote incompleto instala, roda e deixa o
+    // equipamento que ficou de fora sem coleta, sem erro em lugar nenhum.
+    const foraDoEscopo = (encontrados || []).filter((x: any) => !unidadeNoEscopo(escopo, x.unidade_id))
+    if (foraDoEscopo.length > 0) {
+      return NextResponse.json(
+        { error: `${ERRO_UNIDADE_FORA_DO_ESCOPO} (${foraDoEscopo.map((x: any) => x.nome).join(', ')})` },
+        { status: 403 }
+      )
+    }
     configYaml = montarConfigUnidade(
       origem,
       dispositivosPedidos.map((pedido) => ({ ...porId.get(pedido.id), token: pedido.token }))
@@ -93,11 +123,14 @@ export async function POST(request: Request) {
     // sai pronto sem editar config.yaml a mao (a lacuna que restava depois da v1.48.2).
     const { data: dispositivo, error: dispErr } = await supabase
       .from('dispositivos_rep')
-      .select('endereco_ip, usuario_rep, senha_rep, porta, usa_https')
+      .select('unidade_id, endereco_ip, usuario_rep, senha_rep, porta, usa_https')
       .eq('id', id)
       .single()
     if (dispErr || !dispositivo) {
       return NextResponse.json({ error: 'Dispositivo REP não encontrado.' }, { status: 404 })
+    }
+    if (!unidadeNoEscopo(escopo, dispositivo.unidade_id)) {
+      return NextResponse.json({ error: ERRO_UNIDADE_FORA_DO_ESCOPO }, { status: 403 })
     }
     configYaml = montarConfigDispositivo(origem, id, token, dispositivo)
   }

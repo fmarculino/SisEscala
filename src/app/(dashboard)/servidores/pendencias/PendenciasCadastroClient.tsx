@@ -126,6 +126,13 @@ interface PendenciasCadastroClientProps {
    * `fn_documentos_invalidos`/`fn_possiveis_duplicidades_servidor`) — abri-las pra coordenador
    * vazaria CPF/nome de servidor de outras unidades.
    */
+  /**
+   * Mostra o bloco de diagnostico (documentos, sem CPF, duplicidades). Desde 10/09/2026 e true
+   * tambem para o RH da Unidade — com os dados recortados pelas RPCs. Coordenador continua
+   * com a versao curta: importacao de RH e transferencias.
+   */
+  mostrarDiagnostico: boolean
+  /** O que ele ve esta recortado pelas unidades dele — vira aviso na tela, nunca silencio. */
   escopoLimitado: boolean
 }
 
@@ -187,7 +194,7 @@ export function PendenciasCadastroClient({
   cadastrosDuplicados, erroCadastrosDuplicados, podeMesclarCadastros,
   pendentesRh, erroPendentesRh, unidades, setores, cargos,
   solicitacoesTransferencia, erroSolicitacoesTransferencia, podeAvaliarTransferencia,
-  escopoLimitado,
+  mostrarDiagnostico, escopoLimitado,
 }: PendenciasCadastroClientProps) {
   const [buscaSemCpf, setBuscaSemCpf] = useState('')
   const [gruposAbertos, setGruposAbertos] = useState<Set<string>>(new Set())
@@ -211,7 +218,7 @@ export function PendenciasCadastroClient({
     })
   }
 
-  if (escopoLimitado) {
+  if (!mostrarDiagnostico) {
     return (
       <div className="space-y-6">
         <div>
@@ -222,6 +229,14 @@ export function PendenciasCadastroClient({
               : 'Vínculos importados do RH aguardando virar cadastro ativo na sua unidade.'}
           </p>
         </div>
+
+        {escopoLimitado && (
+          <p className="text-xs text-zinc-500 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl px-3 py-2">
+            Os números e as listas abaixo contam apenas as unidades vinculadas ao seu perfil. Um
+            grupo de duplicidade aparece inteiro quando ao menos um dos cadastros é de uma delas —
+            é assim que dá para ver que a mesma pessoa está cadastrada em duas unidades.
+          </p>
+        )}
 
         <div className="grid grid-cols-1 sm:max-w-xs gap-4">
           <StatCard icon={UserPlus} label="Importados aguardando cadastro" value={pendentesRh.length} tone={pendentesRh.length ? 'amber' : 'green'} note="da sua unidade" />
@@ -259,15 +274,21 @@ export function PendenciasCadastroClient({
         </p>
       </div>
 
+      {escopoLimitado && (
+        <p className="text-xs text-zinc-500 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl px-3 py-2">
+          Os números e as listas abaixo contam apenas as unidades vinculadas ao seu perfil. Um
+          grupo de duplicidade aparece inteiro quando ao menos um dos cadastros é de uma delas —
+          é assim que dá para ver que a mesma pessoa está cadastrada em duas unidades.
+        </p>
+      )}
+
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
         <StatCard icon={UserPlus} label="Importados aguardando cadastro" value={pendentesRh.length} tone={pendentesRh.length ? 'amber' : 'green'} note="importação de RH, v1.42.0" />
         <StatCard icon={ArrowRightLeft} label="Transferências pendentes" value={solicitacoesTransferencia.length} tone={solicitacoesTransferencia.length ? 'amber' : 'green'} note={podeAvaliarTransferencia ? 'aguardando sua avaliação' : 'aguardando o RH'} />
         <StatCard icon={AlertTriangle} label="Documentos com dígito inválido" value={documentosInvalidos.length} tone={documentosInvalidos.length ? 'red' : 'green'} />
         <StatCard icon={UserX} label="Servidores sem CPF" value={semCpf.length} tone={semCpf.length ? 'amber' : 'green'} note={totalServidores ? `${Math.round((semCpf.length / totalServidores) * 100)}% do quadro` : undefined} />
         <StatCard icon={Copy} label="Possíveis duplicidades" value={duplicidades.length} tone={duplicidades.length ? 'amber' : 'green'} note="grupos suspeitos" />
-        {podeMesclarCadastros && (
-          <StatCard icon={Users} label="CPFs com mais de um cadastro" value={cadastrosDuplicados.length} tone={cadastrosDuplicados.length ? 'amber' : 'green'} note="dá para mesclar" />
-        )}
+        <StatCard icon={Users} label="CPFs com mais de um cadastro" value={cadastrosDuplicados.length} tone={cadastrosDuplicados.length ? 'amber' : 'green'} note={podeMesclarCadastros ? 'dá para mesclar' : 'quem mescla é o RH Geral'} />
         <StatCard icon={Hash} label="Servidores sem PIS/PASEP" value={semPisCount} tone="zinc" note="projeto da Fase 9 do REP — não é anomalia" />
       </div>
 
@@ -291,9 +312,7 @@ export function PendenciasCadastroClient({
 
       {/* A ação vem ANTES do diagnóstico: a lista de "possíveis duplicidades" logo abaixo é
           leitura (inclui nome/telefone/e-mail iguais, que não se resolvem mesclando). */}
-      {podeMesclarCadastros && (
-        <CadastrosDuplicadosSection grupos={cadastrosDuplicados} erro={erroCadastrosDuplicados} />
-      )}
+      <CadastrosDuplicadosSection grupos={cadastrosDuplicados} erro={erroCadastrosDuplicados} podeMesclar={podeMesclarCadastros} />
 
       {/* Documentos inválidos */}
       <section className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">

@@ -414,7 +414,7 @@ export const ponto: Capitulo = {
             ],
             [
               'Autorizações do RH',
-              'O RH libera, por servidor e período, quais passos o coordenador pode declarar em massa na grade — sem justificar dia a dia.',
+              'O RH libera, por servidor e período, quais passos o coordenador pode declarar em massa na grade — sem justificar dia a dia. Todo gestor consulta; quem libera é o RH Geral, ou o RH da Unidade nos servidores lotados nas unidades dele.',
               'Quando houver ofício autorizando.',
             ],
           ],
@@ -425,6 +425,13 @@ export const ponto: Capitulo = {
           titulo: 'Autorização do RH não dispensa a batida',
           texto:
             'Mesmo com a autorização, a saída continua vindo do relógio. O que é declarado sai na folha como **manual**, com a justificativa e o número do ofício — nunca como se fosse batida. A autorização vale por um período (até 12 meses) e é renovável por novo ato.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'Nem todo perfil vê todas as abas',
+          texto:
+            'Terminais Locais, Dispositivos REP, Higiene do Relógio e Importar por Pendrive mexem em equipamento, e aparecem para o RH Geral, o RH da Unidade, o Diretor e o Administrador Geral. O Coordenador e o Ass. Administrativo veem as demais. Quem é RH da Unidade enxerga só os equipamentos das unidades vinculadas ao perfil dele — a tela avisa isso no topo.',
         },
         {
           tipo: 'aviso',

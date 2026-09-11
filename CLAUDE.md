@@ -2812,6 +2812,14 @@ alcance/payload/exclusão. Transpile antes com
 
 Diário em [`docs/evolucao/2026-08-22-gestao-de-usuarios-pelo-rh.md`](docs/evolucao/2026-08-22-gestao-de-usuarios-pelo-rh.md).
 
+### RH gere relógios, terminais e pendências de cadastro (11/09/2026)
+
+`/marcacoes` inteira e o diagnóstico de `/servidores/pendencias` deixaram de ser exclusividade de
+Administrador Geral / Diretor: **RH Geral em qualquer unidade, RH da Unidade nas dele**. A regra
+vive em `src/utils/escopoGestao.ts` e em `fn_escopo_gestao_alcanca` — ver a **armadilha 62**, que
+registra por que o predicado não pode usar `fn_unidade_no_escopo` e por que o Diretor precisa de
+allowlist por cima.
+
 ### RH também AVALIA transferência, e a policy que dizia `só super_admin` nunca restringiu (28/08/2026)
 
 Aprovar/rejeitar um pedido de transferência de unidade/setor deixou de ser exclusividade do
@@ -5182,6 +5190,116 @@ que **executa** as funções e sai com código 1 se qualquer asserção falhar: 
 escreve justificativa de evento (com o motivo no histórico), linha Plantão continua escrevendo, e
 a CHECK continua barrando `Regular`. Diário em
 [`docs/evolucao/2026-09-10-turno-regular-nao-e-evento.md`](docs/evolucao/2026-09-10-turno-regular-nao-e-evento.md).
+
+### 62. Escopo de gestão: `fn_unidade_no_escopo` honra uma CAIXA, e isso faz tela e banco divergirem (11/09/2026)
+
+**RH Geral e RH da Unidade passaram a alcançar `/marcacoes` inteira e o diagnóstico de
+`/servidores/pendencias`** (pedido do usuário, 10/09/2026: *"RH Geral acesso total, RH da Unidade
+acesso às respectivas unidades"*). Diário em
+[`docs/evolucao/2026-09-11-escopo-de-gestao-para-o-rh.md`](docs/evolucao/2026-09-11-escopo-de-gestao-para-o-rh.md).
+
+🚨 **Mexer só na tela produziria defeito PIOR que o atual.** As 4 abas de infraestrutura
+(Terminais, Dispositivos REP, Higiene, Pendrive) estavam em `['admin','super_admin']` na tela **e**
+nas **6 funções do banco** por trás delas — `fn_gerar_token_dispositivo_rep`,
+`fn_gerar_token_terminal_local`, `fn_definir_setores_dispositivo_rep`,
+`fn_higiene_usuarios_dispositivo`, `fn_enfileirar_remocao_usuarios_dispositivo`,
+`fn_registrar_substituicao_dispositivo`. A aba apareceria e o botão morreria com *"Apenas
+administradores podem…"* (armadilha 44).
+
+**Fonte única**: `unidadeNoEscopo` em `src/utils/escopoGestao.ts` e **`fn_escopo_gestao_alcanca`**
+(`20260911100000`), espelhos um do outro.
+
+| papel | alcance |
+|---|---|
+| `super_admin` · `admin` · `rh` | irrestrito |
+| `rh_unidade` | `profile_unidades` ∪ unidades alcançadas por `profile_setores` |
+| demais | nenhuma unidade |
+
+🚨 **O braço de `rh_unidade` NÃO chama `fn_unidade_no_escopo`, e essa é a armadilha.** Aquela
+função devolve `true` para quem tem `acesso_todas_unidades` — e a flag é uma **caixa** na tela de
+usuários. Um `rh_unidade` com ela marcada passaria a gerir o parque inteiro **no banco** enquanto
+o TypeScript (que ignora a flag para esse papel, mesma assimetria de `avaliacaoTransferencia.ts`)
+continuaria filtrando. **Divergência entre tela e banco é o defeito que a fonte única existe para
+não criar.** Pelo mesmo motivo `rh` entra por **PAPEL**: os 8 perfis têm a flag hoje e passariam
+por acidente de dado, mas um RH Geral criado sem marcá-la veria a tela vazia sem mensagem nenhuma.
+
+⚠️ **`fn_unidades_de_gestao` é DERIVADA do predicado** (`WHERE fn_escopo_gestao_alcanca(u.id)`),
+nunca reescrita — duas implementações da mesma regra divergem na primeira mudança. 35 unidades: o
+custo é irrelevante.
+
+⚠️ **Filtre na ACTION, não confie na RLS: as listagens usam `createAdminClient`** (service_role,
+BYPASSRLS), então a policy "Leitura de dispositivos por escopo" **não roda**. E ao EDITAR, confira
+os **dois** lados — a unidade em que o equipamento está hoje **e** a que veio no payload. Só o
+payload deixaria um RH da Unidade adotar relógio de outra unidade; só o estado atual o deixaria
+empurrar o dele para fora do escopo (mesma lição de `updateUser`).
+
+⚠️ **`/api/coletor-rep/download` confere unidade por EQUIPAMENTO.** O `.zip` carrega token e senha
+do relógio no `config.yaml`, e o id vem do corpo do POST. Pacote com um relógio fora do escopo é
+recusado **inteiro** — pacote incompleto instala, roda, e deixa o equipamento de fora sem coleta,
+sem erro em lugar nenhum.
+
+#### Grupo de duplicidade que atravessa unidade aparece INTEIRO
+
+Medido em produção em 10/09/2026: no **HMI, 40 dos 52** grupos de possíveis duplicidades têm ficha
+de outra unidade (HMM: 43 de 120); nos mescláveis, 19 de 26 (HMM: 18 de 46). Exigir o grupo todo
+dentro do escopo deixaria o RH do HMI com **12 de 52**, e os **63 grupos cruzados** da base
+continuariam sem dono na ponta. Meio grupo é indecifrável — a duplicata **é** o mesmo CPF em dois
+lugares.
+
+⚠️ **O filtro é no `HAVING`, sobre o GRUPO — nunca no `WHERE` da `base`.** Recortar os membros
+faria `count(*) > 1` deixar de casar, e a duplicata cruzada sumiria dos **dois** lados.
+
+#### VER não é MESCLAR, e o Diretor não ganha por herança
+
+⚠️ **`fn_cadastros_duplicados` abriu para quem tem diagnóstico; `fn_mesclar_servidores` não.**
+RH da Unidade vê os grupos e o peso de cada ficha, e o botão vem **desabilitado com o motivo
+escrito** (armadilha 31). Medido: **27 dos 62** grupos atravessam unidade e **31 já têm ponto,
+escala ou folha** — mesclar move esses registros. Quem executa é RH Geral ou Administrador Geral.
+
+🚨 **`admin` (Diretor) é irrestrito no predicado, então toda regra que deva excluí-lo precisa de
+allowlist de papel POR CIMA.** As duas RPCs de dispensa de ponto (`20260911110000`) mantêm
+`('super_admin','rh','rh_unidade')` — sem isso, um Diretor de uma unidade dispensaria de bater
+ponto qualquer servidor da rede, contra a decisão de 27/08/2026 que o nomeia. **Papel decide QUEM;
+o predicado decide ATÉ ONDE.**
+
+⚠️ **Servidor fora do escopo vira LINHA DE ERRO nomeando a pessoa, nunca pulo silencioso.** Um
+lote de sete com três fora devolve quatro concedidas e três erros; lote 100% fora levanta
+`insufficient_privilege` em vez de "0 concedidas" com cara de sucesso (armadilha 22).
+
+#### Não estreite de lado quem nunca esteve no modelo
+
+⚠️ `filtrarPorUnidade` devolve **lista vazia** para papel fora do modelo de gestão — o default
+certo para uma função de segurança. Mas aplicá-la em tela que o coordenador já via **zera a tela
+dele**: a aba Autorizações existe para ele conferir a vigência antes de declarar em massa. Por isso
+`ehEscopadoPorUnidade` — o recorte novo alcança só quem o recorte novo descreve. Estreitar
+coordenador é decisão própria, com medição própria.
+
+🚨 **`fn_documentos_invalidos` estava aberta ao `anon` desde 09/08/2026** e devolvia **HTTP 200**
+com a chave pública (medido em 10/09/2026). Sai `[]` hoje só porque a CHECK
+`chk_servidores_cpf_digito` impede gravar documento inválido — na primeira linha entregaria **nome
++ CPF/PIS sem login**. Armadilha 24: nasceu com `GRANT ... TO authenticated` e **nunca** teve
+`REVOKE ... FROM PUBLIC`, então as três `20260827*` e a `20260830120000` passaram por cima dela.
+Fechada em `20260911120000`; conferida por fora, devolve **401**.
+
+ℹ️ A RLS de `servidores` **já escopava `rh_unidade`** (`20260818100000`): "Servidores sem CPF" e os
+contadores passaram a funcionar sem tocar no banco — estavam vazios porque a página mandava `[]`.
+
+✅ **Aplicadas em produção em 11/09/2026** e conferidas por
+`scratchpad/ver_escopo_rh_producao.mjs`, que **executa** as funções: `anon` recebe 401 nas 7
+conferidas, contagens idênticas à medição de 10/09 (**156 / 62 / 0**), **os 62 grupos vêm
+inteiros** com os 27 cruzados visíveis, **32 relógios e 1 terminal** intactos e **nenhum token
+rotacionado**. Validadas antes em homologação com ensaio revertido: **9 de 9**, **6 de 6** e
+**8 de 8** (RH Geral 2 grupos, RH da Unidade 1, grupo cruzado com os 2 cadastros).
+
+Portões: `node scratchpad/sim_escopo_gestao.js` (80) e `val_sim_escopo_gestao.js` (**7 regressões
+injetadas, 7 reprovadas**). Transpile antes com
+`npx tsc src/utils/escopoGestao.ts --outDir scratchpad/_sim --module commonjs --target es2020`.
+Estrutura das migrations: `node scratchpad/ver_migrations_20260911.js`.
+
+⚠️ **O gerador pegou a fonte errada, e é o lembrete de sempre**: `fn_mesclar_servidores` nasceu em
+`20260904130000`, mas a versão **vigente** é a `20260906100000`. O invariante "fusão de escala roda
+antes do laço genérico" abortou o script — descubra qual migration define a versão vigente, não a
+que o nome sugere.
 
 ## Convenções
 

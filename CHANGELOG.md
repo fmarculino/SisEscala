@@ -2,6 +2,85 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.56.0] - 2026-09-11
+
+Migrations `20260911100000`, `20260911110000` e `20260911120000`. **RH Geral e RH da Unidade
+passam a alcancar as duas telas que estavam presas em Administrador Geral / Diretor**:
+`/marcacoes` (relogios e terminais) e o diagnostico de `/servidores/pendencias`. Pedido do
+usuario em 10/09/2026: "RH Geral acesso total, RH da Unidade acesso as respectivas unidades".
+
+### Added
+
+- **`/marcacoes`: as 4 abas de infraestrutura abrem para o RH.** Terminais Locais, Dispositivos
+  REP, Higiene do Relogio e Importar por Pendrive estavam em `[admin, super_admin]` — na tela **e**
+  nas 6 funcoes do banco por tras dela, todas com allowlist escrita a mao antes de `rh`/`rh_unidade`
+  existirem (armadilha 44). Medido em producao: 8 perfis RH Geral e 9 RH da Unidade (4 no HMI, 5 no
+  HMM); cada RH do HMI alcanca 3 relogios, cada um do HMM, 6.
+- **`/servidores/pendencias`: o RH da Unidade deixa de abrir a tela vazia.** O ramo escopado
+  mandava `[]` LITERAL em documentos invalidos, servidores sem CPF, possiveis duplicidades e nos
+  contadores. O RH Geral via tudo menos "Cadastros duplicados", que era exclusivo do Administrador
+  Geral.
+- **Mesclar cadastros duplicados passa a alcancar o RH Geral.** O RH da Unidade **ve** os grupos e
+  o peso de cada ficha, mas nao executa: medido em producao, **27 dos 62 grupos atravessam unidade**
+  e **31 ja tem ponto, escala ou folha**, e mesclar move esses registros. O botao vem desabilitado
+  **com o motivo escrito**, nunca cinza e mudo (armadilha 31).
+- **O RH da Unidade passa a conceder dispensa de registro de ponto** nos servidores lotados nas
+  unidades dele. Servidor fora do escopo vira **linha de erro nomeando a pessoa**, nunca pulo
+  silencioso (armadilha 22). `autorizacoes_ponto_coletivo` tinha **0 linhas** em producao antes
+  desta mudanca.
+- Fonte unica em **`src/utils/escopoGestao.ts`** e, no banco, **`fn_escopo_gestao_alcanca`** (o
+  predicado) com **`fn_unidades_de_gestao`** derivada dele — nunca reescrita, para as duas nao
+  divergirem. Portoes `scratchpad/sim_escopo_gestao.js` (80 assercoes) e
+  `val_sim_escopo_gestao.js` (7 regressoes injetadas, 7 reprovadas).
+
+### Security
+
+- 🚨 **`fn_documentos_invalidos` estava aberta ao `anon`.** `POST /rest/v1/rpc/fn_documentos_invalidos`
+  com a chave publica devolvia **HTTP 200** (medido em 10/09/2026). Hoje sai `[]` porque nao ha
+  documento invalido na base, mas na primeira linha ela entregaria **nome + CPF/PIS de servidor sem
+  login nenhum** — o mesmo caso de `fn_tentativas_negadas_diagnostico` em 30/08/2026. Armadilha 24:
+  nasceu em 09/08/2026 com `GRANT ... TO authenticated` e **nunca** teve `REVOKE ... FROM PUBLIC`,
+  entao as tres migrations `20260827*` e a `20260830120000` passaram por cima dela. Fechada, e
+  conferida por fora: agora devolve **401**.
+- **Toda action de `/marcacoes` confere o escopo do REGISTRO, nao so do formulario.** As listagens
+  usam `createAdminClient` (service_role, BYPASSRLS), entao a policy "Leitura de dispositivos por
+  escopo" nao roda — o filtro e na action. Editar confere os **dois** lados (a unidade em que o
+  equipamento esta hoje e a que veio no payload): so o payload deixaria um RH da Unidade adotar
+  relogio de outra unidade; so o estado atual o deixaria empurrar o dele para fora do escopo.
+- **`/api/coletor-rep/download` passou a conferir unidade por equipamento.** O `.zip` carrega o
+  token e a senha do relogio dentro do `config.yaml`, e o id vem do corpo do POST. Pacote com um
+  relogio fora do escopo e recusado **inteiro**, pelo mesmo motivo do "faltando UM" que ja existia.
+
+### Changed
+
+- **O Diretor (`admin`) NAO ganhou a dispensa de ponto.** O predicado novo o trata como
+  irrestrito (e assim que ele se comporta no resto de `/marcacoes`), entao as duas RPCs de
+  autorizacao mantem allowlist de papel por cima: papel decide QUEM, o predicado decide ATE ONDE.
+  A decisao de 27/08/2026 o exclui nominalmente.
+- **Coordenador e Ass. Administrativo nao ganharam nada**, e nao perderam: a aba Autorizacoes
+  continua listando para eles sem recorte (e por ela que o coordenador confere a vigencia antes de
+  declarar em massa). Estreita-los seria decisao propria, com medicao propria.
+- Grupo de duplicidade que atravessa unidade aparece **inteiro** para o RH da Unidade quando ao
+  menos uma ficha e dele. Exigir o grupo todo dentro do escopo deixaria o RH do HMI com **12 de 52
+  grupos** (no HMM, 77 de 120), e meio grupo e indecifravel — a duplicata E o mesmo CPF em dois
+  lugares.
+- `CoberturaTab` perdeu a prop `isAdmin`, que nunca era lida no corpo.
+
+### Aplicada em producao
+
+As tres migrations foram aplicadas pelo usuario em 11/09/2026 e conferidas por
+`scratchpad/ver_escopo_rh_producao.mjs`, que **executa** as funcoes e sai com codigo 1 se qualquer
+assercao falhar: **TUDO OK**. `anon` recebe 401 nas 7 funcoes conferidas (inclusive a que vazava),
+as contagens batem com a medicao de 10/09 (**156 duplicidades / 62 mesclaveis / 0 documentos**),
+**os 62 grupos vem inteiros** (`quantidade == cadastros`) com os 27 cruzados visiveis, o parque
+segue com **32 relogios e 1 terminal** e **nenhum token foi rotacionado**.
+
+Validadas antes em **homologacao**, com cenario sintetico e ensaio revertido por `RAISE EXCEPTION`
+proposital: **9 de 9** (predicado e funcoes reais, nos dois sentidos), **6 de 6** (autorizacao: RH
+da Unidade concede na propria unidade, e recusado fora dela, lote misto nomeia quem ficou de fora,
+Diretor e coordenador barrados) e **8 de 8** (recorte do diagnostico: RH Geral 2 grupos, RH da
+Unidade 1, e o grupo cruzado vindo com os **2 cadastros**).
+
 ## [2.55.1] - 2026-09-10
 
 Migration `20260910120000`. Trocar o turno de um dia que ja tem ponto era **impossivel na linha

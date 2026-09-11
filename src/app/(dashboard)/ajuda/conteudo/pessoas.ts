@@ -122,7 +122,7 @@ export const pessoas: Capitulo = {
             [
               'Cadastros duplicados',
               'O mesmo CPF em mais de uma ficha, com a opção de **mesclar**.',
-              'Só o Administrador Geral.',
+              'Todo gestor de cadastro vê; mesclar é do RH Geral ou do Administrador Geral.',
             ],
             [
               'Possíveis duplicidades',
@@ -130,6 +130,13 @@ export const pessoas: Capitulo = {
               'Conferir. Onde o CPF é o mesmo, o grupo traz o atalho para mesclar.',
             ],
           ],
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'O que você vê aqui depende do seu escopo',
+          texto:
+            'Quem é RH da Unidade vê o diagnóstico das unidades vinculadas ao perfil dele. Quando um grupo de duplicidade tem uma ficha na unidade dele e outra em unidade diferente, o grupo aparece **inteiro** — é justamente o caso que ninguém enxergaria de outro jeito, e é impossível julgar se é a mesma pessoa vendo só metade. Coordenador e Ass. Administrativo veem só a importação do RH e as transferências.',
         },
         {
           tipo: 'aviso',
@@ -145,12 +152,19 @@ export const pessoas: Capitulo = {
       id: 'mesclar',
       titulo: 'Mesclando cadastros duplicados',
       resumo: 'Juntar duas fichas da mesma pessoa sem perder ponto nem escala.',
-      papeis: ['Administrador Geral'],
+      papeis: ['RH Geral', 'Administrador Geral'],
       blocos: [
         {
           tipo: 'p',
           texto:
             'Quando a mesma pessoa foi cadastrada duas vezes, o histórico fica dividido entre as duas fichas. Mesclar move **tudo** da ficha errada para a correta: ponto, escala, folha, afastamento, vínculo de relógio.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'Identificar é de todo gestor; mesclar é do RH Geral',
+          texto:
+            'Quem é RH da Unidade vê os grupos e o peso de cada ficha, mas o botão vem desabilitado, com o motivo escrito ao lado. Não é desconfiança: em boa parte dos grupos uma das fichas é de **outra** unidade, e mesclar moveria ponto e folha de lá. Identifique e avise o RH Geral.',
         },
         {
           tipo: 'passos',

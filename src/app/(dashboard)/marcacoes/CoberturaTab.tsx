@@ -114,7 +114,7 @@ export interface ResumoPrecarregado {
   erro: string | null
 }
 
-export function CoberturaTab({ isAdmin, inicial }: { isAdmin: boolean; inicial?: ResumoPrecarregado | null }) {
+export function CoberturaTab({ inicial }: { inicial?: ResumoPrecarregado | null }) {
   const [{ mes, ano }, setPeriodo] = useState(mesAtual)
   const [resumo, setResumo] = useState<CoberturaResumo[]>([])
   const [carregando, setCarregando] = useState(true)
