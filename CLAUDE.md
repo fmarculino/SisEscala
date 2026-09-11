@@ -5344,6 +5344,116 @@ Estrutura das migrations: `node scratchpad/ver_migrations_20260911.js`.
 antes do laço genérico" abortou o script — descubra qual migration define a versão vigente, não a
 que o nome sugere.
 
+### 63. Rotina agendada que não FALHA é rotina que ninguém sabe que parou (11/09/2026)
+
+🚨 **O despachador do aviso de ponto ficou 12 dias parado e o painel do Coolify mostrou
+"Success" em todas as ~17 mil execuções.** Medido em 11/09/2026: o último item da fila
+processado era de **30/08 03:00 UTC**, havia **17 confirmações de opt-in** paradas com
+`tentativas = 0`, **15 pessoas** travadas em `pendente_confirmacao` (a maioria já fora do prazo
+— e nem a expiração rodava, porque quem expira é o próprio worker) e os **29 servidores com
+aviso ativo** não recebiam nada. Diário em
+[`docs/evolucao/2026-09-11-cron-parado-opt-in-por-email-e-esqueci-meu-pin.md`](docs/evolucao/2026-09-11-cron-parado-opt-in-por-email-e-esqueci-meu-pin.md).
+
+⚠️ **A causa foi a correção de 30/08/2026 (armadilha 40)** — o segredo deixou de ser aceito por
+`?secret=` — e o **agendador** continuou chamando do jeito antigo. `CRON_SECRET` estava no
+ambiente (a rota devolvia **401**, não 500): o que faltava era o cabeçalho. **Ao fechar uma
+porta de autenticação, procure quem ainda bate nela** — aqui, duas Scheduled Tasks no Coolify,
+e só uma tinha sido atualizada.
+
+🚨 **O que escondeu por 12 dias não foi a parada, foi o comando:**
+`node -e "fetch(url).then(console.log)"` **sai com código 0 mesmo recebendo 401**. O Coolify
+julga pelo código de saída, então pintou verde sobre uma rota recusando tudo. O modelo certo já
+existia na task vizinha (`/api/cron`), e a diferença é uma letra:
+
+```
+curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/avisos-ponto/despachar
+```
+
+| pedaço | por quê |
+|---|---|
+| **`-f`** | faz o curl sair ≠ 0 em HTTP ≥ 400. **É o que impede a repetição** — sem ele o painel volta a mentir |
+| `$CRON_SECRET` | tira o segredo da tela, do `ps` e do log (o valor colado ali precisou ser rotacionado) |
+| `localhost:3000` | chamada interna, sem proxy nem DNS externo |
+
+⚠️ **Ao diagnosticar "o sistema não enviou", confira `tentativas` na fila antes de suspeitar do
+envio.** `tentativas = 0` prova que nenhuma rodada *tocou* no item — é ausência de execução, não
+falha de entrega, e manda investigar o agendador em vez do provedor.
+
+### 64. O par (canal, destino) tem que ser gravado JUNTO — COALESCE campo a campo separa os dois (11/09/2026)
+
+🚨 `fn_solicitar_aviso_ponto` inseria na fila sem preencher `canal` nem `destino`. O canal caía
+no `DEFAULT` da coluna (`whatsapp`) e o destino ficava nulo — e `fn_avisos_ponto_pendentes`
+resolve os dois com **COALESCE independente**:
+
+```sql
+COALESCE(c.canal, k.canal)      -> 'whatsapp'   -- a coluna ja tinha valor
+COALESCE(c.destino, k.destino)  -> o E-MAIL     -- k = fn_canal_aviso_ponto, pref = email
+```
+
+Resultado medido: **WhatsApp enviado para um endereço de e-mail**, 3 tentativas por linha, cada
+uma queimando o timeout da API que **também serve o acionamento de sobreaviso**.
+
+⚠️ **O COALESCE não foi corrigido, de propósito** — ele é a compatibilidade das linhas antigas.
+`20260911140000` faz quem insere gravar **os dois lados juntos**: par que nasce completo não tem
+como se separar depois. Vale como regra geral: **campo derivado de outro nunca deve ter fallback
+próprio**.
+
+⚠️ **E expirar o pedido tem que encerrar a linha da fila junto.** `fn_expirar_optin_aviso_ponto`
+só mexia em `servidores`, então a linha continuava `pendente` e seria despachada depois, pedindo
+confirmação de um pedido já cancelado. Eram 11 linhas órfãs.
+
+### 65. Ativar o aviso de ponto por E-MAIL, e "Esqueci meu PIN" (11/09/2026)
+
+O opt-in exigia telefone e só aceitava "responda SIM" pelo webhook do WhatsApp — **enquanto o
+canal padrão do aviso é e-mail desde 30/08/2026**. 27 dos 29 ativos recebem por e-mail e todos
+foram obrigados a passar pelo WhatsApp só para ligar, num número que a Meta já restringiu duas
+vezes. Desde `20260911140000` a confirmação sai pelo **canal preferido**: link de uso único no
+e-mail, ou o SIM de sempre no WhatsApp.
+
+⚠️ **O SIM não foi substituído.** Ele tem um ganho que o link não tem (transforma o número em
+interlocutor, sinal antibanimento) — só deixou de ser o único caminho. E o ramo de WhatsApp
+**continua exigindo `fn_telefone_aviso_ponto`** (válido E exclusivo): `fn_canal_aviso_ponto` só
+checa "não vazio", e com telefone repetido em dois cadastros `fn_confirmar_aviso_ponto` recusa o
+caso ambíguo — a pessoa esperaria para sempre.
+
+⚠️ **A URL do link não pode ir para `configuracoes_globais`.** A mensagem é montada no Postgres,
+que não sabe o domínio; o SQL grava `{{URL}}` e o despachador substitui pela origem de
+`src/utils/urlPublica.ts` (armadilha 40). Duplicar a URL no banco criaria uma segunda verdade —
+e o sintoma seria link morto dentro de e-mail já entregue. Sem origem, o item **falha com motivo
+explícito**.
+
+**"Esqueci meu PIN"** (`20260911150000`) alcança os **1.757 de 2.647 ativos (66%)** que têm
+e-mail; os 281 com PIN e sem e-mail continuam no coordenador, e a tela diz isso.
+
+🚨 **Mandar um PIN NOVO pronto por e-mail foi recusado, e a razão vale além deste caso:**
+bastaria digitar a matrícula de um colega — que está impressa no crachá — para **derrubar o PIN
+dele**, e esse PIN é a credencial do **terminal de ponto** (armadilha 43). Ele descobriria na
+frente do relógio. Com link, pedido de terceiro **não muda nada**.
+
+| regra | por quê |
+|---|---|
+| **o bloqueio de 5 tentativas NÃO se aplica aqui** | quem esqueceu o PIN quase sempre já está bloqueado — é essa pessoa que precisa do link |
+| **pedir o link não incrementa `pin_failed_attempts`** | se incrementasse, qualquer um bloquearia o login de um colega repetindo o pedido |
+| **redefinir zera o bloqueio** | quem provou posse do e-mail não pode continuar travado por tentativa antiga |
+| a regra do PIN é validada **antes** de queimar o token | senão um erro de digitação gasta o link |
+| a tela responde **sempre a mesma frase** | variar transformaria o login em verificador de matrículas válidas — até a falha de envio fica só no log |
+
+⚠️ **A regra do PIN novo continua valendo só na ESCRITA** (armadilha 43): a migration **aborta**
+se detectar `fn_validar_pin_novo` dentro de `fn_validar_pin_portal` ou `verify_pin` — isso
+derrubaria os 826 PINs de 4 dígitos legados do Portal **e do terminal** no mesmo instante.
+
+🚨 **Token não pode ser consumido no GET.** Filtro de e-mail corporativo e antivírus **abrem os
+links da mensagem** antes de entregá-la: com consumo na abertura, um robô queima o link e a
+pessoa encontra "já usado" sem nunca ter clicado. As duas páginas só consomem no **POST** — a de
+confirmação tem botão, a de PIN é formulário.
+
+**`tokens_portal`** é a fonte única dos dois fluxos (sha256 do token, um ativo por
+(servidor, finalidade), RLS ligada e **nenhuma policy** — só `SECURITY DEFINER` alcança).
+
+⚠️ **Ao corrigir fila em produção, ensaie antes.** O ensaio de 11/09/2026 revelou que 2 das 11
+linhas "expiradas" eram de gente com o aviso **já ativo** — motivo diferente, gravado separado.
+Motivo único para casos diferentes é registro que mente.
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.

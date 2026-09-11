@@ -14,6 +14,9 @@ import { resolverPendenciaRevisao, resolverBatidaNaoAproveitada, carregarDiasCom
 import { TERMO_ATIVACAO, TERMO_DESATIVACAO, TERMO_VERSAO } from '@/utils/avisoPonto'
 import { preservarCampo } from '@/utils/folha/preservacao'
 import { montarCargaPorJornada, horasNormaisDoDia, horasNormaisDaJornada } from '@/utils/folha/cargaDiaria'
+import { urlPublicaDeHeaders } from '@/utils/urlPublica'
+import { enviarEmailInterno } from '@/utils/comunicacao/enviar'
+import { escaparHtml } from '@/utils/htmlSeguro'
 
 /**
  * Competencia a partir da qual as HORAS NORMAIS deixam de contar o intervalo.
@@ -2946,8 +2949,21 @@ export async function getPreferenciaAvisoPonto() {
   })
   const unidadeHabilitada = habilitado === true
 
+  // Canal EFETIVO: a preferencia so vale quando ha endereco para ela (fn_canal_aviso_ponto cai
+  // para o outro canal quando nao ha). A tela precisa deste, e nao da coluna, para dizer onde a
+  // pessoa deve procurar a confirmacao — quem prefere e-mail mas nao tem e-mail recebe o pedido
+  // por WhatsApp, e mandar essa pessoa olhar a caixa de entrada seria mandar olhar o lugar errado.
+  const { data: canalRes } = await supabase.rpc('fn_canal_aviso_ponto', {
+    p_servidor_id: portalServidorId,
+  })
+  const canalEfetivo = (Array.isArray(canalRes) ? canalRes[0] : canalRes) as
+    { canal?: string; destino?: string } | null
+
   return {
     status: data.aviso_ponto_status || 'inativo',
+    // Por onde a confirmacao de fato saiu/saira, ja resolvido o fallback.
+    canalEfetivo: canalEfetivo?.canal || null,
+    destinoEfetivo: canalEfetivo?.destino || null,
     // ⚠️ O padrão caiu para `resumo_semanal` em 30/08/2026 (migration 20260830140000). Este
     // fallback só é usado quando a coluna vem nula, mas deixá-lo em `resumo_diario` faria a tela
     // marcar o rádio errado — dizendo que a pessoa escolheu algo que ela não escolheu.
@@ -3169,5 +3185,227 @@ export async function trocarPinPortal(pinAtual: string, pinNovo: string) {
 
     default:
       return { error: 'Não foi possível trocar o PIN agora. Tente novamente.' }
+  }
+}
+
+// ============================================================================
+// ENTRADA SEM SESSÃO — confirmação de opt-in e redefinição de PIN
+// ============================================================================
+//
+// 🚨 As três actions abaixo são DELIBERADAMENTE públicas: quem as usa não tem sessão do Portal
+// (é justamente quem esqueceu o PIN, ou quem acabou de abrir um e-mail). Isso é o oposto da
+// regra normal deste arquivo, onde o `servidorId` vem sempre do cookie assinado (armadilha 32),
+// e por isso cada uma precisa carregar a própria prova:
+//
+//   - confirmarAvisoPontoPorToken / redefinirPinComToken → a prova é o TOKEN, de uso único,
+//     que só existe dentro do e-mail enviado ao endereço cadastrado.
+//   - solicitarRedefinicaoPin → não prova nada e não muda nada; só dispara um e-mail para um
+//     endereço que quem pede não escolhe.
+//
+// Nenhuma delas aceita `servidorId` do cliente. Todas as decisões moram no banco.
+
+/**
+ * Passo 2 do opt-in por e-mail: o link foi clicado.
+ *
+ * A rota é pública e o token vem da URL — então quem decide é `fn_confirmar_aviso_ponto_token`,
+ * que queima o token e reaplica os mesmos guards do ramo SIM do WhatsApp (pedido pendente e
+ * dentro do prazo).
+ */
+export async function confirmarAvisoPontoPorToken(token: string) {
+  if (!token || token.length < 32) {
+    return { error: 'Link inválido.' }
+  }
+
+  const supabase = await createAdminClient()
+  const { data, error } = await supabase.rpc('fn_confirmar_aviso_ponto_token', { p_token: token })
+
+  if (error) {
+    console.error('Erro ao confirmar aviso de ponto por token:', error.message)
+    return { error: 'Não foi possível confirmar agora. Tente novamente em alguns minutos.' }
+  }
+
+  const r = (Array.isArray(data) ? data[0] : data) as {
+    success?: boolean; nome?: string; ja_estava_ativo?: boolean; motivo?: string
+  }
+
+  if (r?.success) {
+    return { success: true, nome: r.nome as string, jaEstavaAtivo: !!r.ja_estava_ativo }
+  }
+
+  // As mensagens ficam AQUI e os códigos no banco: é a mesma divisão de `validatePin`. Cada
+  // motivo pede uma ação diferente de quem clicou — mandar todos para "link inválido" faria a
+  // pessoa pedir de novo justamente no caso em que pedir de novo não resolve.
+  switch (r?.motivo) {
+    case 'expirado':
+      return { error: 'Este link expirou. Entre no Portal e clique em "Ativar aviso" outra vez para receber um novo.' }
+    case 'ja_usado':
+      return { error: 'Este link já foi usado. Se o aviso não estiver ativo, entre no Portal e ative novamente.' }
+    case 'substituido':
+      return { error: 'Este link foi substituído por um mais novo. Abra o e-mail mais recente que enviamos.' }
+    case 'sem_pedido':
+      return { error: 'Não há pedido de ativação em aberto para você. Entre no Portal e clique em "Ativar aviso".' }
+    default:
+      return { error: 'Link inválido.' }
+  }
+}
+
+/**
+ * "Esqueci meu PIN" — passo 1.
+ *
+ * 🚨 A resposta é SEMPRE a mesma, ache ou não ache alguém. Variar o texto transformaria a tela
+ * de login num verificador de matrículas válidas e de quem tem e-mail cadastrado — e a
+ * matrícula está impressa no crachá. Quem realmente é dono da caixa descobre o resultado lá.
+ *
+ * ⚠️ Nada muda no cadastro aqui: nenhum PIN é alterado e nenhum contador de tentativa é tocado.
+ * Um pedido feito por terceiro é, no máximo, um e-mail que a pessoa ignora.
+ */
+export async function solicitarRedefinicaoPin(matricula: string) {
+  const neutra = {
+    success: true,
+    message: 'Se houver um e-mail cadastrado para esta matrícula, enviamos as instruções para lá. '
+      + 'Confira também a caixa de spam.',
+  }
+
+  const limpa = (matricula || '').trim()
+  if (!limpa) return { error: 'Informe a sua matrícula.' }
+
+  const h = await headers()
+  const origem = await urlPublicaDeHeaders()
+
+  // Sem origem não há link possível. Falha explícita — e-mail com link quebrado é pior que
+  // e-mail nenhum, porque consome o pedido e a paciência de quem esperou.
+  if (!origem) {
+    console.error('solicitarRedefinicaoPin: URL pública não resolvida — link não montado.')
+    return { error: 'O sistema não está configurado para enviar o link agora. Procure seu coordenador.' }
+  }
+
+  const supabase = await createAdminClient()
+  const { data, error } = await supabase.rpc('fn_solicitar_redefinicao_pin', {
+    p_matricula: limpa,
+    p_ip: h.get('x-forwarded-for')?.split(',')[0]?.trim() || null,
+    p_user_agent: h.get('user-agent') || null,
+  })
+
+  if (error) {
+    console.error('Erro ao solicitar redefinicao de PIN:', error.message)
+    return { error: 'Não foi possível processar o pedido agora. Tente novamente.' }
+  }
+
+  const r = (Array.isArray(data) ? data[0] : data) as {
+    enviar?: boolean; token?: string; email?: string; nome?: string; minutos?: number; motivo?: string
+  }
+
+  // `nao_encontrado`, `sem_email` e `muitos_pedidos` saem todos pela MESMA resposta neutra. O
+  // teto de pedidos é silencioso de propósito: dizer "você já pediu 3 vezes" confirmaria que a
+  // matrícula existe e tem e-mail.
+  if (!r?.enviar || !r.token || !r.email) return neutra
+
+  const link = origem + '/consultar-escala/redefinir-pin/' + r.token
+  const minutos = r.minutos ?? 30
+  const nome = r.nome || 'servidor(a)'
+
+  const texto =
+    'Olá, ' + nome + '.\n\n'
+    + 'Recebemos um pedido para redefinir o seu PIN de acesso ao Portal do Servidor.\n\n'
+    + 'Para escolher um PIN novo, acesse:\n' + link + '\n\n'
+    + 'O link vale por ' + minutos + ' minutos e pode ser usado uma única vez.\n\n'
+    + 'ATENÇÃO: este PIN também é o que você usa para bater o ponto no terminal da sua unidade. '
+    + 'Depois de trocar, o PIN antigo não funciona mais em nenhum dos dois.\n\n'
+    + 'Se não foi você que pediu, ignore esta mensagem — o seu PIN atual continua valendo e nada '
+    + 'muda enquanto ninguém abrir este link.\n\n'
+    + 'Secretaria Municipal de Saúde de Marabá'
+
+  // `escaparHtml` porque o nome vem do banco (armadilha 37). O link é montado aqui a partir da
+  // origem da instalação e do token que acabou de ser gerado — escapado do mesmo jeito, porque
+  // a regra é não existir exceção que alguém precise lembrar.
+  const html =
+    '<div style="font-family:system-ui,-apple-system,\'Segoe UI\',sans-serif;font-size:15px;line-height:1.6;color:#18181b;max-width:560px">'
+    + '<p style="font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#71717a;margin:0 0 14px">Secretaria Municipal de Saúde · Marabá / PA</p>'
+    + '<div style="padding:18px 20px;background:#fafafa;border:1px solid #e4e4e7;border-radius:12px">'
+    + '<p style="margin:0 0 14px">Olá, <b>' + escaparHtml(nome) + '</b>.</p>'
+    + '<p style="margin:0 0 14px">Recebemos um pedido para redefinir o seu PIN de acesso ao Portal do Servidor.</p>'
+    + '<p style="margin:0 0 18px"><a href="' + escaparHtml(link) + '" style="display:inline-block;padding:11px 18px;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:700">Escolher um PIN novo</a></p>'
+    + '<p style="margin:0 0 14px;font-size:13px;color:#52525b">O link vale por ' + minutos + ' minutos e pode ser usado uma única vez. Se o botão não funcionar, copie e cole este endereço no navegador:<br>' + escaparHtml(link) + '</p>'
+    + '<p style="margin:0;padding:12px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:13px;color:#92400e">'
+    + '<b>Atenção:</b> este PIN também é o que você usa para bater o ponto no terminal da sua unidade. Depois de trocar, o PIN antigo não funciona mais em nenhum dos dois.</p>'
+    + '</div>'
+    + '<p style="font-size:12px;color:#71717a;margin:18px 0 0">Se não foi você que pediu, ignore esta mensagem — o seu PIN atual continua valendo e nada muda enquanto ninguém abrir este link.</p>'
+    + '</div>'
+
+  const envio = await enviarEmailInterno({
+    to: r.email,
+    subject: 'SisEscala — Redefinição do seu PIN de acesso',
+    text: texto,
+    html,
+  })
+
+  // ⚠️ Falha de envio NÃO vira erro na tela: dizer "não conseguimos enviar para você" confirma
+  // que a matrícula existe e tem e-mail. Fica no log do servidor, que é onde o problema é de
+  // quem opera o sistema, não de quem digitou.
+  if (!envio.success) {
+    console.error('Falha ao enviar e-mail de redefinicao de PIN:', envio.error)
+  }
+
+  return neutra
+}
+
+/**
+ * "Esqueci meu PIN" — passo 2: o link foi aberto e a pessoa escolheu o PIN novo.
+ *
+ * ⚠️ Não exige o PIN atual, e é esse o ponto: quem chega aqui não o tem. A prova é a posse do
+ * token, que só existe no e-mail cadastrado. O bloqueio de 5 tentativas também não se aplica —
+ * quem esqueceu o PIN quase sempre já está bloqueado, e é para essa pessoa que isto existe.
+ */
+export async function redefinirPinComToken(token: string, pinNovo: string) {
+  if (!token || token.length < 32) return { error: 'Link inválido.' }
+
+  // Espelho local da regra, só para não gastar uma ida ao banco no caso óbvio — o mesmo padrão
+  // de `trocarPinPortal`. Quem decide continua sendo `fn_validar_pin_novo`, no banco.
+  const local = conferirPinNovo(pinNovo)
+  if (local) return { error: local }
+
+  const h = await headers()
+  const supabase = await createAdminClient()
+
+  const { data, error } = await supabase.rpc('fn_redefinir_pin_com_token', {
+    p_token: token,
+    p_pin_novo: pinNovo,
+    p_ip: h.get('x-forwarded-for')?.split(',')[0]?.trim() || null,
+    p_user_agent: h.get('user-agent') || null,
+  })
+
+  if (error) {
+    console.error('Erro ao redefinir PIN com token:', error.message)
+    return { error: 'Não foi possível redefinir o PIN agora. Tente novamente.' }
+  }
+
+  const r = (Array.isArray(data) ? data[0] : data) as {
+    resultado?: string; motivo?: string; minimo?: number; maximo?: number; nome?: string
+  }
+
+  switch (r?.resultado) {
+    case 'ok':
+      return { success: true, nome: r.nome as string }
+
+    case 'pin_recusado':
+      return { error: mensagemRecusaPin(r.motivo, { minimo: r.minimo, maximo: r.maximo }) }
+
+    case 'servidor_indisponivel':
+      return { error: 'Este cadastro não está mais ativo. Procure seu coordenador.' }
+
+    case 'token_invalido':
+      switch (r.motivo) {
+        case 'expirado':
+          return { error: 'Este link expirou. Peça um novo em "Esqueci meu PIN".', expirado: true }
+        case 'ja_usado':
+          return { error: 'Este link já foi usado. Se você não trocou o PIN, peça um novo.', expirado: true }
+        case 'substituido':
+          return { error: 'Este link foi substituído por um mais novo. Abra o e-mail mais recente.', expirado: true }
+        default:
+          return { error: 'Link inválido.', expirado: true }
+      }
+
+    default:
+      return { error: 'Não foi possível redefinir o PIN agora. Tente novamente.' }
   }
 }

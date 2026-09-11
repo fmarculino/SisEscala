@@ -7,7 +7,7 @@ import {
   getFolhaPontoServidor, salvarFolhaPontoServidor, verificarDivergenciaEscalaServidor,
   sincronizarFolhaPontoServidor, gerarFolhaPontoServidor, checkFolhaPontoHabilitada,
   checkJustificativasHabilitada, getJustificativasServidor, sugerirJustificativaServidor,
-  solicitarAjustePonto
+  solicitarAjustePonto, solicitarRedefinicaoPin
 } from './actions'
 import { FolhaPontoEditor } from '@/app/(dashboard)/folha-ponto/[id]/FolhaPontoEditor'
 import { createClient } from '@/utils/supabase/client'
@@ -236,6 +236,21 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
   const [servidorNome, setServidorNome] = useState('')
   const [verifying, setVerifying] = useState(false)
   const [verifyingPin, setVerifyingPin] = useState(false)
+
+  // "Esqueci meu PIN": pedido do link por e-mail. A resposta e SEMPRE a mesma frase, ache ou
+  // nao ache alguem (quem decide e a action) — variar aqui transformaria a tela de login num
+  // verificador de quais matriculas existem e de quem tem e-mail cadastrado.
+  const [pedindoLink, setPedindoLink] = useState(false)
+  const [msgLink, setMsgLink] = useState<string | null>(null)
+
+  async function handleEsqueciPin() {
+    if (!matricula) return
+    setPedindoLink(true)
+    setMsgLink(null)
+    const res: any = await solicitarRedefinicaoPin(matricula)
+    setMsgLink(res?.error || res?.message || null)
+    setPedindoLink(false)
+  }
 
   async function handleFindServidor() {
     if (!matricula) return
@@ -483,6 +498,27 @@ export default function ConsultarEscalaClient({ initialServidor }: ConsultarEsca
                         {verifyingPin ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Validar PIN'}
                       </button>
                     </div>
+                  </div>
+
+                  {/* Esqueci meu PIN. Fica aqui, e nao na primeira etapa, porque a matricula ja
+                      esta resolvida — e o pedido precisa dela. Nao muda nada no cadastro: so
+                      dispara um e-mail para o endereco cadastrado, que quem pede nao escolhe. */}
+                  <div className="pt-1">
+                    <button
+                      type="button"
+                      onClick={handleEsqueciPin}
+                      disabled={pedindoLink}
+                      className="text-xs font-bold text-blue-600 hover:text-blue-700 disabled:opacity-50 inline-flex items-center gap-1.5"
+                    >
+                      {pedindoLink && <Loader2 className="h-3 w-3 animate-spin" />}
+                      Esqueci meu PIN
+                    </button>
+
+                    {msgLink && (
+                      <p className="mt-2 text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2.5">
+                        {msgLink}
+                      </p>
+                    )}
                   </div>
                 </div>
               )}

@@ -2,6 +2,69 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.58.0] - 2026-09-11
+
+Migrations `20260911140000` e `20260911150000`. **Tres frentes que sairam da mesma pergunta**
+("da para ativar o aviso de ponto por e-mail?"): o despachador estava parado ha 12 dias, o par
+canal/destino da fila nascia quebrado, e ativar o aviso so era possivel pelo WhatsApp. De
+quebra, o servidor passa a redefinir o proprio PIN sem depender do coordenador. Diario em
+`docs/evolucao/2026-09-11-cron-parado-opt-in-por-email-e-esqueci-meu-pin.md`.
+
+### Added
+
+- **Ativar o aviso de ponto por E-MAIL.** A confirmacao do double opt-in passa a sair pelo
+  **canal preferido**: link de uso unico no e-mail, ou o "responda SIM" de sempre no WhatsApp.
+  Ate aqui exigia telefone e so aceitava resposta no WhatsApp — **enquanto o canal padrao do
+  aviso e e-mail desde 30/08/2026**, entao 27 dos 29 ativos recebem por e-mail e todos foram
+  obrigados a passar pelo WhatsApp so para ligar. O ramo do WhatsApp fica **inalterado** e
+  continua exigindo telefone valido e **exclusivo**.
+- **"Esqueci meu PIN" no Portal do Servidor.** Na tela de entrada, o servidor pede um link por
+  e-mail e **escolhe** o PIN novo. Alcanca os 1.757 de 2.647 ativos (66%) que tem e-mail; os
+  demais continuam com o coordenador, e a tela diz isso. 🚨 **Manda link, nunca um PIN pronto**:
+  com PIN pronto bastaria digitar a matricula de um colega — impressa no cracha — para derrubar
+  o PIN dele, e esse PIN e a credencial do **terminal de ponto**.
+- **`tokens_portal`** — fonte unica dos dois fluxos: sha256 do token (o valor cru so existe no
+  e-mail), um ativo por (servidor, finalidade), RLS ligada e **nenhuma policy**.
+- Paginas publicas `/consultar-escala/confirmar-aviso/[token]` e
+  `/consultar-escala/redefinir-pin/[token]`. O token **so e consumido no POST**: filtro de
+  e-mail corporativo abre os links da mensagem, e consumir no GET faria um robo queimar o link.
+
+### Fixed
+
+- 🚨 **O despachador de avisos estava parado desde 30/08/2026 — 12 dias.** A correcao daquele
+  dia tirou o segredo da query string (armadilha 40) e a Scheduled Task do Coolify continuou
+  chamando do jeito antigo, levando **401**. O painel mostrava **"Success"** porque
+  `node -e "fetch(...)"` sai com codigo 0 mesmo em 401. Comando trocado por `curl -fsS -H
+  "Authorization: Bearer $CRON_SECRET"` — o **`-f`** e o que impede a repeticao. Efeito: 17
+  confirmacoes paradas, 15 pessoas travadas e 29 servidores sem receber resumo nenhum.
+- 🚨 **A fila mandava WhatsApp para endereco de e-mail.** `fn_solicitar_aviso_ponto` inseria sem
+  `canal`/`destino`; o canal caia no DEFAULT (`whatsapp`) e o destino era resolvido pela
+  preferencia (e-mail), porque o despacho usa **COALESCE independente** nos dois campos. Duas
+  linhas reais esgotaram as 3 tentativas contra a API que tambem serve o sobreaviso. Quem
+  insere passa a gravar **os dois lados juntos**.
+- **Expirar o opt-in deixava a linha da fila orfa** — `fn_expirar_optin_aviso_ponto` so mexia
+  em `servidores`, entao a confirmacao seria despachada depois de o pedido ja ter sido
+  cancelado. Passa a encerrar a linha e a aposentar o token junto.
+- **O bloqueio por telefone barrava quem ia confirmar por e-mail.** A tela exigia telefone
+  valido para ativar, mesmo quando a confirmacao nao passaria pelo WhatsApp.
+
+### Changed
+
+- A tela **Minha Conta** passa a dizer onde procurar a confirmacao (link no e-mail x SIM no
+  WhatsApp), usando o canal **efetivo** — a preferencia so vale quando ha endereco para ela.
+- Manual do usuario: passo a passo do **Esqueci meu PIN** e secao nova **O aviso de registro de
+  ponto**. O cartao do aviso dizia "como quer ser lembrado das pendencias dele", e o aviso nao
+  lembra de pendencia nenhuma — manda o resumo das batidas.
+
+### Operacional
+
+- ⚠️ **`CRON_SECRET` precisa ser rotacionado**: o valor estava em texto claro no campo *Command*
+  da Scheduled Task, visivel no painel, em `ps` dentro do container e no log do Coolify. As duas
+  tasks ja usam `$CRON_SECRET` e se ajustam sozinhas apos o redeploy.
+- Correcao de dados por lista fechada (`scratchpad/fix_fila_optin.mjs`): 4 linhas ainda validas
+  tiveram `destino` corrigido para o telefone e 11 orfas foram encerradas — 2 delas com motivo
+  proprio, por serem de gente que ja estava com o aviso **ativo**.
+
 ## [2.57.0] - 2026-09-11
 
 Migration `20260911130000`. **Cadastro duplicado com CPF diferente passa a ter saida.** Ate aqui

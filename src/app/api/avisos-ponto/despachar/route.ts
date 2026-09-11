@@ -4,6 +4,7 @@ import { createAdminClient } from '@/utils/supabase/server'
 import { enviarWhatsAppInterno, enviarEmailInterno } from '@/utils/comunicacao/enviar'
 import { resolverCanalAvisoPonto } from '@/utils/avisoPontoCanal'
 import { escaparHtml } from '@/utils/htmlSeguro'
+import { urlPublicaDeRequest } from '@/utils/urlPublica'
 
 /**
  * Worker do aviso de ponto — E-MAIL por padrão, WhatsApp como alternativa.
@@ -48,6 +49,21 @@ const LOTE_PADRAO = 20
  */
 const MAX_WHATSAPP_POR_RODADA = 1
 const CHANCE_DE_PULAR = 0.45
+
+/**
+ * Marcador que a mensagem gravada no banco carrega no lugar do domínio.
+ *
+ * O texto do e-mail de confirmação de opt-in é montado em `fn_solicitar_aviso_ponto`, dentro do
+ * Postgres — que não sabe (e não deve saber) qual é a URL pública desta instalação. A URL é
+ * propriedade do AMBIENTE (`NEXT_PUBLIC_SITE_URL`, armadilha 40); gravá-la também em
+ * `configuracoes_globais` criaria uma segunda verdade, que envelhece sozinha no dia em que o
+ * domínio mudar — e o sintoma seria um link morto dentro de um e-mail já entregue.
+ *
+ * ⚠️ Sem origem resolvida, o item FALHA com motivo explícito. Enviar o e-mail com `{{URL}}`
+ * cru, ou com caminho relativo, entregaria um link que não abre em lugar nenhum — e o opt-in
+ * queimaria as 3 tentativas sem ninguém entender por quê.
+ */
+const MARCADOR_URL = '{{URL}}'
 
 /** Assunto do e-mail. Curto e estável — quem recebe precisa reconhecer de onde vem. */
 function assuntoAviso(tipo: string): string {
@@ -161,6 +177,9 @@ export async function GET(request: Request) {
     let enviadosWhatsApp = 0
     let enviadosEmail = 0
 
+    // Resolvida UMA vez por rodada, fora do laço: é propriedade da instalação, não do item.
+    const origemPublica = urlPublicaDeRequest(request)
+
     for (const aviso of fila) {
       let sucesso = false
       let motivo: string | null = null
@@ -171,9 +190,17 @@ export async function GET(request: Request) {
       const canal: 'email' | 'whatsapp' = aviso.canal === 'email' ? 'email' : 'whatsapp'
       const destino: string = aviso.destino || aviso.telefone
 
+      const precisaDeUrl = typeof aviso.mensagem === 'string' && aviso.mensagem.includes(MARCADOR_URL)
+      const mensagem: string = precisaDeUrl && origemPublica
+        ? aviso.mensagem.split(MARCADOR_URL).join(origemPublica)
+        : aviso.mensagem
+
       try {
         if (!destino) {
           motivo = 'Sem destino resolvido para o canal.'
+        } else if (precisaDeUrl && !origemPublica) {
+          // Falha explícita, e não um link quebrado dentro de um e-mail já entregue.
+          motivo = 'NEXT_PUBLIC_SITE_URL não configurada: não é possível montar o link de confirmação.'
         } else if (canal === 'email') {
           // 🚨 Primeiro chamador real de `enviarEmailInterno` no sistema. O motor de e-mail
           // existia desde sempre e nunca tinha sido usado por ninguém — ver o plano em
@@ -181,8 +208,8 @@ export async function GET(request: Request) {
           const res = await enviarEmailInterno({
             to: destino,
             subject: assuntoAviso(aviso.tipo),
-            text: aviso.mensagem,
-            html: corpoEmail(aviso.mensagem),
+            text: mensagem,
+            html: corpoEmail(mensagem),
             unidadeId: aviso.unidade_id || undefined,
           })
           sucesso = !!res.success
@@ -191,7 +218,7 @@ export async function GET(request: Request) {
         } else {
           const res = await enviarWhatsAppInterno({
             phone: destino,
-            message: aviso.mensagem,
+            message: mensagem,
             // Resolve o canal próprio da unidade e cai no global quando não houver.
             unidadeId: aviso.unidade_id || undefined,
             // Quando existe canal dedicado ao aviso, ele vence os dois — é o mais específico.

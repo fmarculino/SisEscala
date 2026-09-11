@@ -117,7 +117,9 @@ export function AvisoPontoSection() {
    */
   const rotuloSituacao = (status: string, efetivo: boolean) => {
     if (status === 'pendente_confirmacao') {
-      return { texto: 'Aguardando sua resposta no WhatsApp', cor: 'text-amber-600' }
+      return estado?.canalEfetivo === 'email'
+        ? { texto: 'Aguardando você abrir o link do e-mail', cor: 'text-amber-600' }
+        : { texto: 'Aguardando sua resposta no WhatsApp', cor: 'text-amber-600' }
     }
     if (status === 'ativo') {
       return efetivo
@@ -146,7 +148,12 @@ export function AvisoPontoSection() {
   const status: string = estado?.status || 'inativo'
   const ativo = status === 'ativo'
   const pendente = status === 'pendente_confirmacao'
-  const bloqueado = !estado?.telefoneUtilizavel
+  // O telefone so e exigido quando a confirmacao vai SAIR por WhatsApp. Desde 11/09/2026 quem
+  // tem e-mail confirma pelo link, e barrar essa pessoa por causa do telefone a impediria de
+  // ativar um aviso que nem passa pelo WhatsApp.
+  const canalEfetivo: string | null = estado?.canalEfetivo || null
+  const semCanal = estado != null && !canalEfetivo
+  const bloqueado = semCanal || (canalEfetivo === 'whatsapp' && !estado?.telefoneUtilizavel)
 
   return (
     <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 space-y-5">
@@ -199,8 +206,9 @@ export function AvisoPontoSection() {
         <div className="flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl">
           <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
           <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
-            Não há um telefone válido e exclusivo no seu cadastro. Procure seu coordenador para
-            atualizar antes de ativar o aviso.
+            {semCanal
+              ? 'Não há e-mail nem telefone no seu cadastro. Procure seu coordenador para atualizar antes de ativar o aviso.'
+              : 'Não há um telefone válido e exclusivo no seu cadastro. Cadastre um e-mail (ou peça ao coordenador para corrigir o telefone) antes de ativar o aviso.'}
           </p>
         </div>
       )}
@@ -209,9 +217,21 @@ export function AvisoPontoSection() {
         <div className="flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl">
           <MessageSquare className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
           <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
-            Enviamos uma mensagem para o seu WhatsApp. <b>Responda SIM naquela conversa</b> para
-            ativar o aviso — é essa resposta que confirma que o número é seu. Se você não responder,
-            o pedido expira e nada é enviado; não insistiremos.
+            {estado?.canalEfetivo === 'email' ? (
+              <>
+                Enviamos um link de confirmação para{' '}
+                <b>{estado?.destinoEfetivo || 'seu e-mail'}</b>. <b>Abra a mensagem e clique no
+                link</b> para ativar o aviso — é esse clique que confirma que o endereço é seu.
+                Se não encontrar, <b>confira a caixa de spam</b>. Sem a confirmação nada é
+                enviado, e não insistiremos.
+              </>
+            ) : (
+              <>
+                Enviamos uma mensagem para o seu WhatsApp. <b>Responda SIM naquela conversa</b>
+                {' '}para ativar o aviso — é essa resposta que confirma que o número é seu. Se
+                você não responder, o pedido expira e nada é enviado; não insistiremos.
+              </>
+            )}
           </p>
         </div>
       )}
