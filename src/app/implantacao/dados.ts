@@ -16,13 +16,26 @@ export interface UnidadeStatus {
   nome: string
   temRelogio: boolean
   relogios: number
+  /**
+   * Terminal local conta como PONTO DE MARCACAO, igual ao relogio.
+   *
+   * ⚠️ Unidade pequena (menos de ~10 servidores) recebe terminal e nao vai receber relogio.
+   * Sem conta-lo aqui, ela fica para sempre em "em preparacao" num painel que a diretoria le
+   * como atraso da implantacao - enquanto o ponto dela ja esta sendo registrado.
+   */
+  temTerminal: boolean
+  terminais: number
+  /** Primeira ativacao de QUALQUER ponto de marcacao da unidade - relogio ou terminal. */
   ativadoEm: string | null
   ultimoContato: string | null
   servidores: number
   setores: number
   escalados: number
   fonte: string | null
-  /** operando = tem escala E relógio · preparando = tem escala · cadastrada = só cadastro */
+  /**
+   * operando = tem escala E ponto de marcação (relógio OU terminal) · preparando = tem escala ·
+   * cadastrada = só cadastro
+   */
   fase: 'operando' | 'preparando' | 'cadastrada'
 }
 
@@ -47,6 +60,8 @@ export interface PainelImplantacao {
     servidores: number
     setores: number
     relogios: number
+    /** Contado À PARTE do relógio: são equipamentos diferentes e o painel não os funde. */
+    terminais: number
     escalados: number
     /** Registros de AFD DO PERÍODO da implantação. Nunca o total da tabela. */
     afd: number
@@ -57,7 +72,7 @@ export interface PainelImplantacao {
   }
   marcacoesPorMes: { mes: string; total: number; rep: number; terminal: number; ajuste: number }[]
   escalasPorMes: { mes: string; total: number }[]
-  ativacoes: { data: string; unidade: string }[]
+  ativacoes: { data: string; unidade: string; tipo: 'relogio' | 'terminal' }[]
   ranking: UsoUnidade[]
 }
 
@@ -173,13 +188,20 @@ export async function obterPainel(): Promise<PainelImplantacao | null> {
 async function consultarPainel(): Promise<PainelImplantacao> {
   const supabase = await createAdminClient()
 
-  const [{ data: unidades }, { data: setores }, { data: servidores }, { data: disp }] = await Promise.all([
-    supabase.from('unidades').select('id, nome, ativo, fonte_ponto_oficial').order('nome'),
-    // Paginados: hoje cabem em 1.000, mas o painel não pode passar a mentir quando crescerem.
-    Promise.resolve({ data: await todas(supabase, 'setores', 'id, unidade_id') }),
-    Promise.resolve({ data: await todas(supabase, 'servidores', 'id, unidade_id, status') }),
-    supabase.from('dispositivos_rep').select('id, unidade_id, ativo, created_at, ultimo_contato_em'),
-  ])
+  const [{ data: unidades }, { data: setores }, { data: servidores }, { data: disp }, { data: terms }] =
+    await Promise.all([
+      supabase.from('unidades').select('id, nome, ativo, fonte_ponto_oficial').order('nome'),
+      // Paginados: hoje cabem em 1.000, mas o painel não pode passar a mentir quando crescerem.
+      Promise.resolve({ data: await todas(supabase, 'setores', 'id, unidade_id') }),
+      Promise.resolve({ data: await todas(supabase, 'servidores', 'id, unidade_id, status') }),
+      supabase.from('dispositivos_rep').select('id, unidade_id, ativo, created_at, ultimo_contato_em'),
+      // Terminal local: a mesma leitura, porque para o painel ele é um ponto de marcacao como
+      // o relogio. Paginado por precaucao (armadilha 8) - sao 2 hoje, mas a fila de instalacao
+      // das unidades pequenas e longa.
+      Promise.resolve({
+        data: await todas(supabase, 'terminais_locais', 'id, unidade_id, ativo, created_at, ultimo_contato_em'),
+      }),
+    ])
 
   // Competência corrente e as duas anteriores.
   const hoje = new Date()
@@ -249,6 +271,16 @@ async function consultarPainel(): Promise<PainelImplantacao> {
     dispPorUn.get(d.unidade_id)!.push(d)
   }
 
+  // Mesmo tratamento para o terminal local. `ativo = false` é a revogação de verdade nas duas
+  // tabelas — em `terminais_locais` é o que derruba a sessão do navegador já aberta, na marcação
+  // seguinte —, então terminal desativado não sustenta uma unidade como "operando".
+  const termPorUn = new Map<string, any[]>()
+  for (const t of terms || []) {
+    if (t.ativo === false) continue
+    if (!termPorUn.has(t.unidade_id)) termPorUn.set(t.unidade_id, [])
+    termPorUn.get(t.unidade_id)!.push(t)
+  }
+
   const escaladosPorUn = new Map<string, Set<string>>()
   for (const e of [...escalaAtual, ...escalaAnterior] as any[]) {
     if (!escaladosPorUn.has(e.unidade_id)) escaladosPorUn.set(e.unidade_id, new Set())
@@ -259,21 +291,28 @@ async function consultarPainel(): Promise<PainelImplantacao> {
     .filter((u: any) => u.ativo !== false)
     .map((u: any): UnidadeStatus => {
       const ds = dispPorUn.get(u.id) || []
+      const ts = termPorUn.get(u.id) || []
+      // Relógio e terminal são equivalentes para a pergunta que este painel faz ("esta unidade
+      // já registra ponto?"). O que muda entre eles é o equipamento, não o fato — por isso a
+      // data de ativação e o último contato saem dos dois juntos.
+      const pontos = [...ds, ...ts]
       const temRelogio = ds.length > 0
       const temEscala = comEscala.has(u.id)
       return {
         nome: u.nome,
         temRelogio,
         relogios: ds.length,
-        ativadoEm: ds.length ? ds.map(d => d.created_at).sort()[0] : null,
-        ultimoContato: ds.length
-          ? ds.map(d => d.ultimo_contato_em).filter(Boolean).sort().slice(-1)[0] || null
+        temTerminal: ts.length > 0,
+        terminais: ts.length,
+        ativadoEm: pontos.length ? pontos.map(p => p.created_at).sort()[0] : null,
+        ultimoContato: pontos.length
+          ? pontos.map(p => p.ultimo_contato_em).filter(Boolean).sort().slice(-1)[0] || null
           : null,
         servidores: (servidores || []).filter((s: any) => s.unidade_id === u.id && s.status === 'Ativo').length,
         setores: (setores || []).filter((s: any) => s.unidade_id === u.id).length,
         escalados: escaladosPorUn.get(u.id)?.size || 0,
         fonte: u.fonte_ponto_oficial,
-        fase: temRelogio && temEscala ? 'operando' : temEscala ? 'preparando' : 'cadastrada',
+        fase: pontos.length > 0 && temEscala ? 'operando' : temEscala ? 'preparando' : 'cadastrada',
       }
     })
     .sort((a: UnidadeStatus, b: UnidadeStatus) => {
@@ -282,13 +321,27 @@ async function consultarPainel(): Promise<PainelImplantacao> {
       return b.escalados - a.escalados || a.nome.localeCompare(b.nome)
     })
 
-  const ativacoes = (disp || [])
-    .filter((d: any) => d.ativo !== false && d.created_at)
-    .map((d: any) => ({
-      data: String(d.created_at).slice(0, 10),
-      unidade: (unidades || []).find((u: any) => u.id === d.unidade_id)?.nome || '—',
-    }))
-    .sort((a, b) => a.data.localeCompare(b.data))
+  const nomeUnidade = (id: string) => (unidades || []).find((u: any) => u.id === id)?.nome || '—'
+
+  // ⚠️ Relógios e terminais na MESMA lista, com `tipo`: o primeiro marco do cronograma lê a
+  // primeira linha daqui e se rotula por ele. Deixar o terminal de fora faria a página anunciar
+  // "primeiro relógio em operação" no dia em que a primeira unidade a entrar tivesse só terminal.
+  const ativacoes = [
+    ...(disp || [])
+      .filter((d: any) => d.ativo !== false && d.created_at)
+      .map((d: any) => ({
+        data: String(d.created_at).slice(0, 10),
+        unidade: nomeUnidade(d.unidade_id),
+        tipo: 'relogio' as const,
+      })),
+    ...(terms || [])
+      .filter((t: any) => t.ativo !== false && t.created_at)
+      .map((t: any) => ({
+        data: String(t.created_at).slice(0, 10),
+        unidade: nomeUnidade(t.unidade_id),
+        tipo: 'terminal' as const,
+      })),
+  ].sort((a, b) => a.data.localeCompare(b.data))
 
   return {
     atualizadoEm: new Date().toISOString(),
@@ -301,6 +354,7 @@ async function consultarPainel(): Promise<PainelImplantacao> {
       servidores: (servidores || []).filter((s: any) => s.status === 'Ativo').length,
       setores: (setores || []).length,
       relogios: (disp || []).filter((d: any) => d.ativo !== false).length,
+      terminais: (terms || []).filter((t: any) => t.ativo !== false).length,
       escalados: new Set(([...escalaAtual, ...escalaAnterior] as any[]).map(e => e.servidor_id)).size,
       afd,
       afdHerdado,

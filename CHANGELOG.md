@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.59.0] - 2026-09-13
+
+Sem migration. O painel publico de implantacao media o avanco por **relogio de ponto e mais
+nada** — o terminal local, que e o ponto de marcacao das unidades pequenas, nao era consultado.
+Diario em `docs/evolucao/2026-09-13-terminal-local-no-painel-de-implantacao.md`.
+
+### Fixed
+
+- 🚨 **Unidade que so tem TERMINAL ficaria para sempre em "em preparacao" no painel publico.**
+  A regra de fase era `relogio + escala`, e `temRelogio` vinha so de `dispositivos_rep`;
+  `terminais_locais` nao era lida naquele arquivo. Passa a ser `ponto de marcacao (relogio OU
+  terminal) + escala`. **Hoje nao muda numero nenhum** — os 2 terminais do parque estao na SMS,
+  que ja conta como operando pelos relogios —, mas a partir da primeira unidade pequena com
+  terminal e sem relogio o painel diria "atraso" sobre uma unidade que ja registra ponto.
+- **O pe do cartao dizia "Relogio ativado em" em unidade sem relogio.** Passa a dizer "Relogio",
+  "Terminal" ou "Ponto de marcacao", conforme o que a unidade tem. Pela mesma razao,
+  `ativadoEm` e `ultimoContato` passam a sair de **qualquer** ponto de marcacao, nao so do
+  relogio.
+- **O primeiro marco do cronograma era "Primeiro relogio em operacao", fixo.** Relogios e
+  terminais entram na mesma lista de ativacoes, com `tipo`, e o marco se rotula por ele. Hoje o
+  texto nao muda (o primeiro foi relogio, 08/08/2026).
+
+### Changed
+
+- KPI **"Relogios ativos"** vira **"Pontos de marcacao"**, com a soma no numero grande e a
+  quebra na linha de baixo (`32 relogios · 2 terminais`). ⚠️ **A separacao nao pode sair**:
+  terminal nao e relogio, nao gera AFD assinado e nao entra em "Registros coletados" — um
+  rotulo unico esconderia isso de quem le o painel sem conhecer o sistema.
+- Cartao da unidade ganha a tag **`N terminais`** ao lado de `N relogios`.
+- "Avanco da implantacao" ganha um paragrafo explicando o criterio, e a legenda passa de
+  `escala + relogio` para `escala + ponto de marcacao`.
+
 ## [2.58.0] - 2026-09-11
 
 Migrations `20260911140000` e `20260911150000`. **Tres frentes que sairam da mesma pergunta**

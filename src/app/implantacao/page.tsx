@@ -23,6 +23,8 @@ const MARCOS = [
 ]
 
 function pct(a: number, b: number) { return b > 0 ? Math.round((a / b) * 100) : 0 }
+/** "1 terminal" / "2 terminais" — o painel é lido por gente de fora do projeto. */
+function plural(n: number, um: string, varios: string) { return `${n} ${n === 1 ? um : varios}` }
 function nf(n: number) { return new Intl.NumberFormat('pt-BR').format(n) }
 
 /** Rosca em SVG puro. Sem biblioteca: menos peso, zero dependência para manter. */
@@ -73,11 +75,17 @@ function Barras({ dados }: { dados: { mes: string; total: number; rep: number; t
 function Cartao({ u }: { u: UnidadeStatus }) {
   const cls = u.fase === 'operando' ? 'ok' : u.fase === 'preparando' ? 'prep' : 'cad'
   const rotulo = u.fase === 'operando' ? 'Operando' : u.fase === 'preparando' ? 'Em preparação' : 'Cadastrada'
+  // ⚠️ Na unidade que só tem terminal, "Relógio ativado em" descreveria um equipamento que não
+  // existe ali — e é justamente o caso das unidades pequenas, que não vão receber relógio.
+  const ativou = u.relogios > 0 && u.terminais > 0 ? 'Ponto de marcação ativado'
+    : u.relogios > 0 ? 'Relógio ativado'
+    : 'Terminal ativado'
   return (
     <article className={`card ${cls}`}>
       <header>
         <span className={`tag ${cls}`}>{rotulo}</span>
-        {u.relogios > 0 && <span className="tag relogio">{u.relogios} relógio{u.relogios > 1 ? 's' : ''}</span>}
+        {u.relogios > 0 && <span className="tag relogio">{plural(u.relogios, 'relógio', 'relógios')}</span>}
+        {u.terminais > 0 && <span className="tag terminal">{plural(u.terminais, 'terminal', 'terminais')}</span>}
       </header>
       <h3>{u.nome}</h3>
       <dl>
@@ -85,7 +93,7 @@ function Cartao({ u }: { u: UnidadeStatus }) {
         <div><dt>Setores</dt><dd>{u.setores}</dd></div>
         <div><dt>Escalados</dt><dd>{u.escalados || '—'}</dd></div>
       </dl>
-      {u.ativadoEm && <p className="card-pe">Relógio ativado em {formatarData(u.ativadoEm)}</p>}
+      {u.ativadoEm && <p className="card-pe">{ativou} em {formatarData(u.ativadoEm)}</p>}
       {!u.ativadoEm && u.fase === 'cadastrada' && <p className="card-pe">Aguardando escala e equipamento</p>}
     </article>
   )
@@ -134,7 +142,8 @@ export default async function PainelImplantacao() {
 
   const t = p.totais
   const avanco = pct(t.operando, t.unidades)
-  const primeiraAtivacao = p.ativacoes[0]?.data
+  // O registro inteiro, não só a data: o primeiro marco do cronograma se rotula pelo `tipo`.
+  const primeiraAtivacao = p.ativacoes[0]
 
   return (
     <>
@@ -158,7 +167,15 @@ export default async function PainelImplantacao() {
         <section className="kpis">
           {[
             { n: t.operando, l: 'Unidades operando', s: `de ${t.unidades} cadastradas`, c: 'a' },
-            { n: t.relogios, l: 'Relógios ativos', s: primeiraAtivacao ? `desde ${formatarData(primeiraAtivacao)}` : '—', c: 'b' },
+            // ⚠️ O número grande é a SOMA — é ele que responde "quantos pontos de marcação
+            // existem". A linha de baixo separa os dois: terminal não é relógio, não tem AFD
+            // assinado, e fundi-los num rótulo só esconderia isso de quem lê o painel.
+            {
+              n: t.relogios + t.terminais,
+              l: 'Pontos de marcação',
+              s: `${plural(t.relogios, 'relógio', 'relógios')} · ${plural(t.terminais, 'terminal', 'terminais')}`,
+              c: 'b',
+            },
             { n: t.escalados, l: 'Servidores escalados', s: `de ${nf(t.servidores)} no cadastro`, c: 'c' },
             { n: nf(t.afd), l: 'Registros coletados', s: 'do arquivo-fonte assinado, desde jun/2026', c: 'd' },
           ].map((k, i) => (
@@ -173,13 +190,14 @@ export default async function PainelImplantacao() {
         <section className="grade">
           <div className="bloco">
             <h2>Avanço da implantação</h2>
+            <p className="bloco-sub">Uma unidade entra em <strong>operando</strong> quando tem escala montada e um ponto de marcação instalado — relógio de ponto ou terminal. As unidades menores recebem terminal; o registro do ponto é o mesmo.</p>
             <div className="progresso">
               <div className="p-seg p-ok" style={{ width: `${pct(t.operando, t.unidades)}%` }} />
               <div className="p-seg p-prep" style={{ width: `${pct(t.preparando, t.unidades)}%` }} />
               <div className="p-seg p-cad" style={{ width: `${pct(t.cadastradas, t.unidades)}%` }} />
             </div>
             <ul className="legenda">
-              <li><i className="c-ok" /> <b>{t.operando}</b> operando <span>escala + relógio</span></li>
+              <li><i className="c-ok" /> <b>{t.operando}</b> operando <span>escala + ponto de marcação</span></li>
               <li><i className="c-prep" /> <b>{t.preparando}</b> em preparação <span>escala montada</span></li>
               <li><i className="c-cad" /> <b>{t.cadastradas}</b> cadastradas <span>a implantar</span></li>
             </ul>
@@ -208,16 +226,18 @@ export default async function PainelImplantacao() {
             <div className="marco feito">
               <div className="ponto" />
               <div className="marco-txt">
-                <span className="marco-data">{primeiraAtivacao ? formatarData(primeiraAtivacao) : '—'}</span>
-                <strong>Primeiro relógio em operação</strong>
-                <p>Início da coleta automática do arquivo-fonte assinado.</p>
+                <span className="marco-data">{primeiraAtivacao ? formatarData(primeiraAtivacao.data) : '—'}</span>
+                <strong>{primeiraAtivacao?.tipo === 'terminal' ? 'Primeiro terminal em operação' : 'Primeiro relógio em operação'}</strong>
+                <p>{primeiraAtivacao?.tipo === 'terminal'
+                  ? 'Início do registro digital de ponto nas unidades.'
+                  : 'Início da coleta automática do arquivo-fonte assinado.'}</p>
               </div>
             </div>
             <div className="marco atual">
               <div className="ponto" />
               <div className="marco-txt">
                 <span className="marco-data">agora</span>
-                <strong>{t.operando} unidades operando · {t.relogios} relógios</strong>
+                <strong>{t.operando} unidades operando · {plural(t.relogios, 'relógio', 'relógios')} e {plural(t.terminais, 'terminal', 'terminais')}</strong>
                 <p>{nf(t.afd)} registros coletados no período e {nf(t.sincOk)} sincronizações concluídas.</p>
               </div>
             </div>
@@ -364,6 +384,7 @@ export default async function PainelImplantacao() {
         .tag.prep{background:rgba(167,139,250,.20);color:#c4b5fd}
         .tag.cad{background:rgba(255,255,255,.09);color:#94a3b8}
         .tag.relogio{background:rgba(52,211,153,.16);color:#6ee7b7}
+        .tag.terminal{background:rgba(244,114,182,.16);color:#f9a8d4}
         .card h3{margin:0 0 12px;font-size:14px;font-weight:700;line-height:1.35}
         .card dl{display:flex;gap:16px;margin:0}
         .card dl div{display:flex;flex-direction:column}
