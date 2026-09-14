@@ -6,6 +6,7 @@ import { updateSetor } from '../actions'
 import { LogoUploadManager } from '@/components/LogoUploadManager'
 import { GeoLocationPicker } from '@/components/GeoLocationPicker'
 import { formatSectorsHierarchy } from '@/utils/sectors'
+import { AvisoNomeSetorParecido } from '@/components/setores/AvisoNomeSetorParecido'
 
 interface EditSetorFormProps {
   setor: any
@@ -20,6 +21,9 @@ export default function EditSetorForm({ setor, unidades, setoresPai, dicionario,
   const [selectedUnidade, setSelectedUnidade] = useState(setor.unidade_id || '')
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  // ⚠️ Zera a cada nome digitado (ver o onChange do input): marcar, trocar o nome e enviar
+  // passaria sem que a nova lista de parecidos tivesse sido vista.
+  const [confirmadoNomeNovo, setConfirmadoNomeNovo] = useState(false)
 
   const nomesPadronizados = useMemo(() => {
     return dicionario.map(d => d.nome)
@@ -98,7 +102,7 @@ export default function EditSetorForm({ setor, unidades, setoresPai, dicionario,
               list="nomes-padronizados"
               autoComplete="off"
               value={nomeSetor}
-              onChange={(e) => setNomeSetor(e.target.value.toUpperCase())}
+              onChange={(e) => { setNomeSetor(e.target.value.toUpperCase()); setConfirmadoNomeNovo(false) }}
               placeholder="Ex: PRONTO SOCORRO, UTI, ADMINISTRATIVO"
               className="block w-full pl-11 pr-4 py-3 bg-zinc-50 dark:bg-zinc-800 border-2 border-zinc-200 dark:border-zinc-700 rounded-2xl text-zinc-900 dark:text-white focus:border-blue-500 focus:ring-0 transition-all font-bold placeholder:font-medium placeholder:italic uppercase"
             />
@@ -116,6 +120,14 @@ export default function EditSetorForm({ setor, unidades, setoresPai, dicionario,
               </div>
             )}
           </div>
+
+          <AvisoNomeSetorParecido
+            nome={nomeSetor}
+            nomesExistentes={nomesPadronizados}
+            confirmado={confirmadoNomeNovo}
+            onConfirmar={setConfirmadoNomeNovo}
+            onUsarExistente={(nome) => { setNomeSetor(nome); setConfirmadoNomeNovo(false) }}
+          />
 
           <p className="mt-3 text-[10px] text-zinc-500 font-bold uppercase tracking-tight flex items-center">
             <Info className="h-3 w-3 mr-1" /> 

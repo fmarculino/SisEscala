@@ -200,6 +200,26 @@ export const gestao: Capitulo = {
           texto:
             'Se algum dia do período já tem ponto e a folha daquele mês não está mais em Rascunho, a remoção é recusada — a tela diz qual folha está travando. O caminho é **reabrir a folha** (RH e Administrador podem) e então remover. Se a competência inteira estiver encerrada, reabra-a em Configurações primeiro.',
         },
+        { tipo: 'titulo', texto: 'Dois nomes para o mesmo setor' },
+        {
+          tipo: 'p',
+          texto:
+            'O nome do setor sai de uma lista compartilhada por toda a rede. Quando você digita um nome que ainda não está nela, o sistema **cria um nome novo** — e é assim que o mesmo setor acaba com dois nomes diferentes. Foi o que aconteceu com *SERVIÇOS GERAIS* e *ASG AGENTE DE SERVIÇOS GERAIS*, que conviveram em 27 unidades até serem padronizados.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'O sistema avisa quando o nome parece com um que já existe',
+          texto:
+            'Ao digitar um nome parecido com outro já cadastrado, aparece um aviso com os nomes semelhantes e um botão para **usar o que já existe**. Se for mesmo outro setor, marque a confirmação e siga. Acento, maiúscula e pontuação não criam nome novo: *Serviços Gerais* e *SERVIÇOS GERAIS* são o mesmo nome para o sistema.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'cuidado',
+          titulo: 'Dois nomes valendo atrapalham a transferência',
+          texto:
+            'Com os dois cadastrados na mesma unidade, quem transfere um servidor vê as duas opções na lista de destino e pode escolher a errada — a pessoa fica sozinha num setor paralelo, fora da escala dos colegas, e ninguém é avisado. Se a sua unidade já tem os dois, **funda um no outro** na tela de Setores: servidores, escalas e ponto vão junto.',
+        },
         {
           tipo: 'aviso',
           tom: 'dica',

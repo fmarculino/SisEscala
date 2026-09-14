@@ -3,6 +3,12 @@
 import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
+import {
+  encontrarNomeIdentico,
+  sugerirNomesParecidos,
+  descreverNomesParecidos,
+  type NomeParecido,
+} from '@/utils/setores/nomeSetor'
 
 const AUTH_ERRORS_PT: Record<string, string> = {
   'User already registered': 'Este e-mail já está cadastrado no sistema.',
@@ -29,10 +35,14 @@ function translateError(error: string): string {
 //
 // ⚠️ Nao trocar por upsert de novo sem repor equivalente: o modo de falha era silencioso dos dois
 // lados (a action devolvia { error } e o formulario descartava o retorno, ver EditSetorForm).
+// ⚠️ `confirmadoNomeNovo` vem do formulario e so' vale depois que a pessoa VIU a lista de nomes
+// parecidos (o checkbox nasce desmarcado a cada nome digitado). Sem essa confirmacao, nome
+// parecido com um ja existente e' RECUSADO — ver a recusa no fim desta funcao.
 async function resolverDicionarioSetor(
   supabase: Awaited<ReturnType<typeof createClient>>,
-  nomeBruto: string
-): Promise<{ id: string } | { error: string }> {
+  nomeBruto: string,
+  confirmadoNomeNovo = false
+): Promise<{ id: string } | { error: string; parecidos?: NomeParecido[] }> {
   const nome = (nomeBruto || '').trim()
   if (!nome) {
     return { error: 'Informe o nome do setor.' }
@@ -49,6 +59,40 @@ async function resolverDicionarioSetor(
   }
   if (existente) {
     return { id: existente.id }
+  }
+
+  // Nao existe entrada com o nome EXATO. Antes de criar uma — que e' o que fazia o dicionario
+  // crescer por digitacao livre — confere o catalogo inteiro.
+  const { data: catalogo, error: listaError } = await supabase
+    .from('dicionario_setores')
+    .select('id, nome')
+    .order('nome')
+
+  if (listaError) {
+    return { error: 'Erro ao consultar o dicionário de setores: ' + listaError.message }
+  }
+
+  const nomes = (catalogo || []).map(d => d.nome)
+
+  // Mesmo nome com outra caixa, acento ou pontuacao ("SERVICOS GERAIS" x "SERVIÇOS GERAIS") e' o
+  // MESMO setor: reusa a entrada, sem perguntar nada. Transformar isso em pergunta so' ensinaria
+  // a clicar sem ler — e o nome que o usuario ve continua sendo o que ja estava no dicionario.
+  const identico = encontrarNomeIdentico(nome, nomes)
+  if (identico) {
+    const entrada = (catalogo || []).find(d => d.nome === identico)
+    if (entrada) return { id: entrada.id }
+  }
+
+  // Parecido, mas nao igual: recusa e devolve a lista para a tela mostrar. Quem confirmar que e'
+  // outro setor passa — a trava e' contra o engano, nunca contra nome novo legitimo.
+  //
+  // 🚨 A tela tambem avisa enquanto se digita, mas a tela NAO e' a defesa: server action e' um
+  //   POST chamavel direto (armadilha 33). Quem decide e' esta funcao.
+  if (!confirmadoNomeNovo) {
+    const parecidos = sugerirNomesParecidos(nome, nomes)
+    if (parecidos.length > 0) {
+      return { error: descreverNomesParecidos(nome, parecidos), parecidos }
+    }
   }
 
   const { data: criado, error: criaError } = await supabase
@@ -117,9 +161,9 @@ export async function createSetor(formData: FormData) {
   const raio_geofence = (latitude !== null && longitude !== null && formData.get('raio_geofence')) ? parseInt(formData.get('raio_geofence') as string) : null
 
   // 1. Garantir que o nome existe no dicionário
-  const dict = await resolverDicionarioSetor(supabase, nome)
+  const dict = await resolverDicionarioSetor(supabase, nome, formData.get('confirmar_nome_novo') === 'true')
   if ('error' in dict) {
-    return { error: dict.error }
+    return { error: dict.error, parecidos: dict.parecidos }
   }
 
   const id = crypto.randomUUID()
@@ -213,9 +257,9 @@ export async function updateSetor(id: string, formData: FormData) {
   const raio_geofence = (latitude !== null && longitude !== null && formData.get('raio_geofence')) ? parseInt(formData.get('raio_geofence') as string) : null
 
   // 1. Garantir que o nome existe no dicionário
-  const dict = await resolverDicionarioSetor(supabase, nome)
+  const dict = await resolverDicionarioSetor(supabase, nome, formData.get('confirmar_nome_novo') === 'true')
   if ('error' in dict) {
-    return { error: dict.error }
+    return { error: dict.error, parecidos: dict.parecidos }
   }
 
   const updateData: any = {

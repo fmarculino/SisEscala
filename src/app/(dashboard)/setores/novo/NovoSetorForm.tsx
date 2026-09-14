@@ -5,6 +5,7 @@ import { Save, Layers, Building2, ChevronRight, Info, AlertTriangle } from 'luci
 import { createSetor } from '../actions'
 import { GeoLocationPicker } from '@/components/GeoLocationPicker'
 import { formatSectorsHierarchy } from '@/utils/sectors'
+import { AvisoNomeSetorParecido } from '@/components/setores/AvisoNomeSetorParecido'
 
 interface NovoSetorFormProps {
   unidades: any[]
@@ -17,6 +18,9 @@ export default function NovoSetorForm({ unidades, setoresExistentes, dicionario 
   const [nomeSetor, setNomeSetor] = useState('')
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  // ⚠️ Zera a cada nome digitado (ver o onChange do input): marcar, trocar o nome e enviar
+  // passaria sem que a nova lista de parecidos tivesse sido vista.
+  const [confirmadoNomeNovo, setConfirmadoNomeNovo] = useState(false)
 
   // Nomes sugeridos para padronização (vindo do dicionário)
   const nomesPadronizados = useMemo(() => {
@@ -99,7 +103,7 @@ export default function NovoSetorForm({ unidades, setoresExistentes, dicionario 
               list="nomes-padronizados"
               autoComplete="off"
               value={nomeSetor}
-              onChange={(e) => setNomeSetor(e.target.value.toUpperCase())}
+              onChange={(e) => { setNomeSetor(e.target.value.toUpperCase()); setConfirmadoNomeNovo(false) }}
               placeholder="Ex: PRONTO SOCORRO, UTI, ADMINISTRATIVO"
               className="block w-full pl-11 pr-4 py-3 bg-zinc-50 dark:bg-zinc-800 border-2 border-zinc-200 dark:border-zinc-700 rounded-2xl text-zinc-900 dark:text-white focus:border-blue-500 focus:ring-0 transition-all font-bold placeholder:font-medium placeholder:italic uppercase"
             />
@@ -117,6 +121,14 @@ export default function NovoSetorForm({ unidades, setoresExistentes, dicionario 
               </div>
             )}
           </div>
+
+          <AvisoNomeSetorParecido
+            nome={nomeSetor}
+            nomesExistentes={nomesPadronizados}
+            confirmado={confirmadoNomeNovo}
+            onConfirmar={setConfirmadoNomeNovo}
+            onUsarExistente={(nome) => { setNomeSetor(nome); setConfirmadoNomeNovo(false) }}
+          />
 
           {/* Sugestões Visuais Rápidas */}
           {!nomeSetor && nomesPadronizados.length > 0 && (
