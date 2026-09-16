@@ -154,10 +154,79 @@ alterar o dispositivo**.
   só usava setores da unidade; agora depende da lista conter setores de **outras** unidades — um
   setor cortado viraria "não dá para vincular" sem nenhuma mensagem. Paginado.
 
-## Ainda aberto
+---
 
-**A Parte 2 do plano não foi implementada:** setor novo criado numa unidade cujo relógio trabalha
-com lista continua nascendo **fora do relógio**, em silêncio. Medido em 15/09/2026: **37 setores
-órfãos, 29 com gente, 115 lotados, 113 sem batida** — e os 37 foram criados depois de o relógio
-estar configurado. A solução está desenhada e medida no plano (herança pelo ancestral resolve
-37/37, **como sugestão**, nunca automática). Só SMS e HMM sofrem.
+# PARTE 2 — o setor que nasce órfão (v2.64.0, migration `20260915140000`)
+
+## O problema
+
+Setor criado numa unidade cujo relógio trabalha com **lista** nasce fora dele, em silêncio, até
+alguém lembrar de ir nas configurações marcá-lo. Medido em 15/09/2026: **37 setores órfãos, 29 com
+gente, 115 lotados, 113 sem uma única batida** — e os 37 criados **depois** de o relógio da unidade
+estar configurado.
+
+ℹ️ **Entre a medição e a implementação, o usuário corrigiu 565 vínculos à mão** (HMM-01/02/04 de
+160 para 178 setores, CCE-01 de 11 para 25), o que derrubou os órfãos de 37 para **5**. Isso não
+enfraquece o caso — é a prova dele: o trabalho existia e era manual.
+
+## 🚨 O achado que mudou o desenho
+
+A medição de 15/09 dizia "a herança pelo ancestral resolve 37/37". **Resolve — e erra exatamente
+no caso que a Parte 1 existe para tratar.** Os 3 polos do CAF sairiam "herdando" os relógios da
+**sede** do CAF, que fica em outro bairro. Vincular ali espalharia cadastro por um equipamento
+onde aquela gente nunca põe o dedo.
+
+Por isso a sugestão carrega a **força do sinal**, e a tela só pré-marca o forte:
+
+| força | de onde vem | na tela |
+|---|---|---|
+| **2 — evidência** | a gente deste setor **já bate** naquele relógio (60 dias) | vem **pré-marcada** |
+| **1 — palpite** | o ancestral mais próximo é atendido por ele | aparece, **não** vem marcada |
+| **0 — nenhuma** | ninguém bate e nenhum ancestral é atendido | a tela diz que **não sabe** |
+
+O caso 0 é o dos polos, e dizer "não sei" é a resposta honesta: chutar mandaria cadastrar gente
+num prédio onde ela não está.
+
+## As peças
+
+| peça | o quê |
+|---|---|
+| `fn_relogios_sugeridos_para_setor` | a sugestão, com força e motivo legível |
+| `fn_setores_sem_relogio` | a lista de órfãos do escopo, com lotados/escalados |
+| `fn_setor_sem_relogio` | um setor só — para o aviso logo depois de criar |
+| `fn_vincular_setor_a_relogios` | **acrescenta** o setor a relógios |
+| Marcações → **Setores sem Relógio** | a rede de segurança |
+| Aviso na tela de Setores | pega no momento da criação (`/setores?criado=<id>`) |
+| `src/utils/setores/sugestaoRelogio.ts` | fonte única da regra de pré-marcação |
+
+⚠️ **`fn_vincular_setor_a_relogios` NÃO reusa `fn_definir_setores_dispositivo_rep` de propósito:**
+aquela **substitui** a lista inteira do dispositivo. Aplicar em lote com ela exigiria ler a lista de
+cada relógio e somar no cliente — e um engano ali apagaria a configuração de um equipamento
+inteiro. Esta só acrescenta.
+
+⚠️ **O formulário não basta sozinho, e por isso as duas telas existem.** Setor entra por outros
+caminhos (fusão, correção de hierarquia, script) e o `parent_id` muda **depois** da criação. Quem
+só confia no caminho feliz não enxerga o que escapou dele.
+
+⚠️ **Setor de unidade SEM relógio nenhum não é listado.** Ali o problema é outro, e acusar seria
+alarme fabricado em toda linha — aviso que grita à toa é o caminho mais curto para ninguém mais ler
+nenhum.
+
+## Validação
+
+Aplicada em **homologação**, com ensaio de 4 atos revertido por `RAISE EXCEPTION`:
+
+```
+cria subsetor de um setor atendido  -> órfãos 1 -> 2   (nasceu fora do relógio)
+sugestão                            -> força 1, apontando o relógio do PAI
+vincula                             -> órfãos 2 -> 1   (saiu da lista)
+vincula de novo                     -> 0 vinculados, 1 já vinculado  (relata o que MUDOU)
+```
+
+A conferência embutida na migration confere, executando, que **as duas funções de detecção
+concordam nos dois sentidos** — duas respostas para a mesma pergunta divergem na primeira mudança
+se ninguém conferir.
+
+**Portões:** `node scratchpad/sim_sugestao_relogio.js` (23 asserções) e
+`val_sim_sugestao_relogio.js`, que injeta **6 regressões e exige reprovação nas 6** — entre elas a
+que importa: o palpite voltando a vir pré-marcado.

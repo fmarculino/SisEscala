@@ -398,22 +398,44 @@ presencialmente no relógio novo, uma vez.** A identidade chega sozinha pelo cro
 `fn_higiene_usuarios_dispositivo` **não precisou mudar**: ela decide `pode_remover` por "existe
 servidor Ativo casando", nunca por unidade.
 
-### ⏳ PENDENTE: setor novo nasce FORA do relógio, em silêncio (15/09/2026)
+### Setor novo nasce FORA do relógio, e a sugestão tem FORÇA (15/09/2026)
 
-Medido: **37 setores órfãos, 29 com gente, 115 lotados, 113 sem batida em 09/2026** — e os 37 foram
-criados **depois** de o relógio da unidade estar configurado. Só **SMS e HMM** sofrem (as duas usam
-lista; as outras 22 unidades estão em "toda a unidade", onde setor novo já nasce coberto). Desenho
-completo nas seções 8 a 12 de
-[`docs/planos/2026-09-15-relogio-que-atende-setor-de-outra-unidade.md`](docs/planos/2026-09-15-relogio-que-atende-setor-de-outra-unidade.md).
+✅ **Em produção (v2.64.0)**, migration `20260915140000`. Numa unidade cujo relógio trabalha com
+**lista de setores**, todo setor criado depois nasce fora dele, em silêncio. Medido antes de
+corrigir: **37 setores órfãos, 115 lotados, 113 sem uma batida**, todos criados **depois** de o
+relógio estar configurado. Só **SMS e HMM** sofrem — as outras unidades estão em "toda a unidade",
+onde setor novo já nasce coberto.
 
-🚨 **A herança do ancestral resolve 37/37 e NÃO pode ser automática.** Subir a árvore até o
-ancestral mais próximo com relógio cobre todos os casos (pelo **pai direto** só 14 — os outros 23
-têm "pai também órfão", que é cascata). Mas como regra viva ampliaria **13 setores em silêncio**,
-entre eles `ENFERMAGEM > ENFERMEIROS > AMENT - ALA PSICOSSOCIAL`, que tem **relógio próprio em
-outro prédio** — o mesmo erro do HMM-03 × CCE. Herdar é a resposta certa; herdar calado é a forma
-errada. Entra como **sugestão pré-marcada numa decisão explícita**, mais uma detecção de órfãos
-como rede de segurança — o formulário não é o único caminho, e o `parent_id` muda depois da
-criação.
+| peça | o quê |
+|---|---|
+| `fn_setores_sem_relogio` / `fn_setor_sem_relogio` | a lista, e o teste de um setor só |
+| `fn_relogios_sugeridos_para_setor` | a sugestão, **com força e motivo** |
+| `fn_vincular_setor_a_relogios` | **acrescenta** o setor a relógios |
+| Marcações → **Setores sem Relógio** + aviso em `/setores?criado=<id>` | as duas telas |
+| `src/utils/setores/sugestaoRelogio.ts` | fonte única da pré-marcação |
+
+🚨 **A herança pelo ancestral resolve tudo e NÃO pode ser automática nem pré-marcada.** Como regra
+viva ampliaria **31 setores em silêncio** (medido), entre eles `ENFERMAGEM > ENFERMEIROS > AMENT -
+ALA PSICOSSOCIAL`, que tem **relógio próprio em outro prédio** — o erro do HMM-03 × CCE. E ela erra
+**justamente no caso da seção acima**: os 3 polos do CAF sairiam "herdando" os relógios da **sede**,
+que fica noutro bairro. Daí a força do sinal:
+
+| força | de onde vem | na tela |
+|---|---|---|
+| **2** | a gente do setor **já bate** ali (60 dias) | vem **pré-marcada** |
+| **1** | o ancestral mais próximo é atendido | aparece, **nunca** marcada |
+| **0** | ninguém bate e nenhum ancestral atende | a tela diz que **não sabe** |
+
+⚠️ **`fn_vincular_setor_a_relogios` não reusa `fn_definir_setores_dispositivo_rep`**: aquela
+**substitui** a lista inteira do dispositivo, e aplicar em lote com ela apagaria a configuração de
+um equipamento por um engano. Esta só acrescenta.
+
+⚠️ **As duas telas existem porque o formulário não é o único caminho** — setor entra por fusão,
+correção de hierarquia e script, e o `parent_id` muda depois da criação.
+
+⚠️ **Setor de unidade sem relógio nenhum não entra na lista**: ali o problema é outro, e acusar
+seria alarme fabricado em toda linha. Portões: `sim_sugestao_relogio.js` (23) e
+`val_sim_sugestao_relogio.js` (**6 regressões, 6 reprovadas**).
 
 ### Contagem igual entre relógios da mesma unidade NÃO é o objetivo (06/09/2026)
 

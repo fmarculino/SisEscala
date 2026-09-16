@@ -221,7 +221,23 @@ export async function createSetor(formData: FormData) {
   }
 
   revalidatePath('/setores')
-  redirect('/setores')
+  // Leva o id na URL para a tela poder avisar que o setor nasceu SEM RELOGIO. Sem isto o
+  // aviso so apareceria na aba Marcacoes -> Setores sem Relogio, que ninguem abre logo depois
+  // de cadastrar - e o setor fica semanas sem ninguem conseguir bater ponto nele.
+  redirect('/setores?criado=' + id)
+}
+
+// ---------------------------------------------------------------------------
+// SETOR QUE NASCEU SEM RELOGIO (15/09/2026)
+// ---------------------------------------------------------------------------
+// Numa unidade cujo relogio trabalha com lista de setores, todo setor novo nasce FORA dele,
+// em silencio. Ver docs/planos/2026-09-15-relogio-que-atende-setor-de-outra-unidade.md.
+export async function conferirSetorSemRelogio(setorId: string) {
+  const supabase = await createClient()
+  const { data: orfao, error } = await supabase.rpc('fn_setor_sem_relogio', { p_setor_id: setorId })
+  if (error || !orfao) return { orfao: false, sugestoes: [] as any[] }
+  const { data: sug } = await supabase.rpc('fn_relogios_sugeridos_para_setor', { p_setor_id: setorId })
+  return { orfao: true, sugestoes: (sug || []) as any[] }
 }
 
 export async function updateSetor(id: string, formData: FormData) {

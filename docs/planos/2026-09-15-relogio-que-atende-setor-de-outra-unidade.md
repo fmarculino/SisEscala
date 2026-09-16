@@ -5,8 +5,13 @@
 `20260915100000`, `20260915110000`, `20260915120000` e `20260915130000`, mais a tela e o manual.
 Diário em
 [`docs/evolucao/2026-09-15-relogio-que-atende-setor-de-outra-unidade.md`](../evolucao/2026-09-15-relogio-que-atende-setor-de-outra-unidade.md).
-⏳ **A PARTE 2 (setor novo que nasce órfão) continua PENDENTE** — seções 8 a 12 abaixo, medidas e
-desenhadas, nada implementado.
+✅ **PARTE 2 TAMBÉM IMPLEMENTADA em 15/09/2026 (v2.64.0)** — migration `20260915140000`, a aba
+Marcações → Setores sem Relógio, o aviso na criação do setor e o manual.
+
+⚠️ **O desenho das seções 8 a 12 mudou num ponto durante a execução, e o motivo importa:** a
+sugestão pela hierarquia **erra justamente no caso da Parte 1** (os polos do CAF sairiam "herdando"
+os relógios da sede, que fica em outro bairro). Por isso ela ganhou FORÇA, e só o sinal vindo de
+batida real vem pré-marcado. Ver o diário.
 
 ⚠️ A seção "POR ONDE RETOMAR" logo abaixo descreve o estado de ANTES da implementação e vale
 hoje apenas para a Parte 2. Uma quinta peça apareceu durante a execução e não estava no desenho

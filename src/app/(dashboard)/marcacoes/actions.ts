@@ -676,6 +676,67 @@ export async function listarCoberturaResumo(mes?: number, ano?: number): Promise
   return { dados: (data || []) as CoberturaResumo[], error: null }
 }
 
+// ---------------------------------------------------------------------------
+// SETOR SEM RELOGIO (15/09/2026)
+// ---------------------------------------------------------------------------
+// Setor criado numa unidade cujo relogio trabalha com LISTA nasce fora do relogio, em silencio.
+// Isto e a rede de seguranca: o formulario de setor nao e o unico caminho de criacao, e o
+// parent_id muda depois. Ver docs/planos/2026-09-15-relogio-que-atende-setor-de-outra-unidade.md.
+
+export type SetorSemRelogio = {
+  setor_id: string
+  setor_caminho: string
+  unidade_id: string
+  unidade_nome: string
+  lotados: number
+  escalados: number
+  criado_em: string | null
+  forca_sugestao: number
+  sugestao: string | null
+}
+
+export type RelogioSugerido = {
+  dispositivo_id: string
+  dispositivo_nome: string
+  unidade_nome: string
+  forca: number
+  motivo: string
+}
+
+export async function listarSetoresSemRelogio(mes?: number, ano?: number): Promise<Resultado<SetorSemRelogio[]>> {
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc('fn_setores_sem_relogio', {
+    p_mes: mes ?? null,
+    p_ano: ano ?? null,
+  })
+  if (error) return { dados: [], error: erroLegivel(error) }
+  return { dados: (data || []) as SetorSemRelogio[], error: null }
+}
+
+export async function listarRelogiosSugeridos(setorId: string): Promise<Resultado<RelogioSugerido[]>> {
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc('fn_relogios_sugeridos_para_setor', {
+    p_setor_id: setorId,
+  })
+  if (error) return { dados: [], error: erroLegivel(error) }
+  return { dados: (data || []) as RelogioSugerido[], error: null }
+}
+
+// ACRESCENTA o setor aos relogios escolhidos, sem tocar no resto da lista de cada um.
+// ⚠️ Nao usa fn_definir_setores_dispositivo_rep de proposito: aquela SUBSTITUI a lista inteira,
+// e um engano aqui apagaria a configuracao de um equipamento.
+export async function vincularSetorARelogios(setorId: string, dispositivoIds: string[]) {
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc('fn_vincular_setor_a_relogios', {
+    p_setor_id: setorId,
+    p_dispositivo_ids: dispositivoIds,
+  })
+  if (error) return { error: erroLegivel(error) }
+  revalidatePath('/marcacoes')
+  revalidatePath('/setores')
+  return { dados: data as { vinculados: number; ja_vinculados: number; atendido_agora: boolean } }
+}
+
 export async function listarCoberturaDispositivo(
   dispositivoId: string, mes?: number, ano?: number,
 ): Promise<Resultado<CoberturaServidor[]>> {

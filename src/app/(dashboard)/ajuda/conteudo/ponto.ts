@@ -534,6 +534,70 @@ export const ponto: Capitulo = {
     },
 
     {
+      id: 'setor-sem-relogio',
+      titulo: 'Setor que nenhum relógio atende',
+      resumo: 'Setor novo pode nascer fora do relógio, em silêncio — e a tela que mostra isso.',
+      papeis: ['RH da Unidade', 'RH Geral', 'Administrador Geral'],
+      blocos: [
+        { tipo: 'caminho', itens: ['OPERAÇÃO', 'Marcações', 'Setores sem Relógio'], href: '/marcacoes' },
+        {
+          tipo: 'p',
+          texto:
+            'Em algumas unidades o relógio não atende a unidade inteira: ele atende uma **lista de setores**. Isso é proposital — um hospital pode ter prédios diferentes, cada um com o seu equipamento. O efeito colateral é que **todo setor criado depois entra fora dessa lista**, e ninguém é avisado.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'cuidado',
+          titulo: 'O sintoma aparece semanas depois',
+          texto:
+            'Quem for lotado num setor assim simplesmente não consegue registrar ponto — o equipamento não reconhece a pessoa. Como quase sempre a lotação vem antes da primeira batida, a queixa chega muito depois, como “o ponto daquele pessoal não vem”.',
+        },
+        { tipo: 'titulo', texto: 'A tela responde quem está nessa situação' },
+        {
+          tipo: 'p',
+          texto:
+            'A aba lista os setores que **nenhum relógio atende**, com quantas pessoas estão lotadas e escaladas em cada um. Clicando no setor, o sistema sugere o equipamento provável e você aplica com um clique.',
+        },
+        {
+          tipo: 'tabela',
+          colunas: ['O que a tela diz', 'De onde vem', 'O que fazer'],
+          linhas: [
+            [
+              'Já vem marcado',
+              'Essa gente **já bate** naquele relógio hoje.',
+              'Conferir e aplicar — é o caso mais seguro.',
+            ],
+            [
+              'Confirme antes de aplicar',
+              'Palpite: o setor **acima** dele é atendido por aquele relógio.',
+              'Conferir se é o prédio certo antes de aplicar.',
+            ],
+            [
+              'Não dá para sugerir',
+              'Ninguém desse setor bate em lugar nenhum e nenhum setor acima é atendido.',
+              'Descobrir em que prédio essas pessoas trabalham e escolher o relógio de lá.',
+            ],
+          ],
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'O palpite olha a hierarquia, não o endereço',
+          texto:
+            'Quando a sugestão vem do setor de cima, ela supõe que o setor novo fica **no mesmo lugar** que o setor-pai — e isso nem sempre é verdade. Um polo que pertence a uma secretaria mas funciona dentro de outro prédio tem o relógio **daquele prédio**, não o da sede. Por isso esse tipo de sugestão não vem marcado: a decisão é sua.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'dica',
+          titulo: 'O aviso também aparece na hora de criar o setor',
+          texto:
+            'Ao cadastrar um setor numa unidade assim, a tela de Setores avisa na mesma hora e oferece o vínculo. Se você deixar para depois, o setor continua aparecendo aqui — nada se perde.',
+        },
+        { tipo: 'veja', secaoId: 'cobertura-ponto', texto: 'Cobertura de Ponto' },
+      ],
+    },
+
+    {
       id: 'cobertura-ponto',
       titulo: 'Cobertura de Ponto',
       resumo: 'A tela que mostra quem não consegue bater — e por quê.',

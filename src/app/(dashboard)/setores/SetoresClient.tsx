@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, Suspense } from 'react'
+import { AvisoSetorSemRelogio } from './AvisoSetorSemRelogio'
 import { createClient } from '@/utils/supabase/client'
 import { Layers, Plus, Building2, ChevronRight, Eye, EyeOff, Search, Loader2, ChevronDown, Tag, MoreHorizontal, Pencil } from 'lucide-react'
 import Link from 'next/link'
@@ -250,6 +251,11 @@ export default function SetoresClient({ userProfile }: SetoresClientProps) {
 
   return (
     <div className="space-y-8 pb-20">
+      {/* Setor recem-criado que nenhum relogio atende. useSearchParams exige Suspense no
+          App Router; sem ele a pagina inteira vira client-side rendering no build. */}
+      <Suspense fallback={null}>
+        <AvisoSetorSemRelogio />
+      </Suspense>
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>

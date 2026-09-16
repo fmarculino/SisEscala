@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.64.0] - 2026-09-15
+
+Uma migration (`20260915140000`). Fecha a Parte 2 do plano de 15/09: setor criado numa unidade
+cujo relogio trabalha com LISTA nascia fora dele, em silencio. Diario em
+`docs/evolucao/2026-09-15-relogio-que-atende-setor-de-outra-unidade.md`.
+
+### Added
+
+- **Marcacoes -> Setores sem Relogio.** Lista os setores que nenhum equipamento atende, com
+  quantas pessoas estao lotadas e escaladas em cada um, e aplica o vinculo com um clique.
+  Medido antes de corrigir: **37 setores orfaos, 115 lotados, 113 sem uma unica batida** - todos
+  criados DEPOIS de o relogio da unidade estar configurado. So SMS e HMM sofrem; nas demais o
+  relogio atende "toda a unidade" e setor novo ja nasce coberto.
+- **Aviso na criacao do setor.** Ao cadastrar um setor numa unidade assim, a tela de Setores
+  avisa na hora e oferece o vinculo. NAO substitui a aba: setor entra por outros caminhos
+  (fusao, correcao de hierarquia, script) e o `parent_id` muda depois da criacao.
+- **A sugestao tem FORCA, e so a forte vem pre-marcada.** Forca 2 = a gente do setor JA BATE
+  naquele relogio (60 dias); forca 1 = o setor acima e atendido por ele; forca 0 = a tela diz que
+  nao sabe. 🚨 O palpite pela hierarquia erra justamente no caso da v2.61.0: os polos do CAF
+  sairiam "herdando" os relogios da SEDE, que fica em outro bairro. Como regra automatica
+  ampliaria 31 setores em silencio, entre eles a ALA - PSICOSSOCIAL, que tem relogio proprio em
+  outro predio.
+
+### Docs
+
+- Manual do usuario: **"Setor que nenhum relogio atende"**, com as tres forcas de sugestao e por
+  que o palpite olha a hierarquia, nao o endereco.
+
 ## [2.63.0] - 2026-09-15
 
 Sem migration. Fecha a raiz da confusao de hoje: a aba aberta ha horas continuava com o codigo

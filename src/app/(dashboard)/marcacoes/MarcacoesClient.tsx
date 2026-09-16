@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { formatarDataHoraComSegundos } from '@/utils/horario'
-import { Monitor, Fingerprint, ListChecks, Plus, Pencil, Trash2, ShieldCheck, UploadCloud, HeartPulse, FileCheck2, CalendarClock } from 'lucide-react'
+import { Monitor, Fingerprint, ListChecks, Plus, Pencil, Trash2, ShieldCheck, UploadCloud, HeartPulse, FileCheck2, CalendarClock, MapPin } from 'lucide-react'
 import { listarTerminaisLocais, listarDispositivosRep, excluirTerminalLocal, excluirDispositivoRep, listarCoberturaResumo, listarCoberturaEscalaResumo } from './actions'
 import { TerminalLocalModal } from './TerminalLocalModal'
 import { DispositivoRepModal } from './DispositivoRepModal'
@@ -12,10 +12,11 @@ import { HigieneDispositivoTab } from './HigieneDispositivoTab'
 import { ImportarPendriveTab } from './ImportarPendriveTab'
 import { CoberturaTab, mesAtual, type ResumoPrecarregado } from './CoberturaTab'
 import { CoberturaEscalaTab } from './CoberturaEscalaTab'
+import { SetoresSemRelogioTab } from './SetoresSemRelogioTab'
 import { AutorizacoesPontoTab } from './AutorizacoesPontoTab'
 import { IdCopyBadge } from './IdCopyBadge'
 
-type Aba = 'terminais' | 'dispositivos' | 'cobertura' | 'cobertura_escala' | 'pendencias' | 'biometria' | 'higiene' | 'pendrive' | 'autorizacoes'
+type Aba = 'terminais' | 'dispositivos' | 'cobertura' | 'cobertura_escala' | 'setores_sem_relogio' | 'pendencias' | 'biometria' | 'higiene' | 'pendrive' | 'autorizacoes'
 
 interface Opcoes {
   unidades: { id: string; nome: string }[]
@@ -215,6 +216,9 @@ export function MarcacoesClient({ podeGerir, podeAutorizar, escopoLimitado, opco
     { id: 'dispositivos', label: 'Dispositivos REP', icon: Fingerprint, visivel: podeGerir },
     { id: 'cobertura', label: 'Cobertura de Ponto', icon: HeartPulse, visivel: true, alerta: alertaCobertura },
     { id: 'cobertura_escala', label: 'Cobertura da Escala', icon: CalendarClock, visivel: true, alerta: alertaEscala },
+    // Setor que nenhum relogio atende. So para quem gere infraestrutura: a acao dela e
+    // vincular setor a relogio, que e' configuracao de equipamento.
+    { id: 'setores_sem_relogio', label: 'Setores sem Relógio', icon: MapPin, visivel: podeGerir },
     { id: 'pendencias', label: 'Pendências', icon: ListChecks, visivel: true },
     { id: 'biometria', label: 'Biometria Pendente', icon: Fingerprint, visivel: true },
     { id: 'higiene', label: 'Higiene do Relógio', icon: ShieldCheck, visivel: podeGerir },
@@ -421,6 +425,7 @@ export function MarcacoesClient({ podeGerir, podeAutorizar, escopoLimitado, opco
       )}
 
       {aba === 'cobertura' && <CoberturaTab inicial={resumoCobertura} />}
+      {aba === 'setores_sem_relogio' && <SetoresSemRelogioTab />}
       {aba === 'cobertura_escala' && <CoberturaEscalaTab />}
       {aba === 'pendencias' && <PendenciasTab opcoes={opcoes} />}
       {aba === 'biometria' && <BiometriaTab />}
