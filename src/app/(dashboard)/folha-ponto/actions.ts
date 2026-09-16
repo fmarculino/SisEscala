@@ -22,6 +22,7 @@ import { autorizacaoDoDia, aplicarObservacaoAutorizacao } from '@/utils/folha/au
 import { afastamentosDoDia, avaliarAfastamentosNoTurno, descreverAfastamentos, minutosAbonadosDoDia } from '@/utils/folha/afastamentosDia'
 import { calcularDia, totaisFolha, carregarDecisaoCompensacao, carregarDecisaoAutorizacaoExtra, diasPendentesDeCompensacao, diasPendentesDeAutorizacaoExtra, extraEfetivaDoDia, extraAposAutorizacao, statusAutorizacaoExtraDoDia, regraCompensacaoVigente, regraAutorizacaoExtraVigente, horasNormaisLiquidasVigente } from '@/utils/folha/calculoDia'
 import { normalizarNomeJornada } from '@/utils/folha/nomeJornada'
+import { buscarTodasPaginas } from '@/utils/paginacao'
 
 // Helper: Get user profile with unit/sector permissions
 async function getUserProfile(supabase: any): Promise<UserProfile> {
@@ -141,40 +142,71 @@ export async function getServidoresFolhaPonto(mes: number, ano: number, unidadeI
     }
 
     // 1. Fetch active scales in this sector/unit/month/year to find all servers who have scales for this period
-    let queryEscalas = supabase
-      .from('escala_mensal')
-      .select('id, status, servidor_id, unidade_id, setor_id, status, jornada_id, jornadas(nome), servidores(id, nome, matricula, cargo)')
-      .eq('mes', mes)
-      .eq('ano', ano)
-      .eq('ativo', true)
+    // PAGINADO (armadilha 8): 1.639 escalas ativas em 09/2026, e perfil escopado por varias
+    // unidades chama esta action sem unidadeId. Sem paginar, servidor some da lista em silencio.
+    const montarQueryEscalas = (from: number, to: number) => {
+      let q = supabase
+        .from('escala_mensal')
+        .select('id, status, servidor_id, unidade_id, setor_id, status, jornada_id, jornadas(nome), servidores(id, nome, matricula, cargo)')
+        .eq('mes', mes)
+        .eq('ano', ano)
+        .eq('ativo', true)
 
-    if (unidadeId) {
-      queryEscalas = queryEscalas.eq('unidade_id', unidadeId)
+      if (unidadeId) {
+        q = q.eq('unidade_id', unidadeId)
+      }
+      if (setorId) {
+        q = q.eq('setor_id', setorId)
+      }
+
+      q = applyAccessFilters(q, userProfile)
+      return q.order('id', { ascending: true }).range(from, to)
     }
-    if (setorId) {
-      queryEscalas = queryEscalas.eq('setor_id', setorId)
-    }
 
-    queryEscalas = applyAccessFilters(queryEscalas, userProfile)
-
-    const { data: escalasMes, error: escError } = await queryEscalas
-    if (escError) throw escError
+    const { linhas: escalasMes, completo: escalasCompletas } = await buscarTodasPaginas<any>(montarQueryEscalas, 500)
 
     if (!escalasMes || escalasMes.length === 0) {
-      return { servidores: [] }
+      return { servidores: [], completo: escalasCompletas }
     }
 
     // 2. Fetch existing sheets for this month/year. Filtra por mes/ano (colunas proprias de
     // folha_ponto) em vez de .in('escala_mensal_id', scaleIds): sem unidade/setor selecionado,
     // escalasMes pode ter centenas de linhas (206 so em agosto/2026), e uma URI com centenas de
     // UUIDs no .in() estoura o limite do gateway Supabase (erro "URI too long request_id: ...").
-    const { data: folhas, error: folhaError } = await supabase
-      .from('folha_ponto')
-      .select('id, status, servidor_id, escala_mensal_id, total_horas_normais, total_horas_extras_50, total_horas_extras_100, total_faltas, cargo')
-      .eq('mes', mes)
-      .eq('ano', ano)
+    //
+    // PAGINADO — ERA ESTE O BUG DO "GEREI E CONTINUA NAO GERADA" (armadilha 8). Em 09/2026
+    // existem 1.289 folhas e o PostgREST devolvia 1.000, EM SILENCIO: as 289 restantes (medidas
+    // em 15/09/2026, espalhadas por 19 unidades) estavam no banco com status Gerada e a tela as
+    // exibia como "Nao Gerada". Clicar em Gerar funcionava, o upsert gravava, a mensagem de
+    // sucesso era verdadeira — e a linha voltava igual, para sempre. O .order('id') NAO e
+    // cosmetico: sem ordem estavel o Postgres pode repetir linha numa pagina e omitir na outra.
+    //
+    // O filtro por unidade/setor via embed !inner reduz o universo antes de paginar (50 linhas
+    // na USF Hiroshi Matsuda em vez de 1.289) — conferido EXECUTANDO contra producao, porque
+    // embed so se prova executando (armadilha 8b).
+    const montarQueryFolhas = (from: number, to: number) => {
+      const precisaEscopo = !!unidadeId || !!setorId
+      let q = supabase
+        .from('folha_ponto')
+        .select(
+          precisaEscopo
+            ? 'id, status, servidor_id, escala_mensal_id, total_horas_normais, total_horas_extras_50, total_horas_extras_100, total_faltas, cargo, escala_mensal!inner(unidade_id, setor_id)'
+            : 'id, status, servidor_id, escala_mensal_id, total_horas_normais, total_horas_extras_50, total_horas_extras_100, total_faltas, cargo'
+        )
+        .eq('mes', mes)
+        .eq('ano', ano)
 
-    if (folhaError) throw folhaError
+      if (unidadeId) {
+        q = q.eq('escala_mensal.unidade_id', unidadeId)
+      }
+      if (setorId) {
+        q = q.eq('escala_mensal.setor_id', setorId)
+      }
+
+      return q.order('id', { ascending: true }).range(from, to)
+    }
+
+    const { linhas: folhas, completo: folhasCompletas } = await buscarTodasPaginas<any>(montarQueryFolhas)
 
     // 3. Map together
     const result = escalasMes
@@ -205,7 +237,10 @@ export async function getServidoresFolhaPonto(mes: number, ano: number, unidadeI
     // Sort alphabetically by server name
     result.sort((a, b) => a.nome.localeCompare(b.nome))
 
-    return { servidores: result }
+    // Paginacao interrompida por erro devolve o que veio (ver buscarTodasPaginas). Aqui isso
+    // significa STATUS DE FOLHA ERRADO na linha, nao apenas um total menor — por isso a tela
+    // precisa saber e avisar (armadilha 22).
+    return { servidores: result, completo: escalasCompletas && folhasCompletas }
   } catch (error: any) {
     console.error('Erro em getServidoresFolhaPonto:', error)
     return { error: error.message }
@@ -1189,26 +1224,31 @@ export async function gerarFolhasEmLote(
     const userProfile = await getUserProfile(supabase)
 
     // Fetch scales for this month/year, optionally filtered by unit and sector
-    let queryEscalas = supabase
-      .from('escala_mensal')
-      .select('id, servidor_id, unidade_id, setor_id')
-      .eq('mes', mes)
-      .eq('ano', ano)
-      .eq('ativo', true)
+    // PAGINADO (armadilha 8): sao 1.639 escalas ativas em 09/2026. Sem paginar, "Gerar Todas"
+    // geraria as 1.000 primeiras e relataria sucesso — as demais nunca seriam tentadas, e nada
+    // na tela diria isso (armadilha 22).
+    const montarQueryEscalas = (from: number, to: number) => {
+      let q = supabase
+        .from('escala_mensal')
+        .select('id, servidor_id, unidade_id, setor_id')
+        .eq('mes', mes)
+        .eq('ano', ano)
+        .eq('ativo', true)
 
-    if (unidadeId) {
-      queryEscalas = queryEscalas.eq('unidade_id', unidadeId)
+      if (unidadeId) {
+        q = q.eq('unidade_id', unidadeId)
+      }
+      if (setorId) {
+        q = q.eq('setor_id', setorId)
+      }
+
+      // Apply security filters at DB level
+      q = applyAccessFilters(q, userProfile)
+      return q.order('id', { ascending: true }).range(from, to)
     }
-    if (setorId) {
-      queryEscalas = queryEscalas.eq('setor_id', setorId)
-    }
 
-    // Apply security filters at DB level
-    queryEscalas = applyAccessFilters(queryEscalas, userProfile)
+    const { linhas: escalas, completo } = await buscarTodasPaginas<any>(montarQueryEscalas, 500)
 
-    const { data: escalas, error: escError } = await queryEscalas
-
-    if (escError) throw escError
     if (!escalas || escalas.length === 0) {
       return { error: 'Nenhuma escala ativa encontrada para a competência selecionada.' }
     }
@@ -1234,7 +1274,10 @@ export async function gerarFolhasEmLote(
     }
 
     revalidatePath('/folha-ponto')
-    return { success: true, message: `${geradas} folhas geradas com sucesso. ${erros} falhas.` }
+    // Relata o que MUDOU e o que ficou de fora (armadilha 22): busca interrompida no meio nao
+    // pode virar "sucesso" sem ressalva.
+    const ressalva = completo ? '' : ' ATENÇÃO: a busca das escalas falhou no meio, então nem todas foram tentadas — repita a operação.'
+    return { success: true, completo, message: `${geradas} folhas geradas com sucesso. ${erros} falhas.${ressalva}` }
   } catch (error: any) {
     console.error('Erro na geração em lote:', error)
     return { error: error.message }
@@ -3572,16 +3615,22 @@ export async function autoCorrigirTodasFolhasPonto(mes?: number, ano?: number) {
       return { error: 'Apenas administradores podem executar a correção em lote.' }
     }
 
-    let query = supabase
-      .from('folha_ponto')
-      .select('id, mes, ano, registros, escala_mensal(id, unidade_id, setor_id, mes, ano, jornada_id, jornadas(horas_totais, nome, intervalo_minutos))')
+    // PAGINADO (armadilha 8): 1.289 folhas em 09/2026 contra o teto de 1.000 do PostgREST —
+    // 289 delas nunca eram sequer OLHADAS pela correcao em lote, e o relato nao dizia nada.
+    // Pagina menor porque cada linha carrega o jsonb `registros` (um objeto por dia do mes).
+    const montarQueryFolhas = (from: number, to: number) => {
+      let q = supabase
+        .from('folha_ponto')
+        .select('id, mes, ano, registros, escala_mensal(id, unidade_id, setor_id, mes, ano, jornada_id, jornadas(horas_totais, nome, intervalo_minutos))')
 
-    if (mes && ano) {
-      query = query.eq('mes', mes).eq('ano', ano)
+      if (mes && ano) {
+        q = q.eq('mes', mes).eq('ano', ano)
+      }
+
+      return q.order('id', { ascending: true }).range(from, to)
     }
 
-    const { data: folhas, error } = await query
-    if (error) throw error
+    const { linhas: folhas, completo } = await buscarTodasPaginas<any>(montarQueryFolhas, 200)
 
     // Fora do laco: a carga por jornada e a mesma para todas as folhas.
     const { data: todasJornadasLote } = await supabase
@@ -3647,6 +3696,8 @@ export async function autoCorrigirTodasFolhasPonto(mes?: number, ano?: number) {
 
     return {
       success: true,
+      completo,
+      totalFolhasAnalisadas: folhas.length,
       totalFolhasCorrigidas,
       totalDiasCorrigidos,
       resumo: resumoPorServidor

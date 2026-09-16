@@ -5576,6 +5576,59 @@ Portões: `node scratchpad/sim_nome_setor.js` (40) e `val_sim_nome_setor.js` (**
 injetadas, 7 reprovadas**). Transpile antes com
 `npx tsc src/utils/setores/nomeSetor.ts --outDir scratchpad/_sim --module commonjs --target es2020`.
 
+### 67. O teto de 1000 não some gente: ele faz a tela AFIRMAR o contrário do banco (15/09/2026)
+
+🚨 **"Clico em Gerar, o sistema diz que gerou, volto e continua Não Gerada"** — relatado por
+várias unidades em 15/09/2026. **A folha era gerada, e a mensagem de sucesso era verdadeira.**
+Quem mentia era a listagem: `getServidoresFolhaPonto` buscava `folha_ponto` da competência
+**sem paginar**. Diário em
+[`docs/evolucao/2026-09-15-folha-gerada-que-a-tela-mostrava-como-nao-gerada.md`](docs/evolucao/2026-09-15-folha-gerada-que-a-tela-mostrava-como-nao-gerada.md).
+
+| competência | folhas reais | a tela via | invisíveis |
+|---|---|---|---|
+| 08/2026 | 710 | 710 | **0** |
+| **09/2026** | **1.289** | **1.000** | **289**, em **19 unidades** |
+
+⚠️ **A armadilha 8 costuma ser lida como "o relatório soma menos". Aqui ela ESCREVE UMA
+AFIRMAÇÃO FALSA numa linha:** a folha existia com status `Gerada` e a tela dizia "Não Gerada" —
+e o laço se fechava sozinho, porque gerar de novo gravava certo e a linha voltava igual. Ao
+diagnosticar "fiz e não salvou", **confira o registro no banco antes de suspeitar da gravação**.
+
+⚠️ **Em 08/2026 tudo cabia e parecia perfeito.** O bug nasceu do crescimento da base, não de uma
+mudança de código — é o aviso de `src/utils/paginacao.ts` se cumprindo: *hoje cabe não é seguro*.
+
+🚨 **E o mesmo corte era DESTRUTIVO em dois caminhos que ESCREVEM.**
+`autoGenerateMissingTimesheets` (cron diário) e a rota `regerar-competencia` escolhem o alvo por
+**ausência** de folha; com o mapa truncado, folha existente é lida como inexistente e o `upsert`
+por `escala_mensal_id` a **reescreve como Rascunho**. Medido simulando sobre 09/2026: 390 escalas
+apareciam "sem folha" e **175 já tinham folha — 69 em status `Gerada`**. O cron roda sobre a
+competência **anterior**, então em **01/10/2026** ele alcançaria 09/2026 sozinho, de madrugada.
+Sobre 08/2026 (710 × 710) o efeito é zero, e é por isso que nunca apareceu.
+
+⚠️ **Rotina que ESCREVE decidindo por ausência não pode seguir com busca parcial — tem que
+abortar.** `buscarTodasPaginas` devolve o parcial quando uma página falha (correto para
+relatório, que exibe o aviso); aqui o parcial apaga trabalho alheio. As duas recusam sem gravar
+nada, e o aborto vem **antes** de montar o mapa que decide quem "não tem folha".
+
+⚠️ **`.order('id')` é parte da correção, não enfeite** — sem ordem estável a linha repete numa
+página e falta na outra, e o resultado fica errado *com* paginação.
+
+⚠️ **Recorte o universo antes de paginar quando der.** Com unidade/setor no filtro, o embed
+`escala_mensal!inner(unidade_id, setor_id)` traz 50 linhas em vez de 1.289 — conferido
+**executando** contra produção (armadilha 8b).
+
+ℹ️ Nada foi corrigido no banco, porque nada estava errado lá. Os outros dois sítios da mesma tela
+("Gerar Todas" e "Auto-Corrigir Lote") eram só incompletos e ganharam paginação mais relato
+honesto (`totalFolhasAnalisadas` ao lado de quantas corrigiu — armadilha 22).
+
+ℹ️ Pendência conhecida: `getFolhasPontoPrintData` usa `.in('id', folhaIds)` com o que o usuário
+marcou; uma seleção completa no HMI (541 folhas) monta URI de dezenas de KB — o mesmo estouro de
+gateway que o comentário de `getServidoresFolhaPonto` já registra. Não medido.
+
+Portões: `node scratchpad/sim_paginacao_folha.js` (22) e `val_sim_paginacao_folha.js` (**8
+regressões injetadas, 8 reprovadas**). Conferência contra produção unidade a unidade:
+`node scratchpad/ver_folha_listagem_nova.mjs` — **22 de 22**, soma 1.289 = 1.289.
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.

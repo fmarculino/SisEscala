@@ -11,16 +11,28 @@ import { AlertTriangle } from 'lucide-react'
  *   O erro nao e engolido: quem falha ja registrou em `console.error`. O que este componente
  *   garante e que a falha chegue a QUEM ESTA OLHANDO O NUMERO, nao so ao log do servidor.
  */
-export function AvisoDadosIncompletos({ completo }: { completo: boolean }) {
+export function AvisoDadosIncompletos({
+  completo,
+  titulo = 'Relatório incompleto',
+  mensagem,
+}: {
+  completo: boolean
+  titulo?: string
+  mensagem?: React.ReactNode
+}) {
   if (completo) return null
   return (
     <div className="flex items-start gap-3 rounded-2xl border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/30 p-4">
       <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
       <div className="text-sm text-red-800 dark:text-red-300">
-        <p className="font-black uppercase tracking-wider text-xs mb-1">Relatório incompleto</p>
+        <p className="font-black uppercase tracking-wider text-xs mb-1">{titulo}</p>
         <p className="leading-relaxed">
-          A busca dos dados falhou no meio e os números abaixo <span className="font-bold">não cobrem todo o período</span>.
-          Recarregue a página; se persistir, não use estes totais para decisão e avise a TI.
+          {mensagem ?? (
+            <>
+              A busca dos dados falhou no meio e os números abaixo <span className="font-bold">não cobrem todo o período</span>.
+              Recarregue a página; se persistir, não use estes totais para decisão e avise a TI.
+            </>
+          )}
         </p>
       </div>
     </div>

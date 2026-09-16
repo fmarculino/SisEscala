@@ -194,6 +194,13 @@ export const ponto: Capitulo = {
         },
         {
           tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'Se aparecer "Listagem incompleta"',
+          texto:
+            'Uma tarja vermelha no topo avisa quando a lista não veio inteira do servidor. Enquanto ela estiver lá, o status das linhas **pode estar errado** — uma folha já gerada pode aparecer como "Não Gerada". **Recarregue a página antes de gerar qualquer coisa**; se o aviso continuar, fale com a TI. Sem esse aviso, você geraria de novo a mesma folha sem saber.',
+        },
+        {
+          tipo: 'aviso',
           tom: 'cuidado',
           titulo: 'Horário de batida real é protegido',
           texto:

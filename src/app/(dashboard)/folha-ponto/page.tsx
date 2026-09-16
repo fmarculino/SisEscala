@@ -12,6 +12,7 @@ import { Modal } from '@/components/ui/Modal'
 import { formatSectorsHierarchy } from '@/utils/sectors'
 import { ocorrenciasDoMes } from '@/utils/folha/ocorrencias'
 import { isFaltaDefinitiva } from '@/utils/folha/faltaAutomatica'
+import { AvisoDadosIncompletos } from '@/app/(dashboard)/relatorios/_components/AvisoDadosIncompletos'
 import { formatarMinutosHHMM, formatarHorasDecimaisHHMM, totaisFolha, regraCompensacaoVigente, horasNormaisLiquidasVigente } from '@/utils/folha/calculoDia'
 import { horasNormaisDaJornada } from '@/utils/folha/cargaDiaria'
 import { rotularInativo } from '@/utils/opcoesAtivas'
@@ -94,6 +95,9 @@ export default function FolhaPontoPage() {
 
   // Server timesheet data
   const [servidoresData, setServidoresData] = useState<any[]>([])
+  // Falso quando a busca da listagem foi interrompida no meio: a linha pode estar mostrando
+  // status de folha ERRADO ("Nao Gerada" para folha que existe), nao apenas faltando gente.
+  const [listagemCompleta, setListagemCompleta] = useState(true)
   const [selectedFolhas, setSelectedFolhas] = useState<Set<string>>(new Set())
   const [currentPage, setCurrentPage] = useState(1)
 
@@ -260,6 +264,7 @@ export default function FolhaPontoPage() {
       })
     } else if (res.servidores) {
       setServidoresData(res.servidores)
+      setListagemCompleta(res.completo !== false)
     }
   }, [mes, ano, selectedUnidade, selectedSetor, isUnrestricted])
 
@@ -1124,6 +1129,22 @@ export default function FolhaPontoPage() {
               <span>A busca encontrou muitos servidores e foi limitada. Refine o termo (nome completo, CPF ou matrícula) para não perder resultado.</span>
             </div>
           )}
+        </div>
+      )}
+
+      {!buscaAtiva && (
+        <div className="mb-6">
+          <AvisoDadosIncompletos
+            completo={listagemCompleta}
+            titulo="Listagem incompleta"
+            mensagem={
+              <>
+                A busca das folhas falhou no meio, então o status desta lista{' '}
+                <span className="font-bold">pode estar errado</span> — uma folha já gerada pode aparecer como
+                &quot;Não Gerada&quot;. Recarregue a página antes de gerar qualquer coisa.
+              </>
+            }
+          />
         </div>
       )}
 

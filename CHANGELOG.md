@@ -2,6 +2,43 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.62.0] - 2026-09-15
+
+Sem migration: o defeito era de **leitura**, nenhum dado ficou errado no banco. Diario em
+`docs/evolucao/2026-09-15-folha-gerada-que-a-tela-mostrava-como-nao-gerada.md`.
+
+### Fixed
+
+- 🚨 **A folha estava gerada e a tela dizia "Nao Gerada"** — o bug relatado por varias unidades.
+  A listagem buscava `folha_ponto` da competencia **sem paginar**, e o PostgREST devolve no
+  maximo 1.000 linhas **em silencio** (armadilha 8). Medido em producao em 15/09/2026: 09/2026
+  tem **1.289 folhas** e a tela enxergava **1.000** — as **289** restantes, em **19 unidades**
+  (SMS 92, HMI 45, ENF. ZEZINHA 33...), estavam no banco com status `Gerada` e apareciam como
+  "Nao Gerada". Clicar em Gerar funcionava, o upsert gravava, a mensagem de sucesso era
+  verdadeira, e a linha voltava igual **para sempre**. Em 08/2026 (710 folhas) tudo cabia e
+  parecia perfeito: o bug nasceu do crescimento da base, nao de uma mudanca de codigo.
+- 🚨 **O cron da madrugada rebaixaria folha `Gerada` para `Rascunho` a partir de 01/10/2026.**
+  `autoGenerateMissingTimesheets` e a rota `regerar-competencia` escolhem o alvo por AUSENCIA de
+  folha; com o mapa truncado, folha existente era lida como inexistente e **reescrita**. Medido
+  simulando sobre 09/2026: 390 escalas apareciam "sem folha" e **175 ja tinham folha — 69 em
+  status `Gerada`**. Sobre 08/2026 o efeito era zero, e por isso nunca apareceu. As duas passaram
+  a paginar **e a abortar sem escrever nada** quando a busca vem parcial.
+- **"Gerar Todas" e "Auto-Corrigir Lote" alcancam a competencia inteira.** Antes paravam nas
+  1.000 primeiras e relatavam sucesso; o auto-corrigir passou a dizer tambem quantas folhas
+  **analisou**, nao so quantas corrigiu (armadilha 22).
+
+### Added
+
+- **Aviso "Listagem incompleta"** na Folha de Ponto quando a busca falha no meio. Aqui o parcial
+  nao e "um total menor": e **status de folha errado na linha** — sem o aviso, quem olhasse
+  geraria de novo sem saber. `AvisoDadosIncompletos` ganhou `titulo`/`mensagem` opcionais; as 4
+  telas de relatorio que ja o usavam nao mudaram.
+- Recorte por unidade/setor via embed `escala_mensal!inner` **antes** de paginar (50 linhas na
+  USF Hiroshi Matsuda em vez de 1.289), conferido executando contra producao (armadilha 8b).
+- Portoes: `scratchpad/sim_paginacao_folha.js` (22 asercoes) e `val_sim_paginacao_folha.js`
+  (**8 regressoes injetadas, 8 reprovadas**). Conferencia contra producao unidade a unidade em
+  `scratchpad/ver_folha_listagem_nova.mjs`: **22 de 22**, soma 1.289 = 1.289.
+
 ## [2.61.0] - 2026-09-15
 
 Quatro migrations (`20260915100000`, `20260915110000`, `20260915120000`, `20260915130000`),
