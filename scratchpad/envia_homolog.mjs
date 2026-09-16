@@ -25,7 +25,10 @@ const sql = fs.readFileSync(arquivo, 'utf8')
 // statements viajam junto com o seguinte, o que e' inofensivo.
 // ⚠️ `$fn$;` entrou em 11/09/2026: sem ele, uma migration inteira vira UM statement e o erro de
 // sintaxe volta sem dizer onde está — foi o que aconteceu com a 20260911130000.
-const FIMS = ['$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;', '$fnbloco$;', '$fnaloc$;', '$fn$;', '$conf$;']
+// ⚠️ Delimitador novo = mais uma entrada AQUI. Sem isso o bloco vira parte do statement
+// seguinte e o erro sai deslocado: `$backfill$;` entrou em 15/09/2026 pelo mesmo motivo
+// que `$fn$;` entrou em 11/09.
+const FIMS = ['$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;', '$fnbloco$;', '$fnaloc$;', '$fn$;', '$conf$;', '$backfill$;']
 const statements = []
 let pos = 0
 while (pos < sql.length) {

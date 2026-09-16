@@ -355,6 +355,66 @@ cadastrado` e `Matrícula já cadastrada`** — recusa de duplicidade, exatament
 desejado. ⚠️ **A primeira defesa depende do snapshot já ter chegado**: enfileirar antes da
 primeira leitura do equipamento passa por baixo dela, e aí só resta a recusa do device.
 
+### O relógio atende SETOR, não unidade — e um deles pode ser de OUTRA unidade (15/09/2026)
+
+✅ **Em produção desde 15/09/2026 (v2.61.0)**, migrations `20260915100000` (estrutura),
+`20260915110000` (leitura), `20260915120000` (alocação) e `20260915130000` (gravação). Diário em
+[`docs/evolucao/2026-09-15-relogio-que-atende-setor-de-outra-unidade.md`](docs/evolucao/2026-09-15-relogio-que-atende-setor-de-outra-unidade.md).
+
+**`dispositivos_rep.unidade_id` diz de quem o relógio É** (dono, gestão, quem o vê na tela);
+**`dispositivos_rep_setores` diz quem ele ATENDE**, e desde agora pode atravessar unidade. Fonte
+única: **`fn_dispositivo_atende_setor(dispositivo, setor, unidade)`**, aplicada em 6 portas que
+antes perguntavam `= dispositivos_rep.unidade_id`.
+
+**Motivou:** os 4 polos do CAF (unidade SMS) funcionam dentro de prédios de outras unidades —
+**16 pessoas, zero batidas**. O POLO MORADA NOVA fica dentro da USF Carlos Barreto, cujo relógio
+tinha **2 pessoas** no universo e estava ocioso.
+
+🚨 **`atende_toda_unidade` é COLUNA, nunca mais "lista vazia".** Sem ela, dar ao relógio o primeiro
+setor de fora faria a unidade dona inteira **perder o relógio**, em silêncio — e é ela que permite
+"atende a unidade toda **e** o setor do polo". Ao ler abrangência em código novo, use o predicado;
+`EXISTS(dispositivos_rep_setores)` **não significa mais** "restrito".
+
+🚨 **A defesa da armadilha 55 continua, e o default é FECHADO.** A batida só atravessa unidade onde
+alguém **declarou** o vínculo. Batida em relógio de unidade não atendida continua virando pendência
+`outra_unidade` — não é descartada.
+
+⚠️ **`fn_ingerir_afd` só deriva `marcacoes_ponto.setor_id` quando o relógio atende EXCLUSIVAMENTE
+um setor** (`1 setor E NOT atende_toda_unidade`). Com a regra antiga, o relógio do CB com 1 linha
+carimbaria o setor de outra unidade em **toda** batida dele, com `unidade_id` da USF — marcação
+incoerente, sem erro nenhum.
+
+⚠️ **Vincular setor de fora exige escopo de gestão NAS DUAS unidades.** O ato faz as pessoas
+daquele setor passarem a ser enfileiradas e a bater naquele equipamento; quem só administra a
+unidade do relógio não decide sozinho pela unidade do setor (mesma regra da avaliação de
+transferência). E a RPC **recusa relógio que ficaria sem atender ninguém**.
+
+🚨 **A BIOMETRIA NÃO ATRAVESSA — é o que o vínculo não resolve.** A cópia entre relógios roda dentro
+da rede da unidade e nenhuma máquina do parque atende duas. **A pessoa precisa cadastrar a digital
+presencialmente no relógio novo, uma vez.** A identidade chega sozinha pelo cron; a digital, não.
+
+ℹ️ `fn_enfileirar_cadastros_por_escala` **deriva** de `fn_cobertura_ponto_dispositivo`, e
+`fn_cobertura_ponto_resumo` é envelope dela — corrigir o universo num lugar arrasta as duas.
+`fn_higiene_usuarios_dispositivo` **não precisou mudar**: ela decide `pode_remover` por "existe
+servidor Ativo casando", nunca por unidade.
+
+### ⏳ PENDENTE: setor novo nasce FORA do relógio, em silêncio (15/09/2026)
+
+Medido: **37 setores órfãos, 29 com gente, 115 lotados, 113 sem batida em 09/2026** — e os 37 foram
+criados **depois** de o relógio da unidade estar configurado. Só **SMS e HMM** sofrem (as duas usam
+lista; as outras 22 unidades estão em "toda a unidade", onde setor novo já nasce coberto). Desenho
+completo nas seções 8 a 12 de
+[`docs/planos/2026-09-15-relogio-que-atende-setor-de-outra-unidade.md`](docs/planos/2026-09-15-relogio-que-atende-setor-de-outra-unidade.md).
+
+🚨 **A herança do ancestral resolve 37/37 e NÃO pode ser automática.** Subir a árvore até o
+ancestral mais próximo com relógio cobre todos os casos (pelo **pai direto** só 14 — os outros 23
+têm "pai também órfão", que é cascata). Mas como regra viva ampliaria **13 setores em silêncio**,
+entre eles `ENFERMAGEM > ENFERMEIROS > AMENT - ALA PSICOSSOCIAL`, que tem **relógio próprio em
+outro prédio** — o mesmo erro do HMM-03 × CCE. Herdar é a resposta certa; herdar calado é a forma
+errada. Entra como **sugestão pré-marcada numa decisão explícita**, mais uma detecção de órfãos
+como rede de segurança — o formulário não é o único caminho, e o `parent_id` muda depois da
+criação.
+
 ### Contagem igual entre relógios da mesma unidade NÃO é o objetivo (06/09/2026)
 
 ⚠️ **"O relógio A tem 476 cadastros e o B tem 349, logo eles estão dessincronizados" é leitura

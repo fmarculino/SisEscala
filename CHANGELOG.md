@@ -2,6 +2,46 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.61.0] - 2026-09-15
+
+Quatro migrations (`20260915100000`, `20260915110000`, `20260915120000`, `20260915130000`),
+aplicar nesta ordem. O relogio de ponto deixou de atender uma UNIDADE e passou a atender os
+SETORES que alguem declarar - inclusive setor de outra unidade. Diario em
+`docs/evolucao/2026-09-15-relogio-que-atende-setor-de-outra-unidade.md`.
+
+### Added
+
+- **Um relogio pode atender setor de OUTRA unidade.** E o caso do setor que funciona fisicamente
+  dentro do predio de outra unidade: medido em producao, os 4 polos do CAF (unidade SMS) ocupam
+  predios de outras unidades e somavam **16 pessoas com zero batidas**. O POLO MORADA NOVA fica
+  dentro da USF Carlos Barreto, cujo relogio estava ocioso ao lado deles. No modal de Dispositivos
+  REP ha agora **Setores de outras unidades**; vincular exige escopo de gestao NAS DUAS unidades,
+  porque o ato faz aquelas pessoas passarem a ser cadastradas e a bater naquele equipamento.
+- **`dispositivos_rep.atende_toda_unidade`**, com `fn_dispositivo_atende_setor` como fonte unica
+  da abrangencia. "Toda a unidade" deixou de ser derivado de "lista de setores vazia" - sem a
+  coluna, vincular o primeiro setor de fora faria a unidade dona inteira PERDER o relogio.
+
+### Fixed
+
+- **A batida em relogio de setor atendido vira ponto.** `fn_alocar_marcacoes_dia` deixou de exigir
+  "mesma unidade" e passou a exigir "o relogio atende o setor desta escala". O default continua
+  FECHADO: so atravessa unidade o que foi declarado, e batida sem vinculo continua virando
+  pendencia `outra_unidade` (nunca descartada).
+- **`fn_ingerir_afd` nao carimba mais setor de outra unidade em toda batida.** O `setor_id` da
+  marcacao so e derivado quando o relogio atende EXCLUSIVAMENTE um setor.
+- **`fn_definir_setores_dispositivo_rep` grava a abrangencia na mesma transacao** e recusa deixar
+  um relogio sem atender nenhum setor - estado que, com a coluna criada e a tela gravando so as
+  linhas, ficaria alcancavel por um clique e deixaria a unidade sem ponto, em silencio.
+- **Os setores passaram a ser paginados** em `listarOpcoesFormulario` (699 de 1000, corte
+  silencioso do PostgREST): o modal do relogio agora depende da lista conter setor de outras
+  unidades.
+
+### Docs
+
+- Manual do usuario: **"Quando o setor funciona dentro do predio de outra unidade"**, em
+  Ponto -> Quem trabalha em duas unidades, com o aviso de que a **digital ainda precisa ser
+  cadastrada presencialmente** no relogio novo - a identidade chega sozinha, a biometria nao.
+
 ## [2.60.0] - 2026-09-14
 
 Sem migration. Dois setores eram a mesma coisa em 27 unidades — `SERVICOS GERAIS` e

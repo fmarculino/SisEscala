@@ -18,9 +18,12 @@ interface DispositivoRep {
   id: string
   nome: string
   unidade_id: string
-  // Setores atendidos - [] ou ausente = "toda a unidade" (mesma semantica do antigo setor_id
-  // NULL). Ver docs/planos/2026-08-13-relogio-rep-compartilhado-por-multiplos-setores.md.
+  // Setores atendidos. Desde 15/09/2026 a lista pode conter setor de OUTRA unidade (o setor que
+  // funciona fisicamente dentro de outro prédio) e "toda a unidade" deixou de ser derivado de
+  // lista vazia — virou a coluna atende_toda_unidade, para que as duas coisas possam conviver.
+  // Ver docs/planos/2026-09-15-relogio-que-atende-setor-de-outra-unidade.md.
   dispositivos_rep_setores?: { setor_id: string }[]
+  atende_toda_unidade?: boolean | null
   numero_serie: string | null
   endereco_ip: string | null
   modo_operacao: string
@@ -61,16 +64,32 @@ export function DispositivoRepModal({
 }) {
   const [nome, setNome] = useState(dispositivo?.nome || '')
   const [unidadeId, setUnidadeId] = useState(dispositivo?.unidade_id || '')
+  // A lista gravada mistura setor da unidade dona e setor de fora; a tela separa as duas, porque
+  // sao decisoes diferentes (uma restringe o relogio, a outra amplia).
+  const idsGravados = (dispositivo?.dispositivos_rep_setores || []).map((x) => x.setor_id)
+  const unidadeDoSetor = new Map(opcoes.setores.map((s) => [s.id, s.unidade_id]))
   const [setorIds, setSetorIds] = useState<string[]>(
-    (dispositivo?.dispositivos_rep_setores || []).map((x) => x.setor_id)
+    idsGravados.filter((id) => unidadeDoSetor.get(id) === (dispositivo?.unidade_id || ''))
   )
+  // Setores de OUTRAS unidades atendidos por este relógio (15/09/2026). É o caso do setor que
+  // funciona fisicamente dentro de outro prédio — o POLO MORADA NOVA do CAF, que é da SMS e fica
+  // dentro da USF Carlos Barreto.
+  const [setoresDeFora, setSetoresDeFora] = useState<string[]>(
+    idsGravados.filter((id) => {
+      const u = unidadeDoSetor.get(id)
+      return u !== undefined && u !== (dispositivo?.unidade_id || '')
+    })
+  )
+  const [unidadeDeFora, setUnidadeDeFora] = useState('')
   // "Toda a unidade" e um MODO, nao "a lista esta vazia". Enquanto a caixa era derivada de
   // setorIds.length === 0, o botao "Limpar" da arvore trocava o significado do formulario sem
   // ninguem pedir: desmarcar o ultimo setor voltava para "toda a unidade" e a arvore sumia da
-  // tela. Sao decisoes diferentes -- o banco continua guardando as duas do mesmo jeito (nenhuma
-  // linha em dispositivos_rep_setores = toda a unidade).
+  // tela.
+  // ⚠️ Desde 15/09/2026 o valor vem da COLUNA atende_toda_unidade, nunca mais de "lista vazia":
+  // um relógio pode atender a unidade inteira E um setor de fora ao mesmo tempo, e derivar da
+  // lista tornaria esses dois estados indistinguíveis. Dispositivo novo nasce em "toda a unidade".
   const [todaUnidade, setTodaUnidade] = useState(
-    (dispositivo?.dispositivos_rep_setores || []).length === 0
+    dispositivo ? dispositivo.atende_toda_unidade !== false : true
   )
   const [numeroSerie, setNumeroSerie] = useState(dispositivo?.numero_serie || '')
   const [enderecoIp, setEnderecoIp] = useState(dispositivo?.endereco_ip || '')
@@ -160,12 +179,19 @@ export function DispositivoRepModal({
     const formData = new FormData()
     formData.set('nome', nome)
     formData.set('unidade_id', unidadeId)
-    if (!todaUnidade && setorIds.length === 0) {
+    // Um relógio que não atende a unidade inteira e não tem setor nenhum não cobre NINGUÉM.
+    // Setor de fora conta: é abrangência de verdade, e recusar aqui impediria o caso legítimo
+    // do relógio dedicado a um setor de outro prédio. A RPC recusa o mesmo estado no banco —
+    // esta checagem existe só para a mensagem ser legível (a tela nunca é a defesa).
+    if (!todaUnidade && setorIds.length === 0 && setoresDeFora.length === 0) {
       setErro('Escolha pelo menos um setor, ou marque "Toda a unidade".')
       setSalvando(false)
       return
     }
-    formData.set('setor_ids', JSON.stringify(todaUnidade ? [] : setorIds))
+    formData.set('atende_toda_unidade', String(todaUnidade))
+    // A lista gravada é a união: os setores da unidade dona (só quando NÃO é toda a unidade) mais
+    // os setores de fora, que valem nos dois modos.
+    formData.set('setor_ids', JSON.stringify([...(todaUnidade ? [] : setorIds), ...setoresDeFora]))
     formData.set('numero_serie', numeroSerie)
     formData.set('endereco_ip', enderecoIp)
     formData.set('modo_operacao', modoOperacao)
@@ -340,6 +366,76 @@ export function DispositivoRepModal({
                     avisoPorSetor={setoresUsadosPorOutros}
                   />
                 )}
+
+                {/* ------------------------------------------------------------------
+                    SETORES DE OUTRAS UNIDADES (15/09/2026)
+                    Para o setor que funciona FISICAMENTE dentro de outro prédio: o polo do
+                    CAF (unidade SMS) que fica dentro de uma USF. Sem isto, aquelas pessoas
+                    não aparecem na Cobertura de Ponto deste relógio, não são enfileiradas
+                    para cadastro nele, e a batida delas aqui não vira ponto.
+                    ------------------------------------------------------------------ */}
+                <div className="mt-4 pt-3 border-t border-zinc-200 dark:border-zinc-700">
+                  <p className="text-xs font-semibold text-zinc-600 dark:text-zinc-400 mb-1">
+                    Setores de outras unidades
+                  </p>
+                  <p className="text-[11px] text-zinc-400 mb-2">
+                    Só para quem <strong>trabalha fisicamente aqui</strong> mas está lotado em
+                    outra unidade — por exemplo, um polo que funciona dentro deste prédio. As
+                    pessoas desses setores passam a ser cadastradas neste relógio e a bater ponto
+                    nele, sem sair da escala da unidade delas.
+                  </p>
+
+                  {setoresDeFora.length > 0 && (
+                    <div className="mb-2 flex flex-wrap gap-1">
+                      {setoresDeFora.map((id) => {
+                        const s = opcoes.setores.find((x) => x.id === id)
+                        const u = opcoes.unidades.find((x) => x.id === s?.unidade_id)
+                        return (
+                          <span key={id}
+                            className="inline-flex items-center gap-1 rounded bg-indigo-50 dark:bg-indigo-900/30 px-2 py-0.5 text-[11px] text-indigo-700 dark:text-indigo-300">
+                            {u?.nome || '?'} › {s?.nome || id}
+                            <button type="button" className="hover:text-red-600"
+                              onClick={() => setSetoresDeFora(setoresDeFora.filter((x) => x !== id))}>
+                              ×
+                            </button>
+                          </span>
+                        )
+                      })}
+                    </div>
+                  )}
+
+                  <select
+                    className="w-full rounded border border-zinc-300 dark:border-zinc-600 bg-transparent px-2 py-1 text-sm mb-2"
+                    value={unidadeDeFora}
+                    onChange={(e) => setUnidadeDeFora(e.target.value)}
+                  >
+                    <option value="">Escolher setor de outra unidade…</option>
+                    {/* Unidade inativa não é oferecida; a do relógio sai da lista porque ela já é
+                        tratada acima (src/utils/opcoesAtivas.ts). */}
+                    {opcoesParaEscolha(opcoes.unidades, null)
+                      .filter((u) => u.id !== unidadeId)
+                      .map((u) => (
+                        <option key={u.id} value={u.id}>{u.nome}</option>
+                      ))}
+                  </select>
+
+                  {unidadeDeFora && (
+                    <SeletorSetoresArvore
+                      setores={opcoes.setores.filter((s) => s.unidade_id === unidadeDeFora)}
+                      // Só os desta unidade vão para a árvore: misturar as seleções de outras
+                      // faria o "marcar todos" dela apagar o que já foi escolhido nas demais.
+                      selecionados={setoresDeFora.filter(
+                        (id) => unidadeDoSetor.get(id) === unidadeDeFora
+                      )}
+                      onChange={(ids) =>
+                        setSetoresDeFora([
+                          ...setoresDeFora.filter((id) => unidadeDoSetor.get(id) !== unidadeDeFora),
+                          ...ids,
+                        ])
+                      }
+                    />
+                  )}
+                </div>
               </>
             )}
           </div>

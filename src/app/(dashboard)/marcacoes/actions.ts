@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache'
 import { randomUUID, createHash } from 'crypto'
 import { formatSectorsHierarchy } from '@/utils/sectors'
 import { reconciliarSincronizacaoAfd } from '@/utils/reconciliacaoHelper'
+import { buscarTodasPaginas } from '@/utils/paginacao'
 import {
   montarEscopoGestao, podeGerirMarcacoes, unidadeNoEscopo, filtrarPorUnidade, gerenciaSemEscopo,
   ehEscopadoPorUnidade,
@@ -99,7 +100,13 @@ export async function listarOpcoesFormulario() {
   // e o <select> de unidade fazem isso), e ela so pode ser aplicada por quem conhece a selecao.
   const [{ data: unidades }, { data: setores }, { data: coordenadores }] = await Promise.all([
     supabase.from('unidades').select('id, nome, ativo').order('nome'),
-    supabase.from('setores').select('id, unidade_id, parent_id, ativo, dicionario_setores(nome)'),
+    // ⚠️ PAGINADO (armadilha 8): sao 699 setores em 15/09/2026, contra o teto de 1000 do
+    // PostgREST. O corte e SILENCIOSO, e desde 15/09 o modal do relogio depende desta lista
+    // conter setor de OUTRAS unidades - um setor que sumisse aqui viraria "nao da para
+    // vincular" sem nenhuma mensagem.
+    buscarTodasPaginas((de, ate) =>
+      supabase.from('setores').select('id, unidade_id, parent_id, ativo, dicionario_setores(nome)').range(de, ate).order('id'),
+    ).then((r) => ({ data: r.linhas })),
     supabase
       .from('profiles')
       .select('id, full_name, role, profile_unidades(unidade_id), profile_setores(setores(unidade_id))')
@@ -279,6 +286,9 @@ export async function listarDispositivosRep() {
       // usuarios_lidos_*: a ultima leitura BEM-SUCEDIDA do cadastro. Com total 0 significa
       // "lido e vazio" (relogio zerado ou trocado), que e' diferente de nunca ter sido lido.
       + 'geracao_atual, usuarios_lidos_em, usuarios_lidos_total, '
+      // atende_toda_unidade: desde 15/09/2026 "toda a unidade" e COLUNA, nao "lista vazia" -
+      // sem ela o modal nao sabe reabrir no modo certo e o proximo Salvar troca a abrangencia.
+      + 'atende_toda_unidade, '
       // Lista de setores atendidos (0 linhas = "toda a unidade" - mesma semantica do antigo
       // setor_id IS NULL, ver docs/planos/2026-08-13-relogio-rep-compartilhado-por-multiplos-setores.md).
       + 'dispositivos_rep_setores(setor_id, setores(dicionario_setores(nome)))'
@@ -324,6 +334,11 @@ function lerCamposDispositivo(formData: FormData) {
     const raw = JSON.parse(String(formData.get('setor_ids') || '[]'))
     if (Array.isArray(raw)) setor_ids = raw.filter((x) => typeof x === 'string' && x)
   } catch { /* formato invalido vira lista vazia - RPC nao recebe lixo */ }
+  // 15/09/2026: "toda a unidade" virou COLUNA (dispositivos_rep.atende_toda_unidade) e deixou de
+  // ser derivado de "setor_ids vazio". Sem mandar este campo, a coluna nunca acompanha a tela: o
+  // relogio poderia ficar com a lista trocada e a abrangencia antiga - ou, pior, sem atender
+  // ninguem. A RPC recusa esse ultimo caso; aqui garantimos que o valor certo chega nela.
+  const atende_toda_unidade = formData.get('atende_toda_unidade') === 'true'
   const numero_serie = String(formData.get('numero_serie') || '').trim() || null
   const endereco_ip = String(formData.get('endereco_ip') || '').trim() || null
   const modo_operacao = String(formData.get('modo_operacao') || 'pull')
@@ -337,12 +352,12 @@ function lerCamposDispositivo(formData: FormData) {
   // certo para relógio novo; ao editar, em branco significa "manter o que já está lá", mesma
   // convenção de senha_rep.
   const ponto_valido_desde = String(formData.get('ponto_valido_desde') || '').trim() || null
-  return { nome, unidade_id, setor_ids, numero_serie, endereco_ip, modo_operacao, usuario_rep, senha_rep, porta, usa_https, ponto_valido_desde }
+  return { nome, unidade_id, setor_ids, atende_toda_unidade, numero_serie, endereco_ip, modo_operacao, usuario_rep, senha_rep, porta, usa_https, ponto_valido_desde }
 }
 
 export async function criarDispositivoRep(formData: FormData) {
   const { escopo } = await exigirGestaoMarcacoes()
-  const { setor_ids, ...campos }: any = lerCamposDispositivo(formData)
+  const { setor_ids, atende_toda_unidade, ...campos }: any = lerCamposDispositivo(formData)
   if (!campos.nome || !campos.unidade_id) {
     return { error: 'Nome e unidade são obrigatórios.' }
   }
@@ -360,6 +375,7 @@ export async function criarDispositivoRep(formData: FormData) {
   const { error: erroSetores } = await sessao.rpc('fn_definir_setores_dispositivo_rep', {
     p_dispositivo_id: data.id,
     p_setor_ids: setor_ids,
+    p_atende_toda_unidade: atende_toda_unidade,
   })
   if (erroSetores) return { error: erroSetores.message }
 
@@ -369,7 +385,7 @@ export async function criarDispositivoRep(formData: FormData) {
 
 export async function atualizarDispositivoRep(id: string, formData: FormData) {
   const { escopo } = await exigirGestaoMarcacoes()
-  const { setor_ids, ...campos }: any = lerCamposDispositivo(formData)
+  const { setor_ids, atende_toda_unidade, ...campos }: any = lerCamposDispositivo(formData)
   if (!campos.nome || !campos.unidade_id) {
     return { error: 'Nome e unidade são obrigatórios.' }
   }
@@ -394,6 +410,7 @@ export async function atualizarDispositivoRep(id: string, formData: FormData) {
   const { error: erroSetores } = await sessao.rpc('fn_definir_setores_dispositivo_rep', {
     p_dispositivo_id: id,
     p_setor_ids: setor_ids,
+    p_atende_toda_unidade: atende_toda_unidade,
   })
   if (erroSetores) return { error: erroSetores.message }
 

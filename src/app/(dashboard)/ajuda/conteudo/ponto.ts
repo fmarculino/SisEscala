@@ -352,6 +352,34 @@ export const ponto: Capitulo = {
           texto:
             'Sair de um plantão às 12:00 em uma unidade e entrar às 12:00 em outra são **dois turnos**, não um só. O sistema trata cada um separadamente: cada unidade tem sua entrada, sua saída e seu intervalo. Espere duas batidas próximas na virada — uma fechando lá, outra abrindo aqui — e isso é o certo.',
         },
+        {
+          tipo: 'titulo',
+          texto: 'Quando o setor funciona dentro do prédio de outra unidade',
+        },
+        {
+          tipo: 'p',
+          texto:
+            'É diferente do caso acima, e é permanente: a pessoa não trabalha em duas unidades — ela trabalha num setor que **fica fisicamente dentro do prédio de outra unidade**. É o caso dos polos, que pertencem a uma secretaria mas ocupam uma sala dentro de uma unidade de saúde. O relógio ali é da unidade dona do prédio, e a escala dessas pessoas é da unidade delas.',
+        },
+        {
+          tipo: 'p',
+          texto:
+            'Para esses casos, o relógio pode ser configurado para **atender também aquele setor**. Quem faz isso é quem administra as marcações: em **Marcações → Dispositivos REP**, abra o relógio e use **Setores de outras unidades**. A partir daí as pessoas daquele setor passam a ser cadastradas no equipamento, aparecem na Cobertura de Ponto dele e a batida vira ponto normalmente — sem sair da escala nem da chefia da unidade delas.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'A digital ainda precisa ser cadastrada no relógio novo',
+          texto:
+            'A identidade da pessoa (nome, matrícula) chega sozinha ao equipamento no dia seguinte. A **digital não** — ela é coletada presencialmente, com a pessoa na frente do relógio, uma vez em cada equipamento. Enquanto isso não acontece, a pessoa aparece na Cobertura de Ponto como **sem biometria** e ainda não consegue bater.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'cuidado',
+          titulo: 'Só para quem trabalha ali de verdade',
+          texto:
+            'Vincular um setor de outra unidade faz as pessoas dele passarem a registrar ponto naquele equipamento. Use quando o setor realmente ocupa aquele prédio — não para resolver uma batida avulsa em relógio errado, que é o caso de cima e se resolve na validação manual do dia.',
+        },
         { tipo: 'veja', secaoId: 'nao-apareceu', texto: 'Bati o ponto e não apareceu' },
       ],
     },
