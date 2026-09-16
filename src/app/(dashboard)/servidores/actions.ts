@@ -1506,49 +1506,56 @@ export async function promoverPendenciaRh(
 
 /**
  * Resolve o conflito de uma pendência de importação de RH — quem já está cadastrado com a mesma
- * MATRÍCULA ou o mesmo CPF, se houver. Chamada uma vez, ao abrir a linha na tela (não N+1 na
- * lista inteira). As duas RPCs são `SECURITY DEFINER` (enxergam a base inteira, de propósito — a
- * mesma razão de `20260809110000`), então isso funciona mesmo pra coordenador vendo só sua
- * unidade na lista: se colidir com alguém de outra unidade, ele ainda vê que existe conflito (só
- * não consegue promover/atualizar pra fora do próprio escopo — isso é bloqueado nas RPCs).
+ * MATRÍCULA ou o mesmo CPF, se houver. Chamada ao abrir a linha na tela (não N+1 na lista
+ * inteira).
  *
  * MATRÍCULA TEM PRIORIDADE SOBRE CPF (12/08/2026): colisão por matrícula nunca é um vínculo
  * adicional válido — é sempre o MESMO registro (foi assim que a promoção de FLAVIA BARROS
  * CAVALCANTE estourou `duplicate key value violates unique constraint "servidores_matricula_key"`
- * cru na tela: a pendência dela não tinha CPF pra casar por `fn_cpf_ja_cadastrado`, e a colisão
- * só aparecia no INSERT). Por isso `tipo: 'matricula'` no retorno nunca deve oferecer a opção de
- * cadastro novo na tela — só `tipo: 'cpf'` oferece.
+ * cru na tela). Por isso `tipo: 'matricula'` no retorno nunca deve oferecer a opção de cadastro
+ * novo na tela — só `tipo: 'cpf'` oferece.
  *
- * `cpfNormalizado` devolve o CPF que a própria pendência já traz (ou `null`) — a tela usa isso pra
- * decidir se precisa pedir o CPF ao coordenador antes de promover como cadastro novo (agora
- * obrigatório, mesma regra de `createServidor`/`updateServidor`).
+ * ⚠️ **A leitura da pendência NÃO pode passar pela RLS, e passava.** Até 16/09/2026 esta função
+ * fazia `.from('importacao_rh_pendentes')` com o cliente do usuário. A policy de coordenador
+ * exige `unidade_id` no escopo, e **564 das 860 pendências abertas têm `unidade_id` nulo** — são
+ * exatamente as que só aparecem pela busca cross-unidade, que é SECURITY DEFINER de propósito.
+ * Para elas a leitura devolvia zero linhas, a action retornava erro, e a tela lia isso como "não
+ * há conflito": a coordenadora do CAPS III recebeu *"CPF ja cadastrado... Confirme se e vinculo
+ * adicional"* sem nenhum lugar onde confirmar. Hoje quem responde é
+ * `fn_conflito_pendencia_rh` (`20260916100000`), bounded a UMA pendência.
+ *
+ * `cpfDigitado` só é consultado quando a própria pendência não tem CPF — mesma ordem de
+ * `fn_promover_pendencia_rh`, senão a tela perguntaria por um CPF e o banco gravaria outro.
+ *
+ * `alvo_no_escopo` diz se o cadastro em conflito está no escopo de quem perguntou. Sem ele a tela
+ * ofereceria "atualizar cadastro existente" para `fn_atualizar_cadastro_via_pendencia_rh` recusar
+ * depois — trocaria um beco sem saída por outro (CLAUDE.md armadilhas 31 e 44).
  */
-export async function buscarConflitoPendencia(pendenciaId: string) {
+export async function buscarConflitoPendencia(pendenciaId: string, cpfDigitado?: string) {
   const supabase = await createClient()
 
-  const { data: pend, error: erroPend } = await supabase
-    .from('importacao_rh_pendentes')
-    .select('cpf_normalizado, matricula')
-    .eq('id', pendenciaId)
-    .single()
-  if (erroPend || !pend) return { error: 'Pendência não encontrada.' }
-
-  const { data: porMatricula, error: erroMat } = await supabase.rpc('fn_servidor_por_matricula', {
-    p_matricula: pend.matricula,
+  const { data, error } = await supabase.rpc('fn_conflito_pendencia_rh', {
+    p_pendencia_id: pendenciaId,
+    p_cpf: cpfDigitado || null,
   })
-  if (erroMat) return { error: erroMat.message }
-  const conflitoMatricula = (porMatricula && porMatricula[0]) || null
-  if (conflitoMatricula) {
-    return { conflito: { ...conflitoMatricula, tipo: 'matricula' as const }, cpfNormalizado: pend.cpf_normalizado }
-  }
+  if (error) return { error: error.message }
 
-  const { data: porCpf, error: erroCpf } = await supabase.rpc('fn_cpf_ja_cadastrado', { p_cpf: pend.cpf_normalizado })
-  if (erroCpf) return { error: erroCpf.message }
-  const conflitoCpf = (porCpf && porCpf[0]) || null
+  const linha = (Array.isArray(data) ? data[0] : data) || null
+  if (!linha) return { error: 'Não foi possível conferir esta pendência.' }
 
   return {
-    conflito: conflitoCpf ? { ...conflitoCpf, tipo: 'cpf' as const } : null,
-    cpfNormalizado: pend.cpf_normalizado,
+    conflito: linha.tipo
+      ? {
+          tipo: linha.tipo as 'matricula' | 'cpf',
+          servidor_id: linha.servidor_id,
+          nome: linha.nome,
+          matricula: linha.matricula,
+          unidade_nome: linha.unidade_nome,
+          status: linha.status,
+          alvo_no_escopo: linha.alvo_no_escopo === true,
+        }
+      : null,
+    cpfNormalizado: linha.cpf_pendencia ?? null,
   }
 }
 

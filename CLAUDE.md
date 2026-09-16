@@ -5686,6 +5686,57 @@ que está no ar. Divergiu, é a aba.
 em JSX, só as chaves valem. Varredura: `scratchpad/scan_dollar_jsx.js` (135 candidatos, **1
 real** — os demais são literais multilinha dos relatórios, com a crase em linha anterior).
 
+### 69. Erro de conferência virando "conferi e está tudo bem" — e o guard que não recusa (16/09/2026)
+
+🚨 **Coordenadora do CAPS III recebeu *"CPF ja cadastrado como NEZILDA (matricula 68182). Confirme
+se e vinculo adicional"* sem NENHUM lugar onde confirmar.** O sistema acertou o diagnóstico e não
+ofereceu a resposta. Diário em
+[`docs/evolucao/2026-09-16-a-tela-perguntava-e-nao-deixava-responder.md`](docs/evolucao/2026-09-16-a-tela-perguntava-e-nao-deixava-responder.md).
+
+⚠️ **A causa: a busca cross-unidade ignora o escopo de propósito, e a conferência de conflito
+não.** `fn_buscar_pendencia_rh_por_termo` é `SECURITY DEFINER` porque **564 das 860 pendências
+abertas têm `unidade_id` nulo** e só aparecem por ali; `buscarConflitoPendencia` lia
+`importacao_rh_pendentes` com o cliente do usuário, sob RLS, e a policy de coordenador exige
+`unidade_id` no escopo. Zero linhas → `{ error }` → e a tela fazia **`res?.conflito ?? null`**,
+transformando **erro em "não há conflito"**. Fonte única desde `20260916100000`:
+`fn_conflito_pendencia_rh`, bounded a UMA pendência.
+
+🚨 **A lição maior: erro de uma conferência NUNCA pode virar "conferi e está tudo bem".** Os dois
+estados levam a ações opostas. `src/utils/pendenciaRh/conflitoCadastro.ts` separa `conferindo` /
+`falhou` / `ok`, e `falhou` **desabilita o botão com o motivo escrito** — decidir às cegas sobre
+duplicidade de cadastro é pior que não decidir.
+
+⚠️ **A função nova devolve UMA LINHA mesmo sem conflito** (com `tipo` nulo). Zero linhas seria
+indistinguível de chamada que falhou — o mesmo defeito um nível abaixo.
+
+⚠️ **Corrigir só a detecção trocaria um beco sem saída por outro.**
+`fn_atualizar_cadastro_via_pendencia_rh` recusa cadastro de unidade fora do escopo — e recusa
+**certo**. O cadastro em conflito era do HMI e quem olhava só alcança o CAPS III. Por isso a RPC
+devolve **`alvo_no_escopo`** e a tela desabilita a opção **nomeando a unidade** (armadilhas 31 e
+44). O caminho que resta é vínculo adicional, que `fn_promover_pendencia_rh` autoriza pelo escopo
+de `p_unidade_id`.
+
+🚨 **`NULL NOT IN (lista)` é NULL, não TRUE — então o guard de papel NÃO RECUSA.** Medido
+publicando JWT com `sub` inexistente: `get_my_role()` = NULL e a expressão inteira = NULL, e o `IF`
+não dispara. O padrão `IF (SELECT get_my_role()) NOT IN (...)` está em **dezenas** de funções; ali
+o que segura é o `REVOKE` (anon não executa) mais a RLS. **Em função `SECURITY DEFINER` que lê por
+fora da RLS, o guard é a única porta** — trate NULL explicitamente (o default de uma função de
+segurança é negar, armadilha 40).
+
+✅ **Foi a conferência que EXECUTA (armadilha 42) que pegou isso, abortando a aplicação em
+produção sem gravar nada** — conferido depois: a função respondia 404 no PostgREST, a transação
+inteira voltou atrás. Conferência que só checa se a função existe não teria pego.
+
+ℹ️ **`importacao_rh_pendentes.cpf_normalizado` é `NOT NULL`** e nenhuma das 858 abertas está vazia:
+o campo "CPF *" da tela (*"a importação do RH não trouxe CPF"*) **nunca deveria aparecer** — era
+sintoma do erro engolido. `p_cpf` na promoção é, hoje, caminho inalcançável; a checagem passou a
+olhar `v_cpf_final` mesmo assim, porque o furo é criação de duplicata **em silêncio**.
+
+Portões: `node scratchpad/sim_conflito_pendencia.js` (46) e `val_sim_conflito_pendencia.js`
+(**7 regressões injetadas, 7 reprovadas**). **Validada em homologação com ensaio revertido, 9 de
+9**, com `md5(prosrc)` das duas funções conferido contra o arquivo — validar texto diferente do que
+vai a produção não valida nada.
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.

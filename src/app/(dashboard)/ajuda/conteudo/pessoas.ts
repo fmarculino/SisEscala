@@ -131,6 +131,47 @@ export const pessoas: Capitulo = {
             ],
           ],
         },
+        { tipo: 'titulo', texto: 'Quando a pessoa já tem cadastro' },
+        {
+          tipo: 'p',
+          texto:
+            'Ao abrir uma linha de "Importados aguardando cadastro", o sistema confere antes se aquela matrícula ou aquele CPF já existem. Se existirem, ele **pergunta o que é** — e você responde ali mesmo, antes de qualquer coisa ser gravada.',
+        },
+        {
+          tipo: 'tabela',
+          colunas: ['O que o sistema achou', 'O que você responde', 'O que acontece'],
+          linhas: [
+            [
+              'A **matrícula** já existe',
+              'Nada a escolher.',
+              'Matrícula é única por pessoa, então é sempre a mesma ficha. O sistema só completa o que estiver vazio nela.',
+            ],
+            [
+              'O **CPF** já existe',
+              '"É atualização do cadastro existente"',
+              'Completa o que estiver vazio na ficha que já existe. Não mexe em matrícula, unidade, setor nem situação.',
+            ],
+            [
+              'O **CPF** já existe',
+              '"É um vínculo adicional de verdade"',
+              'Cria uma ficha nova, separada. É a resposta certa quando a pessoa tem dois contratos — dois cargos, duas matrículas.',
+            ],
+          ],
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'A opção pode vir desabilitada, e o motivo fica escrito ao lado',
+          texto:
+            'Quando a ficha que já existe é de **outra unidade**, "atualizar o cadastro existente" aparece desabilitada: completar ficha de unidade que não é sua não é decisão sua. Nesse caso o caminho, se for mesmo a mesma pessoa com dois contratos, é **vínculo adicional** — a ficha nova nasce na sua unidade e a de lá fica intacta. Se nem esse caminho servir, avise o RH Geral.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'cuidado',
+          titulo: 'Se o sistema disser que não conseguiu conferir, não force',
+          texto:
+            'O botão fica desabilitado de propósito, com o motivo escrito. Confirmar sem essa conferência seria criar ficha duplicada às cegas — e duplicata divide o ponto e a folha da pessoa entre duas fichas. Recarregue a página e tente de novo.',
+        },
         {
           tipo: 'aviso',
           tom: 'atencao',

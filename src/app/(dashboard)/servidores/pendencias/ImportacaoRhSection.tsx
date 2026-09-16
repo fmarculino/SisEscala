@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
   UserPlus, Search, ChevronLeft, ChevronRight, CheckCircle2, Info, Users2, X, Loader2, AlertTriangle,
@@ -9,16 +9,10 @@ import { promoverPendenciaRh, buscarConflitoPendencia, atualizarCadastroViaPende
 import { CampoDocumento } from '@/components/CampoDocumento'
 import { formatarDoc } from '@/utils/documentos'
 import { opcoesParaEscolha, rotularInativo } from '@/utils/opcoesAtivas'
-
-interface ConflitoPendencia {
-  servidor_id: string
-  nome: string
-  matricula: string | null
-  unidade_nome: string | null
-  status: string
-  /** matricula = nunca é vínculo válido, é sempre o mesmo registro. cpf = pode ser vínculo adicional de verdade. */
-  tipo: 'matricula' | 'cpf'
-}
+import {
+  avaliarAcao, opcoesDoConflito, recusaPorCpfJaCadastrado,
+  type Conferencia, type Escolha,
+} from '@/utils/pendenciaRh/conflitoCadastro'
 
 interface PendenteRh {
   id: string
@@ -304,34 +298,51 @@ function LinhaPendente({ pendente, aberta, onToggle, onPromovido, unidades, seto
   const [erro, setErro] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
 
-  // Conflito (por matrícula OU CPF) é checado proativamente ao abrir a linha — não mais reativo
-  // a um erro de "confirme de novo". undefined = ainda não checou; null = checou, sem conflito.
-  const [conflito, setConflito] = useState<ConflitoPendencia | null | undefined>(undefined)
-  // CPF que a própria pendência já traz do relatório do RH — quando ausente, a tela precisa
-  // coletar do coordenador antes de promover (CPF obrigatório desde 12/08/2026).
-  const [cpfPendencia, setCpfPendencia] = useState<string | null>(null)
+  // Conflito (por matrícula OU CPF) é checado proativamente ao abrir a linha. `conferencia`
+  // distingue três coisas que antes eram duas: ainda conferindo, conferi e não há, e NÃO CONSEGUI
+  // CONFERIR. Confundir as duas últimas é o defeito de 16/09/2026 — o erro virava "sem conflito"
+  // e a tela seguia pedindo um CPF que a pendência já tinha.
+  const [conferencia, setConferencia] = useState<Conferencia>({ estado: 'conferindo' })
+  const [conferiu, setConferiu] = useState(false)
   const [cpfDigitado, setCpfDigitado] = useState('')
-  const [checandoConflito, setChecandoConflito] = useState(false)
-  const [escolha, setEscolha] = useState<'duplo' | 'atualizar' | null>(null)
+  const [escolha, setEscolha] = useState<Escolha>(null)
+
+  const aplicarConferencia = useCallback((res: any) => {
+    if (res?.error) {
+      setConferencia({ estado: 'falhou', motivo: res.error })
+      return
+    }
+    const encontrado = res?.conflito ?? null
+    setConferencia({ estado: 'ok', cpfPendencia: res?.cpfNormalizado ?? null, conflito: encontrado })
+    // Colisão por matrícula tem uma única resposta válida (ver opcoesDoConflito) — não se pede
+    // escolha entre uma opção e um impedimento.
+    if (encontrado?.tipo === 'matricula') setEscolha('atualizar')
+  }, [])
 
   useEffect(() => {
-    if (!aberta || conflito !== undefined) return
-    setChecandoConflito(true)
-    buscarConflitoPendencia(pendente.id).then(res => {
-      const encontrado = (res as any)?.conflito ?? null
-      setConflito(encontrado)
-      setCpfPendencia((res as any)?.cpfNormalizado ?? null)
-      // Colisão por matrícula tem uma única resposta válida — pula direto pra "atualizar", sem
-      // oferecer radio (ver comentário de emConflitoMatricula abaixo).
-      if (encontrado?.tipo === 'matricula') setEscolha('atualizar')
-      setChecandoConflito(false)
-    })
-  }, [aberta, conflito, pendente.id])
+    if (!aberta || conferiu) return
+    setConferiu(true)
+    setConferencia({ estado: 'conferindo' })
+    buscarConflitoPendencia(pendente.id).then(aplicarConferencia)
+  }, [aberta, conferiu, pendente.id, aplicarConferencia])
 
-  // Colisão por matrícula nunca é vínculo válido — é sempre o mesmo registro (ver comentário em
-  // buscarConflitoPendencia). Trata como "atualizar" direto, sem oferecer a escolha de radio.
+  const cpfPendencia = conferencia.estado === 'ok' ? conferencia.cpfPendencia : null
+  const conflito = conferencia.estado === 'ok' ? conferencia.conflito : null
+  const opcoes = opcoesDoConflito(conflito)
   const emConflitoMatricula = conflito?.tipo === 'matricula'
   const cpfFaltando = !cpfPendencia && !cpfDigitado.trim()
+
+  /**
+   * Reconfere com o CPF digitado. A pendência pode não trazer CPF nenhum; nesse caso é o valor
+   * digitado que identifica a pessoa, e é ele que `fn_promover_pendencia_rh` vai gravar e checar.
+   * Sem isto a tela deixaria o usuário chegar até o botão para o banco recusar depois.
+   */
+  async function reconferirComCpf(cpf: string) {
+    if (cpfPendencia) return
+    if (cpf.replace(/\D/g, '').length !== 11) return
+    setConferencia({ estado: 'conferindo' })
+    aplicarConferencia(await buscarConflitoPendencia(pendente.id, cpf))
+  }
 
   // Setor INATIVO não é oferecido: lotar alguém agora num setor que a administração desativou
   // recria o problema que a inativação existe para resolver — e o inativo continuava na lista
@@ -342,6 +353,22 @@ function LinhaPendente({ pendente, aberta, onToggle, onPromovido, unidades, seto
     () => setores.filter(s => s.unidade_id === unidadeId && s.ativo !== false),
     [setores, unidadeId]
   )
+
+  /**
+   * A recusa do banco por CPF já cadastrado é uma PERGUNTA ("confirme se é vínculo adicional") —
+   * e até 16/09/2026 ela morria como texto vermelho, sem lugar nenhum onde responder. Aqui ela
+   * vira a escolha na tela. Cobre também a corrida: o cadastro pode ter nascido entre abrir a
+   * linha e confirmar.
+   */
+  async function tratarErroDePromocao(mensagem: string) {
+    if (!recusaPorCpfJaCadastrado(mensagem)) {
+      setErro(mensagem)
+      return
+    }
+    setErro(null)
+    setConferencia({ estado: 'conferindo' })
+    aplicarConferencia(await buscarConflitoPendencia(pendente.id, cpfDigitado))
+  }
 
   async function handleConfirmarVinculoDuplo() {
     const cargoNome = cargos.find(c => c.id === cargoId)?.nome
@@ -392,7 +419,7 @@ function LinhaPendente({ pendente, aberta, onToggle, onPromovido, unidades, seto
     const res = await promoverPendenciaRh(pendente.id, unidadeId, setorId, cargoNome, false, cpfDigitado)
     setSalvando(false)
     if (res?.error) {
-      setErro(res.error)
+      await tratarErroDePromocao(res.error)
       return
     }
     onPromovido()
@@ -423,10 +450,24 @@ function LinhaPendente({ pendente, aberta, onToggle, onPromovido, unidades, seto
 
       {aberta && (
         <div className="p-4 space-y-4 border-t border-zinc-200 dark:border-zinc-800">
-          {checandoConflito && (
+          {conferencia.estado === 'conferindo' && (
             <p className="flex items-center gap-2 text-xs text-zinc-400">
               <Loader2 className="h-3 w-3 animate-spin" /> Conferindo se esta matrícula ou CPF já está cadastrado...
             </p>
+          )}
+
+          {/* Conferência que falhou não pode virar "não há conflito" — foi assim que a tela
+              chegou a pedir um CPF que a pendência já tinha e a recusar o cadastro no fim. */}
+          {conferencia.estado === 'falhou' && (
+            <div className="rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-500/10 p-4">
+              <p className="text-sm text-red-900 dark:text-red-200 flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                <span>
+                  <b>Não foi possível conferir se esta pessoa já tem cadastro.</b> {conferencia.motivo}{' '}
+                  Nada será gravado enquanto isso — recarregue a página e tente de novo.
+                </span>
+              </p>
+            </div>
           )}
 
           {emConflitoMatricula && (
@@ -442,6 +483,12 @@ function LinhaPendente({ pendente, aberta, onToggle, onPromovido, unidades, seto
                   setor nem status.
                 </span>
               </p>
+              {opcoes.atualizar.motivo && (
+                <p className="text-xs text-red-800 dark:text-red-300 flex items-start gap-2">
+                  <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  {opcoes.atualizar.motivo}
+                </p>
+              )}
               {!cpfPendencia && (
                 <CampoDocumento
                   className="max-w-xs"
@@ -467,18 +514,30 @@ function LinhaPendente({ pendente, aberta, onToggle, onPromovido, unidades, seto
                 </span>
               </p>
               <div className="space-y-2 pl-1">
-                <label className="flex items-start gap-2 text-sm text-amber-900 dark:text-amber-200 cursor-pointer">
+                <label
+                  className={`flex items-start gap-2 text-sm text-amber-900 dark:text-amber-200 ${
+                    opcoes.atualizar.disponivel ? 'cursor-pointer' : 'opacity-60 cursor-not-allowed'
+                  }`}
+                >
                   <input
                     type="radio"
                     name={`escolha-${pendente.id}`}
                     className="mt-0.5"
                     checked={escolha === 'atualizar'}
+                    disabled={!opcoes.atualizar.disponivel}
                     onChange={() => setEscolha('atualizar')}
                   />
                   <span>
                     <b>É atualização do cadastro existente.</b> Preenche só o que estiver vazio
                     no cadastro de {conflito.nome} — nunca sobrescreve o que já está preenchido,
                     e não mexe em matrícula, unidade, setor nem status.
+                    {/* Fora do escopo, o banco recusaria depois. Dizer aqui é o que impede a
+                        pessoa de descobrir clicando (armadilhas 31 e 44). */}
+                    {opcoes.atualizar.motivo && (
+                      <span className="block mt-1 text-xs text-amber-700 dark:text-amber-400">
+                        {opcoes.atualizar.motivo}
+                      </span>
+                    )}
                   </span>
                 </label>
                 <label className="flex items-start gap-2 text-sm text-amber-900 dark:text-amber-200 cursor-pointer">
@@ -492,6 +551,11 @@ function LinhaPendente({ pendente, aberta, onToggle, onPromovido, unidades, seto
                   <span>
                     <b>É um vínculo adicional de verdade.</b> Mesma pessoa, outro cargo/lotação —
                     cria um cadastro novo, separado do existente.
+                    {pendente.vinculo_adicional_de_cpf && (
+                      <span className="block mt-1 text-xs text-amber-700 dark:text-amber-400">
+                        A importação do RH classificou este vínculo como adicional.
+                      </span>
+                    )}
                   </span>
                 </label>
               </div>
@@ -506,7 +570,7 @@ function LinhaPendente({ pendente, aberta, onToggle, onPromovido, unidades, seto
             </div>
           )}
 
-          {(conflito === null || (conflito?.tipo === 'cpf' && escolha === 'duplo')) && (
+          {conferencia.estado === 'ok' && (conflito === null || (conflito.tipo === 'cpf' && escolha === 'duplo')) && (
             <>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
@@ -563,7 +627,7 @@ function LinhaPendente({ pendente, aberta, onToggle, onPromovido, unidades, seto
                     label="CPF *"
                     tipo="cpf"
                     value={cpfDigitado}
-                    onChange={setCpfDigitado}
+                    onChange={valor => { setCpfDigitado(valor); void reconferirComCpf(valor) }}
                     placeholder="000.000.000-00"
                     required
                     ajuda="Obrigatório — a importação do RH não trouxe CPF para este vínculo."
@@ -579,34 +643,37 @@ function LinhaPendente({ pendente, aberta, onToggle, onPromovido, unidades, seto
             </div>
           )}
 
-          <div className="flex justify-end">
-            {(() => {
-              const semEscolhaAinda = !!conflito && !escolha
-              const desabilitado = checandoConflito || salvando || semEscolhaAinda
-              const rotulo = checandoConflito
-                ? 'Verificando...'
-                : semEscolhaAinda
-                  ? 'Escolha uma opção acima'
-                  : escolha === 'atualizar'
-                    ? 'Atualizar cadastro existente'
-                    : escolha === 'duplo'
-                      ? 'Confirmar cadastro novo (vínculo adicional)'
-                      : 'Confirmar cadastro'
-              const aoClicar = escolha === 'atualizar' ? handleAtualizarExistente
-                : escolha === 'duplo' ? handleConfirmarVinculoDuplo
-                : handleConfirmarNovoCadastro
-              return (
+          {/* O botão vem de conflitoCadastro.ts, fonte única da regra: ele nunca habilita um
+              caminho que o banco vai recusar, e nunca desabilita sem dizer por quê. */}
+          {(() => {
+            const acao = avaliarAcao({
+              conferencia,
+              escolha,
+              camposCompletos: !!unidadeId && !!setorId && !!cargos.find(c => c.id === cargoId)?.nome,
+              cpfInformado: !cpfFaltando,
+              salvando,
+            })
+            const aoClicar = acao.caminho === 'atualizar' ? handleAtualizarExistente
+              : acao.caminho === 'promover_vinculo_adicional' ? handleConfirmarVinculoDuplo
+              : handleConfirmarNovoCadastro
+            return (
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2">
+                {acao.motivo && (
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400 sm:text-right sm:max-w-md">
+                    {acao.motivo}
+                  </p>
+                )}
                 <button
                   onClick={aoClicar}
-                  disabled={desabilitado}
-                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                  disabled={!acao.habilitado}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 shrink-0"
                 >
                   {salvando ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                  {rotulo}
+                  {acao.rotulo}
                 </button>
-              )
-            })()}
-          </div>
+              </div>
+            )
+          })()}
         </div>
       )}
     </div>

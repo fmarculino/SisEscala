@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.66.0] - 2026-09-16
+
+Migration `20260916100000_conflito_de_pendencia_rh_fora_do_escopo.sql`. Documentação em `docs/evolucao/2026-09-16-a-tela-perguntava-e-nao-deixava-responder.md`.
+
+### Fixed
+
+- **Pendências de Cadastro: a tela perguntava "é vínculo adicional?" e não deixava responder.** Coordenadora do CAPS III achou a servidora pela busca "em toda a base", preencheu tudo e recebeu _"CPF ja cadastrado como NEZILDA (matricula 68182). Confirme se e vinculo adicional"_ — sem nenhum lugar onde confirmar. A busca cross-unidade ignora o escopo de propósito (**564 das 860 pendências abertas não têm unidade resolvida** e só aparecem por ali), mas a conferência de conflito lia a tabela sob RLS e devolvia erro; a tela lia esse erro como **"não há conflito"**, escondia as duas opções e ainda pedia um CPF que a pendência já tinha. Agora a conferência passa por `fn_conflito_pendencia_rh` (SECURITY DEFINER, limitada a uma pendência) e as duas opções aparecem.
+- **"Atualizar cadastro existente" deixou de ser um segundo beco sem saída.** Quando a ficha em conflito é de outra unidade, o banco recusa — corretamente. A opção agora vem desabilitada **com o motivo escrito e a unidade nomeada**, e o caminho que resta (vínculo adicional, ficha nova na própria unidade) fica claro.
+- **Erro de conferência não pode mais virar "pode seguir".** Falha ao conferir desabilita o botão com a explicação; confirmar às cegas criaria ficha duplicada.
+- **A recusa do banco por CPF vira pergunta na tela.** Se a ficha nascer entre abrir a linha e confirmar, a escolha reabre em vez de morrer como texto vermelho.
+
+### Security
+
+- **`fn_promover_pendencia_rh` passou a checar duplicidade pelo CPF que será GRAVADO** (o da pendência ou o digitado), não só o da pendência — fechava a criação silenciosa de ficha duplicada. Defesa em profundidade: `cpf_normalizado` é `NOT NULL` e nenhuma das 858 pendências abertas está vazia.
+- **Guard de papel que não recusava.** `NULL NOT IN (lista)` resolve para NULL, não para TRUE, então o `IF` não dispara e sessão sem perfil passava. A função nova nega papel nulo explicitamente — ela lê a tabela por fora da RLS, então o guard é a única porta. Pego pela conferência da própria migration, que abortou a primeira aplicação em produção **sem gravar nada**.
+
 ## [2.65.2] - 2026-09-16
 
 ### Fixed
