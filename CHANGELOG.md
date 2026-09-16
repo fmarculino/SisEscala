@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.65.0] - 2026-09-16
+
+Sem migration de banco de dados. Documentação em `docs/evolucao/2026-09-16-indicadores-ponto-relogio-e-terminal-na-grade.md`.
+
+### Added
+
+- **Indicadores de Prontidão de Ponto na Grade de Escala:** Dois novos ícones visuais posicionados na coluna do servidor (ao lado do botão de exclusão e sob cargo/matrícula) com feedback em tempo real sobre a disponibilidade para registro de ponto:
+  - 🕒 **Relógio Biométrico (REP):** Sistema de 3 cores informando se o servidor está alocado em relógio(s) da unidade/setor e se já possui biometria/digital cadastrada.
+    - 🟢 Verde: Alocado e pronto (com digital cadastrada no REP).
+    - 🟡 Amarelo: Alocado no REP, mas pendente de coleta presencial da digital.
+    - 🔴 Vermelho: Não alocado em nenhum relógio REP do setor/unidade.
+  - 💻 **Terminal de Ponto:** Ícone indicando se o servidor possui PIN de acesso cadastrado para registrar ponto nos terminais locais ou tela web da unidade.
+    - 🟢 Verde: PIN cadastrado e ativo.
+    - 🔴 Vermelho: Sem PIN cadastrado.
+- **Balão de Informações Detalhado (Popover):** Ao passar o mouse (`hover`) ou focar/clicar sobre cada ícone, exibe lista nominal de todos os equipamentos (REPs e terminais) vinculados, destacando o status individual de biometria e orientações operacionais.
+- **Carregamento Otimizado (Zero Flicker):** Pré-carregamento dos status em lote no servidor via `page.tsx`, injetando diretamente no `ScaleGrid` inicial com fallback dinâmico para servidores inseridos em tempo real.
+
 ## [2.64.0] - 2026-09-15
 
 Uma migration (`20260915140000`). Fecha a Parte 2 do plano de 15/09: setor criado numa unidade

@@ -94,6 +94,8 @@ import { AutorizacaoExcecaoModal } from '@/components/escalas/AutorizacaoExcecao
 import { SolicitarExcecaoModal } from '@/components/escalas/SolicitarExcecaoModal'
 import { AlterarJornadaModal, type AlterarJornadaAlvo } from '@/components/escalas/AlterarJornadaModal'
 import { normalizarNomeJornada } from '@/utils/folha/nomeJornada'
+import { IndicadoresPontoServidor } from './IndicadoresPontoServidor'
+import { buscarStatusPontoServidor, type ServidorPontoStatus } from './repStatusActions'
 
 interface ScaleGridProps {
   unidadeId: string
@@ -129,6 +131,7 @@ interface ScaleGridProps {
   logsSobreavisoInicial: any[]
   configsGlobais: any[]
   userProfile: any
+  statusPontoInicial?: Record<string, ServidorPontoStatus>
 }
 
 type RowCategory = 'Regular' | 'Extra' | 'Plantão' | 'Sobreaviso'
@@ -216,7 +219,8 @@ export function ScaleGrid({
   diasInativacao,
   logsSobreavisoInicial,
   configsGlobais,
-  userProfile
+  userProfile,
+  statusPontoInicial = {}
 }: ScaleGridProps) {
   const router = useRouter()
   // Initialize Supabase client once
@@ -226,6 +230,13 @@ export function ScaleGrid({
   const [isTotalsCollapsed, setIsTotalsCollapsed] = useState(false)
   const [servidoresEventos, setServidoresEventos] = useState<any[]>([])
   const [jornadasTemporarias, setJornadasTemporarias] = useState<any[]>([])
+  const [statusPontoMap, setStatusPontoMap] = useState<Record<string, ServidorPontoStatus>>(statusPontoInicial)
+
+  useEffect(() => {
+    if (statusPontoInicial && Object.keys(statusPontoInicial).length > 0) {
+      setStatusPontoMap(prev => ({ ...prev, ...statusPontoInicial }))
+    }
+  }, [statusPontoInicial])
 
   // Servidor Afastado/Inativo sai da ESCOLHA de quem entra numa escala nova — o próprio
   // StatusToggle promete isso ("sai das novas escalas até voltar para Ativo" / "não aparecerá
@@ -1959,6 +1970,13 @@ export function ScaleGrid({
         nome: linha.servidores?.nome 
       })
       fecharModalExterno()
+
+      // Atualizar status de relógio REP e Terminal do servidor externo adicionado
+      buscarStatusPontoServidor(externalData.servidorId, unidadeId, setorId).then(st => {
+        if (st) {
+          setStatusPontoMap(prev => ({ ...prev, [externalData.servidorId]: st }))
+        }
+      }).catch(() => {})
 
       // Servidor Externo é o caso onde a carga em outra escala é mais provável — ele vem de
       // outra lotação, e a escala de origem dele é justamente a que esta grade não mostra.
@@ -5623,7 +5641,7 @@ export function ScaleGrid({
                   {categories.map((cat, catIdx) => (
                     <tr key={`${em.id}-${cat}`} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/30 group">
                       {catIdx === 0 && (
-                        <td rowSpan={4} className="sticky left-0 z-10 bg-white dark:bg-zinc-900 p-2 border border-zinc-200 dark:border-zinc-700 font-bold align-top text-zinc-900 dark:text-zinc-100">
+                        <td rowSpan={4} className="sticky left-0 z-10 hover:z-30 focus-within:z-30 bg-white dark:bg-zinc-900 p-2 border border-zinc-200 dark:border-zinc-700 font-bold align-top text-zinc-900 dark:text-zinc-100">
                           <div className="flex items-start justify-between gap-1 max-w-full">
                             <button
                               type="button"
@@ -5804,15 +5822,25 @@ export function ScaleGrid({
                             </div>
                           )}
 
-                          {!isClosed && !hasConfirmedPresence(em.servidor_id, em.id) && (
-                            <button
-                              onClick={() => handleRemoveServer(em.id, em.servidor_id)}
-                              className="mt-2 text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
-                              title="Remover Servidor da Escala"
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </button>
-                          )}
+                          <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                            <IndicadoresPontoServidor
+                              status={statusPontoMap[em.servidor_id]}
+                              servidorNome={em.servidores?.nome || 'Servidor'}
+                              matricula={em.servidores?.matricula}
+                              unidadeNome={unidadeInfo?.nome}
+                              setorNome={setorInfo?.nome}
+                            />
+
+                            {!isClosed && !hasConfirmedPresence(em.servidor_id, em.id) && (
+                              <button
+                                onClick={() => handleRemoveServer(em.id, em.servidor_id)}
+                                className="p-1 text-red-500 hover:text-red-700 rounded hover:bg-red-50 dark:hover:bg-red-900/20 transition-all border border-transparent hover:border-red-200 dark:hover:border-red-800 cursor-pointer"
+                                title="Remover Servidor da Escala"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
                         </td>
                       )}
                       <td className={`sticky left-[180px] z-10 p-1 border border-zinc-200 dark:border-zinc-700 font-bold uppercase text-zinc-800 dark:text-zinc-200 ${cat === 'Extra' ? 'bg-zinc-50 dark:bg-zinc-800/50' : 'bg-white dark:bg-zinc-900'}`}>

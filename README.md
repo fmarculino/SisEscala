@@ -1,4 +1,4 @@
-# SisEscala 📅[![Version](https://img.shields.io/badge/version-2.45.0-green.svg)](https://github.com/fmarculino/SisEscala)
+# SisEscala 📅[![Version](https://img.shields.io/badge/version-2.65.0-green.svg)](https://github.com/fmarculino/SisEscala)
 [![Next.js](https://img.shields.io/badge/framework-Next.js%2015-black.svg)](https://nextjs.org/)
 [![Supabase](https://img.shields.io/badge/backend-Supabase-green.svg)](https://supabase.com/)
 [![Tailwind CSS](https://img.shields.io/badge/styling-Tailwind%20CSS-38B2AC.svg)](https://tailwindcss.com/)
@@ -10,6 +10,19 @@ O sistema foca em **governança, segurança jurídica e eficiência operacional*
 ---
 
 ## 🚀 Principais Funcionalidades
+
+### 🕒 Indicadores de Prontidão de Ponto na Grade de Escala (v2.65.0)
+- **Status visual em tempo real na 1ª coluna da grade**: Ícones de **Relógio (REP)** e **Computador (Terminal)** informam se o servidor está apto a registrar presença antes mesmo do plantão começar.
+- **Semântica por cores (Verde, Amarelo, Vermelho)**:
+  - 🟢 **Verde**: Servidor alocado em relógio biométrico com digital cadastrada / PIN de terminal ativo e pronto.
+  - 🟡 **Amarelo**: Servidor alocado no relógio físico, mas **sem biometria coletada** (alerta para o coordenador orientar a coleta presencial).
+  - 🔴 **Vermelho**: Servidor não alocado em nenhum relógio do setor/unidade ou sem PIN cadastrado.
+- **Popover detalhado com lista de dispositivos**: Ao passar o mouse ou clicar, detalha os nomes de todos os equipamentos aos quais o servidor tem acesso na unidade.
+- **Zero flicker**: Dados pré-carregados no servidor em lote, sem saltos de layout ou chamadas em cascata.
+
+### 🌐 Abrangência Multi-Unidade de Relógios e Setores sem Relógio (v2.61.0 → v2.64.0)
+- **Relógios que atendem setores de outras unidades**: Permite que equipamentos físicos (ex: relógio de um posto de saúde) cubram setores fisicamente alocados no mesmo prédio mas pertencentes a outra unidade administrativa (ex: polos CAF).
+- **Diagnóstico de "Setores sem Relógio"**: Nova visão gerencial em Marcações que identifica setores que nasceram sem cobertura de equipamento, com sugestão inteligente de vínculo por proximidade hierárquica e histórico de batidas.
 
 ### 📖 Manual do Usuário em SUPORTE → Ajuda (v2.44.0)
 - **8 capítulos, 45 seções e 208 blocos** cobrindo as **23 telas do menu**: o que o sistema é, o ciclo do mês, a grade e suas travas, ponto e folha, pessoas e ausências, relatórios e gestão, a área do servidor, e 12 dúvidas frequentes com glossário.

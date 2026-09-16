@@ -74,6 +74,30 @@ export const escalas: Capitulo = {
           texto:
             'Trocar de aba não muda os dados, muda o que está sendo exibido. A previsão continua lá quando você olha o validado, e vice-versa.',
         },
+        { tipo: 'titulo', texto: 'Indicadores de Ponto do Servidor (Relógio e Terminal)' },
+        {
+          tipo: 'p',
+          texto:
+            'Na primeira coluna da grade, ao lado do botão de exclusão e abaixo do cargo/matrícula do servidor, existem dois ícones coloridos de status de prontidão para registro de ponto: um **Relógio (REP)** e um **Computador (Terminal)**.',
+        },
+        {
+          tipo: 'tabela',
+          colunas: ['Ícone', 'Cor', 'Significado', 'Ação recomendada'],
+          linhas: [
+            ['Relógio (REP)', 'Verde', 'Alocado em relógio(s) biométrico(s) com biometria cadastrada.', 'Pronto para bater ponto no relógio biométrico.'],
+            ['Relógio (REP)', 'Amarelo', 'Alocado em relógio(s), mas falta cadastrar a biometria/digital.', 'Orientar o servidor a cadastrar a digital presencialmente no REP.'],
+            ['Relógio (REP)', 'Vermelho', 'Não está alocado em nenhum relógio biométrico da unidade/setor.', 'Cadastrar/alocar o servidor em Configurações > Dispositivos REP.'],
+            ['Terminal', 'Verde', 'Servidor com PIN de acesso ativo e pronto para registrar.', 'Pronto para bater via tela do terminal local ou web.'],
+            ['Terminal', 'Vermelho', 'Servidor sem PIN de acesso cadastrado.', 'Cadastrar o PIN de 4 a 6 dígitos no perfil do servidor.'],
+          ],
+        },
+        {
+          tipo: 'aviso',
+          tom: 'dica',
+          titulo: 'Passe o mouse sobre os ícones',
+          texto:
+            'Ao passar o mouse (ou clicar) sobre o ícone do relógio ou do terminal, abre-se um balão detalhado listando exatamente os nomes dos equipamentos em que o servidor está alocado, se a biometria está pronta ou pendente em cada um, e os terminais disponíveis.',
+        },
         { tipo: 'titulo', texto: 'As colunas de total, à direita' },
         {
           tipo: 'p',

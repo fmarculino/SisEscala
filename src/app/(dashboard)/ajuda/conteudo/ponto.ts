@@ -39,6 +39,13 @@ export const ponto: Capitulo = {
           texto:
             'No cadastro do terminal existe um **coordenador responsável** — ele é o supervisor do equipamento, para efeito de registro. Quem pode bater ali é decidido pela **unidade e pelo setor do próprio terminal**, não pelo escopo desse coordenador. Ele pode ser de outra unidade sem que isso atrapalhe ninguém.',
         },
+        {
+          tipo: 'aviso',
+          tom: 'dica',
+          titulo: 'Conferindo a prontidão do servidor na Grade de Escala',
+          texto:
+            'Na própria Grade de Escala (ao lado do nome do servidor), existem dois ícones coloridos: um **Relógio (REP)** e um **Computador (Terminal)**. Eles indicam se o servidor está alocado no relógio com biometria cadastrada (verde), pendente de digital (amarelo) ou não alocado (vermelho), e se possui PIN ativo para bater no terminal.',
+        },
         { tipo: 'titulo', texto: 'Os quatro passos do dia' },
         {
           tipo: 'p',

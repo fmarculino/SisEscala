@@ -3,6 +3,7 @@ import { ScaleGrid } from './ScaleGrid'
 import { hasUnitAccess, hasSectorAccess } from '@/utils/permissions'
 import { autoCloseExpiredScalesAndTimesheets } from '@/utils/autoClose'
 import { buscarCaminhosDeSetor } from '@/utils/sectors'
+import { buscarStatusPontoServidores } from './repStatusActions'
 
 export default async function UnidadeEscalaPage({
   params,
@@ -158,6 +159,18 @@ export default async function UnidadeEscalaPage({
     .select('*')
     .in('escala_mensal_id', escalaMensalIds)
 
+  // 10. Fetch REP and Terminal status for all servers in sector and scale
+  const serverIdsSet = new Set<string>()
+  todosServidores?.forEach(s => serverIdsSet.add(s.id))
+  escalaMensal?.forEach(em => {
+    if (em.servidor_id) serverIdsSet.add(em.servidor_id)
+  })
+  const statusPontoInicial = await buscarStatusPontoServidores(
+    Array.from(serverIdsSet),
+    unidadeId,
+    setor
+  )
+
   return (
     <div className="h-full flex flex-col space-y-6">
       <div className="flex items-center justify-between print:hidden">
@@ -190,6 +203,7 @@ export default async function UnidadeEscalaPage({
         logsSobreavisoInicial={logsSobreaviso || []}
         configsGlobais={configsGlobais || []}
         userProfile={profile}
+        statusPontoInicial={statusPontoInicial}
       />
     </div>
   )
