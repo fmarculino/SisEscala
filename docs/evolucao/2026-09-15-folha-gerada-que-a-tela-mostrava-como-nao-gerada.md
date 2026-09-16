@@ -112,3 +112,49 @@ elas a paginação perdendo o `.order` e o cron voltando a seguir com busca parc
   medido ainda**; fica como pendência conhecida.
 - A varredura (`scratchpad/scan_corte_1000.js`) achou outros candidatos fora da folha de ponto
   (`PlanningDeadlineAlert.tsx`, `relatorios/distribuicao`) que não foram tocados nesta rodada.
+
+---
+
+## Segunda rodada, no mesmo dia: "ainda não está funcionando" (v2.63.0)
+
+Minutos depois do deploy, o print voltou com o ALDENIR ainda em "Não Gerada". **A correção estava
+certa e já no ar.** A cronologia, medida:
+
+| horário (local) | o que aconteceu |
+|---|---|
+| 20:14 | o coordenador abre a Folha de Ponto (rodapé do print: **versão 2.60.0**) |
+| **21:21:06** | push da correção — o build do Coolify começa agora |
+| **21:21:45** | ele clica em **Gerar** (39 s depois). O servidor **ainda roda a versão anterior** |
+| 21:24:25 | a v2.62.0 entra no ar |
+| 21:26 | o print é tirado **da mesma aba**, carregada às 20:14 |
+
+O banco comprova: a folha foi regravada às `21:21:45` e, pelo caminho novo, a tela monta
+**50 escalas / 50 folhas, todas `Gerada`** na USF Hiroshi Matsuda — o ALDENIR entre elas
+(`scratchpad/ver_tela_hiroshi.mjs`). O que o print mostra é o código antigo rodando numa aba que
+ninguém recarregou.
+
+🚨 **E isso não é "erro do usuário": é um defeito nosso que estava sem dono.** O deploy é
+automático a cada push, o dashboard fica aberto o dia inteiro, e **nada na tela dizia que ela
+estava velha**. Toda correção de tela tinha uma janela em que quem está usando continua vendo o
+defeito — e reportando de novo. O mesmo risco já estava registrado para o terminal de ponto desde
+09/08/2026; o dashboard nunca foi coberto.
+
+`src/components/AvisoVersaoDesatualizada.tsx` compara a versão do bundle aberto
+(`NEXT_PUBLIC_APP_VERSION`, inlinada no build) com `/api/version` a cada 5 minutos e mostra uma
+tarja âmbar no topo.
+
+⚠️ **Ela não recarrega sozinha, e a diferença para o terminal é deliberada.** O terminal só tem
+matrícula e PIN na tela e recarrega quando está ocioso. No dashboard há grade de escala não salva,
+folha em edição, cadastro pela metade — recarregar por conta própria apagaria trabalho de alguém.
+A tarja avisa, explica e oferece o botão; o momento é de quem está usando.
+
+⚠️ **A tarja vive DENTRO do `<main>`**, que é o elemento com scroll. `sticky` num pai que não rola
+não gruda em nada e some na primeira rolagem.
+
+### E havia mesmo um erro na tela, o que o print mostrava sem ninguém ter reparado
+
+O botão dizia **"IMPRIMIR SELECIONADAS ($0)"**. O código era
+`Imprimir Selecionadas (` + cifrão + `{selectedFolhas.size})` — template literal escrito dentro de
+JSX, onde o cifrão sai **literal** e só as chaves interpolam. Uma varredura
+(`scratchpad/scan_dollar_jsx.js`) achou 135 candidatos no projeto e **este era o único real**: os
+demais são literais multilinha dos relatórios, onde a crase está em linha anterior.

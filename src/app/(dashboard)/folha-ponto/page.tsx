@@ -1058,7 +1058,7 @@ export default function FolhaPontoPage() {
                 className="inline-flex items-center bg-zinc-800 hover:bg-zinc-900 text-white font-black text-xs uppercase tracking-wider px-5 py-3 rounded-xl transition-all shadow-md active:scale-95 disabled:opacity-50"
               >
                 {actionLoading === 'imprimir-lote' ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Printer className="h-4 w-4 mr-2" />}
-                Imprimir Selecionadas (${selectedFolhas.size})
+                Imprimir Selecionadas ({selectedFolhas.size})
               </button>
               {!buscaAtiva && (
                 <>

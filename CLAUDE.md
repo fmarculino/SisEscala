@@ -5629,6 +5629,41 @@ Portões: `node scratchpad/sim_paginacao_folha.js` (22) e `val_sim_paginacao_fol
 regressões injetadas, 8 reprovadas**). Conferência contra produção unidade a unidade:
 `node scratchpad/ver_folha_listagem_nova.mjs` — **22 de 22**, soma 1.289 = 1.289.
 
+### 68. A aba aberta continua com o código antigo, e nada dizia isso (15/09/2026)
+
+🚨 **Uma correção foi para produção e o mesmo defeito voltou a ser relatado minutos depois —
+pela aba que estava aberta desde antes do deploy.** Cronologia medida no dia: push **21:21:06**,
+o coordenador clica em Gerar às **21:21:45** (39 s depois, com o servidor ainda na versão
+anterior), deploy conclui **21:24:25**, e o print chega às **21:26** tirado da **mesma aba,
+carregada às 20:14**. O banco mostrava a folha gravada e a consulta nova devolvendo `Gerada`; o
+relato dizia "continua quebrado".
+
+⚠️ **Não é erro de quem usa: o deploy é automático a cada push e o dashboard fica aberto o dia
+inteiro.** Toda correção de tela tem uma janela em que quem está usando continua vendo o defeito
+— e reportando de novo, o que manda investigar um bug que já não existe. O risco estava
+registrado desde 09/08/2026 **só para o terminal de ponto**; o dashboard nunca foi coberto.
+
+`src/components/AvisoVersaoDesatualizada.tsx` (no layout de `(dashboard)`) compara
+`NEXT_PUBLIC_APP_VERSION` — inlinada no bundle no build, ou seja, **a versão que está aberta** —
+com `/api/version` a cada 5 min, e mostra tarja âmbar com botão.
+
+⚠️ **NÃO recarrega sozinho, ao contrário de `/presenca`, e a diferença é deliberada.** O terminal
+só tem matrícula e PIN na tela e recarrega **quando ocioso**. No dashboard há grade de escala não
+salva, folha em edição e cadastro pela metade: recarregar por conta própria apagaria trabalho.
+Avisar é o máximo que se pode fazer sem decidir pelo usuário.
+
+⚠️ **A tarja fica DENTRO do `<main>`** — é ele que tem o scroll. `sticky` num pai que não rola não
+gruda em nada e some na primeira rolagem.
+
+ℹ️ **Ao receber "corrigi e continua igual", confira a versão antes de reabrir a investigação:** o
+rodapé da barra lateral mostra a versão do **bundle aberto**, e `curl -s <host>/api/version` diz a
+que está no ar. Divergiu, é a aba.
+
+⚠️ **Cifrao seguido de chaves (a forma de template literal) dentro de JSX imprime o cifrão literal** — foi o que pintava
+**"IMPRIMIR SELECIONADAS ($0)"** na Folha de Ponto. Template literal só interpola entre crases;
+em JSX, só as chaves valem. Varredura: `scratchpad/scan_dollar_jsx.js` (135 candidatos, **1
+real** — os demais são literais multilinha dos relatórios, com a crase em linha anterior).
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.

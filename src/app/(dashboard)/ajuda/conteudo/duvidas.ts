@@ -123,6 +123,20 @@ export const duvidas: Capitulo = {
             'Todo botão desabilitado no sistema traz o motivo escrito ao lado ou no rótulo. Se você encontrar um botão cinza **sem explicação nenhuma**, isso é um defeito — reporte.',
         },
 
+        { tipo: 'titulo', texto: 'Fiz uma ação, o sistema disse que deu certo, e a tela não mudou' },
+        {
+          tipo: 'p',
+          texto:
+            'Antes de concluir que a ação falhou, **veja se apareceu uma tarja amarela no topo** dizendo que a página está desatualizada. O sistema é atualizado durante o dia, e uma aba que ficou aberta desde antes continua mostrando a tela antiga — a ação foi feita, quem não soube foi a página. Clique em **Atualizar agora** (ou recarregue) e confira de novo.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'A tarja não recarrega sozinha, e é de propósito',
+          texto:
+            'Numa grade de escala ou folha em edição, recarregar por conta própria apagaria o que você ainda não salvou. Por isso o sistema **avisa** e deixa o momento com você: salve o que está fazendo e então clique em Atualizar.',
+        },
+
         { tipo: 'titulo', texto: 'A tela do terminal parece desatualizada' },
         {
           tipo: 'p',

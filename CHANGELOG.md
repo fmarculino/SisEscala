@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.63.0] - 2026-09-15
+
+Sem migration. Fecha a raiz da confusao de hoje: a aba aberta ha horas continuava com o codigo
+anterior e ninguem tinha como saber. Diario em
+`docs/evolucao/2026-09-15-folha-gerada-que-a-tela-mostrava-como-nao-gerada.md`.
+
+### Added
+
+- 🚨 **Tarja "Esta pagina esta desatualizada" no dashboard inteiro.** Medido na propria correcao
+  da v2.62.0: o push saiu 21:21:06, o coordenador clicou em Gerar as **21:21:45** (39 segundos
+  depois, com o servidor ainda na versao anterior), o deploy entrou as 21:24:25 — e o print que
+  chegou as 21:26 era da mesma aba, aberta desde as 20:14. O sistema ja estava corrigido; a aba
+  e que nao sabia, e o relato foi "continua quebrado". A tarja compara a versao do bundle aberto
+  com `/api/version` a cada 5 min.
+- ⚠️ **Ela NAO recarrega sozinha**, ao contrario do terminal de ponto: no dashboard ha grade de
+  escala nao salva e folha em edicao, e recarregar por conta propria apagaria trabalho. Avisa,
+  explica e oferece o botao — o momento e de quem esta usando.
+
+### Fixed
+
+- **O botao exibia "IMPRIMIR SELECIONADAS ($0)"** — o cifrao mais chaves estava escrito
+  como template literal dentro do JSX, entao o cifrao saia literal na tela.
+
 ## [2.62.0] - 2026-09-15
 
 Sem migration: o defeito era de **leitura**, nenhum dado ficou errado no banco. Diario em
