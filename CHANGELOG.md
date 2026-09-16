@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.65.1] - 2026-09-16
+
+### Fixed
+
+- **Remoção do Tooltip Nativo Concorrente nos Indicadores de Ponto:** Removido o atributo HTML `title` dos botões e elementos internos de `IndicadoresPontoServidor.tsx`. O tooltip nativo retangular do navegador aparecia sobreposto ao balão estilizado customizado (popover), causando poluição visual. Todas as informações detalhadas já estão consolidadas no balão próprio.
+
 ## [2.65.0] - 2026-09-16
 
 Sem migration de banco de dados. Documentação em `docs/evolucao/2026-09-16-indicadores-ponto-relogio-e-terminal-na-grade.md`.

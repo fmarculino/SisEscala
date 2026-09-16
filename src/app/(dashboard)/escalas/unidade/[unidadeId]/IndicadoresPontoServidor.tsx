@@ -102,23 +102,6 @@ export function IndicadoresPontoServidor({
     termBadgeBg = 'bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 border-amber-300 dark:border-amber-700'
   }
 
-  // Texto nativo para title do Relógio
-  const repNativeTitle = [
-    `RELÓGIO DE PONTO (REP) - ${servidorNome}${matricula ? ` (MAT ${matricula})` : ''}`,
-    `Situação: ${repBadgeText}`,
-    status?.rep?.prontos?.length ? `Pronto para registrar ponto em:\n${status.rep.prontos.map(d => ` • ${d.nome}${d.atendeSetor ? ' (deste setor)' : ''}`).join('\n')}` : null,
-    status?.rep?.semBiometria?.length ? `No relógio, mas FALTA biometria em:\n${status.rep.semBiometria.map(d => ` • ${d.nome}${d.atendeSetor ? ' (deste setor)' : ''}`).join('\n')}` : null,
-    (!status?.rep?.todosAlocados?.length) ? 'Não consta em nenhum relógio de ponto físico do município.' : null,
-  ].filter(Boolean).join('\n\n')
-
-  // Texto nativo para title do Terminal
-  const termNativeTitle = [
-    `TERMINAL DE COMPUTADOR - ${servidorNome}${matricula ? ` (MAT ${matricula})` : ''}`,
-    `Situação: ${termBadgeText}`,
-    temPin ? 'Possui PIN cadastrado. Apto a registrar presença no computador.' : 'Ainda NÃO possui PIN cadastrado. Necessário cadastrar PIN para bater no computador.',
-    status?.terminal?.terminaisDoSetor?.length ? `Terminais deste setor/unidade:\n${status.terminal.terminaisDoSetor.map(t => ` • ${t.nome}`).join('\n')}` : 'Terminal clássico de presença (/presenca).'
-  ].filter(Boolean).join('\n\n')
-
   return (
     <div ref={containerRef} className="relative inline-flex items-center gap-1 shrink-0">
       {/* 1. BOTÃO RELÓGIO REP */}
@@ -130,7 +113,7 @@ export function IndicadoresPontoServidor({
           e.stopPropagation()
           setPopoverAberto(curr => (curr === 'rep' ? null : 'rep'))
         }}
-        title={repNativeTitle}
+        aria-label="Status do Relógio de Ponto (REP)"
         className={`p-1 rounded border shadow-2xs transition-colors flex items-center justify-center cursor-pointer ${repButtonClasses}`}
       >
         <Clock className={`h-3.5 w-3.5 ${repIconColor}`} />
@@ -145,7 +128,7 @@ export function IndicadoresPontoServidor({
           e.stopPropagation()
           setPopoverAberto(curr => (curr === 'terminal' ? null : 'terminal'))
         }}
-        title={termNativeTitle}
+        aria-label="Status do Terminal de Computador"
         className={`p-1 rounded border shadow-2xs transition-colors flex items-center justify-center cursor-pointer ${termButtonClasses}`}
       >
         <Monitor className={`h-3.5 w-3.5 ${termIconColor}`} />
@@ -199,7 +182,7 @@ export function IndicadoresPontoServidor({
                   <ul className="space-y-1 pl-1">
                     {status.rep.prontos.map(d => (
                       <li key={d.id} className="flex items-center justify-between text-[10px] bg-emerald-50/60 dark:bg-emerald-950/30 px-1.5 py-0.5 rounded border border-emerald-200/60 dark:border-emerald-900/50">
-                        <span className="font-medium truncate max-w-[170px]" title={d.nome}>{d.nome}</span>
+                        <span className="font-medium truncate max-w-[170px]">{d.nome}</span>
                         <div className="flex items-center gap-1 shrink-0">
                           {d.atendeSetor && (
                             <span className="text-[8px] px-1 py-0.2 rounded bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-bold">
@@ -226,7 +209,7 @@ export function IndicadoresPontoServidor({
                   <ul className="space-y-1 pl-1">
                     {status.rep.semBiometria.map(d => (
                       <li key={d.id} className="flex items-center justify-between text-[10px] bg-amber-50/60 dark:bg-amber-950/30 px-1.5 py-0.5 rounded border border-amber-200/60 dark:border-amber-900/50">
-                        <span className="font-medium truncate max-w-[170px]" title={d.nome}>{d.nome}</span>
+                        <span className="font-medium truncate max-w-[170px]">{d.nome}</span>
                         <div className="flex items-center gap-1 shrink-0">
                           {d.atendeSetor && (
                             <span className="text-[8px] px-1 py-0.2 rounded bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-bold">
