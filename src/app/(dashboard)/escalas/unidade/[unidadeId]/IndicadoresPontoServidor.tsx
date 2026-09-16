@@ -1,6 +1,7 @@
 'use client'
 
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { Clock, Monitor, Fingerprint, CheckCircle2, AlertTriangle, XCircle, Info, KeyRound } from 'lucide-react'
 import type { ServidorPontoStatus } from './repStatusActions'
 
@@ -20,8 +21,41 @@ export function IndicadoresPontoServidor({
   setorNome,
 }: IndicadoresPontoServidorProps) {
   const [popoverAberto, setPopoverAberto] = useState<'rep' | 'terminal' | null>(null)
+  const [mounted, setMounted] = useState(false)
+  const [coords, setCoords] = useState<{ top: number; left: number; abrirParaCima: boolean }>({
+    top: 0,
+    left: 0,
+    abrirParaCima: false,
+  })
+
   const leaveTimerRef = useRef<NodeJS.Timeout | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const popoverRef = useRef<HTMLDivElement>(null)
+  const repBtnRef = useRef<HTMLButtonElement>(null)
+  const termBtnRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  const atualizarPosicao = useCallback(() => {
+    if (!popoverAberto) return
+    const targetBtn = popoverAberto === 'rep' ? repBtnRef.current : termBtnRef.current
+    if (!targetBtn) return
+
+    const rect = targetBtn.getBoundingClientRect()
+    // Espaço abaixo do botão até o fim da janela/viewport
+    const espacoAbaixo = window.innerHeight - rect.bottom
+    // Se o espaço abaixo for menor que 290px e houver espaço acima, abre para CIMA
+    const abrirParaCima = espacoAbaixo < 290 && rect.top > 200
+
+    const top = abrirParaCima ? rect.top - 6 : rect.bottom + 6
+    const cardWidth = 320
+    const maxLeft = Math.max(8, window.innerWidth - cardWidth - 16)
+    const left = Math.min(Math.max(8, rect.left), maxLeft)
+
+    setCoords({ top, left, abrirParaCima })
+  }, [popoverAberto])
 
   const handleMouseEnter = (tipo: 'rep' | 'terminal') => {
     if (leaveTimerRef.current) {
@@ -37,10 +71,28 @@ export function IndicadoresPontoServidor({
     }, 200)
   }
 
+  // Recalcular posição ao abrir, rolar ou redimensionar
+  useEffect(() => {
+    if (!popoverAberto) return
+    atualizarPosicao()
+
+    window.addEventListener('scroll', atualizarPosicao, true)
+    window.addEventListener('resize', atualizarPosicao)
+
+    return () => {
+      window.removeEventListener('scroll', atualizarPosicao, true)
+      window.removeEventListener('resize', atualizarPosicao)
+    }
+  }, [popoverAberto, atualizarPosicao])
+
   // Fechar se clicar fora
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+      const target = event.target as Node
+      if (
+        containerRef.current && !containerRef.current.contains(target) &&
+        popoverRef.current && !popoverRef.current.contains(target)
+      ) {
         setPopoverAberto(null)
       }
     }
@@ -106,6 +158,7 @@ export function IndicadoresPontoServidor({
     <div ref={containerRef} className="relative inline-flex items-center gap-1 shrink-0">
       {/* 1. BOTÃO RELÓGIO REP */}
       <button
+        ref={repBtnRef}
         type="button"
         onMouseEnter={() => handleMouseEnter('rep')}
         onMouseLeave={handleMouseLeave}
@@ -121,6 +174,7 @@ export function IndicadoresPontoServidor({
 
       {/* 2. BOTÃO TERMINAL DE COMPUTADOR */}
       <button
+        ref={termBtnRef}
         type="button"
         onMouseEnter={() => handleMouseEnter('terminal')}
         onMouseLeave={handleMouseLeave}
@@ -134,14 +188,22 @@ export function IndicadoresPontoServidor({
         <Monitor className={`h-3.5 w-3.5 ${termIconColor}`} />
       </button>
 
-      {/* 3. BALÃO FLUTUANTE (POPOVER) */}
-      {popoverAberto && (
+      {/* 3. BALÃO FLUTUANTE (POPOVER VIA PORTAL) */}
+      {mounted && popoverAberto && createPortal(
         <div
+          ref={popoverRef}
+          style={{
+            position: 'fixed',
+            top: `${coords.top}px`,
+            left: `${coords.left}px`,
+            transform: coords.abrirParaCima ? 'translateY(-100%)' : 'none',
+            zIndex: 99999,
+          }}
           onMouseEnter={() => {
             if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current)
           }}
           onMouseLeave={handleMouseLeave}
-          className="absolute left-0 top-full mt-1.5 z-50 w-72 sm:w-80 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 shadow-xl p-3 text-[11px] leading-relaxed text-zinc-800 dark:text-zinc-200 animate-in fade-in zoom-in-95 duration-150 text-left font-normal select-text"
+          className="w-72 sm:w-80 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 shadow-2xl p-3 text-[11px] leading-relaxed text-zinc-800 dark:text-zinc-200 animate-in fade-in zoom-in-95 duration-150 text-left font-normal select-text pointer-events-auto"
         >
           {popoverAberto === 'rep' && (
             <div className="space-y-2.5">
@@ -324,7 +386,8 @@ export function IndicadoresPontoServidor({
               </div>
             </div>
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )

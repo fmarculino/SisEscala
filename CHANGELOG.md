@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.65.2] - 2026-09-16
+
+### Fixed
+
+- **Prevenção de Sobreposição por Barra de Rolagem (React Portal & Inversão Inteligente):** O balão detalhado dos indicadores de ponto (`IndicadoresPontoServidor.tsx`) agora é renderizado via React Portal (`createPortal`) diretamente no `document.body` com `position: fixed` e `z-index: 99999`, fora do container com rolagem (`overflow-auto`) da tabela. Além disso, quando o servidor está posicionado próximo ao rodapé da tela/tabela (como na última linha da grade), o balão inverte dinamicamente para abrir para cima (`transform: translateY(-100%)`), garantindo que nunca fique cortado ou oculto atrás da barra de rolagem horizontal.
+
 ## [2.65.1] - 2026-09-16
 
 ### Fixed
