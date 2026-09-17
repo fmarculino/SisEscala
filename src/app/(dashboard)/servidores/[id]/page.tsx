@@ -144,6 +144,64 @@ export default async function EditServidorPage({
     .select('id, escala_mensal_id, status')
     .eq('servidor_id', id)
 
+  // ── Regime de apuração da folha (20260916110000) ──────────────────────────────────────────
+  // ⚠️ TOLERA A AUSÊNCIA DAS TABELAS, e isso é obrigatório: o deploy é automático a cada push e
+  // a migration é aplicada à mão. Sem o guard, a ficha de TODO servidor quebraria na janela
+  // entre os dois — e a ficha é uma das telas mais usadas. Quando 20260916110000 estiver nos
+  // dois ambientes, o `regimeDisponivel` pode sair.
+  const { data: regimesRaw, error: erroRegimes } = await supabase
+    .from('folha_regimes')
+    .select('id, nome, dia_corte, padrao, ativo')
+    .order('padrao', { ascending: false })
+    .order('nome')
+
+  const regimeDisponivel = !erroRegimes && Array.isArray(regimesRaw)
+
+  // As vigências do servidor E as globais (servidor_id null): é a global que faz o corte valer
+  // para a rede inteira sem uma linha por servidor, então ela precisa vir para a tela poder
+  // dizer que o regime é "herdado da rede" em vez de inventar que é padrão do sistema.
+  const { data: vigenciasRaw } = regimeDisponivel
+    ? await supabase
+        .from('folha_regime_vigencias')
+        .select('id, servidor_id, regime_id, vigencia_inicio, vigencia_fim')
+        .or(`servidor_id.eq.${id},servidor_id.is.null`)
+        .order('vigencia_inicio', { ascending: false })
+    : { data: [] as any[] }
+
+  // Quem resolve o regime é o BANCO, nunca a tela: `fn_periodo_apuracao_servidor` é a mesma
+  // função que a apuração vai usar. A tela só precisa saber de ONDE ele veio, para escrever isso.
+  const hojeCompetencia = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }))
+  const competenciaApuracao = {
+    mes: hojeCompetencia.getMonth() + 1,
+    ano: hojeCompetencia.getFullYear(),
+  }
+
+  const { data: periodoRaw } = regimeDisponivel
+    ? await supabase.rpc('fn_periodo_apuracao_servidor', {
+        p_servidor_id: id,
+        p_mes: competenciaApuracao.mes,
+        p_ano: competenciaApuracao.ano,
+      })
+    : { data: null }
+
+  const periodo = Array.isArray(periodoRaw) ? periodoRaw[0] : periodoRaw
+  const regimes = regimeDisponivel ? (regimesRaw as any[]) : []
+  const vigencias = (vigenciasRaw as any[]) || []
+  const regimeVigente = periodo
+    ? regimes.find(r => r.id === periodo.regime_id) || null
+    : null
+
+  const origemRegime: 'servidor' | 'rede' | 'padrao' =
+    vigencias.some(v => v.servidor_id === id && v.vigencia_fim === null) ? 'servidor'
+    : vigencias.some(v => v.servidor_id === null && v.vigencia_fim === null) ? 'rede'
+    : 'padrao'
+
+  // Mesmo público que gere marcações e o diagnóstico de cadastro (armadilha 62): o predicado do
+  // banco é `fn_escopo_gestao_alcanca`, e as RPCs recusam sozinhas. Aqui é só a oferta na tela.
+  const { data: alcancaGestao } = regimeDisponivel && servidor?.unidade_id
+    ? await supabase.rpc('fn_escopo_gestao_alcanca', { p_unidade_id: servidor.unidade_id })
+    : { data: false }
+
   return (
     <ServidorDetalhesClient
       id={id}
@@ -158,6 +216,13 @@ export default async function EditServidorPage({
       jornadas={jornadas || []}
       jornadasTemporarias={jornadasTemporarias || []}
       podeGerirVigencia={podeGerirVigencia}
+      regimeDisponivel={regimeDisponivel}
+      regimesApuracao={regimes}
+      vigenciasApuracao={vigencias}
+      regimeApuracaoVigente={regimeVigente}
+      origemRegimeApuracao={origemRegime}
+      competenciaApuracao={competenciaApuracao}
+      podeDefinirRegimeApuracao={alcancaGestao === true}
     />
   )
 }

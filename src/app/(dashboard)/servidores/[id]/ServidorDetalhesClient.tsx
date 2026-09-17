@@ -9,6 +9,8 @@ import Link from 'next/link'
 import { createJornadaTemporaria, deleteJornadaTemporaria, getImpactoVigenciaJornada } from '../actions'
 import { useDialog } from '@/components/ui/DialogProvider'
 import { MOTIVO_OBRIGATORIO } from '@/utils/vigenciaJornada'
+import { RegimeApuracaoSection } from './RegimeApuracaoSection'
+import type { RegimeApuracao, VigenciaRegime } from '@/utils/folha/periodoApuracao'
 
 interface ServidorDetalhesClientProps {
   id: string
@@ -24,6 +26,14 @@ interface ServidorDetalhesClientProps {
   jornadasTemporarias: any[]
   /** Resolvido no servidor por fn_pode_gerir_vigencia_jornada — a mesma função das policies. */
   podeGerirVigencia: boolean
+  /** false enquanto 20260916110000 não estiver aplicada — a seção some em vez de quebrar. */
+  regimeDisponivel: boolean
+  regimesApuracao: RegimeApuracao[]
+  vigenciasApuracao: VigenciaRegime[]
+  regimeApuracaoVigente: RegimeApuracao | null
+  origemRegimeApuracao: 'servidor' | 'rede' | 'padrao'
+  competenciaApuracao: { mes: number; ano: number }
+  podeDefinirRegimeApuracao: boolean
 }
 
 export function ServidorDetalhesClient({
@@ -38,7 +48,14 @@ export function ServidorDetalhesClient({
   folhas,
   jornadas,
   jornadasTemporarias,
-  podeGerirVigencia
+  podeGerirVigencia,
+  regimeDisponivel,
+  regimesApuracao,
+  vigenciasApuracao,
+  regimeApuracaoVigente,
+  origemRegimeApuracao,
+  competenciaApuracao,
+  podeDefinirRegimeApuracao
 }: ServidorDetalhesClientProps) {
   const dialog = useDialog()
   const [activeTab, setActiveTab] = useState<'cadastro' | 'historico' | 'jornadas_temporarias'>('cadastro')
@@ -534,6 +551,24 @@ export function ServidorDetalhesClient({
                 </div>
               )}
             </div>
+
+            {/*
+              Período de apuração da folha. Fica nesta aba porque é a mesma natureza das
+              vigências acima — o que muda POR DATA para esta pessoa —, mas é coisa distinta:
+              jornada diz quantas horas o dia tem; regime de apuração diz em que documento o dia
+              entra. Só aparece depois de 20260916110000 ser aplicada (ver `regimeDisponivel`).
+            */}
+            {regimeDisponivel && (
+              <RegimeApuracaoSection
+                servidorId={id}
+                regimes={regimesApuracao}
+                vigencias={vigenciasApuracao}
+                regimeVigente={regimeApuracaoVigente}
+                origemRegime={origemRegimeApuracao}
+                competencia={competenciaApuracao}
+                podeEditar={podeDefinirRegimeApuracao}
+              />
+            )}
           </div>
         )}
 

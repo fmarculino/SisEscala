@@ -1,8 +1,25 @@
 # Período de apuração da folha diferente do mês civil (Mais Médicos, 21 → 20)
 
-**Data:** 14/09/2026
-**Estado:** 📋 **PLANEJADO — nada implementado.** Análise da situação atual medida em produção,
-pesquisa da base normativa e plano faseado. Nenhuma migration escrita.
+**Data:** 14/09/2026 · **atualizado em 16/09/2026**
+**Estado:** ✅ **FASES 0 a 4 CONCLUÍDAS em 16/09/2026 (v2.67.0).** As duas migrations estão
+**aplicadas e conferidas em produção**, executando as funções:
+`ver_regime_apuracao_producao.mjs` (**26 de 26**) e `ver_apuracao_producao.mjs` (**20 de 20**).
+
+| peça | onde |
+|---|---|
+| Fase 1 — o regime | `20260916110000_regime_de_apuracao_da_folha.sql` · `src/utils/folha/periodoApuracao.ts` · seção na ficha do servidor |
+| Fase 2 — a montagem | `src/utils/folha/apuracaoPeriodo.ts` · `servidores/[id]/apuracaoActions.ts` · prévia na mesma seção |
+| Fase 3 — o documento | `20260916120000_emitir_apuracao_do_periodo.sql` · `/folha-ponto/apuracoes` |
+| Fase 4 — o manual | `ajuda/conteudo/pessoas.ts` (o regime) e `ponto.ts` (emitir/retificar) |
+| portões | `sim_periodo_apuracao.js` (67) + `val_` (**9 de 9**) · `sim_apuracao_periodo.js` (**87**) + `val_` (**15 de 15**) · `sim_manual.js` (**914**) |
+| medição real | `an_apuracao_mais_medicos.mjs --corte20` — ensaio sem gravar nada |
+
+`tsc --noEmit`, `lint` e `build` limpos.
+
+🚨 **NADA MUDOU DE VALOR EM PRODUÇÃO, e é assim que tem de ficar até alguém decidir o contrário:**
+nenhum servidor foi atribuído ao regime (0 linhas em `folha_regime_vigencias`), nenhum documento foi
+emitido (0 em `folha_apuracoes`), e os 2.647 ativos continuam no mês civil. **A Fase 5** (devolver os
+4 médicos ao setor real) continua aberta, com medição própria.
 
 **Decisões do usuário (14/09/2026), tomadas antes de escrever este plano:**
 
@@ -10,14 +27,29 @@ pesquisa da base normativa e plano faseado. Nenhuma migration escrita.
 |---|---|
 | o documento 21→20 substitui a folha mensal? | **NÃO — convive.** A folha continua sendo mensal (competência = mês civil); o que nasce é o **documento de apuração do período** |
 | onde o regime é informado? | **No servidor (vínculo), com vigência e histórico** — não no setor |
-| origem da regra do dia 20 | **exigência do programa federal (ADAPS/Ministério)** |
+| origem da regra do dia 20 | ~~exigência do programa federal (ADAPS/Ministério)~~ — **corrigido em 16/09/2026, ver abaixo** |
 
-⚠️ **A norma federal que fixa o corte 21→20 NÃO foi localizada publicamente** (ver §3.2). O que a
-documentação oficial diz é outra coisa: lançamento **mensal** no e-Gestor/SGP e bolsa paga até o
-**5º dia útil do mês subsequente**. Isso **não invalida o plano** — o desenho aceita qualquer dia
-de corte —, mas **antes de imprimir documento para o programa, anexe a norma/ofício a este plano**:
-é ela que diz o dia do corte, o formato e quem assina. Se o corte for outro (25, 15), só muda um
-número no cadastro do regime.
+## ✅ Fase 0 RESPONDIDA em 16/09/2026 — e a resposta melhorou o desenho
+
+**Não existe norma nem ofício.** Decisão/esclarecimento do usuário: *"essa é uma convenção que já
+vem de anos atrás, e a própria folha do município já foi assim em algum momento"*. A busca de
+14/09 não achou a norma federal porque **ela não existe** — o que a documentação do programa diz é
+outra coisa (lançamento **mensal** no e-Gestor/SGP, bolsa até o **5º dia útil** do mês seguinte).
+
+Três consequências, e nenhuma é cosmética:
+
+1. **A Fase 3 está desbloqueada.** Não há norma a esperar nem formato obrigatório a cumprir; o
+   documento é da Secretaria, não do programa.
+2. 🚨 **O corte pode voltar a valer para a REDE INTEIRA** — já valeu. Então o regime não pode ser
+   só "4 linhas para 4 médicos": precisa de um jeito de ligar o corte para todos sem criar 2.647
+   linhas, uma por servidor ativo. É o que a **vigência global** resolve (§4.1).
+3. O corte continua sendo **cadastro**, nunca constante no código — se um dia for 25 ou 15, muda
+   um número.
+
+**E a convenção de nome está confirmada:** *"esse mês que está sendo fechado agora dia 20/09 é
+referente ao mês que está dentro, ou seja mês 09"*. A competência é o mês em que o período
+**FECHA** — 21/08→20/09 é a competência **09/2026**. É a leitura que o plano recomendava, e agora
+está codificada em `fn_periodo_apuracao` e no portão.
 
 ---
 
@@ -235,6 +267,21 @@ reinterpretadas. E remover a atribuição é ato registrado, como `fn_excluir_vi
 `fn_regime_apuracao_servidor` devolve o regime padrão quando não há atribuição vigente — senão
 qualquer servidor novo nasce sem regime e a apuração dele falha em silêncio.
 
+🚨 **A VIGÊNCIA GLOBAL (`servidor_id NULL`), acrescentada em 16/09/2026 depois da resposta da Fase
+0.** Como o corte **já valeu para o município inteiro** e pode voltar, a resolução tem **três**
+níveis, do mais específico ao mais geral — e os dois primeiros têm vigência:
+
+| nível | de onde vem | para que serve |
+|---|---|---|
+| 1 | linha com `servidor_id = <servidor>` | o caso do Mais Médicos: 4 linhas |
+| 2 | linha com **`servidor_id NULL`** | liga o corte para a **rede inteira** com **uma** linha, com vigência e histórico |
+| 3 | `folha_regimes.padrao` (Mês civil) | o fallback duro, para quem não tem nem 1 nem 2 |
+
+Sem o nível 2, voltar ao 21→20 no município exigiria 2.647 linhas — e a data de cada uma seria
+uma chance de errar. Com ele, é um ato registrado só. ⚠️ **Atribuição global é só
+`super_admin`/`rh`**: ela muda o documento de pagamento de toda a rede, então não entra no escopo
+por unidade (que vale para o nível 1, por `fn_escopo_gestao_alcanca`).
+
 **Por que não o setor** (a ideia inicial, e as quatro razões são medidas ou registradas):
 
 | razão | evidência |
@@ -351,6 +398,44 @@ Quem emite: o mesmo público que fecha folha (`super_admin`, `rh`, `rh_unidade` 
 no escopo) — resolvido por `src/utils/escopoGestao.ts`, nunca por allowlist nova (armadilhas 44 e
 62).
 
+### 4.7 🚨 O período atravessa o corte de VIGÊNCIA das regras de folha (achado em 16/09/2026)
+
+**Isto não estava no plano de 14/09 e é a coisa mais importante para quem escrever a Fase 2.**
+
+As três chaves que regem o cálculo do dia valem **desde 2026-09**:
+`horas_normais_liquidas_desde`, `compensacao_atraso_vigente_desde` e
+`autorizacao_extra_vigente_desde`. O período 21/08→20/09 fica com uma metade de cada lado do
+corte. Medido nas folhas reais dos 4 médicos:
+
+| metade | horas normais por dia | regra |
+|---|---|---|
+| dias 21..31/**08** (folha `Revisada`) | **10,00 h** | vão bruto da jornada `08H ÀS 18H` |
+| dias 1..20/**09** (folha `Rascunho`) | **7,58–7,60 h** | líquido, descontado o intervalo de 120 min |
+
+E **`totaisFolha(registros, opcoes)` recebe UMA competência e UMA carga por dia.** Chamá-la uma
+vez sobre os 31 dias aplicaria a régua de setembro aos dias de agosto:
+
+| servidor | pela folha (10h) | recalculado (8h) | diferença |
+|---|---|---|---|
+| T2600015 | 60h | 48h | **−12h** |
+| T2600016 | 40h | 32h | −8h |
+| T2600017 | 50h | 40h | −10h |
+| T2600018 | 50h | 40h | −10h |
+| | | | **−40h nas 4 apurações** |
+
+Num documento que o servidor assina, e divergindo da folha de agosto que já está `Revisada`.
+
+🚨 **A regra: `montarApuracao` chama `totaisFolha` UMA VEZ POR METADE e soma os resultados.** A
+apuração **deriva** da folha; nunca recalcula. `metadesDoPeriodo(janela)`
+(`src/utils/folha/periodoApuracao.ts`) devolve exatamente o recorte de cada competência, e o
+portão tem uma regressão injetada que reproduz este defeito (*"metadesDoPeriodo devolve UMA
+metade"*).
+
+⚠️ **Não "conserte" isso uniformizando a régua.** Recalcular tudo pela regra nova daria um
+documento internamente coerente e **errado**: o programa receberia um número que não existe em
+folha nenhuma. Duas réguas dentro do período é o que a realidade tem, porque a mudança de regra
+aconteceu no meio — e a folha mensal de cada lado está certa.
+
 ---
 
 ## 5. Opções consideradas
@@ -409,18 +494,16 @@ que a apuração estiver funcionando, porque hoje o setor é o único marcador d
 
 ## 7. Fases
 
-### Fase 0 — Confirmar a norma e o formato (nenhum código)
+### ✅ Fase 0 — Confirmar a norma e o formato — RESPONDIDA em 16/09/2026
 
-- [ ] obter a norma/ofício que fixa o corte no dia 20 e **anexar a este plano**
-- [ ] confirmar o **dia exato** do corte e a convenção de nome (fecha em 09/2026 = 21/08→20/09?)
-- [ ] confirmar **quem assina** o documento e se há modelo obrigatório do SGP
-- [ ] confirmar se é **só o Mais Médicos** hoje, e se os 4 medidos são a lista completa
+- [x] **não existe norma nem ofício** — é convenção de anos, e a folha do município já operou
+      assim. Ver o bloco no topo deste documento
+- [x] **dia do corte: 20**; **competência = o mês em que o período FECHA** (21/08→20/09 é 09/2026)
+- [x] quem assina: o documento é da Secretaria, não do programa — não há modelo obrigatório do SGP
+- [ ] confirmar se os **4 medidos são a lista completa** do Mais Médicos hoje (fica para a hora de
+      atribuir o regime; não bloqueia nada)
 
-⚠️ **Esta fase não bloqueia a Fase 1** (o regime e a função de período não dependem do número), mas
-**bloqueia a Fase 3** — imprimir documento para um programa federal no formato errado é pior que
-não imprimir.
-
-### Fase 1 — O regime (migration + cadastro)
+### ✅ Fase 1 — O regime (migration + cadastro) — IMPLEMENTADA em 16/09/2026
 
 - `folha_regimes` com seed: `Mês civil` (`dia_corte NULL`, padrão) e `Mais Médicos (21→20)`
   (`dia_corte = 20`)
@@ -432,36 +515,126 @@ não imprimir.
 - espelho em `src/utils/folha/periodoApuracao.ts`
 - tela: o regime vigente na ficha do servidor, com a janela escrita por extenso
 
-**Portão:** `sim_periodo_apuracao.js` — janela de 21→20 em todos os 12 meses, virada de ano,
-fevereiro (28 e 29 dias), `dia_corte NULL` = mês civil exato, vigência resolvida por data, e a
-varredura que **reprova qualquer sítio novo** que derive a janela sem passar pela fonte única. Mais
-`val_sim_periodo_apuracao.js` com regressões injetadas e reprovação exigida.
-**A conferência da migration EXECUTA as funções** (armadilha 42), e confere os dois sentidos: regime
-atribuído devolve 21→20, e servidor sem atribuição continua devolvendo o mês civil.
+**Portão:** `sim_periodo_apuracao.js` — **67 asserções**: janela de 21→20 nos 12 meses, virada de
+ano, fevereiro (28 e 29 dias), `dia_corte NULL` = mês civil exato, **contiguidade dos períodos em
+5 anos para 4 regimes**, vigência resolvida por data, os três níveis da resolução, e a varredura
+que **reprova qualquer sítio novo** que derive a janela sem passar pela fonte única.
+`val_sim_periodo_apuracao.js` injeta **9 regressões e exige reprovação nas 9**.
+**A conferência da migration EXECUTA as funções** (armadilha 42) e confere os dois sentidos:
+regime atribuído devolve 21→20, e servidor sem atribuição continua devolvendo o mês civil.
 
-**Nada é visível ao usuário nesta fase além da ficha** — e nada muda de valor.
+⚠️ **O início é "fim do período anterior + 1 dia", nunca "dia_corte + 1 do mês anterior".** Com
+corte 28 em março o mês anterior é fevereiro e o dia 29 não existe — a formulação ingênua produz
+data inválida. Somando um dia ao fim anterior a propriedade que importa sai de graça: **os períodos
+consecutivos são contíguos e não se sobrepõem**, então nenhum dia de trabalho cai em dois
+documentos nem em nenhum. O portão cobre isso, e o validador injeta a versão errada.
 
-### Fase 2 — A montagem (leitura pura, nada gravado)
+⚠️ **A leitura na ficha do servidor TOLERA a ausência das tabelas** (`regimeDisponivel`), e isso é
+obrigatório: o deploy é automático a cada push e a migration é manual. Sem o guard, a ficha de todo
+servidor quebraria na janela entre os dois. Pode sair depois que a migration estiver aplicada.
 
-- `fn_apuracao_periodo_servidor(servidor, mes, ano)` — devolve os dias, os totais, as **lacunas**
-  e as **pendências**, atravessando as duas competências
-- `montarApuracao` em TypeScript, com os cinco casos de borda de §4.5
-- **prévia em tela**, sem botão de emitir ainda
+**Nada é visível ao usuário nesta fase além da ficha** — e nada muda de valor: enquanto ninguém
+atribui regime, todos os 2.647 ativos continuam no mês civil, e a conferência da migration aborta
+se isso deixar de ser verdade.
 
-**Medição obrigatória antes de seguir:** rodar a montagem sobre os 4 médicos nas apurações de
-09/2026 e 10/2026 e conferir **dia a dia** contra o recorte de §2.4 — 11 dias de agosto + 20 de
-setembro, HE de 208 min no T2600017, as faltas onde estão. Divergência aqui é defeito de montagem,
-e é a única fase em que ela é barata de achar.
+### ✅ Fase 2 — A montagem (leitura pura) — IMPLEMENTADA em 16/09/2026
 
-### Fase 3 — Emitir, imprimir e retificar
+- **`src/utils/folha/apuracaoPeriodo.ts`** — `montarApuracao`, `descreverApuracao`,
+  `requerConfirmacao`, com os cinco casos de borda de §4.5
+- **`apuracaoActions.ts`** — `previaApuracaoPeriodo`, leitura pura com `createClient()` (a RLS da
+  folha é o que impede ler folha fora do escopo)
+- **prévia em tela**, na própria seção da ficha, sem botão de emitir
 
-- `folha_apuracoes` + `fn_emitir_apuracao` / `fn_retificar_apuracao` / `fn_revogar_apuracao`
-- emissão **exige confirmação** das pendências do período (§4.5)
-- PDF do período, com o cabeçalho de duas datas e as duas lotações quando houver
-- detecção de divergência entre o snapshot e a folha de hoje
-- aba **Apurações** em `/folha-ponto`, escopo por `escopoGestao.ts`
+🚨 **A montagem ficou em TypeScript, NÃO numa RPC — e isso é uma mudança em relação ao esboço
+deste plano.** A razão: os totais exigem `totaisFolha`/`calcularDia`, que são a fonte única do
+cálculo do dia (atraso, compensação, autorização de extra, abono, falta). Reimplementar aquilo em
+SQL seria uma segunda opinião sobre a mesma pergunta — exatamente o que produziu as 37 mil horas
+de divergência em 05/09/2026. **O banco entrega as peças (janela, folhas, vigências); o TypeScript
+monta.**
 
-### Fase 4 — Manual do usuário (mesmo commit)
+⚠️ **A prévia confere o espelho contra o banco e ABORTA se divergirem.** Se `janelaDoPeriodo` (TS)
+e `fn_periodo_apuracao` (SQL) discordarem do recorte, a prévia recusa em vez de mostrar número —
+senão o documento sairia com um recorte que a emissão não usaria.
+
+**Medição obrigatória — feita em 16/09/2026** (`scratchpad/an_apuracao_mais_medicos.mjs`, com
+`--corte20` para ensaiar o regime sem gravar nada). Bate com §2.4 e com §4.7:
+
+| servidor | 08/2026 (11 dias, 10h/dia) | 09/2026 (20 dias, 8h/dia) | total | com régua única |
+|---|---|---|---|---|
+| T2600015 | 60h00 | 88h00 | **148h00** | 136h00 (−12h) |
+| T2600016 | 40h00 | 96h00 | **136h00** | 128h00 (−8h) |
+| T2600017 | 50h00 | 96h00 | **146h00** | 136h00 (−10h) |
+| T2600018 | 50h00 | 88h00 | **138h00** | 128h00 (−10h) |
+| | | | | **−40h** |
+
+As −40h são **o mesmo número** que a medição independente de §4.7 achou por outro caminho — duas
+contas diferentes chegando ao mesmo lugar.
+
+✅ **E o caso de borda 3 apareceu sozinho no dado real:** a lotação muda no meio do período
+(`AMBULATÓRIO CLÍNICO` em 08/2026 → `MAIS MEDICOS` em 09/2026, por causa da transferência de
+09/09). As duas vão no documento, como o §4.5 exige.
+
+⚠️ **Achado ao escrever a medição:** a primeira versão do script comparava usando `diasComRegistro`
+(dias com **linha** na folha, que são 31) em vez de dias com **turno** (17). O "prejuízo" saía como
+100h em vez de 12h. Número errado em script de medição é o que produz relatório falso — a conta
+certa divide `normaisMinutos` pela carga da metade.
+
+**Portões:** `node scratchpad/sim_apuracao_periodo.js` (**67 asserções**) e
+`val_sim_apuracao_periodo.js` (**10 regressões injetadas, 10 reprovadas**), entre elas a que
+aplica a régua de uma competência ao período todo. Transpile antes com
+`npx tsc src/utils/folha/apuracaoPeriodo.ts --outDir scratchpad/_sim --module commonjs --target es2020 --skipLibCheck`.
+
+### ✅ Fase 3 — Emitir, imprimir e retificar — IMPLEMENTADA em 16/09/2026
+
+`20260916120000_emitir_apuracao_do_periodo.sql` — **aplicada e conferida em produção**
+(`scratchpad/ver_apuracao_producao.mjs`, **20 de 20**, executando as funções).
+
+| peça | o quê |
+|---|---|
+| `folha_apuracoes` | o documento: snapshot por versão, append-only, com autoria e `fingerprint` |
+| `fn_pode_emitir_apuracao` | allowlist de papel + escopo (`admin` e `rh_unidade` só na unidade deles) |
+| `fn_apuracao_conferencia` | o que o banco vê no período — é ela que recusa payload forjado |
+| `fn_emitir_apuracao` / `fn_retificar_apuracao` / `fn_revogar_apuracao` | os três atos |
+| `fn_apuracoes_competencia` | a listagem da tela |
+| `fingerprintApuracao` / `compararComEmitido` | a detecção de divergência, no TypeScript |
+| `/folha-ponto/apuracoes` | a tela: prévia, emitir, imprimir, retificar, revogar |
+
+🚨 **Onde mora a confiança, já que os totais vêm do TypeScript.** Não dá para o SQL recalcular
+(seria a segunda opinião que o §4.7 proíbe), então a RPC **confere o que o SQL sabe**: a janela vem
+do banco (nunca do payload), o número de dias tem de ser o do período, e **`dias_com_linha` é
+conferido contra `folha_ponto`**. Um documento que afirma 20 dias trabalhados onde a folha tem 5 é
+recusado. O que passa fica com autoria, versão e fingerprint — auditável contra a folha.
+
+⚠️ **Append-only com UMA exceção estreita: revogar.** A comparação do trigger é **estrutural**
+(`to_jsonb(NEW)` menos as três colunas de revogação), não uma lista de campos que envelhece —
+acrescentar coluna à tabela não abre brecha. E revogação **não se desfaz**.
+
+⚠️ **Reimprimir sai do SNAPSHOT, nunca da folha de hoje.** É isso que faz o PDF de outubro ser
+idêntico ao entregue em setembro. Se a folha mudou, a tela **avisa o que mudou** e oferece
+retificar; ela não corrige o documento por conta própria.
+
+⚠️ **O fingerprint NÃO inclui o id da folha**, de propósito: sincronizar a folha sem alterar
+horário nenhum não pode aparecer como divergência, senão o aviso vira ruído e ninguém mais olha.
+
+⚠️ **A verificação em produção NÃO testa o append-only, e isso é decisão registrada.** Testar por
+fora exigiria inserir uma linha que depois não sairia (o trigger recusa `DELETE`, e revogar exige
+papel): a sonda ficaria para sempre numa tabela de documento, indistinguível de emissão real. Quem
+garante o append-only é a conferência **dentro** da migration, que aborta e não deixa rastro.
+
+**Portões:** `sim_apuracao_periodo.js` (**87 asserções**) e `val_sim_apuracao_periodo.js`
+(**15 regressões, 15 reprovadas**).
+
+⚠️ **Duas regressões ESCAPARAM na primeira rodada, e as duas eram defeito do portão** — vale
+guardar, porque é a armadilha 48/57 aparecendo de novo:
+- *"o fingerprint ignora os horários"* passou porque o teste mudava um campo via
+  `montarApuracao`, e mudar a entrada muda o **atraso**, que entra nos totais, que também estão no
+  hash. O hash mudava mesmo com o campo fora dele. A correção foi comparar dois documentos com
+  **totais idênticos** que diferem só no campo — hoje os 8 campos do dia são testados um a um.
+- *"o fingerprint ignora a janela"* escapou **com razão**: cada linha já carrega `d.data`, então a
+  janela no texto é redundante. A injeção foi **removida** em vez de forçada — injeção que não muda
+  comportamento observável é injeção inútil.
+
+### ✅ Fase 4 — Manual do usuário — FEITA no mesmo commit
 
 🚨 Toda mudança que altera o que o usuário vê ou faz entra no manual **no mesmo commit** (decisão
 de 06/09/2026). Aqui: o que é regime de apuração, por que a folha mensal **não muda**, como emitir,

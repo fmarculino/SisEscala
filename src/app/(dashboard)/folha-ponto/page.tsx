@@ -886,6 +886,18 @@ export default function FolhaPontoPage() {
             <p className="mt-1 text-zinc-500 text-sm font-medium">Geração e fechamento de relatórios de horas mensais de servidores.</p>
           </div>
         </div>
+
+        {/*
+          Apurações do período: para quem fecha a folha em dia diferente do último dia do mês
+          (Mais Médicos, 21 a 20). A tela recusa quem não pode emitir, com a razão escrita — o
+          link aparecer para todos é deliberado: botão escondido ensina a procurar contorno.
+        */}
+        <Link
+          href="/folha-ponto/apuracoes"
+          className="text-sm font-semibold text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap"
+        >
+          Apurações do período (21 a 20) →
+        </Link>
       </div>
 
       {/* Filters Bar */}

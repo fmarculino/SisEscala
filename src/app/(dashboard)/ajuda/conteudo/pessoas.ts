@@ -88,6 +88,85 @@ export const pessoas: Capitulo = {
     },
 
     {
+      id: 'periodo-apuracao',
+      titulo: 'Período de apuração da folha',
+      resumo: 'Para quem a folha não fecha no último dia do mês, e sim no dia 20.',
+      papeis: ['RH da Unidade', 'RH Geral', 'Administrador Geral', 'Diretor'],
+      blocos: [
+        {
+          tipo: 'caminho',
+          itens: ['CADASTROS', 'Servidores', 'ficha do servidor', 'Alterações de Jornada'],
+        },
+        {
+          tipo: 'p',
+          texto:
+            'Quase todo mundo tem a folha apurada do dia 1 ao último dia do mês. Alguns grupos, não: o **Mais Médicos** fecha a frequência no **dia 20**, então o período dele vai de **21 de um mês a 20 do seguinte**. É uma convenção antiga — a folha do próprio município já funcionou assim em outra época.',
+        },
+        {
+          tipo: 'p',
+          texto:
+            'Na ficha do servidor, a seção **Período de apuração da folha** mostra qual período vale para aquela pessoa e permite trocá-lo. O sistema escreve as duas datas por extenso justamente porque "setembro" é ambíguo aqui: pode começar no dia 1 ou no dia 21.',
+        },
+        {
+          tipo: 'tabela',
+          colunas: ['O que aparece', 'O que significa'],
+          linhas: [
+            [
+              'definido para este servidor',
+              'Alguém escolheu o período especificamente para essa pessoa. É o caso do Mais Médicos.',
+            ],
+            [
+              'herdado do regime da rede',
+              'Vale um período definido para todos os servidores. Só RH Geral e Administrador Geral podem definir esse.',
+            ],
+            [
+              'padrão do sistema',
+              'Ninguém definiu nada, então vale o mês civil: dia 1 ao último dia. É o caso de quase todo mundo.',
+            ],
+          ],
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'O mês a que o período se refere é o mês em que ele FECHA',
+          texto:
+            'O período que fecha em **20 de setembro** é a competência de **setembro**, mesmo começando em 21 de agosto. É assim que o RH sempre tratou, e é assim que o sistema nomeia.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'cuidado',
+          titulo: 'Trocar o período não reescreve o passado',
+          texto:
+            'Ao definir um período novo você informa **a partir de que dia** ele vale, e o anterior é encerrado no dia antes disso. O que já foi apurado continua como estava — é isso que impede a folha de um mês fechado de mudar de valor depois. O motivo que você escreve fica no histórico, com o seu nome.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'A folha mensal continua existindo, e continua sendo a mesma',
+          texto:
+            'Definir o período de apuração **não muda nenhuma folha**: as horas, o atraso, a hora extra e as faltas de cada dia continuam sendo calculados do mesmo jeito, na folha do mês em que o dia aconteceu. O que o período faz é dizer **em qual documento** aquele dia entra quando o RH for apurar.',
+        },
+        {
+          tipo: 'p',
+          texto:
+            'Quando o período atravessa a virada do mês, a tela avisa e mostra as duas partes — por exemplo, 21 a 31/08 mais 1 a 20/09. Cada parte é contada com as regras da competência dela, exatamente como está na folha mensal correspondente. Se você comparar o total do período com a folha de um mês só, os números não vão bater, e isso é esperado: são recortes diferentes.',
+        },
+        {
+          tipo: 'p',
+          texto:
+            'O botão **Ver apuração deste período** mostra os números antes de qualquer coisa: quantos dias entraram, quantas horas normais de cada parte, o que ficou de fora e o que ainda depende de decisão. É só consulta — nada é gravado e nenhuma folha muda.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'O que impede o período de estar pronto',
+          texto:
+            'A prévia avisa quando **falta a folha** de uma das partes, quando **algum dia do período não tem linha** na folha, e quando há dia esperando decisão de **compensação de atraso** ou de **autorização de hora extra**. Resolva esses pontos na folha do mês correspondente: o período é um recorte dela, então corrigir lá conserta aqui.',
+        },
+      ],
+    },
+
+    {
       id: 'pendencias-cadastro',
       titulo: 'Pendências de Cadastro',
       resumo: 'A tela que mostra o que está errado ou faltando nos cadastros.',

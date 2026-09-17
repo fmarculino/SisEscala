@@ -2279,3 +2279,63 @@ export async function mesclarCadastrosServidor(
     identidadeDivergente: resultado.identidade_divergente || [],
   }
 }
+
+// ============================================================================
+// Regime de apuracao da folha (periodo de fechamento diferente do mes civil)
+// ============================================================================
+// Plano: docs/planos/2026-09-14-periodo-de-apuracao-da-folha-mais-medicos.md (Fase 1)
+//
+// ⚠️ As duas usam `createClient()`, NUNCA `createAdminClient()`. As RPCs conferem papel por
+// `get_my_role()` e escopo por `fn_escopo_gestao_alcanca`: com service_role nao ha papel nenhum,
+// e a atribuicao seria recusada. Quem decide em que documento o dia de trabalho de alguem entra
+// tem de estar logado.
+
+export async function atribuirRegimeApuracao(
+  servidorId: string | null,
+  regimeId: string,
+  vigenciaInicio: string,
+  motivo: string
+) {
+  if (!motivo || motivo.trim().length < 5) {
+    return { error: 'Informe o motivo da atribuição (ao menos 5 caracteres).' }
+  }
+  if (!regimeId) {
+    return { error: 'Escolha o regime de apuração.' }
+  }
+
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc('fn_atribuir_regime_apuracao', {
+    p_servidor_id: servidorId,
+    p_regime_id: regimeId,
+    p_vigencia_inicio: vigenciaInicio || null,
+    p_motivo: motivo.trim(),
+  })
+
+  if (error) return { error: error.message }
+
+  if (servidorId) revalidatePath(`/servidores/${servidorId}`)
+  return { success: true, resultado: data }
+}
+
+export async function encerrarRegimeApuracao(
+  vigenciaId: string,
+  motivo: string,
+  servidorId?: string | null,
+  dataFim?: string | null
+) {
+  if (!motivo || motivo.trim().length < 5) {
+    return { error: 'Informe o motivo do encerramento (ao menos 5 caracteres).' }
+  }
+
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc('fn_encerrar_regime_apuracao', {
+    p_vigencia_id: vigenciaId,
+    p_motivo: motivo.trim(),
+    p_data_fim: dataFim || null,
+  })
+
+  if (error) return { error: error.message }
+
+  if (servidorId) revalidatePath(`/servidores/${servidorId}`)
+  return { success: true, resultado: data }
+}

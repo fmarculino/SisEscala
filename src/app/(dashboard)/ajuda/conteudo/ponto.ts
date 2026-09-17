@@ -217,6 +217,100 @@ export const ponto: Capitulo = {
     },
 
     {
+      id: 'apuracoes-periodo',
+      titulo: 'Apurações do período (fechamento no dia 20)',
+      resumo: 'O documento de quem não fecha a folha no último dia do mês.',
+      papeis: ['RH da Unidade', 'RH Geral', 'Diretor', 'Administrador Geral'],
+      blocos: [
+        {
+          tipo: 'caminho',
+          itens: ['OPERAÇÃO', 'Folha de Ponto', 'Apurações do período'],
+          href: '/folha-ponto/apuracoes',
+        },
+        {
+          tipo: 'p',
+          texto:
+            'Alguns grupos têm a frequência fechada no **dia 20**, e não no último dia do mês — o **Mais Médicos** é o caso de hoje. Para eles, esta tela emite um documento do período (21 de um mês a 20 do seguinte) a partir das folhas mensais que já existem.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'A folha mensal continua sendo a folha',
+          texto:
+            'Este documento **não substitui** a folha do mês e **não muda nenhum número dela**. Ele é um recorte: pega os dias 21 a 31 de um mês e os dias 1 a 20 do seguinte, e soma cada parte com as regras da competência dela. Quem define quem tem período diferente é a ficha do servidor.',
+        },
+        { tipo: 'titulo', texto: 'Emitir' },
+        {
+          tipo: 'passos',
+          itens: [
+            {
+              titulo: 'Escolha a competência',
+              texto: 'Mês, ano e — se quiser filtrar — a unidade. Depois clique em Carregar.',
+            },
+            {
+              titulo: 'Confira quem aparece',
+              texto: 'A lista traz quem tem período diferente do mês civil naquela competência.',
+            },
+            {
+              titulo: 'Veja a prévia',
+              texto: 'Mostra os números, as duas partes do período e o que ainda falta. É só consulta: nada é gravado.',
+            },
+            {
+              titulo: 'Emita',
+              texto: 'Grava o documento com o seu nome e a data. Havendo ressalva, o sistema pede confirmação e mostra o que falta antes de deixar seguir.',
+            },
+            {
+              titulo: 'Imprima',
+              texto: 'Gera o documento assinável, com espaço para servidor, chefia imediata e Recursos Humanos.',
+            },
+          ],
+        },
+        {
+          tipo: 'aviso',
+          tom: 'cuidado',
+          titulo: 'Emitir é um ato registrado — e o documento não se edita',
+          texto:
+            'Uma vez emitido, o documento fica guardado exatamente como foi impresso, com o seu nome e a data. Ele **não pode ser alterado**: se a folha mudar depois, o caminho é **Retificar**, que gera uma **versão nova** com motivo escrito. A versão anterior continua no histórico — é ela que prova o que foi entregue antes.',
+        },
+        {
+          tipo: 'p',
+          texto:
+            'Ao reimprimir, o sistema usa o documento **como foi emitido**, não a folha de hoje. Se a folha mudou no meio, aparece um aviso dizendo o que mudou — e aí você decide se retifica.',
+        },
+        {
+          tipo: 'tabela',
+          colunas: ['Ação', 'Quando usar', 'O que acontece'],
+          linhas: [
+            [
+              'Retificar',
+              'A folha mudou depois da emissão (batida que chegou, correção, decisão tomada).',
+              'Gera a versão seguinte com os números de hoje. Exige motivo de ao menos 10 caracteres.',
+            ],
+            [
+              'Revogar',
+              'O documento não deveria ter sido emitido.',
+              'Marca como revogado, com motivo. Não apaga: o documento pode já ter sido entregue, e revogação não se desfaz.',
+            ],
+          ],
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'Quem emite',
+          texto:
+            'Só **RH Geral**, **RH da Unidade**, **Diretor** e **Administrador Geral** — os dois últimos apenas nas unidades do escopo deles. Coordenador e Assistente Administrativo não emitem: quem lança a escala não emite o documento que vai para o pagamento.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'dica',
+          titulo: 'Lista vazia tem dois motivos diferentes',
+          texto:
+            'Se ninguém aparecer, a tela diz por quê: ou **nenhum servidor tem período diferente** do mês civil (e aí o caminho é definir isso na ficha), ou existe um período definido **para toda a rede** e é preciso escolher a unidade — carregar a rede inteira de uma vez travaria a tela.',
+        },
+      ],
+    },
+
+    {
       id: 'atraso-compensacao',
       titulo: 'Atraso, hora extra e compensação',
       resumo: 'Por que o sistema pergunta, e o que cada resposta significa na folha.',
