@@ -4,7 +4,11 @@ import { useEffect, useState } from 'react'
 import { Modal } from '@/components/ui/Modal'
 import { formatarHora } from '@/utils/horario'
 import { Loader2, CheckCircle2, AlertCircle, AlertTriangle, Clock } from 'lucide-react'
-import type { Desfecho } from '@/utils/gestaoJustificativas'
+import {
+  pedeDecisaoDeDesfecho,
+  exigeConfirmacaoContraRegistro,
+  type Desfecho,
+} from '@/utils/gestaoJustificativas'
 
 interface JustificativaModalProps {
   isOpen: boolean
@@ -35,7 +39,12 @@ interface JustificativaModalProps {
    * em 23/08/2026. A regra real é da action e do banco; isto é só o que a tela oferece.
    */
   podeReverter?: boolean
-  onSave: (texto: string, templateId?: string, resultado?: Desfecho) => Promise<void>
+  onSave: (
+    texto: string,
+    templateId?: string,
+    resultado?: Desfecho,
+    confirmaContraRegistro?: boolean,
+  ) => Promise<void>
 }
 
 export function JustificativaModal({
@@ -49,6 +58,7 @@ export function JustificativaModal({
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
   const [texto, setTexto] = useState(evento?.texto_justificativa || '')
   const [desfecho, setDesfecho] = useState<Desfecho>(null)
+  const [confirmaContraRegistro, setConfirmaContraRegistro] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -59,6 +69,7 @@ export function JustificativaModal({
     setTexto(evento?.texto_justificativa || '')
     setDesfecho(evento?.resultado ?? null)
     setSelectedTemplateId('')
+    setConfirmaContraRegistro(false)
     setError(null)
   }, [evento?.escala_diaria_id, evento?.texto_justificativa, evento?.resultado])
 
@@ -71,16 +82,24 @@ export function JustificativaModal({
 
   if (!evento) return null
 
-  // A decisão só é pedida onde existe decisão a tomar. Evento que o ponto já provou
-  // (`registrado`) ou que ainda não aconteceu (`previsto`) segue como a justificativa
-  // motivacional de sempre. Estado desconhecido (a RPC não respondeu) NÃO oferece a escolha —
-  // oferecer sem saber o estado é pedir uma decisão sobre um fato que a tela não conhece.
+  // A decisão é pedida onde existe decisão a tomar. Evento que ainda não aconteceu (`previsto`)
+  // e estado desconhecido (a RPC não respondeu) ficam de fora — oferecer sem saber o estado é
+  // pedir uma decisão sobre um fato que a tela não conhece.
+  //
+  // ⚠️ `registrado` PASSOU A PEDIR (17/09/2026). Antes não pedia, e era justamente o caso sem
+  // saída: plantão com os dois extremos batidos em que a batida não é daquele turno. O banco
+  // sempre aceitou (`fn_desfecho_evento_dia`: o desfecho explícito vence "inclusive o ponto
+  // completo") — só a tela não oferecia. Ver `pedeDecisaoDeDesfecho`.
   //
   // O RH também abre a decisão num evento que JÁ tem desfecho — é por aqui que se reverte uma
   // falta, inclusive a que o auto-fechamento criou por decurso de prazo. Para quem não pode
   // reverter, o modal continua sendo só a justificativa: a decisão já foi tomada.
   const ehReversao = !!evento.resultado && podeReverter
-  const pedeDecisao = evento.estado === 'em_avaliacao' || ehReversao
+  const pedeDecisao = pedeDecisaoDeDesfecho({ estado: evento.estado, ehReversao })
+
+  // Batida no dia: é o que transforma "registrar falta" em "contradizer o ponto".
+  const temRegistro = !!(evento.presenca_entrada_em || evento.presenca_saida_em)
+  const precisaConfirmar = exigeConfirmacaoContraRegistro({ desfechoNovo: desfecho, temRegistro })
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -92,10 +111,20 @@ export function JustificativaModal({
       setError('Escolha se o plantão foi cumprido ou se deve ser registrado como falta.')
       return
     }
+    if (precisaConfirmar && !confirmaContraRegistro) {
+      setError('Este dia tem batida registrada. Confirme, na caixa acima, que a falta está sendo '
+        + 'lançada apesar do ponto.')
+      return
+    }
     setError(null)
     setSaving(true)
     try {
-      await onSave(texto.trim(), selectedTemplateId || undefined, pedeDecisao ? desfecho : undefined)
+      await onSave(
+        texto.trim(),
+        selectedTemplateId || undefined,
+        pedeDecisao ? desfecho : undefined,
+        precisaConfirmar ? confirmaContraRegistro : undefined,
+      )
       onClose()
     } catch (err: any) {
       setError(err.message || 'Erro ao salvar justificativa.')
@@ -221,6 +250,42 @@ export function JustificativaModal({
                 Este dia já tem batida, então a célula <strong>não pode mais ser apagada</strong> na
                 grade (Direito Adquirido). A decisão é aqui.
               </p>
+            )}
+
+            {/* Falta CONTRA o ponto: continua possível — é o caso de quem bateu no horário do
+                plantão e não trabalhou nele — mas não pode sair de um clique. E o caminho
+                preferível costuma ser outro: se a batida é de outro turno do mesmo dia, corrigi-la
+                na grade resolve os dois lados de uma vez (o plantão fica sem registro e a batida
+                volta a valer no turno certo). */}
+            {precisaConfirmar && (
+              <div className="p-3 rounded-xl border-2 border-red-300 dark:border-red-800 bg-red-50/60 dark:bg-red-950/20 space-y-2">
+                <p className="text-[11px] text-red-800 dark:text-red-300 font-bold leading-snug flex items-start gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" />
+                  <span>
+                    Existe batida registrada neste dia
+                    {entrada || saida ? <> (<span className="font-mono">{entrada || '—'} → {saida || '—'}</span>)</> : null}.
+                    Lançar falta aqui <strong>contraria o ponto</strong>, e a batida continua
+                    apontando para este plantão.
+                  </span>
+                </p>
+                <p className="text-[11px] text-red-700 dark:text-red-400 leading-snug">
+                  Se essa batida é de <strong>outro turno do mesmo dia</strong>, o caminho melhor é
+                  corrigi-la na grade da escala: o plantão fica sem registro (e a falta passa a ser
+                  o próprio estado do dia) e a batida volta a valer onde ela realmente aconteceu.
+                </p>
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={confirmaContraRegistro}
+                    onChange={(e) => setConfirmaContraRegistro(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-red-400 text-red-600 focus:ring-red-500"
+                  />
+                  <span className="text-[11px] font-bold text-red-800 dark:text-red-300 leading-snug">
+                    Confirmo que estou registrando falta apesar da batida existente, e que descrevi
+                    abaixo o que aconteceu.
+                  </span>
+                </label>
+              </div>
             )}
           </div>
         )}

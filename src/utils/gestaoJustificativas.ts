@@ -233,6 +233,53 @@ export function resolverDesfecho(params: {
 }
 
 /**
+ * A FILA OFERECE A DECISÃO — FONTE ÚNICA (17/09/2026).
+ *
+ * 🚨 Até aqui era `estado === 'em_avaliacao' || ehReversao`, e isso deixava de fora justamente
+ * o caso que não tinha saída nenhuma: o plantão `registrado` — os DOIS extremos preenchidos —
+ * em que a batida não é daquele turno. Medido em 17/09/2026, competência 09/2026: **1.286**
+ * plantões passados estão `registrado` contra 264 `em_avaliacao`, e a base inteira tinha **1
+ * falta** registrada contra 130 validados.
+ *
+ * Caso real (EUZILENE, mat. 68216, 12/09/2026): plantão `MT` + regular `N` no mesmo dia; ela
+ * faltou ao plantão, chegou 39 min antes do noturno, e a batida das 18:21 foi alinhada como
+ * saída do plantão. Bastasse ela ter batido duas vezes e o plantão sairia `registrado` — sem
+ * nenhum caminho para o coordenador dizer que não houve serviço.
+ *
+ * O BANCO SEMPRE ACEITOU: `fn_desfecho_evento_dia` diz, em código e em comentário, que o
+ * desfecho explícito vence tudo, "inclusive o ponto completo". Só a tela não oferecia.
+ *
+ * ⚠️ `previsto` (dia futuro) continua de fora, e estado desconhecido também: oferecer decisão
+ * sobre um fato que a tela não conhece é pior que não oferecer.
+ */
+export function pedeDecisaoDeDesfecho(params: {
+  estado?: string | null
+  ehReversao: boolean
+}): boolean {
+  return params.ehReversao
+    || params.estado === 'em_avaliacao'
+    || params.estado === 'registrado'
+}
+
+/**
+ * Declarar falta contra um plantão que o relógio registrou é CONTRADIZER O PONTO.
+ *
+ * Continua permitido — é o caso do servidor que bateu no horário do plantão e não trabalhou
+ * nele —, mas não pode sair de um clique: quem decide tem de afirmar que sabe que existe
+ * registro. A tela pede a confirmação; a action a exige (`confirmaContraRegistro`), porque
+ * Server Action é POST chamável direto e tela não é defesa (armadilha 33).
+ *
+ * ⚠️ Isto NÃO é segurança contra quem quer burlar — é defesa contra código futuro que chame a
+ * action sem saber o que está fazendo, o mesmo espírito do `opinou` vs `undefined`.
+ */
+export function exigeConfirmacaoContraRegistro(params: {
+  desfechoNovo: Desfecho
+  temRegistro: boolean
+}): boolean {
+  return params.desfechoNovo === 'falta' && params.temRegistro
+}
+
+/**
  * Regra única de gravação, aplicada na página, no client e na action.
  *
  * `desfechoAtual` é o que já está no banco — é ele, e não o novo valor, que decide se a
@@ -244,6 +291,10 @@ export function validarGravacaoDesfecho(params: {
   desfechoAtual: Desfecho
   desfechoNovo: Desfecho
   texto: string
+  /** Há batida (entrada ou saída) gravada no dia? Vem do BANCO, nunca do cliente. */
+  temRegistro?: boolean
+  /** Quem chamou afirmou explicitamente que está contrariando o registro. */
+  confirmaContraRegistro?: boolean
 }): { ok: true } | { ok: false; erro: string } {
   const { ator, evento, desfechoAtual, desfechoNovo, texto } = params
 
@@ -266,6 +317,17 @@ export function validarGravacaoDesfecho(params: {
     return {
       ok: false,
       erro: 'Este evento já tem desfecho registrado. Apenas o RH pode revertê-lo.',
+    }
+  }
+
+  // Falta contra registro do relógio: só com afirmação explícita de quem decide.
+  if (exigeConfirmacaoContraRegistro({ desfechoNovo, temRegistro: !!params.temRegistro })
+      && !params.confirmaContraRegistro) {
+    return {
+      ok: false,
+      erro: 'Este dia tem batida registrada. Para lançar falta mesmo assim é preciso confirmar '
+        + 'que a decisão contraria o ponto — e o caminho preferível, quando a batida é de outro '
+        + 'turno do mesmo dia, é corrigi-la na grade em vez de declarar falta por cima dela.',
     }
   }
 

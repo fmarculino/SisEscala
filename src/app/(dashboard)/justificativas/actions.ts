@@ -534,6 +534,12 @@ export async function salvarJustificativa(dados: {
    * sobre cumprimento — é o que o modal manda para evento que o ponto já provou.
    */
   resultado?: Desfecho
+  /**
+   * Quem chama afirma que sabe estar lançando falta num dia COM batida registrada (17/09/2026).
+   * Sem isto, a gravação é recusada — ver `exigeConfirmacaoContraRegistro`. O `temRegistro` NÃO
+   * vem daqui: é lido do banco logo abaixo, porque o cliente não é fonte de fato.
+   */
+  confirmaContraRegistro?: boolean
 }) {
   try {
     const supabaseUser = await createClient()
@@ -592,12 +598,23 @@ export async function salvarJustificativa(dados: {
       desfechoAtual,
     })
 
+    // Existe batida neste dia? A resposta vem da LINHA DE ESCALA, nunca do cliente: é ela que
+    // decide se lançar falta aqui contraria o ponto, e quem chama a action não é fonte de fato.
+    const { data: linhaPonto } = await supabase
+      .from('escala_diaria')
+      .select('presenca_entrada_em, presenca_saida_em')
+      .eq('id', dados.escalaDiariaId)
+      .maybeSingle()
+    const temRegistro = !!(linhaPonto?.presenca_entrada_em || linhaPonto?.presenca_saida_em)
+
     const validacao = validarGravacaoDesfecho({
       ator: atorDe(profile),
       evento: { unidade_id: mensal?.unidade_id, setor_id: mensal?.setor_id },
       desfechoAtual,
       desfechoNovo,
       texto: dados.texto,
+      temRegistro,
+      confirmaContraRegistro: dados.confirmaContraRegistro,
     })
     if (!validacao.ok) return { error: validacao.erro }
 

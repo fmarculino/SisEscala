@@ -159,6 +159,81 @@ export const ponto: Capitulo = {
     },
 
     {
+      id: 'corrigir-batida',
+      titulo: 'O sistema encaixou a batida no passo errado',
+      resumo: 'Quando o servidor bate várias vezes, ou chega cedo para o turno seguinte.',
+      papeis: ['RH da Unidade', 'RH Geral', 'Diretor', 'Administrador Geral'],
+      blocos: [
+        {
+          tipo: 'p',
+          texto:
+            'O sistema encaixa cada batida no passo mais próximo do horário previsto. Na maior parte das vezes acerta — mas quando o servidor bate várias vezes seguidas, ou chega bem antes do turno, uma batida pode acabar no lugar errado.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'O caso mais comum: chegou cedo para o turno da noite',
+          texto:
+            'A pessoa tinha plantão de dia e expediente à noite, faltou ao plantão e chegou 40 minutos antes do turno noturno. Aquela batida ficou registrada como a **saída do plantão** — e o plantão passou a parecer cumprido. É o mesmo mecanismo quando alguém bate duas ou três vezes seguidas na entrada.',
+        },
+        {
+          tipo: 'p',
+          texto:
+            'Na Grade de Escala, clique no **pedaço verde** da barrinha correspondente ao passo errado. Abre a tela de correção, com todas as batidas daquele dia.',
+        },
+        {
+          tipo: 'passos',
+          itens: [
+            {
+              titulo: 'Escolha outra batida para este passo',
+              texto:
+                'A lista mostra todas as batidas do dia, a que horas foram, quantos minutos de distância estão do horário previsto e **onde cada uma está hoje** — inclusive as que já ocupam outro passo, que costumam ser exatamente as que você procura.',
+            },
+            {
+              titulo: '…ou diga que a batida não é deste turno',
+              texto:
+                'O passo fica vazio e a batida sai de circulação. É o caminho para quem bateu no horário de um turno mas estava chegando para outro — ou não trabalhou nele.',
+            },
+            {
+              titulo: 'Escreva o motivo',
+              texto:
+                'Obrigatório. Ele fica registrado junto com a batida, com seu nome e a data, e é o que explica a correção para quem auditar depois.',
+            },
+          ],
+        },
+        {
+          tipo: 'aviso',
+          tom: 'dica',
+          titulo: 'A batida nunca é apagada',
+          texto:
+            'Ela continua registrada no relógio e no sistema, exatamente como foi feita. O que a correção grava é o **julgamento** sobre ela: em que passo ela vale, ou que ela não vale para aquele turno. É isso que permite desfazer depois, e é isso que a auditoria espera encontrar.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'cuidado',
+          titulo: 'Escolher entre batidas é uma coisa; digitar um horário é outra',
+          texto:
+            'O RH pode **remanejar** as batidas reais entre os passos — o horário continua sendo o que o relógio gravou. Digitar um horário por cima de uma batida existente substitui o registro do servidor pelo do gestor, e por isso é exclusivo do Administrador Geral. Coordenador e Ass. Administrativo continuam validando normalmente os passos que ficaram **vazios**.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'dica',
+          titulo: 'A correção não se desfaz sozinha',
+          texto:
+            'Antes, um ajuste feito num dia com batida de relógio podia voltar atrás na próxima sincronização. Agora não: a correção é registrada como decisão e o sistema a respeita nas próximas vezes em que reprocessar aquele dia.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'Se a mensagem falar em batidas soltas',
+          texto:
+            'Quer dizer que alguma batida daquele dia ficou sem passo nenhum — ela continua registrada e pode voltar a ser encaixada automaticamente. Se ela não pertence a nenhum turno do dia, retire-a pelo mesmo caminho.',
+        },
+        { tipo: 'veja', texto: 'Quando o plantão tem batida mas não houve serviço', secaoId: 'justificativas' },
+      ],
+    },
+
+    {
       id: 'folha',
       titulo: 'A Folha de Ponto',
       resumo: 'O que ela mostra, como gerar, o que é preservado ao sincronizar.',
@@ -869,6 +944,32 @@ export const ponto: Capitulo = {
           tom: 'dica',
           texto:
             'Justificativa não é afastamento. Se a pessoa ficou fora por atestado, férias ou licença, lance em **Afastamentos** ou **Férias e Licenças** — esses sim mudam a escala e a folha.',
+        },
+        {
+          tipo: 'p',
+          texto:
+            'Em plantão e sobreaviso, além do texto, a tela pede o **desfecho**: o evento foi cumprido ou é falta? Quem decide é quem gere a escala; reverter uma decisão já registrada é do RH.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'Plantão com batida, mas sem serviço',
+          texto:
+            'Se a pessoa bateu o ponto e mesmo assim não cumpriu o plantão, a falta pode ser registrada — inclusive quando existe batida de entrada **e** de saída. A tela mostra o horário registrado e pede uma confirmação explícita, porque a decisão está contrariando o que o relógio gravou.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'cuidado',
+          titulo: 'Antes disso, veja se a batida não é de outro turno do mesmo dia',
+          texto:
+            'Se a pessoa faltou ao plantão mas bateu porque estava chegando para o turno seguinte, o caminho melhor é **corrigir a batida na grade**: o plantão fica sem registro (e a falta passa a ser o próprio estado do dia) e a batida volta a valer onde realmente aconteceu. Declarar falta por cima deixa a batida apontando para o plantão, e os dois registros passam a dizer coisas diferentes.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'dica',
+          titulo: 'Onde a decisão aparece depois',
+          texto:
+            'Na Grade de Escala, a célula do evento decidido ganha um selo no canto: **F** para falta, **V** para validado. Passe o mouse para ver a justificativa. A falta não conta no anexo de plantões e entra no somatório de faltas.',
         },
       ],
     },

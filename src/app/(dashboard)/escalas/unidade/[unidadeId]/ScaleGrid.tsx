@@ -11,6 +11,8 @@ import {
   batidaVisivelNaCelula, classificarBatida, classificarLugarDaBatida, compararBatidasParaExibir,
   dataDaCelula, deltaDiaDaBatida, rotuloDiaRelativo, type LugarDaBatida, type PosicaoDaBatida,
 } from '@/utils/janelaBatidas'
+import { acaoNoPasso, mensagemRecusa, podeDigitarSobreBatidaReal } from '@/utils/folha/correcaoBatidaReal'
+import { CorrecaoBatidaModal } from '@/components/escala/CorrecaoBatidaModal'
 import {
   avaliarSequenciaPresenca, PASSOS_EM_ORDEM, ROTULO_PASSO, type PassoPresenca,
 } from '@/utils/sequenciaPresenca'
@@ -319,6 +321,46 @@ export function ScaleGrid({
     }
   }, [supabase, escalaMensalInicial, mes, ano])
 
+  /**
+   * Desfechos JÁ DECLARADOS para os eventos do mês (17/09/2026).
+   *
+   * 🚨 Declarar falta num plantão não mudava NADA do que se vê na grade: a célula continuava
+   * verde, com o horário da batida, e o total previsto continuava contando as 12h. Quem
+   * decidia não via efeito nenhum e concluía que não tinha funcionado — o que ajuda a explicar
+   * por que a base inteira tinha UMA falta registrada contra 130 validados (medido em
+   * 17/09/2026). O efeito real existe e sempre existiu, mas mora no relatório de plantão e no
+   * anexo, que é justamente onde quem lançou não olha.
+   *
+   * Lê `justificativas_eventos` direto, e não `fn_desfecho_evento_dia`: aqui interessa só o que
+   * alguém DECLAROU, não o estado calculado. É uma consulta a menos e um significado a mais.
+   */
+  const fetchDesfechosDeclarados = useCallback(async () => {
+    if (escalaMensalInicial.length === 0) return
+    const servantIds = escalaMensalInicial.map(em => em.servidor_id)
+
+    const { data, error } = await supabase
+      .from('justificativas_eventos')
+      .select('servidor_id, dia, categoria, resultado, texto_justificativa')
+      .in('servidor_id', servantIds)
+      .eq('mes', mes)
+      .eq('ano', ano)
+      .not('resultado', 'is', null)
+
+    if (error) {
+      console.error('Erro ao buscar desfechos declarados:', error)
+      return
+    }
+
+    const mapa: Record<string, { resultado: string; texto?: string | null }> = {}
+    for (const d of data || []) {
+      mapa[`${d.servidor_id}|${d.categoria}|${d.dia}`] = {
+        resultado: d.resultado as string,
+        texto: d.texto_justificativa,
+      }
+    }
+    setDesfechosDeclarados(mapa)
+  }, [supabase, escalaMensalInicial, mes, ano])
+
   const fetchJornadasTemporarias = useCallback(async () => {
     if (escalaMensalInicial.length === 0) return
     const servantIds = escalaMensalInicial.map(em => em.servidor_id)
@@ -464,6 +506,7 @@ export function ScaleGrid({
     fetchLogsTentativas()
     fetchExcecoesEscala()
     fetchPedidosPendentes()
+    fetchDesfechosDeclarados()
 
     async function fetchUnidadeConfig() {
       if (!unidadeId) return
@@ -475,7 +518,7 @@ export function ScaleGrid({
       if (data) setUnidadedata(data)
     }
     fetchUnidadeConfig()
-  }, [escalaMensalInicial, fetchServidoresEventos, fetchJornadasTemporarias, fetchLogsTentativas, fetchExcecoesEscala, supabase, unidadeId])
+  }, [escalaMensalInicial, fetchServidoresEventos, fetchJornadasTemporarias, fetchLogsTentativas, fetchExcecoesEscala, fetchDesfechosDeclarados, supabase, unidadeId])
 
   /**
    * TODOS os eventos do servidor naquele dia. Um dia pode ter mais de um afastamento —
@@ -798,6 +841,20 @@ export function ScaleGrid({
   
   const [logsTentativas, setLogsTentativas] = useState<any[]>([])
   const [marcacoesPendentes, setMarcacoesPendentes] = useState<any[]>([])
+  /** Correção de um passo que já tem batida real (17/09/2026). */
+  const [correcaoModal, setCorrecaoModal] = useState<{
+    servidorId: string
+    servidorNome: string
+    dia: number
+    categoria: RowCategory
+    passo: 'entrada' | 'intervalo_saida' | 'intervalo_retorno' | 'saida'
+    rotuloLinha: string
+    batidaAtual: { id: string; ocorrido_em: string } | null
+    batidas: any[]
+  } | null>(null)
+  /** Chave `servidor_id|categoria|dia` -> desfecho declarado em justificativas_eventos. */
+  const [desfechosDeclarados, setDesfechosDeclarados] =
+    useState<Record<string, { resultado: string; texto?: string | null }>>({})
 
   // Alvo do AlterarJornadaModal. Preenchido quando alguem troca a jornada de um servidor que
   // ja tem ponto registrado no mes; null significa "nenhuma troca pendente de decisao".
@@ -1253,7 +1310,11 @@ export function ScaleGrid({
                   is_entrada_manual: ed.presenca_entrada_manual !== undefined ? !!ed.presenca_entrada_manual : !!ed.confirmado_por_id,
                   is_intervalo_saida_manual: !!ed.presenca_intervalo_saida_manual,
                   is_intervalo_retorno_manual: !!ed.presenca_intervalo_retorno_manual,
-                  is_saida_manual: ed.presenca_saida_manual !== undefined ? !!ed.presenca_saida_manual : !!ed.confirmado_por_id
+                  is_saida_manual: ed.presenca_saida_manual !== undefined ? !!ed.presenca_saida_manual : !!ed.confirmado_por_id,
+                  entrada_marcacao_id: ed.presenca_entrada_marcacao_id || null,
+                  intervalo_saida_marcacao_id: ed.presenca_intervalo_saida_marcacao_id || null,
+                  intervalo_retorno_marcacao_id: ed.presenca_intervalo_retorno_marcacao_id || null,
+                  saida_marcacao_id: ed.presenca_saida_marcacao_id || null
                 }
               }
             }
@@ -1322,8 +1383,8 @@ export function ScaleGrid({
   const gradeAlterada = assinaturaSalva !== null && assinaturaAtual !== assinaturaSalva
 
 
-  const [presenceData, setPresenceData] = useState<Record<string, Record<RowCategory, Record<number, { entrada: boolean, intervalo_saida: boolean, intervalo_retorno: boolean, saida: boolean, entrada_em?: string | null, intervalo_saida_em?: string | null, intervalo_retorno_em?: string | null, saida_em?: string | null, is_entrada_manual?: boolean, is_intervalo_saida_manual?: boolean, is_intervalo_retorno_manual?: boolean, is_saida_manual?: boolean }>>>>(() => {
-    const initial: Record<string, Record<RowCategory, Record<number, { entrada: boolean, intervalo_saida: boolean, intervalo_retorno: boolean, saida: boolean, entrada_em?: string | null, intervalo_saida_em?: string | null, intervalo_retorno_em?: string | null, saida_em?: string | null, is_entrada_manual?: boolean, is_intervalo_saida_manual?: boolean, is_intervalo_retorno_manual?: boolean, is_saida_manual?: boolean }>>> = {}
+  const [presenceData, setPresenceData] = useState<Record<string, Record<RowCategory, Record<number, { entrada: boolean, intervalo_saida: boolean, intervalo_retorno: boolean, saida: boolean, entrada_em?: string | null, intervalo_saida_em?: string | null, intervalo_retorno_em?: string | null, saida_em?: string | null, is_entrada_manual?: boolean, is_intervalo_saida_manual?: boolean, is_intervalo_retorno_manual?: boolean, is_saida_manual?: boolean, entrada_marcacao_id?: string | null, intervalo_saida_marcacao_id?: string | null, intervalo_retorno_marcacao_id?: string | null, saida_marcacao_id?: string | null }>>>>(() => {
+    const initial: Record<string, Record<RowCategory, Record<number, { entrada: boolean, intervalo_saida: boolean, intervalo_retorno: boolean, saida: boolean, entrada_em?: string | null, intervalo_saida_em?: string | null, intervalo_retorno_em?: string | null, saida_em?: string | null, is_entrada_manual?: boolean, is_intervalo_saida_manual?: boolean, is_intervalo_retorno_manual?: boolean, is_saida_manual?: boolean, entrada_marcacao_id?: string | null, intervalo_saida_marcacao_id?: string | null, intervalo_retorno_marcacao_id?: string | null, saida_marcacao_id?: string | null }>>> = {}
     escalaMensalInicial.forEach(em => {
       initial[em.servidor_id] = {
         'Regular': {},
@@ -1346,7 +1407,11 @@ export function ScaleGrid({
           is_entrada_manual: ed.presenca_entrada_manual !== undefined ? !!ed.presenca_entrada_manual : !!ed.confirmado_por_id,
           is_intervalo_saida_manual: !!ed.presenca_intervalo_saida_manual,
           is_intervalo_retorno_manual: !!ed.presenca_intervalo_retorno_manual,
-          is_saida_manual: ed.presenca_saida_manual !== undefined ? !!ed.presenca_saida_manual : !!ed.confirmado_por_id
+          is_saida_manual: ed.presenca_saida_manual !== undefined ? !!ed.presenca_saida_manual : !!ed.confirmado_por_id,
+          entrada_marcacao_id: ed.presenca_entrada_marcacao_id || null,
+          intervalo_saida_marcacao_id: ed.presenca_intervalo_saida_marcacao_id || null,
+          intervalo_retorno_marcacao_id: ed.presenca_intervalo_retorno_marcacao_id || null,
+          saida_marcacao_id: ed.presenca_saida_marcacao_id || null
         }
       })
     })
@@ -3575,7 +3640,7 @@ export function ScaleGrid({
       if (error) throw error
 
       if (dailies) {
-        const newPresence: Record<string, Record<RowCategory, Record<number, { entrada: boolean, intervalo_saida: boolean, intervalo_retorno: boolean, saida: boolean, entrada_em?: string | null, intervalo_saida_em?: string | null, intervalo_retorno_em?: string | null, saida_em?: string | null, is_entrada_manual?: boolean, is_intervalo_saida_manual?: boolean, is_intervalo_retorno_manual?: boolean, is_saida_manual?: boolean }>>> = {}
+        const newPresence: Record<string, Record<RowCategory, Record<number, { entrada: boolean, intervalo_saida: boolean, intervalo_retorno: boolean, saida: boolean, entrada_em?: string | null, intervalo_saida_em?: string | null, intervalo_retorno_em?: string | null, saida_em?: string | null, is_entrada_manual?: boolean, is_intervalo_saida_manual?: boolean, is_intervalo_retorno_manual?: boolean, is_saida_manual?: boolean, entrada_marcacao_id?: string | null, intervalo_saida_marcacao_id?: string | null, intervalo_retorno_marcacao_id?: string | null, saida_marcacao_id?: string | null }>>> = {}
         escalaMensal.forEach(em => {
           newPresence[em.servidor_id] = {
             'Regular': {}, 'Extra': {}, 'Plantão': {}, 'Sobreaviso': {}
@@ -3595,7 +3660,11 @@ export function ScaleGrid({
               is_entrada_manual: ed.presenca_entrada_manual !== undefined ? !!ed.presenca_entrada_manual : !!ed.confirmado_por_id,
               is_intervalo_saida_manual: !!ed.presenca_intervalo_saida_manual,
               is_intervalo_retorno_manual: !!ed.presenca_intervalo_retorno_manual,
-              is_saida_manual: ed.presenca_saida_manual !== undefined ? !!ed.presenca_saida_manual : !!ed.confirmado_por_id
+              is_saida_manual: ed.presenca_saida_manual !== undefined ? !!ed.presenca_saida_manual : !!ed.confirmado_por_id,
+              entrada_marcacao_id: ed.presenca_entrada_marcacao_id || null,
+              intervalo_saida_marcacao_id: ed.presenca_intervalo_saida_marcacao_id || null,
+              intervalo_retorno_marcacao_id: ed.presenca_intervalo_retorno_marcacao_id || null,
+              saida_marcacao_id: ed.presenca_saida_marcacao_id || null
             }
           })
         })
@@ -3605,6 +3674,147 @@ export function ScaleGrid({
       console.error('Erro ao recarregar dados:', err)
     }
   }, [supabase, escalaMensal])
+
+  /**
+   * Abre a correção de um passo que já tem batida real (17/09/2026).
+   *
+   * Monta a lista de batidas do dia com DOIS rótulos que o modal de validação nunca deu:
+   *   · onde cada batida está HOJE (`usadaEm`) — a que ocupa outro passo é justamente a que
+   *     interessa na rajada, e a tela antiga a escondia como "horário já utilizado";
+   *   · a distância do previsto — foi um casamento por proximidade que produziu o erro, e sem
+   *     ver os minutos quem corrige decide às cegas.
+   */
+  const abrirCorrecaoBatida = (args: {
+    servidorId: string
+    servidorNome: string
+    dia: number
+    categoria: RowCategory
+    passo: 'entrada' | 'intervalo_saida' | 'intervalo_retorno' | 'saida'
+    turnoCodigo: string
+  }) => {
+    const pres = presenceData[args.servidorId]?.[args.categoria]?.[args.dia]
+    const atualId = pres?.[`${args.passo}_marcacao_id` as const] as string | null | undefined
+    const atualEm = pres?.[`${args.passo}_em` as const] as string | null | undefined
+
+    const dataCelulaISO = dataDaCelula(args.dia, mes, ano)
+    const bloco = blocoDaCelula(args.servidorId, args.categoria, args.dia)
+    // Mesma resolução de getSegmentTooltip: entrada/saída são as DESTA linha dentro do bloco
+    // (um bloco fundido tem um previsto por turno); o intervalo é do bloco, porque um bloco
+    // carrega UM intervalo só — não existe intervalo por turno fundido (armadilha 6).
+    const previstoDoPasso: string | null =
+      args.passo === 'entrada'
+        ? (previstoDaLinhaNoBloco(bloco, 'entrada', args.servidorId, args.categoria, args.dia)
+            || bloco?.inicio_previsto || null)
+      : args.passo === 'saida'
+        ? (previstoDaLinhaNoBloco(bloco, 'saida', args.servidorId, args.categoria, args.dia)
+            || bloco?.fim_previsto || null)
+      : args.passo === 'intervalo_saida'
+        ? (bloco?.intervalo_inicio_previsto || null)
+        : (bloco?.intervalo_fim_previsto || null)
+
+    // Onde cada marcação está hoje, varrendo TODAS as categorias do dia — a batida pode estar
+    // no plantão enquanto o passo sendo corrigido é do regular, que é exatamente o caso real.
+    const usada = new Map<string, { passo: typeof args.passo; rotuloLinha: string }>()
+    for (const cat of ['Regular', 'Extra', 'Plantão'] as RowCategory[]) {
+      const p = presenceData[args.servidorId]?.[cat]?.[args.dia]
+      if (!p) continue
+      const emItem = escalaMensal.find(e => e.servidor_id === args.servidorId)
+      const codigo = turnos.find(t => t.id === emItem?.dias?.[args.dia]?.[cat])?.codigo || cat
+      for (const passo of ['entrada', 'intervalo_saida', 'intervalo_retorno', 'saida'] as const) {
+        const id = p[`${passo}_marcacao_id` as const] as string | null | undefined
+        if (id) usada.set(id, { passo, rotuloLinha: `${cat} ${codigo}`.trim() })
+      }
+    }
+
+    const batidas = marcacoesPendentes
+      .filter(m => m.servidor_id === args.servidorId
+        && batidaVisivelNaCelula(m.ocorrido_em, dataCelulaISO, bloco))
+      .map(m => ({
+        id: m.id as string,
+        ocorrido_em: m.ocorrido_em as string,
+        origem: m.origem as string | null,
+        unidade_id: m.unidade_id ?? null,
+        unidade_nome: m.unidade_nome ?? null,
+        dispositivo_nome: m.dispositivo_nome ?? null,
+        usadaEm: usada.get(m.id) ?? null,
+        distanciaMin: previstoDoPasso
+          ? Math.round(Math.abs(new Date(m.ocorrido_em).getTime() - new Date(previstoDoPasso).getTime()) / 60000)
+          : null,
+      }))
+      .sort((a, b) => new Date(a.ocorrido_em).getTime() - new Date(b.ocorrido_em).getTime())
+
+    setCorrecaoModal({
+      servidorId: args.servidorId,
+      servidorNome: args.servidorNome,
+      dia: args.dia,
+      categoria: args.categoria,
+      passo: args.passo,
+      rotuloLinha: `${args.categoria} ${args.turnoCodigo}`.trim(),
+      batidaAtual: atualId && atualEm ? { id: atualId, ocorrido_em: atualEm } : null,
+      batidas,
+    })
+  }
+
+  /**
+   * Aplica a correção. Uma chamada, uma transação — nunca o par "reverter + revalidar", que era
+   * o caminho de antes e deixava o passo pela metade se a segunda metade falhasse.
+   */
+  const confirmarCorrecaoBatida = async (escolha:
+    | { tipo: 'trocar'; marcacaoId: string; justificativa: string }
+    | { tipo: 'retirar'; justificativa: string }
+  ) => {
+    if (!correcaoModal) return
+    const emItem = escalaMensal.find(e => e.servidor_id === correcaoModal.servidorId)
+    if (!emItem) throw new Error('Escala do servidor não encontrada nesta grade.')
+
+    const { data: linha, error: errLinha } = await supabase
+      .from('escala_diaria')
+      .select('id')
+      .eq('escala_mensal_id', emItem.id)
+      .eq('dia', correcaoModal.dia)
+      .eq('categoria', correcaoModal.categoria)
+      .maybeSingle()
+    if (errLinha) throw errLinha
+    if (!linha?.id) throw new Error('Não encontrei a linha de escala deste dia.')
+
+    const dataISO = dataDaCelula(correcaoModal.dia, mes, ano)
+
+    const { data, error } = await supabase.rpc('fn_corrigir_passos_com_batidas', {
+      p_servidor_id: correcaoModal.servidorId,
+      p_data: dataISO,
+      p_atribuicoes: [{
+        escala_diaria_id: linha.id,
+        passo: correcaoModal.passo,
+        marcacao_id: escolha.tipo === 'trocar' ? escolha.marcacaoId : null,
+      }],
+      // Retirar é a ÚNICA forma de a batida sair de circulação. Ao TROCAR, a antiga fica
+      // disponível para outro passo de propósito — o retorno avisa se ela ficou solta.
+      p_desconsiderar: escolha.tipo === 'retirar' && correcaoModal.batidaAtual
+        ? [correcaoModal.batidaAtual.id]
+        : [],
+      p_justificativa: escolha.justificativa,
+    })
+    if (error) throw error
+
+    // ⚠️ `router.refresh()` NÃO repovoa a grade: a presença vive em estado local, carregado por
+    // fetchData. Sem isto o coordenador vê "correção aplicada" sobre uma célula visualmente
+    // inalterada e conclui que não funcionou (o que derrubou a percepção da v2.49.0).
+    await fetchData()
+    await fetchDesfechosDeclarados()
+
+    const soltas = Array.isArray((data as any)?.batidas_soltas) ? (data as any).batidas_soltas : []
+    setAlertModal({
+      isOpen: true,
+      title: 'Correção aplicada',
+      message: (data as any)?.message
+        + (soltas.length > 0
+          ? `\n\n⚠️ ${soltas.length} batida(s) ficaram sem passo neste dia. Elas continuam `
+            + 'registradas e podem voltar a ser alinhadas automaticamente — se não pertencem a '
+            + 'nenhum turno deste dia, retire-as pelo mesmo caminho.'
+          : ''),
+      type: soltas.length > 0 ? 'warning' : 'success',
+    })
+  }
 
   const handleConfirmManualPresence = async () => {
     if (!manualPresenceModal) return
@@ -6260,6 +6470,35 @@ export function ScaleGrid({
                                     title={`Afastamento: ${eventosDoDia.map(rotuloAfastamento).join(' | ')}`}
                                   />
                                 )}
+                                {/* DESFECHO DECLARADO (17/09/2026).
+                                    Marcar falta num plantão não mudava nada do que se vê aqui: a
+                                    célula continuava verde e o total previsto continuava contando
+                                    as 12h, então quem decidia não via efeito nenhum e concluía que
+                                    não tinha funcionado. O efeito sempre existiu — mora no
+                                    relatório de plantão e no anexo, que é onde quem lança não olha.
+                                    O selo não muda número nenhum: ele só torna a decisão visível
+                                    onde ela foi tomada. */}
+                                {(() => {
+                                  const desf = desfechosDeclarados[`${em.servidor_id}|${cat}|${day}`]
+                                  if (!desf || !turno) return null
+                                  const ehFalta = desf.resultado === 'falta'
+                                  return (
+                                    <div
+                                      className={`absolute top-0 right-0 px-[3px] leading-none text-[7px] font-black rounded-bl-md pointer-events-none z-20 ${
+                                        ehFalta
+                                          ? 'bg-red-600 text-white'
+                                          : 'bg-emerald-600 text-white'
+                                      }`}
+                                      title={(ehFalta
+                                        ? 'FALTA declarada neste evento: não conta no anexo de plantões e entra no somatório de faltas.'
+                                        : 'Evento VALIDADO pelo coordenador: conta como cumprido no anexo.')
+                                        + (desf.texto ? `\n\nJustificativa: ${desf.texto}` : '')
+                                        + '\n\nA batida, se houver, continua registrada — o desfecho é o juízo sobre o serviço.'}
+                                    >
+                                      {ehFalta ? 'F' : 'V'}
+                                    </div>
+                                  )
+                                })()}
                                 {/* Turno de duração livre: mostra a hora definida, ou avisa que
                                     ainda falta. Sem isso o coordenador não teria como ver nem
                                     corrigir o que informou. Clicar reabre o modal. */}
@@ -6522,15 +6761,48 @@ export function ScaleGrid({
 
                                   const handleSegmentClick = (tipo: 'entrada' | 'intervalo_saida' | 'intervalo_retorno' | 'saida', isDone: boolean, isManualFlag?: boolean) => {
                                     if (!canEditPresence) return
-                                    // Batida real de terminal/REP so e alterada por administrador. Vale para
-                                    // coordenador, ass_adm e tambem RH (Geral e da Unidade): validar o passo que
-                                    // faltou e o caso de uso deles; mexer no que a pessoa realmente bateu, nao.
-                                    if (isDone && !isManualFlag && !isAdminRole) {
-                                      setAlertModal({
-                                        isOpen: true,
-                                        title: 'Acesso Restrito',
-                                        message: 'Apenas administradores podem alterar ou reverter batidas presenciais registradas em terminal.',
-                                        type: 'warning'
+                                    // ⚠️ PASSO COM BATIDA REAL NÃO ABRE A VALIDAÇÃO MANUAL — abre a CORREÇÃO.
+                                    //
+                                    // Até 17/09/2026 isto era um beco: quem não fosse admin levava "Apenas
+                                    // administradores podem alterar ou reverter batidas presenciais", e quem
+                                    // fosse caía no modal de validação, que grava com COALESCE e portanto NÃO
+                                    // sobrescreve passo preenchido — ou seja, nem o admin trocava a batida de
+                                    // passo por ali; ele tinha de reverter antes, num ato que não pedia motivo
+                                    // nenhum.
+                                    //
+                                    // Agora: RH (Geral e da Unidade) e Administrador remanejam as batidas REAIS;
+                                    // coordenador e ass_adm continuam validando só o passo que ficou vazio. A
+                                    // régua é `src/utils/folha/correcaoBatidaReal.ts`, espelhada no banco por
+                                    // fn_pode_corrigir_batida_real — a tela não é a defesa (armadilha 12).
+                                    if (isDone && !isManualFlag) {
+                                      // `isDone && !isManualFlag` JÁ significa batida real: a flag
+                                      // `presenca_*_manual` é a fonte da folha para isso desde
+                                      // 08/08/2026 (origemMarcacao.ts). Não se lê origem daqui
+                                      // porque presenceData não a carrega — e inventar um campo
+                                      // que não existe só para "parecer" mais explícito seria pior
+                                      // que a duplicação que este módulo veio remover.
+                                      const acao = acaoNoPasso({
+                                        preenchido: true,
+                                        origemAtual: 'terminal',
+                                        novoHorarioDigitado: false,
+                                      })
+                                      const recusa = mensagemRecusa(acao, userProfile?.role)
+                                      if (recusa) {
+                                        setAlertModal({
+                                          isOpen: true,
+                                          title: 'Batida registrada em terminal',
+                                          message: recusa,
+                                          type: 'warning'
+                                        })
+                                        return
+                                      }
+                                      abrirCorrecaoBatida({
+                                        servidorId: em.servidor_id,
+                                        servidorNome: em.servidores?.nome || 'Servidor',
+                                        dia: day,
+                                        categoria: cat,
+                                        passo: tipo,
+                                        turnoCodigo: turno?.codigo || cat,
                                       })
                                       return
                                     }
@@ -9099,6 +9371,24 @@ export function ScaleGrid({
         >
           <p className="text-sm text-zinc-600 dark:text-zinc-400">{confirmModal.message}</p>
         </Modal>
+      )}
+
+      {correcaoModal && (
+        <CorrecaoBatidaModal
+          isOpen={true}
+          onClose={() => setCorrecaoModal(null)}
+          servidorNome={correcaoModal.servidorNome}
+          dia={correcaoModal.dia}
+          mes={mes}
+          ano={ano}
+          passo={correcaoModal.passo}
+          rotuloLinha={correcaoModal.rotuloLinha}
+          batidaAtual={correcaoModal.batidaAtual}
+          batidas={correcaoModal.batidas}
+          unidadeDaEscalaId={unidadeId}
+          podeDigitar={podeDigitarSobreBatidaReal(userProfile?.role)}
+          onConfirmar={confirmarCorrecaoBatida}
+        />
       )}
 
       {manualPresenceModal && (() => {

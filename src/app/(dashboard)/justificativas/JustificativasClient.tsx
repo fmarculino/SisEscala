@@ -309,7 +309,12 @@ export function JustificativasClient({
   const selectedEventosList = eventosData.items.filter(e => selectedEventoIds.has(e.escala_diaria_id))
 
   // Handle Save Single Justification
-  const handleSaveSingle = async (texto: string, templateId?: string, resultado?: Desfecho) => {
+  const handleSaveSingle = async (
+    texto: string,
+    templateId?: string,
+    resultado?: Desfecho,
+    confirmaContraRegistro?: boolean,
+  ) => {
     if (!singleModalEvento) return
     const res = await salvarJustificativa({
       escalaDiariaId: singleModalEvento.escala_diaria_id,
@@ -321,7 +326,8 @@ export function JustificativasClient({
       categoria: singleModalEvento.categoria,
       texto,
       justificativaPadraoId: templateId,
-      resultado
+      resultado,
+      confirmaContraRegistro
     })
     if (res.error) throw new Error(res.error)
     await fetchEventos()

@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.72.0] - 2026-09-17
+
+Quatro migrations: `20260917100000`, `20260917110000`, `20260917120000` e `20260917130000`.
+Plano em `docs/planos/2026-09-17-correcao-de-batida-real-pelo-rh-e-falta-em-plantao.md`,
+diário em `docs/evolucao/2026-09-17-correcao-de-batida-real-pelo-rh.md`.
+
+### Added
+
+- **O RH passou a corrigir batida real na grade, escolhendo entre as batidas do dia.** Clicar no pedaço verde de um passo que tem batida de relógio abre a tela de correção: a lista traz todas as batidas daquele dia, a distância de cada uma do horário previsto e **onde cada uma está hoje** — inclusive as que já ocupam outro passo, que antes eram escondidas como "horário já utilizado" e eram justamente as que interessavam. Dá para trocar a batida do passo ou dizer que ela não pertence àquele turno. Antes, a mensagem era *"Apenas administradores podem alterar ou reverter batidas presenciais"* — e a rede tem **5 contas** que passavam nesse gate (2 `super_admin` + 3 `admin`) contra **18 de RH** (8 `rh` + 10 `rh_unidade`) e 124 coordenadores. Corrigir ponto era uma fila num gargalo de cinco pessoas.
+- **Falta pode ser registrada em plantão que TEM batida.** A fila de justificativas só oferecia a decisão em evento `em_avaliacao`; plantão com os dois extremos batidos ficava sem caminho nenhum. Em 09/2026 eram **1.286** plantões nessa situação contra 264 `em_avaliacao`, e a base inteira tinha **1 falta** registrada contra 130 validados. O banco sempre aceitou — `fn_desfecho_evento_dia` diz, em código e em comentário, que o desfecho explícito vence "inclusive o ponto completo" —, só a tela não oferecia. A confirmação contra o ponto é explícita, e a tela recomenda antes o caminho melhor: corrigir a batida, quando ela é de outro turno do mesmo dia.
+- **A célula da grade passou a mostrar o desfecho declarado** (selo `F` de falta, `V` de validado, com a justificativa no tooltip). Declarar falta não mudava nada do que se via na grade — a célula continuava verde e o total previsto continuava contando as 12h —, então quem decidia concluía que não tinha funcionado.
+
+### Fixed
+
+- 🚨 **A reversão de uma batida NÃO DURAVA em 40% dos casos, e ninguém via.** O que a torna durável é um tratamento `desconsiderar` gravado por trigger, e o `INSERT` vivia sob `IF confirmado_por_id IS NOT NULL` — batida de relógio nunca validada à mão tem esse campo nulo. Medido: **4.471 de 11.242 linhas (39,8%)** com saída de origem `rep`. Nelas, reverter limpava a tela e a batida voltava sozinha na reconciliação seguinte. O trigger passou a casar por `marcacao_id` (e não por servidor + instante, que alcançava qualquer marcação daquele segundo) e a alternar corretamente com `restaurar`.
+- 🚨 **`reclassificar_passo` e `vincular_escala` existiam desde 08/2026 e NINGUÉM os lia.** A alocação só consultava tratamento para `desconsiderar`, então a única correção durável possível era RETIRAR uma batida: dizer "esta batida é a saída, não a entrada" só podia ser escrito direto em `escala_diaria`, que é cache — `fn_reconciliar_marcacoes_dia` reescreve todos os passos a partir da projeção, **sem `COALESCE`**, e desfazia a correção na primeira reconciliação daquele dia. Agora a alocação **fixa** o passo declarado, por cima do alinhamento.
+- **`fn_reverter_presenca_manual` não limpava `origem` nem `marcacao_id`.** Ela é de 04/08/2026 e as colunas nasceram em 08/08 — nunca aprendeu que existiam. Reverter e escolher outra batida gravava o horário novo com o vínculo ANTIGO, porque `fn_aceitar_marcacao_pendente` usa `COALESCE`: o passo passava a apontar para uma batida que não era a dele. Ela também **recebia `p_validador_id` e o descartava**, o que era a raiz do defeito acima.
+- **`created_at` de `marcacoes_tratamentos` usava `now()`**, que é o instante da TRANSAÇÃO: dois tratamentos da mesma marcação gravados juntos empatavam e, como o critério procura `desconsiderar` entre os empatados, `restaurar` na mesma transação nunca tinha efeito. Passou a `clock_timestamp()`. Conferido que não há empate no histórico (2.795 tratamentos, zero pares repetidos). **Achado pelo próprio ensaio da migration**, não por leitura de código.
+- **A mesma pergunta tinha duas respostas:** a grade aceitava `admin` e a folha só `super_admin`. O Diretor corrigia na grade e a folha recusava a mesma correção, com uma mensagem que não explicava por quê. Fonte única em `src/utils/folha/correcaoBatidaReal.ts`, espelhada no banco por `fn_pode_corrigir_batida_real`.
+
+### Unchanged (de propósito)
+
+- **O DP do alinhamento não foi tocado** — o gerador confere que as ocorrências do custo de não-casar continuam idênticas. Quem não tem tratamento vê exatamente o alinhamento de hoje. Mexer nesse custo já foi simulado e descartado em 19/08/2026 (corrige 2 duplicações e quebra 3 dias saudáveis), e baixar a tolerância desligaria `ignora_janela_presenca`.
+- 🚨 **Só `reclassificar_passo` é honrado; `vincular_escala` ficou de fora.** Medido em produção: havia **1.686** tratamentos `vincular_escala` gravados (`fn_aceitar_marcacao_pendente` grava um a cada aceite manual, desde agosto), 1.437 ainda vigentes, e **92 deles DISCORDAM** do que está gravado hoje em `escala_diaria`. Honrá-los mudaria 92 pontos de uma vez, em competência fechada e folha revisada, sem ninguém ter pedido. `reclassificar_passo` tinha ZERO ocorrências: é o corte, e não precisa de data mágica.
+- **O RH não digita horário por cima de batida real.** Escolher entre batidas reais é apurar — o horário continua sendo o que o relógio gravou; digitar substitui o registro do empregado pelo do gestor, que é a vedação 4 da Portaria 671/2021. Continua exclusivo do Administrador.
+- **Coordenador e Ass. Administrativo não perderam nada**: continuam validando os passos que ficaram vazios, como sempre.
+
 ## [2.71.0] - 2026-09-17
 
 Sem migration de banco de dados. Documentação em `docs/evolucao/2026-09-17-feriado-com-escala-e-dia-de-trabalho.md`.

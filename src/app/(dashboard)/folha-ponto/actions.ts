@@ -17,6 +17,7 @@ import { normalizarRegistrosFolha } from '@/utils/folha/normalizarHorarios'
 import { sequenciarDia, PASSOS_FOLHA } from '@/utils/folha/sequenciaDia'
 import { preservarCampo } from '@/utils/folha/preservacao'
 import { podeReabrirFolha, MENSAGEM_SEM_PERMISSAO_REABRIR } from '@/utils/folha/reabertura'
+import { podeDigitarSobreBatidaReal } from '@/utils/folha/correcaoBatidaReal'
 import { montarCargaPorJornada, horasNormaisDoDia, horasNormaisDaJornada } from '@/utils/folha/cargaDiaria'
 import { autorizacaoDoDia, aplicarObservacaoAutorizacao } from '@/utils/folha/autorizacaoPonto'
 import { afastamentosDoDia, avaliarAfastamentosNoTurno, descreverAfastamentos, minutosAbonadosDoDia } from '@/utils/folha/afastamentosDia'
@@ -2474,8 +2475,17 @@ export async function salvarFolhaPonto(folhaId: string, registros: any[], status
       return { error: 'Esta competência está encerrada e todos os dados estão congelados para auditoria.' }
     }
 
-    // Bloquear alteração de marcações reais (origem = 'real') para quem não for super_admin
-    if (userProfile.role !== 'super_admin') {
+    // Alterar aqui um horário de origem `real` é DIGITAR por cima da batida — o campo da folha é
+    // texto livre, não uma escolha entre batidas. Por isso a régua é `podeDigitarSobreBatidaReal`
+    // e não `podeRearranjarBatidaReal`: rearranjar (escolher OUTRA batida real) é do RH e mora na
+    // grade; substituir o registro do servidor por um horário do gestor continua sendo ato do
+    // Administrador (vedação 4 da Portaria 671/2021).
+    //
+    // ⚠️ Até 17/09/2026 esta linha era `role !== 'super_admin'` enquanto a grade aceitava também
+    // `admin` — a MESMA pergunta com DUAS respostas. O Diretor corrigia na grade e a folha
+    // recusava a mesma correção, com uma mensagem que não explicava por quê. Fonte única agora em
+    // src/utils/folha/correcaoBatidaReal.ts.
+    if (!podeDigitarSobreBatidaReal(userProfile.role)) {
       const oldRegistros = folha.registros as any[]
       for (const r of registros) {
         const oldR = oldRegistros?.find((o: any) => o.dia === r.dia)

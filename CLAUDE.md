@@ -5876,6 +5876,123 @@ todo dia (`opcoes.horasNormaisPorDia`), enquanto as quatro cópias do recálculo
 quem tem vigência no meio do mês, rodapé e coluna do banco divergem. Não foi tocado aqui porque
 exige levar o mapa de jornadas até o editor.
 
+### 73. Correção sobre dia com batida de relógio só dura se for TRATAMENTO (17/09/2026)
+
+🚨 **`escala_diaria.presenca_*` é CACHE.** `fn_reconciliar_marcacoes_dia` faz
+`SET presenca_* = p.*` **sem `COALESCE`** em toda linha que a projeção devolve — então qualquer
+correção escrita direto ali é transitória: dura até a próxima ingestão daquele dia, um reenvio de
+lote ou um clique em **Preencher pelas Batidas**. O que sobrevive é o que está em
+`marcacoes_tratamentos`. Plano em
+[`docs/planos/2026-09-17-correcao-de-batida-real-pelo-rh-e-falta-em-plantao.md`](docs/planos/2026-09-17-correcao-de-batida-real-pelo-rh-e-falta-em-plantao.md),
+diário em
+[`docs/evolucao/2026-09-17-correcao-de-batida-real-pelo-rh.md`](docs/evolucao/2026-09-17-correcao-de-batida-real-pelo-rh.md).
+
+**O caso que motivou** (EUZILENE, mat. 68216, 12/09/2026): Plantão `MT` 07:00→19:00 + Regular `N`
+19:00→07:00. Ela faltou ao plantão e chegou **39 min** antes do noturno; a batida das 18:21 virou
+a **saída do plantão**, que passou a parecer cumprido. Com `rep_tolerancia_alocacao_minutos = 360`
+e o custo de não-casar em `tolerância × 2`, **o DP fez exatamente o que foi projetado para
+fazer** — por isso a correção é humana e assistida, não uma mudança no algoritmo.
+
+⚠️ **Medido em 09/2026: 46 pares** com o padrão exato (uma linha só com saída + outra completa no
+mesmo dia), 511 linhas só-saída (469 de relógio).
+
+#### 🚨 `reclassificar_passo` e `vincular_escala` existiam desde 08/2026 e NINGUÉM os lia
+
+A alocação só consultava tratamento para `desconsiderar`. Havia **uma única alavanca durável —
+retirar**; dizer "esta batida é a saída, não a entrada" não tinha como ser dito. Desde
+`20260917120000` a alocação **fixa** o passo declarado.
+
+🚨 **Só `reclassificar_passo` é honrado, e o corte é medição, não gosto.** Havia **1.686**
+tratamentos `vincular_escala` em produção (`fn_aceitar_marcacao_pendente` grava um a cada aceite),
+1.437 vigentes, e **92 DISCORDAM** do que está gravado em `escala_diaria` — honrá-los mudaria 92
+pontos de uma vez, em competência fechada e folha revisada. `reclassificar_passo` tinha **ZERO**
+ocorrências: é o corte, sem data mágica.
+
+⚠️ **A fixação age POR CIMA do DP, nunca dentro dele.** O alinhamento é monotônico; furar um slot
+no meio desalinha todo o resto. Quem não tem tratamento vê o alinhamento de hoje — o gerador
+(`scratchpad/gen_alocacao_tratamento_de_passo.js`) **aborta** se a contagem do custo de não-casar
+mudar. Mexer nesse custo já foi simulado e descartado em 19/08/2026.
+
+#### 🚨 A reversão não durava em 40% dos casos, e ninguém via
+
+O `desconsiderar` que torna a reversão durável é gravado por `fn_sincronizar_marcacoes_escala_diaria`,
+e o `INSERT` vivia sob `IF NEW.confirmado_por_id IS NOT NULL OR OLD... IS NOT NULL`. **Batida de
+relógio nunca validada à mão tem esse campo NULO** — medido: **4.471 de 11.242 linhas (39,8%)**
+com saída de origem `rep`. Reverter limpava a tela e a batida voltava sozinha.
+
+A raiz estava uma função acima: **`fn_reverter_presenca_manual` recebia `p_validador_id` e o
+descartava**, e também nunca limpou `presenca_*_origem`/`presenca_*_marcacao_id` (ela é de
+04/08/2026; as colunas nasceram em 08/08). Reverter e escolher outra batida deixava o passo com o
+horário novo e o **vínculo antigo**, porque `fn_aceitar_marcacao_pendente` usa `COALESCE`.
+
+#### 🚨 `now()` NÃO DESEMPATA tratamentos da mesma transação
+
+`marcacoes_tratamentos.created_at` tinha `DEFAULT now()`, que é o instante da **transação**. Dois
+tratamentos da mesma marcação gravados juntos empatam, e como o predicado procura um
+`desconsiderar` entre os empatados, **`restaurar` na mesma transação nunca tinha efeito**. Passou
+a `clock_timestamp()`; conferido que não há empate no histórico (2.795 tratamentos, zero pares
+repetidos).
+
+⚠️ **Achado pelo ENSAIO da migration, não por leitura de código** — a conferência que EXECUTA
+(armadilha 42) num cenário que parecia trivial.
+
+#### A régua: o RH rearranja FATOS; digitar onde há fato continua restrito
+
+Fonte única em **`src/utils/folha/correcaoBatidaReal.ts`**, espelhada por
+`fn_pode_corrigir_batida_real`:
+
+| papel | passo vazio | trocar/retirar batida real | digitar por cima de batida real |
+|---|---|---|---|
+| `super_admin` · `admin` | ✅ | ✅ | ✅ |
+| `rh` · `rh_unidade` | ✅ | ✅ | ❌ |
+| `coordenador` · `ass_adm` | ✅ | ❌ | ❌ |
+
+⚠️ **A mesma pergunta tinha duas respostas:** a grade aceitava `admin`, a folha só `super_admin` —
+o Diretor corrigia na grade e a folha recusava a mesma correção. Na folha o campo é texto livre,
+então editar ali é **digitar**, e a régua é `podeDigitarSobreBatidaReal`.
+
+⚠️ **Escolher entre batidas reais é apurar; digitar é substituir o registro do empregado pelo do
+gestor** (vedação 4 da Portaria 671/2021). É essa linha que torna seguro abrir a operação ao RH —
+não afrouxe a terceira coluna.
+
+⚠️ **`fn_corrigir_passos_com_batidas` é DECLARATIVA sobre o dia**, não uma operação por passo:
+recebe o conjunto final, grava os tratamentos e aplica sem `COALESCE`, tudo-ou-nada por `RAISE`.
+Ela devolve **`batidas_soltas`** — as que saíram dos passos sem ganhar destino nem sair de
+circulação, que voltam no próximo alinhamento. Relatar o que MUDOU, não o que se tentou
+(armadilha 22).
+
+⚠️ **A ordem cronológica é conferida pelos INSTANTES REAIS, nunca por `HH:MM`** (armadilha 45), e
+o guard funciona: a primeira versão do ensaio tentou inverter entrada e saída e foi recusada.
+
+#### Falta em plantão que TEM batida
+
+`fn_desfecho_evento_dia` sempre disse, em código e comentário, que o desfecho explícito vence
+*"inclusive o ponto completo"*. **Só a tela não oferecia:**
+`pedeDecisao = estado === 'em_avaliacao' || ehReversao` deixava de fora os **1.286** plantões
+`registrado` de 09/2026 — e a base inteira tinha **1 falta** registrada contra 130 validados.
+
+⚠️ **A ordem importa:** quando a batida é de outro turno do mesmo dia, **corrigir a batida
+resolve os dois lados** (o plantão fica sem registro e a falta vira o próprio estado do dia, e a
+batida volta a valer onde aconteceu). Declarar falta por cima deixa a contradição gravada — a
+tela diz isso antes de aceitar.
+
+⚠️ `temRegistro` é lido da **linha de escala**, nunca do cliente; a confirmação explícita
+(`confirmaContraRegistro`) é exigida na action, porque Server Action é POST chamável direto.
+
+ℹ️ **Marcar falta não mudava nada do que se vê na grade** — célula verde, total previsto contando
+as 12h —, então quem decidia concluía que não tinha funcionado. Daí o selo `F`/`V` na célula, que
+não muda número nenhum: só torna a decisão visível onde ela foi tomada.
+
+⚠️ `fn_alocar_marcacoes_dia` mantém o predicado de `desconsiderar` **inline** (desempenho, é
+consulta quente) enquanto o trigger usa `fn_marcacao_desconsiderada`. São espelhos: ao mudar a
+regra, mude os dois.
+
+Portões: `node scratchpad/sim_correcao_batida_real.js` (64) e
+`val_sim_correcao_batida_real.js` (**8 regressões injetadas, 8 reprovadas**). Transpile antes com
+`npx tsc src/utils/folha/correcaoBatidaReal.ts src/utils/gestaoJustificativas.ts --outDir scratchpad/_sim --module commonjs --target es2020`.
+**Validado em homologação com ensaio revertido**, incluindo o caso EUZILENE com sessão de RH
+simulada e a prova de que a correção **sobrevive a duas reconciliações**.
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.
