@@ -5782,6 +5782,52 @@ Portões: `node scratchpad/sim_cabecalho_fixo.js` (26) e `val_sim_cabecalho_fixo
 injetadas, 7 reprovadas**). Transpile antes com
 `npx tsc src/utils/escala/preferenciaGrade.ts --outDir scratchpad/_sim --module commonjs --target es2020`.
 
+### 71. No App Router, `window.location` durante o RENDER é a URL de onde você veio (17/09/2026)
+
+🚨 **O "Voltar à lista" da Folha de Ponto devolvia a tela ZERADA**, obrigando o coordenador a
+refazer unidade e competência a cada servidor conferido — o trabalho que a v2.69.0 tinha ido
+eliminar. Diário em
+[`docs/evolucao/2026-09-17-voltar-a-lista-perdia-os-filtros.md`](docs/evolucao/2026-09-17-voltar-a-lista-perdia-os-filtros.md).
+
+⚠️ **Tudo o que parecia suspeito estava certo**: o botão montava `/folha-ponto?mes=9&unidade=…`,
+os dois caminhos de abertura da folha levavam a `origem`, e a lista sabia ler filtro da URL, com
+a precedência URL > sessionStorage > padrão escrita e comentada. **O defeito era QUANDO ela lia.**
+
+A leitura vivia no inicializador de `useState` — ou seja, **durante o render**. Quem atualiza a
+barra de endereços no App Router é o `HistoryUpdater` do Next, num **`useInsertionEffect`**
+(medido em `next@15.5.19`, `app-router.js`): roda no commit, **depois** do render. Então, no
+primeiro render de quem chega por `router.push`, `window.location.search` ainda era a URL **da
+folha** — `?origem=mes%3D9%26unidade%3D…`.
+
+🚨 **E aí o agravante, que é a parte transferível:** a condição era `if (query)`, não `if (a query
+tem os campos)`. A query da folha é *truthy* e não tem `mes` nem `unidade`: `lerFiltrosFolha`
+devolvia o **padrão** e o `sessionStorage`, que tinha os valores certos, **nem era consultado**.
+**Uma query que existe mas não é a sua faz um fallback bem escrito ser pulado** — e o efeito
+seguinte reescrevia a URL com os padrões, apagando a prova.
+
+ℹ️ **Por que `/escalas` e as setas Anterior/Próxima nunca sofreram:** as duas leem a URL dentro
+de um `useEffect`, que roda depois do insertion effect. Mesma ideia, ordem diferente, resultado
+oposto. Dos **5 sítios** que leem `window.location.search` no repositório, quatro estão em effect
+e só este lia no render.
+
+**A regra:** quem precisa da URL **no render** usa `useSearchParams`/`usePathname` — eles vêm do
+estado do roteador, que é o que causou aquele render. `window.location` só é confiável dentro de
+effect. E o valor de entrada é **congelado** (`useRef`) quando a própria tela reescreve a URL
+depois: inicializador só pode enxergar o estado de entrada.
+
+⚠️ **`useSearchParams` num componente cliente exige limite de `<Suspense>`.** Aqui o layout do
+dashboard já é dinâmico (lê cookies) e o build passaria sem ele — o limite está lá para uma
+mudança de layout não transformar a página inteira em client-side rendering, mesmo cuidado já
+tomado em `SetoresClient`.
+
+Portões: `node scratchpad/sim_volta_a_lista_folha.js` (25) e `val_sim_volta_a_lista_folha.js`
+(**8 regressões injetadas, 8 reprovadas**), entre elas o retorno exato da causa original.
+Transpile antes com
+`npx tsc src/utils/folhaNavegacao.ts --outDir scratchpad/_sim --module commonjs --target es2020`.
+⚠️ A varredura de `window.location.search` do portão roda sobre **código**: o comentário da
+função cita a expressão de propósito, e `window.location.pathname` na sincronização da URL é
+legítimo.
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.

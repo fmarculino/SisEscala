@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import { formatarData, formatarHoraComSegundos } from '@/utils/horario'
 import { createClient } from '@/utils/supabase/client'
 import { FileText, Loader2, Search, Building2, Layers, Calendar, ChevronRight, Play, RefreshCw, AlertCircle, Printer, Wand2, UserSearch, X } from 'lucide-react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { applyAccessFilters, isAccessUnrestricted } from '@/utils/permissions'
 import { getServidoresFolhaPonto, gerarFolhaPonto, gerarFolhasEmLote, getFolhasPontoPrintData, autoCorrigirTodasFolhasPonto, buscarServidoresFolhaPonto, declararFaltaAntecipada } from './actions'
 import { Modal } from '@/components/ui/Modal'
@@ -36,37 +36,51 @@ import {
  * A URL vence o sessionStorage de proposito: quem clica em Voltar a lista esta pedindo o
  * estado DAQUELA navegacao, e o sessionStorage pode ter sido sobrescrito por outra aba aberta
  * na mesma tela.
+ *
+ * 🚨 A query chega de `useSearchParams`, NUNCA de `window.location.search`. No App Router quem
+ * atualiza a barra de enderecos e o `HistoryUpdater`, num `useInsertionEffect` — ou seja,
+ * DEPOIS do render. No primeiro render de quem chega por `router.push` (o "Voltar a lista" da
+ * folha) `window.location` ainda e a URL DA FOLHA (`?origem=...`): a condicao era verdadeira,
+ * `lerFiltrosFolha` nao achava `mes`/`unidade` ali e devolvia o PADRAO — a lista voltava zerada
+ * e o sessionStorage nem era consultado, porque a query existia. `/escalas` escapa disso so
+ * porque le a URL dentro de um `useEffect`, que roda depois.
  */
-function filtroInicial(campo: keyof FiltrosFolha, chaveSessao?: string): string {
+function filtroInicial(query: string, campo: keyof FiltrosFolha, chaveSessao?: string): string {
   const padrao = filtrosPadraoFolha()[campo] as string
-  if (typeof window === 'undefined') return padrao
-  if (window.location.search) return lerFiltrosFolha(window.location.search)[campo] as string
-  if (!chaveSessao) return padrao
+  if (query) return lerFiltrosFolha(query)[campo] as string
+  if (typeof window === 'undefined' || !chaveSessao) return padrao
   const salvo = sessionStorage.getItem(chaveSessao)
   return salvo === null ? padrao : salvo
 }
 
-export default function FolhaPontoPage() {
+function FolhaPontoPageConteudo() {
   const supabase = createClient()
   const router = useRouter()
+
+  // A query com que a tela foi ABERTA. Congelada: a tela reescreve a URL a cada filtro
+  // (`history.replaceState` abaixo), e os inicializadores so podem enxergar o estado de
+  // entrada. Ver o comentario de `filtroInicial` para o porque de nao ser `window.location`.
+  const paramsDaEntrada = useSearchParams()
+  const queryDeEntrada = useRef(paramsDaEntrada.toString()).current
+
   const [loading, setLoading] = useState(true)
   const [loadingServidores, setLoadingServidores] = useState(false)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
 
   // Filters
-  const [mes, setMes] = useState<number>(() => parseInt(filtroInicial('mes', 'folha_ponto_filtro_mes'), 10))
-  const [ano, setAno] = useState<number>(() => parseInt(filtroInicial('ano', 'folha_ponto_filtro_ano'), 10))
-  const [selectedUnidade, setSelectedUnidade] = useState(() => filtroInicial('unidade', 'folha_ponto_filtro_unidade'))
-  const [selectedSetor, setSelectedSetor] = useState(() => filtroInicial('setor', 'folha_ponto_filtro_setor'))
-  const [searchTerm, setSearchTerm] = useState(() => filtroInicial('busca', 'folha_ponto_filtro_search'))
-  const [filterEscalaStatus, setFilterEscalaStatus] = useState(() => filtroInicial('escalaStatus', 'folha_ponto_filtro_escala_status'))
-  const [filterFolhaStatus, setFilterFolhaStatus] = useState(() => filtroInicial('folhaStatus', 'folha_ponto_filtro_folha_status'))
+  const [mes, setMes] = useState<number>(() => parseInt(filtroInicial(queryDeEntrada, 'mes', 'folha_ponto_filtro_mes'), 10))
+  const [ano, setAno] = useState<number>(() => parseInt(filtroInicial(queryDeEntrada, 'ano', 'folha_ponto_filtro_ano'), 10))
+  const [selectedUnidade, setSelectedUnidade] = useState(() => filtroInicial(queryDeEntrada, 'unidade', 'folha_ponto_filtro_unidade'))
+  const [selectedSetor, setSelectedSetor] = useState(() => filtroInicial(queryDeEntrada, 'setor', 'folha_ponto_filtro_setor'))
+  const [searchTerm, setSearchTerm] = useState(() => filtroInicial(queryDeEntrada, 'busca', 'folha_ponto_filtro_search'))
+  const [filterEscalaStatus, setFilterEscalaStatus] = useState(() => filtroInicial(queryDeEntrada, 'escalaStatus', 'folha_ponto_filtro_escala_status'))
+  const [filterFolhaStatus, setFilterFolhaStatus] = useState(() => filtroInicial(queryDeEntrada, 'folhaStatus', 'folha_ponto_filtro_folha_status'))
 
   // Busca global de servidor (nome, CPF ou matricula) — nao e o mesmo que "Filtrar Servidor",
   // que so peneira o que ja esta na tela. Esta vai ao banco e nao exige Unidade selecionada,
   // porque quem procura uma pessoa nem sempre sabe onde ela esta escalada. O escopo continua
   // sendo o do perfil: quem restringe e applyAccessFilters + RLS dentro da action.
-  const [buscaGlobal, setBuscaGlobal] = useState(() => filtroInicial('buscaGlobal'))
+  const [buscaGlobal, setBuscaGlobal] = useState(() => filtroInicial(queryDeEntrada, 'buscaGlobal'))
   const [buscaResultado, setBuscaResultado] = useState<{
     buscando: boolean
     houveBusca: boolean
@@ -90,7 +104,7 @@ export default function FolhaPontoPage() {
   // status de folha ERRADO ("Nao Gerada" para folha que existe), nao apenas faltando gente.
   const [listagemCompleta, setListagemCompleta] = useState(true)
   const [selectedFolhas, setSelectedFolhas] = useState<Set<string>>(new Set())
-  const [currentPage, setCurrentPage] = useState(() => Math.max(1, parseInt(filtroInicial('pagina'), 10) || 1))
+  const [currentPage, setCurrentPage] = useState(() => Math.max(1, parseInt(filtroInicial(queryDeEntrada, 'pagina'), 10) || 1))
 
   // Save filters to sessionStorage whenever they change
   useEffect(() => {
@@ -250,8 +264,8 @@ export default function FolhaPontoPage() {
             // Mesma precedencia do inicializador (URL > sessionStorage > padrao). Ler o
             // sessionStorage direto aqui sobrescreveria, depois do perfil carregar, a unidade
             // e o setor que vieram na URL do Voltar a lista.
-            setSelectedUnidade(filtroInicial('unidade', 'folha_ponto_filtro_unidade'))
-            setSelectedSetor(filtroInicial('setor', 'folha_ponto_filtro_setor'))
+            setSelectedUnidade(filtroInicial(queryDeEntrada, 'unidade', 'folha_ponto_filtro_unidade'))
+            setSelectedSetor(filtroInicial(queryDeEntrada, 'setor', 'folha_ponto_filtro_setor'))
           }
         }
       } catch (err) {
@@ -1539,5 +1553,19 @@ export default function FolhaPontoPage() {
         </Modal>
       )}
     </div>
+  )
+}
+
+/**
+ * `useSearchParams` num componente cliente exige limite de Suspense no App Router. O layout do
+ * dashboard ja e dinamico (le cookies), mas o limite fica explicito aqui para uma mudanca de
+ * layout nao transformar a pagina inteira em client-side rendering no build — mesmo cuidado
+ * ja tomado em `SetoresClient`.
+ */
+export default function FolhaPontoPage() {
+  return (
+    <Suspense fallback={null}>
+      <FolhaPontoPageConteudo />
+    </Suspense>
   )
 }

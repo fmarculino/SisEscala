@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.70.2] - 2026-09-17
+
+Sem migration. Uma tela, um arquivo. Diario em
+`docs/evolucao/2026-09-17-voltar-a-lista-perdia-os-filtros.md`.
+
+### Fixed
+
+- **"Voltar a lista" devolvia a Folha de Ponto ZERADA, pedindo o filtro de novo.** Quem
+  filtrava por unidade/competencia, abria uma folha e voltava perdia a selecao — o trabalho
+  que a v2.69.0 tinha ido eliminar. O botao sempre montou a URL certa e a lista sempre soube
+  ler filtro da URL: o defeito era **quando** ela lia. No App Router quem atualiza a barra de
+  enderecos e um `useInsertionEffect` do proprio Next, que roda **depois** do render — entao
+  no primeiro render de quem chega pelo botao, `window.location` ainda era a URL DA FOLHA
+  (`?origem=...`). Ela e truthy, mas nao tem `mes` nem `unidade`: a leitura devolvia o padrao
+  e o `sessionStorage`, que tinha os valores certos, nem era consultado.
+  - A query passa a vir do **roteador** (`useSearchParams`), congelada na montagem, e e
+    repassada as 11 leituras de filtro. O conteudo foi para dentro de um `<Suspense>`, que
+    `useSearchParams` exige no App Router.
+  - **As setas Anterior/Proxima nunca foram afetadas** (leem a URL dentro de um `useEffect`,
+    que roda depois), nem a tela `/escalas`, pelo mesmo motivo. Varredura: dos 5 sitios que
+    leem `window.location.search`, este era o unico que lia durante o render.
+  - Portoes: `scratchpad/sim_volta_a_lista_folha.js` (25 asseracoes) e
+    `val_sim_volta_a_lista_folha.js` (**8 regressoes injetadas, 8 reprovadas**).
+
 ## [2.70.1] - 2026-09-17
 
 Sem migration. Ajuste de layout, sem mudanca de regra.
