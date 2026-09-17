@@ -2,6 +2,7 @@ import { createClient } from '@/utils/supabase/server'
 import { AcessoNegado } from '@/components/AcessoNegado'
 import { hasSectorAccess } from '@/utils/permissions'
 import { FolhaPontoEditor } from './FolhaPontoEditor'
+import { NavegacaoFolhas } from './NavegacaoFolhas'
 import Link from 'next/link'
 import { ChevronLeft } from 'lucide-react'
 import { sincronizarFolhaPonto, checkIfFolhaHasPendingPastTimes } from '../actions'
@@ -103,9 +104,23 @@ export default async function FolhaPontoDetailPage({ params }: PageProps) {
   }
 
   return (
-    <FolhaPontoEditor 
+    <FolhaPontoEditor
       folha={mappedFolha}
       profile={userProfile}
+      navegacao={
+        <NavegacaoFolhas
+          folhaId={folha.id}
+          mes={folha.mes}
+          ano={folha.ano}
+          servidorNome={(folha.servidores as any)?.nome}
+          escala={{
+            unidadeId: escala.unidade_id,
+            setorId: escala.setor_id,
+            unidadeNome: (escala.unidades as any)?.nome || '',
+            setorNome: resolvedSetor?.nome || ''
+          }}
+        />
+      }
     />
   )
 }

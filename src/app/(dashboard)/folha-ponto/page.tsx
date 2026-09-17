@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { formatarData, formatarHoraComSegundos } from '@/utils/horario'
 import { createClient } from '@/utils/supabase/client'
 import { FileText, Loader2, Search, Building2, Layers, Calendar, ChevronRight, Play, RefreshCw, AlertCircle, Printer, Wand2, UserSearch, X } from 'lucide-react'
@@ -17,6 +17,34 @@ import { formatarMinutosHHMM, formatarHorasDecimaisHHMM, totaisFolha, regraCompe
 import { horasNormaisDaJornada } from '@/utils/folha/cargaDiaria'
 import { rotularInativo } from '@/utils/opcoesAtivas'
 import { h, raw } from '@/utils/htmlSeguro'
+import {
+  escreverFiltrosFolha,
+  filtrosPadraoFolha,
+  lerFiltrosFolha,
+  ordenarServidoresFolha,
+  servidorVisivelNaFolha,
+  urlDaFolha,
+  type FiltrosFolha
+} from '@/utils/folhaNavegacao'
+
+/**
+ * De onde vem cada filtro ao abrir a tela, em ordem de precedencia:
+ *   1. a URL — e como a folha devolve o usuario para ca com o que ele tinha (NavegacaoFolhas);
+ *   2. o sessionStorage — preserva os filtros entre visitas avulsas, como sempre fez;
+ *   3. o padrao.
+ *
+ * A URL vence o sessionStorage de proposito: quem clica em Voltar a lista esta pedindo o
+ * estado DAQUELA navegacao, e o sessionStorage pode ter sido sobrescrito por outra aba aberta
+ * na mesma tela.
+ */
+function filtroInicial(campo: keyof FiltrosFolha, chaveSessao?: string): string {
+  const padrao = filtrosPadraoFolha()[campo] as string
+  if (typeof window === 'undefined') return padrao
+  if (window.location.search) return lerFiltrosFolha(window.location.search)[campo] as string
+  if (!chaveSessao) return padrao
+  const salvo = sessionStorage.getItem(chaveSessao)
+  return salvo === null ? padrao : salvo
+}
 
 export default function FolhaPontoPage() {
   const supabase = createClient()
@@ -26,56 +54,19 @@ export default function FolhaPontoPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null)
 
   // Filters
-  const [mes, setMes] = useState<number>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = sessionStorage.getItem('folha_ponto_filtro_mes')
-      if (saved) return parseInt(saved, 10)
-    }
-    return new Date().getMonth() + 1
-  })
-  const [ano, setAno] = useState<number>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = sessionStorage.getItem('folha_ponto_filtro_ano')
-      if (saved) return parseInt(saved, 10)
-    }
-    return new Date().getFullYear()
-  })
-  const [selectedUnidade, setSelectedUnidade] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return sessionStorage.getItem('folha_ponto_filtro_unidade') || ''
-    }
-    return ''
-  })
-  const [selectedSetor, setSelectedSetor] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return sessionStorage.getItem('folha_ponto_filtro_setor') || ''
-    }
-    return ''
-  })
-  const [searchTerm, setSearchTerm] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return sessionStorage.getItem('folha_ponto_filtro_search') || ''
-    }
-    return ''
-  })
-  const [filterEscalaStatus, setFilterEscalaStatus] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return sessionStorage.getItem('folha_ponto_filtro_escala_status') || 'todos'
-    }
-    return 'todos'
-  })
-  const [filterFolhaStatus, setFilterFolhaStatus] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return sessionStorage.getItem('folha_ponto_filtro_folha_status') || 'todos'
-    }
-    return 'todos'
-  })
+  const [mes, setMes] = useState<number>(() => parseInt(filtroInicial('mes', 'folha_ponto_filtro_mes'), 10))
+  const [ano, setAno] = useState<number>(() => parseInt(filtroInicial('ano', 'folha_ponto_filtro_ano'), 10))
+  const [selectedUnidade, setSelectedUnidade] = useState(() => filtroInicial('unidade', 'folha_ponto_filtro_unidade'))
+  const [selectedSetor, setSelectedSetor] = useState(() => filtroInicial('setor', 'folha_ponto_filtro_setor'))
+  const [searchTerm, setSearchTerm] = useState(() => filtroInicial('busca', 'folha_ponto_filtro_search'))
+  const [filterEscalaStatus, setFilterEscalaStatus] = useState(() => filtroInicial('escalaStatus', 'folha_ponto_filtro_escala_status'))
+  const [filterFolhaStatus, setFilterFolhaStatus] = useState(() => filtroInicial('folhaStatus', 'folha_ponto_filtro_folha_status'))
 
   // Busca global de servidor (nome, CPF ou matricula) — nao e o mesmo que "Filtrar Servidor",
   // que so peneira o que ja esta na tela. Esta vai ao banco e nao exige Unidade selecionada,
   // porque quem procura uma pessoa nem sempre sabe onde ela esta escalada. O escopo continua
   // sendo o do perfil: quem restringe e applyAccessFilters + RLS dentro da action.
-  const [buscaGlobal, setBuscaGlobal] = useState('')
+  const [buscaGlobal, setBuscaGlobal] = useState(() => filtroInicial('buscaGlobal'))
   const [buscaResultado, setBuscaResultado] = useState<{
     buscando: boolean
     houveBusca: boolean
@@ -99,7 +90,7 @@ export default function FolhaPontoPage() {
   // status de folha ERRADO ("Nao Gerada" para folha que existe), nao apenas faltando gente.
   const [listagemCompleta, setListagemCompleta] = useState(true)
   const [selectedFolhas, setSelectedFolhas] = useState<Set<string>>(new Set())
-  const [currentPage, setCurrentPage] = useState(1)
+  const [currentPage, setCurrentPage] = useState(() => Math.max(1, parseInt(filtroInicial('pagina'), 10) || 1))
 
   // Save filters to sessionStorage whenever they change
   useEffect(() => {
@@ -112,8 +103,40 @@ export default function FolhaPontoPage() {
     sessionStorage.setItem('folha_ponto_filtro_folha_status', filterFolhaStatus)
   }, [mes, ano, selectedUnidade, selectedSetor, searchTerm, filterEscalaStatus, filterFolhaStatus])
 
-  // Reset selected timesheets on filter changes
+  // A URL acompanha os filtros da tela.
+  //
+  // A URL vence o sessionStorage ao abrir (e o que faz o Voltar a lista devolver o estado
+  // daquela navegacao), entao deixa-la congelada faria um F5 depois de trocar de unidade
+  // ressuscitar os filtros antigos — a tela desfazendo sozinha a escolha recem-feita.
+  //
+  // `history.replaceState`, nunca `router.replace`: aqui so a barra de enderecos precisa ficar
+  // coerente. Passar pelo router re-renderizaria a rota a cada tecla no campo de busca.
   useEffect(() => {
+    if (typeof window === 'undefined') return
+    const query = escreverFiltrosFolha({
+      mes: String(mes),
+      ano: String(ano),
+      unidade: selectedUnidade,
+      setor: selectedSetor,
+      busca: searchTerm,
+      buscaGlobal: buscaGlobal.trim(),
+      escalaStatus: filterEscalaStatus,
+      folhaStatus: filterFolhaStatus,
+      pagina: String(currentPage)
+    })
+    window.history.replaceState(window.history.state, '', window.location.pathname + '?' + query)
+  }, [mes, ano, selectedUnidade, selectedSetor, searchTerm, buscaGlobal, filterEscalaStatus, filterFolhaStatus, currentPage])
+
+  // Reset selected timesheets on filter changes
+  //
+  // Pula a MONTAGEM: o efeito roda depois dos inicializadores de estado, e resetar ali
+  // devolveria a pagina 1 a quem acabou de voltar da folha na pagina 7 (a pagina vem na URL).
+  const filtrosJaMontados = useRef(false)
+  useEffect(() => {
+    if (!filtrosJaMontados.current) {
+      filtrosJaMontados.current = true
+      return
+    }
     setSelectedFolhas(new Set())
     setCurrentPage(1)
   }, [selectedUnidade, selectedSetor, mes, ano, searchTerm, filterEscalaStatus, filterFolhaStatus, buscaGlobal])
@@ -224,11 +247,11 @@ export default function FolhaPontoPage() {
             }) || []
             setSetores(formatSectorsHierarchy(sData))
 
-            // Restore from sessionStorage if exists, otherwise default empty
-            const savedUnidade = sessionStorage.getItem('folha_ponto_filtro_unidade') || ''
-            const savedSetor = sessionStorage.getItem('folha_ponto_filtro_setor') || ''
-            setSelectedUnidade(savedUnidade)
-            setSelectedSetor(savedSetor)
+            // Mesma precedencia do inicializador (URL > sessionStorage > padrao). Ler o
+            // sessionStorage direto aqui sobrescreveria, depois do perfil carregar, a unidade
+            // e o setor que vieram na URL do Voltar a lista.
+            setSelectedUnidade(filtroInicial('unidade', 'folha_ponto_filtro_unidade'))
+            setSelectedSetor(filtroInicial('setor', 'folha_ponto_filtro_setor'))
           }
         }
       } catch (err) {
@@ -424,17 +447,28 @@ export default function FolhaPontoPage() {
   // entao todo o resto (status, paginacao, acoes, impressao em lote) continua valendo.
   const baseServidores = buscaAtiva ? buscaResultado.servidores : servidoresData
 
-  // Filter servers in memory
-  const filteredServidores = baseServidores.filter(s => {
-    const matchesSearch = s.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.matricula?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.cargo?.toLowerCase().includes(searchTerm.toLowerCase())
+  // Os filtros da competencia, na forma em que viajam para a folha e voltam.
+  const filtrosAtuais: FiltrosFolha = {
+    mes: String(mes),
+    ano: String(ano),
+    unidade: selectedUnidade,
+    setor: selectedSetor,
+    busca: searchTerm,
+    buscaGlobal: termoBusca,
+    escalaStatus: filterEscalaStatus,
+    folhaStatus: filterFolhaStatus,
+    pagina: String(currentPage)
+  }
 
-    const matchesEscalaStatus = filterEscalaStatus === 'todos' || s.escala_status === filterEscalaStatus
-    const matchesFolhaStatus = filterFolhaStatus === 'todos' || s.folha_status === filterFolhaStatus
+  // Filtro e ordem vem da FONTE UNICA (src/utils/folhaNavegacao.ts), a mesma que as setas
+  // da folha usam. Reescrever qualquer um dos dois aqui faria proxima folha pular ou
+  // repetir gente em relacao a esta lista.
+  const filteredServidores = ordenarServidoresFolha(
+    baseServidores.filter(s => servidorVisivelNaFolha(s, filtrosAtuais))
+  )
 
-    return matchesSearch && matchesEscalaStatus && matchesFolhaStatus
-  })
+  // Viaja na query origem de cada folha aberta daqui — e o caminho de volta.
+  const origemAtual = escreverFiltrosFolha(filtrosAtuais)
 
   // A exigencia de Unidade e da listagem, nao da busca: a action de busca ja limita o resultado
   // por escopo e por termo, entao nao reintroduz a varredura sem limite que a exigencia evita.
@@ -1219,7 +1253,7 @@ export default function FolhaPontoPage() {
                       key={s.escala_mensal_id || s.servidor_id}
                       onClick={() => {
                         if (hasFolha) {
-                          router.push(`/folha-ponto/${s.folha_id}`)
+                          router.push(urlDaFolha(s.folha_id, origemAtual))
                         }
                       }}
                       className={`group transition-colors ${
@@ -1322,7 +1356,7 @@ export default function FolhaPontoPage() {
                         <div className="flex items-center justify-center gap-2">
                           {hasFolha ? (
                             <Link 
-                              href={`/folha-ponto/${s.folha_id}`}
+                              href={urlDaFolha(s.folha_id, origemAtual)}
                               className="inline-flex items-center text-xs font-black uppercase bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-white px-4 py-2 rounded-xl transition-all"
                             >
                               Editar <ChevronRight className="ml-1 h-3.5 w-3.5" />

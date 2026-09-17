@@ -57,6 +57,12 @@ interface FolhaPontoEditorProps {
   profile: any
   isPortal?: boolean
   /**
+   * Barra de navegacao entre folhas (setas, voltar a lista, ir para a grade). Montada pela
+   * page para o editor nao importar as actions do dashboard — o Portal do Servidor renderiza
+   * este mesmo componente e recebe tudo por prop.
+   */
+  navegacao?: React.ReactNode
+  /**
    * Portal: abre a solicitação de ajuste para o dia. O servidor não edita a folha oficial —
    * ele informa o horário e o coordenador decide. Ver fn_solicitar_ajuste_ponto
    * (20260808130000) e a precedência 4 de `ajuste_servidor`.
@@ -73,6 +79,7 @@ export function FolhaPontoEditor({
   folha, 
   profile,
   isPortal = false,
+  navegacao,
   onSolicitarAjuste,
   onBack,
   saveAction,
@@ -955,6 +962,9 @@ export function FolhaPontoEditor({
         }
       `}</style>
 
+      {/* Navegacao entre folhas — ausente no Portal do Servidor, que ve so a propria folha */}
+      {navegacao}
+
       {/* Header - Hidden on Print */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 print:hidden">
         <div className="flex items-center gap-4">
@@ -965,7 +975,7 @@ export function FolhaPontoEditor({
             >
               <ArrowLeft className="h-5 w-5 text-zinc-500" />
             </button>
-          ) : (
+          ) : navegacao ? null : (
             <Link href="/folha-ponto" className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full transition-colors">
               <ArrowLeft className="h-5 w-5 text-zinc-500" />
             </Link>
@@ -1193,7 +1203,17 @@ export function FolhaPontoEditor({
             </div>
             <div>
               <div className="text-[9px] font-black uppercase text-zinc-400 mb-0.5">Setor / Jornada</div>
-              <div className="font-bold text-zinc-900 dark:text-white uppercase">{setor?.nome}</div>
+              {!isPortal && escala?.unidade_id && escala?.setor_id ? (
+                <Link
+                  href={`/escalas/unidade/${escala.unidade_id}?setor=${escala.setor_id}&mes=${folha.mes}&ano=${folha.ano}`}
+                  className="font-bold text-zinc-900 dark:text-white uppercase hover:text-blue-600 dark:hover:text-blue-400 hover:underline transition-colors print:text-black print:no-underline print:hover:text-black"
+                  title={`Abrir a grade de escala deste setor em ${String(folha.mes).padStart(2, '0')}/${folha.ano}`}
+                >
+                  {setor?.nome}
+                </Link>
+              ) : (
+                <div className="font-bold text-zinc-900 dark:text-white uppercase">{setor?.nome}</div>
+              )}
               <div className="text-[10px] text-zinc-500">{jornada?.nome || 'Não Vinculada'}</div>
             </div>
           </div>

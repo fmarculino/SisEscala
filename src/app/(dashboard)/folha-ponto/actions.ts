@@ -23,6 +23,7 @@ import { afastamentosDoDia, avaliarAfastamentosNoTurno, descreverAfastamentos, m
 import { calcularDia, totaisFolha, carregarDecisaoCompensacao, carregarDecisaoAutorizacaoExtra, diasPendentesDeCompensacao, diasPendentesDeAutorizacaoExtra, extraEfetivaDoDia, extraAposAutorizacao, statusAutorizacaoExtraDoDia, regraCompensacaoVigente, regraAutorizacaoExtraVigente, horasNormaisLiquidasVigente } from '@/utils/folha/calculoDia'
 import { normalizarNomeJornada } from '@/utils/folha/nomeJornada'
 import { buscarTodasPaginas } from '@/utils/paginacao'
+import { ordenarServidoresFolha } from '@/utils/folhaNavegacao'
 
 // Helper: Get user profile with unit/sector permissions
 async function getUserProfile(supabase: any): Promise<UserProfile> {
@@ -120,8 +121,24 @@ function getExtraHoursFromShift(extraShift: any): number {
 // List servers for a sector/month with their scale and folha status (unit and sector are optional)
 // ONLY includes servers with active scales for the selected competency
 export async function getServidoresFolhaPonto(mes: number, ano: number, unidadeId?: string, setorId?: string) {
+  // O fechamento automatico continua atrelado a ABRIR A LISTA, como sempre esteve.
+  await autoCloseExpiredScalesAndTimesheets()
+  return listarServidoresDaCompetencia(mes, ano, unidadeId, setorId)
+}
+
+/**
+ * A MESMA lista, sem o autoclose — e o que a barra de navegacao da folha consome.
+ *
+ * ⚠️ Ela NAO pode ganhar consulta propria: a sequencia percorrida pelas setas tem que ser
+ * exatamente a lista de `/folha-ponto`. O filtro em memoria e a ordem ficam em
+ * src/utils/folhaNavegacao.ts, compartilhados com a tela.
+ */
+export async function getSequenciaFolhasPonto(mes: number, ano: number, unidadeId?: string, setorId?: string) {
+  return listarServidoresDaCompetencia(mes, ano, unidadeId, setorId)
+}
+
+async function listarServidoresDaCompetencia(mes: number, ano: number, unidadeId?: string, setorId?: string) {
   try {
-    await autoCloseExpiredScalesAndTimesheets()
     const supabase = await createClient()
     const userProfile = await getUserProfile(supabase)
 
@@ -235,14 +252,14 @@ export async function getServidoresFolhaPonto(mes: number, ano: number, unidadeI
       .filter(Boolean) as any[]
 
     // Sort alphabetically by server name
-    result.sort((a, b) => a.nome.localeCompare(b.nome))
+    const ordenados = ordenarServidoresFolha(result)
 
     // Paginacao interrompida por erro devolve o que veio (ver buscarTodasPaginas). Aqui isso
     // significa STATUS DE FOLHA ERRADO na linha, nao apenas um total menor — por isso a tela
     // precisa saber e avisar (armadilha 22).
-    return { servidores: result, completo: escalasCompletas && folhasCompletas }
+    return { servidores: ordenados, completo: escalasCompletas && folhasCompletas }
   } catch (error: any) {
-    console.error('Erro em getServidoresFolhaPonto:', error)
+    console.error('Erro em listarServidoresDaCompetencia:', error)
     return { error: error.message }
   }
 }
@@ -412,9 +429,9 @@ export async function buscarServidoresFolhaPonto(termo: string, mes: number, ano
       })
       .filter(Boolean) as any[]
 
-    result.sort((a, b) => a.nome.localeCompare(b.nome))
+    const ordenados = ordenarServidoresFolha(result)
 
-    return { servidores: result, semEscala, truncado }
+    return { servidores: ordenados, semEscala, truncado }
   } catch (error: any) {
     console.error('Erro em buscarServidoresFolhaPonto:', error)
     return { error: error.message }

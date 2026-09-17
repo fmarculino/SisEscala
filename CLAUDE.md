@@ -5802,6 +5802,16 @@ injetadas, 7 reprovadas**). Transpile antes com
   relatório afirmando que 1.377h/mês de anexo sem prova continuavam abertas. **Antes de citar um
   plano como pendência, confira no código e no `CHANGELOG`**; e ao terminar uma fase, atualize o
   cabeçalho do plano no mesmo commit, como já se faz com o manual do usuário.
+- **Release do GitHub: só a seção da versão.** `node scripts/notas-da-release.mjs` recorta do
+  `CHANGELOG.md` apenas o trecho da versão do `package.json` — `--arquivo` grava em
+  `scratchpad/_release-notes.md` para colar no campo *Release notes*, `--publicar` cria/atualiza
+  a release quando o `gh` CLI existe (⚠️ **não está instalado** na máquina de dev em 17/09/2026:
+  `winget install --id GitHub.cli`). Colar o CHANGELOG inteiro leva junto o histórico de todas as
+  versões; recortar à mão erra em silêncio.
+- **Trabalho que atende uma issue fecha a issue pelo commit**: `Closes #N` como última linha do
+  corpo, antes da atribuição. Quem fecha é o GitHub ao receber o push na `main` — não depende do
+  `gh`. Com o `gh` instalado, comente também (`gh issue comment N`): issue encerrada sem dizer o
+  que foi feito é registro mudo num repositório público.
 - Timezone padrão: `configuracoes_globais`, fallback `America/Sao_Paulo`. ⚠️ **A tabela é
   chave/valor, com `valor` jsonb** — não existe coluna `timezone`. Em SQL, a forma usada por
   `fn_confirmar_presenca` e companhia é a única correta:
