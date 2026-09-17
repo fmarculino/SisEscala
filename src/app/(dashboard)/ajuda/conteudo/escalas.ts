@@ -247,7 +247,22 @@ export const escalas: Capitulo = {
           itens: [
             'Dá para pedir que ele **pule dias de afastamento**, e vale a pena deixar marcado.',
             'Ele **nunca sobrescreve** dia que já tem ponto batido.',
+            'Ele **não preenche feriado** — a caixa vem marcada, e o modal mostra quais são os feriados do mês.',
           ],
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'Feriado não é preenchido',
+          texto:
+            'Na maioria dos setores o servidor não trabalha no feriado, e preencher o dia junto com **Validar dias passados** registrava uma presença que depois **não dá para apagar** — a célula com ponto fica protegida. Por isso o feriado fica de fora, como já acontecia com sábado e domingo na escala de segunda a sexta. **Se houve trabalho no feriado, lance o dia à mão** (ou desmarque a caixa antes de aplicar, se a equipe trabalha em todo feriado).',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'dica',
+          titulo: 'A mensagem do fim diz o que ficou de fora',
+          texto:
+            'Ao terminar, ele lista os dias que **não** preencheu e o motivo de cada grupo: ponto já batido, afastamento, escala em outro setor e feriado. Vale ler antes de salvar — é ali que você descobre o que ainda precisa lançar à mão.',
         },
         { tipo: 'titulo', texto: 'Gerador Inteligente' },
         {

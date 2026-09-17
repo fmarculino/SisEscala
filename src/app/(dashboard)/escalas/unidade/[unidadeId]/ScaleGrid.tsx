@@ -28,9 +28,11 @@ import { ScalePrintView } from '@/components/ScalePrintView'
 import { Modal } from '@/components/ui/Modal'
 import { SelectComBuscaRemota, type OpcaoRemota } from '@/components/ui/SelectComBuscaRemota'
 import React from 'react'
+import { createPortal } from 'react-dom'
+import { calcularPosicaoFlutuante, type PosicaoFlutuante } from '@/utils/ui/posicaoFlutuante'
 import { canEditScale, podeEditarForaDoPrazo, UserRole } from '@/utils/governance'
 import { runComplianceCheck, getViolationsForCell, type ComplianceViolation } from '@/utils/complianceEngine'
-import { generateTemplate, TEMPLATE_OPTIONS, type TemplateType, countWorkDays } from '@/utils/scaleTemplates'
+import { generateTemplate, TEMPLATE_OPTIONS, type TemplateType, countWorkDays, diasDeFeriado } from '@/utils/scaleTemplates'
 import {
   gerarRevezamentoVigias,
   sugerirTurnosVigia,
@@ -139,7 +141,6 @@ interface ScaleGridProps {
 }
 
 type RowCategory = 'Regular' | 'Extra' | 'Plantão' | 'Sobreaviso'
-
 
 // Uma batida real que o coordenador escolheu para um passo. `fonte` diz de onde ela veio, e o
 // banco resolve cada uma por um caminho diferente (fn_validar_presenca_manual):
@@ -623,13 +624,60 @@ export function ScaleGrid({
    */
   const [ferramentasAbertas, setFerramentasAbertas] = useState(false)
   const ferramentasRef = useRef<HTMLDivElement | null>(null)
+  const ferramentasBotaoRef = useRef<HTMLButtonElement | null>(null)
+  const ferramentasMenuRef = useRef<HTMLDivElement | null>(null)
+
+  // `createPortal` toca em `document`: so depois de montar no cliente.
+  const [montado, setMontado] = useState(false)
+  useEffect(() => { setMontado(true) }, [])
+
+  /**
+   * Posicao do menu na TELA.
+   *
+   * ⚠️ O menu e desenhado em portal, fora do card da grade. O card tem `overflow-hidden` (o
+   * arredondamento e a rolagem do cabecalho fixo dependem dele) e recortava o dropdown
+   * `absolute`: com um servidor so, o card e baixo e o menu sumia na terceira opcao, sem barra
+   * de rolagem e sem nenhum sinal de que havia mais. `maxHeight` sai da mesma conta, entao o
+   * menu ROLA por dentro em vez de esconder item.
+   */
+  const [posicaoMenuFerramentas, setPosicaoMenuFerramentas] = useState<PosicaoFlutuante | null>(null)
+
+  const reposicionarMenuFerramentas = useCallback(() => {
+    const botao = ferramentasBotaoRef.current
+    if (!botao) return
+    const rect = botao.getBoundingClientRect()
+    setPosicaoMenuFerramentas(calcularPosicaoFlutuante(
+      rect,
+      { largura: 320, altura: 520 },
+      { largura: window.innerWidth, altura: window.innerHeight }
+    ))
+  }, [])
+
+  useEffect(() => {
+    if (!ferramentasAbertas) return
+    reposicionarMenuFerramentas()
+    // `true` na captura: a grade rola num container proprio e o scroll dele nao borbulha ate
+    // a window. Sem isso o menu ficaria parado enquanto a barra sai de baixo dele.
+    window.addEventListener('scroll', reposicionarMenuFerramentas, true)
+    window.addEventListener('resize', reposicionarMenuFerramentas)
+    return () => {
+      window.removeEventListener('scroll', reposicionarMenuFerramentas, true)
+      window.removeEventListener('resize', reposicionarMenuFerramentas)
+    }
+  }, [ferramentasAbertas, reposicionarMenuFerramentas])
 
   // Fecha o menu de ferramentas ao clicar fora ou apertar Esc. Sem isso o painel fica aberto
   // por cima da grade e o proximo clique numa celula so serviria para fecha-lo.
   useEffect(() => {
     if (!ferramentasAbertas) return
     const aoClicarFora = (e: MouseEvent) => {
-      if (ferramentasRef.current && !ferramentasRef.current.contains(e.target as Node)) {
+      const alvo = e.target as Node
+      const noBotao = ferramentasRef.current?.contains(alvo)
+      // O painel vive em portal, fora de `ferramentasRef`: sem consultar o ref dele, o
+      // mousedown num item contaria como clique fora, o menu seria desmontado antes do mouseup
+      // e o clique nunca chegaria ao item.
+      const noMenu = ferramentasMenuRef.current?.contains(alvo)
+      if (!noBotao && !noMenu) {
         setFerramentasAbertas(false)
       }
     }
@@ -915,7 +963,18 @@ export function ScaleGrid({
     startDay: number
     startWorking: boolean
     validatePastDays?: boolean
+    /**
+     * Feriado nao e preenchido por padrao (issue #5).
+     *
+     * ⚠️ O motivo e a ASSIMETRIA DO ERRO, nao o calendario: deixar o dia vazio custa uma
+     * celula digitada a mao e fica VISIVEL na grade; preencher um feriado que a pessoa nao
+     * trabalhou, junto com 'validar dias passados', grava presenca que o coordenador nao
+     * consegue mais apagar (a celula com ponto e protegida). Quem trabalha no feriado
+     * desmarca a caixa ou lanca o dia a mao.
+     */
+    pularFeriados?: boolean
   } | null>(null)
+
 
   /**
    * "Revezamento de Vigias": gera a escala de 2+ agentes de portaria que revezam a portaria um
@@ -1295,6 +1354,22 @@ export function ScaleGrid({
   })
 
   const daysInMonth = useMemo(() => new Date(ano, mes, 0).getDate(), [mes, ano])
+
+  /**
+   * Os feriados da competência, para o modal DIZER quais dias ele vai deixar de fora.
+   *
+   * ⚠️ Caixa marcada sem a lista ao lado seria uma decisão tomada às cegas: o coordenador não
+   * tem como saber se "não preencher feriados" muda alguma coisa neste mês. Quando não há
+   * feriado cadastrado, o texto diz isso em vez de sumir.
+   */
+  const feriadosDoMesNoTemplate = useMemo(() => {
+    const dias = diasDeFeriado(feriados, mes, ano, daysInMonth)
+    return [...dias].sort((a, b) => a - b).map(dia => {
+      const dataStr = `${ano}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`
+      const feriado = feriados.find(f => f.data === dataStr)
+      return { dia, descricao: feriado?.descricao || 'feriado' }
+    })
+  }, [feriados, mes, ano, daysInMonth])
   const daysArray = useMemo(() => Array.from({ length: daysInMonth }, (_, i) => i + 1), [daysInMonth])
 
   const getPastDaysCount = useCallback(() => {
@@ -5300,7 +5375,8 @@ export function ScaleGrid({
         turnoId: defaultTurnId,
         startDay: 1,
         startWorking: true,
-        validatePastDays: false
+        validatePastDays: false,
+        pularFeriados: true
       })
     }
 
@@ -5567,6 +5643,7 @@ export function ScaleGrid({
                 (Salvar Previsão / Fechar Escala) nunca ser empurrado para fora da tela. */}
             <div className="relative @min-[1800px]:hidden" ref={ferramentasRef}>
               <button
+                ref={ferramentasBotaoRef}
                 type="button"
                 onClick={() => setFerramentasAbertas(v => !v)}
                 disabled={loading || isClosed}
@@ -5579,10 +5656,21 @@ export function ScaleGrid({
                 <ChevronDown className={`h-4 w-4 ml-2 transition-transform ${ferramentasAbertas ? 'rotate-180' : ''}`} />
               </button>
 
-              {ferramentasAbertas && (
+              {/* ⚠️ PORTAL, nao `absolute`: ver o comentario de `posicaoMenuFerramentas`. O card
+                  da grade tem `overflow-hidden` e cortava o menu quando a escala tinha poucos
+                  servidores — as ferramentas de baixo simplesmente nao existiam para o usuario. */}
+              {ferramentasAbertas && montado && posicaoMenuFerramentas && createPortal(
                 <div
                   role="menu"
-                  className="absolute left-0 top-full z-40 mt-2 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-xl ring-1 ring-black/5 py-1 animate-in fade-in"
+                  ref={ferramentasMenuRef}
+                  style={{
+                    position: 'fixed',
+                    top: posicaoMenuFerramentas.top,
+                    left: posicaoMenuFerramentas.left,
+                    maxHeight: posicaoMenuFerramentas.maxHeight,
+                    zIndex: 99999
+                  }}
+                  className="w-80 max-w-[calc(100vw-1rem)] overflow-y-auto overscroll-contain rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-2xl ring-1 ring-black/5 py-1 animate-in fade-in"
                 >
                   {ferramentasEscala.map(f => (
                     <button
@@ -5598,7 +5686,8 @@ export function ScaleGrid({
                       </span>
                     </button>
                   ))}
-                </div>
+                </div>,
+                document.body
               )}
             </div>
 
@@ -7780,6 +7869,26 @@ export function ScaleGrid({
                 </div>
               )}
 
+              {/* Feriado nao preenchido: a caixa nasce MARCADA, e quem trabalha no feriado
+                  desmarca. Ver o comentario do campo `pularFeriados` no estado do modal. */}
+              <div className="flex items-start space-x-2.5 py-1 bg-red-50/50 dark:bg-red-950/10 p-2.5 rounded-lg border border-red-100 dark:border-red-900/30">
+                <input
+                  type="checkbox"
+                  id="pularFeriados"
+                  checked={templateModal.pularFeriados !== false}
+                  onChange={(e) => setTemplateModal(prev => prev ? { ...prev, pularFeriados: e.target.checked } : null)}
+                  className="mt-0.5 h-4 w-4 rounded border-zinc-350 text-red-600 focus:ring-red-500 cursor-pointer"
+                />
+                <label htmlFor="pularFeriados" className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 cursor-pointer select-none">
+                  Não preencher feriados
+                  <span className="block text-[10px] font-normal text-zinc-500 dark:text-zinc-400">
+                    {feriadosDoMesNoTemplate.length > 0
+                      ? `Neste mês: ${feriadosDoMesNoTemplate.map(f => `dia ${f.dia} (${f.descricao})`).join(', ')}. Desmarque se o servidor trabalha em feriado.`
+                      : 'Não há feriado cadastrado nesta competência.'}
+                  </span>
+                </label>
+              </div>
+
               <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 p-3 rounded-lg">
                 <p className="text-[10px] text-purple-700 dark:text-purple-400">
                   ⚠️ Dias com presença já confirmada <strong>não serão sobrescritos</strong>, e dias de <strong>afastamento</strong> não serão preenchidos. O template preenche apenas a linha <strong>Regular</strong>.
@@ -7835,9 +7944,20 @@ export function ScaleGrid({
                   )
                   const conflictDays = new Set<number>(conflitosExternos.map(c => c.dia))
 
+                  // Feriado, quando a caixa está marcada (o padrão).
+                  //
+                  // ⚠️ Vale para TODOS os modelos, inclusive os cíclicos (12×36, 12×48, 6×1), que
+                  // caem em qualquer dia da semana de propósito. O plantonista que trabalha no
+                  // feriado desmarca a caixa — e o relato diz quais dias ficaram de fora, então a
+                  // decisão não acontece em silêncio.
+                  const holidayDays = templateModal.pularFeriados !== false
+                    ? new Set<number>([...diasDeFeriado(feriados, mes, ano, daysInMonth)]
+                        .filter(d => d >= templateModal.startDay))
+                    : new Set<number>()
+
                   // generateTemplate não escreve nos dias que recebe como protegidos —
-                  // presença confirmada, afastamento e sobreposição entram pelo mesmo canal.
-                  const skipDays = new Set<number>([...protectedDays, ...leaveDays, ...conflictDays])
+                  // presença confirmada, afastamento, sobreposição e feriado entram pelo mesmo canal.
+                  const skipDays = new Set<number>([...protectedDays, ...leaveDays, ...conflictDays, ...holidayDays])
 
                   const templateResult = generateTemplate(
                     {
@@ -8017,16 +8137,20 @@ export function ScaleGrid({
                     dias_preenchidos: workDays,
                     dias_protegidos: protectedDays.size,
                     dias_afastamento: leaveDays.size,
-                    dias_conflito_setor: conflictDays.size
+                    dias_conflito_setor: conflictDays.size,
+                    dias_feriado: holidayDays.size
                   })
 
                   setTemplateModal(null)
                   const diasAfastado = [...leaveDays].sort((a, b) => a - b)
                   const diasConflito = [...conflictDays].sort((a, b) => a - b)
+                  // Relatar o que NAO foi preenchido e por que (armadilha 22): sem isto, o
+                  // coordenador descobriria o feriado vazio so ao conferir a grade dia a dia.
+                  const diasFeriado = [...holidayDays].sort((a, b) => a - b)
                   setAlertModal({
                     isOpen: true,
                     title: 'Template Aplicado',
-                    message: `Template ${templateModal.templateType} aplicado com sucesso! ${workDays} dias preenchidos${protectedDays.size > 0 ? `, ${protectedDays.size} dias protegidos por presença` : ''}${diasAfastado.length > 0 ? `, ${diasAfastado.length} dias não preenchidos por afastamento (dias ${diasAfastado.join(', ')})` : ''}${diasConflito.length > 0 ? `, ${diasConflito.length} dias não preenchidos porque o servidor já está escalado em outro setor no mesmo horário (dias ${diasConflito.join(', ')})` : ''}. Lembre-se de salvar a escala.`,
+                    message: `Template ${templateModal.templateType} aplicado com sucesso! ${workDays} dias preenchidos${protectedDays.size > 0 ? `, ${protectedDays.size} dias protegidos por presença` : ''}${diasAfastado.length > 0 ? `, ${diasAfastado.length} dias não preenchidos por afastamento (dias ${diasAfastado.join(', ')})` : ''}${diasConflito.length > 0 ? `, ${diasConflito.length} dias não preenchidos porque o servidor já está escalado em outro setor no mesmo horário (dias ${diasConflito.join(', ')})` : ''}${diasFeriado.length > 0 ? `, ${diasFeriado.length} ${diasFeriado.length === 1 ? 'dia não preenchido por ser feriado' : 'dias não preenchidos por serem feriado'} (${diasFeriado.length === 1 ? 'dia' : 'dias'} ${diasFeriado.join(', ')}) — se houve trabalho no feriado, lance o dia à mão` : ''}. Lembre-se de salvar a escala.`,
                     type: 'success'
                   })
                 }}

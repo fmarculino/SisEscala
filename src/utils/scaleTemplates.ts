@@ -197,6 +197,34 @@ function generate6x1(
 }
 
 /**
+ * Os dias do mes que caem em feriado.
+ *
+ * ⚠️ Compara STRING `YYYY-MM-DD`, nunca `new Date(...)`: o processo roda em UTC e
+ * `new Date('2026-09-07')` e meia-noite UTC, que em America/Sao_Paulo e dia 6 (armadilha 12).
+ * `feriados[].data` ja vem do banco nessa forma, e o resto da grade a compara assim.
+ *
+ * ⚠️ Feriado MOVEL de outro ano nao entra por acidente: o ano e o mes sao montados no
+ * prefixo, entao so casa o feriado daquela competencia.
+ */
+export function diasDeFeriado(
+  feriados: Array<{ data?: string | null }> | null | undefined,
+  mes: number,
+  ano: number,
+  daysInMonth: number
+): Set<number> {
+  const dias = new Set<number>()
+  if (!feriados || feriados.length === 0) return dias
+
+  const prefixo = `${ano}-${String(mes).padStart(2, '0')}-`
+  for (const f of feriados) {
+    if (!f?.data || !f.data.startsWith(prefixo)) continue
+    const dia = parseInt(f.data.slice(prefixo.length, prefixo.length + 2), 10)
+    if (Number.isFinite(dia) && dia >= 1 && dia <= daysInMonth) dias.add(dia)
+  }
+  return dias
+}
+
+/**
  * Helper: conta o total de dias de trabalho gerados pelo template.
  */
 export function countWorkDays(template: Record<number, string>): number {
