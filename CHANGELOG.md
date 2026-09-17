@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.68.0] - 2026-09-16
+
+Sem migration. Diario em `docs/evolucao/2026-09-16-cabecalho-da-grade-travado-no-topo.md`.
+
+### Added
+
+- **Cabecalho dos dias travado no topo da grade de escala** — o "congelar paineis" da
+  planilha, pedido pelos coordenadores: em setor com muita gente, rolar para as ultimas
+  linhas fazia o cabecalho sair da tela e a pessoa perdia a referencia do dia em que estava
+  lancando. Agora so o miolo da grade rola.
+- **Botao Cabecalho fixo / Cabecalho solto**, com a escolha salva por navegador
+  (`src/utils/escala/preferenciaGrade.ts`). O padrao e travado; quem prefere o layout antigo
+  desliga em um clique e a grade volta a ser pixel a pixel a de antes. O botao alcanca tambem
+  os papeis `comum`/`servidor`, que nao tem a barra de acoes.
+
+### Fixed
+
+- 🚨 **O `<thead>` da grade sempre foi `sticky top-0` e nunca grudou em lugar nenhum.** Quem
+  rola e o `<main>` do layout do dashboard, nao o `overflow-auto` da grade: a cadeia de
+  `h-full` morre no `div.p-8` do layout (100% de um pai sem altura resolve para `auto`), e o
+  cabecalho ficava ancorado num elemento que nunca rolava. Corrigido dando altura **medida**
+  ao card (nunca `calc(100vh - Xrem)` chutado, que devolveria a rolagem para a pagina) mais
+  `min-h-0` no container da tabela. ⚠️ Corrigir pelo layout do dashboard foi **descartado**:
+  quebraria a tarja do `AvisoVersaoDesatualizada` (armadilha 68) e alcancaria as 23 telas.
+- Badges das celulas (`z-30`) passariam por cima do cabecalho travado, porque a `<td>` e
+  `relative` **sem** `z-index` e nao confina nada. Resolvido com `z-0` na celula — subir o
+  cabecalho para `z-40` esconderia o menu "Ferramentas" e cortaria o balao dos indicadores.
+- Borda inferior do cabecalho reforcada com `box-shadow`: com `border-collapse` a borda e da
+  tabela e nao acompanha o sticky, e o corpo apareceria colado no cabecalho.
+
 ## [2.67.0] - 2026-09-16
 
 Duas migrations: `20260916110000` (o regime de apuracao e a janela) e `20260916120000` (o

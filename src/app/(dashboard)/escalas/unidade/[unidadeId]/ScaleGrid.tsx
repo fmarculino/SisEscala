@@ -4,6 +4,10 @@ import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { formatarData, formatarDataHora, formatarHora, formatarHoraComSegundos, dataISOLocal, partesLocais } from '@/utils/horario'
 import { horasDaLinhaEscala, tetoLiquidoJornada } from '@/utils/escala/horasLinha'
 import {
+  alturaDisponivelParaGrade, CABECALHO_FIXO_PADRAO, gravarPreferenciaCabecalhoFixo,
+  lerPreferenciaCabecalhoFixo,
+} from '@/utils/escala/preferenciaGrade'
+import {
   batidaVisivelNaCelula, classificarBatida, classificarLugarDaBatida, compararBatidasParaExibir,
   dataDaCelula, deltaDiaDaBatida, rotuloDiaRelativo, type LugarDaBatida, type PosicaoDaBatida,
 } from '@/utils/janelaBatidas'
@@ -17,7 +21,7 @@ import {
   CheckCircle, Trash2, Globe, X, Copy, Check, Clock, Navigation2, Send, CheckSquare,
   Shield, ShieldCheck, ShieldAlert, AlertTriangle, LayoutTemplate,
   ChevronLeft, ChevronRight, ChevronDown, Sparkles, ExternalLink, ArrowRightLeft, Wrench,
-  Wand2
+  Wand2, Pin, PinOff
 } from 'lucide-react'
 import { gerarFolhaPonto } from '@/app/(dashboard)/folha-ponto/actions'
 import { ScalePrintView } from '@/components/ScalePrintView'
@@ -5146,6 +5150,63 @@ export function ScaleGrid({
   const isInactive = escalaMensal[0]?.ativo === false || isAutoInactivated
   const isComum = userProfile?.role === 'comum' || userProfile?.role === 'servidor'
 
+  /* ────────────────────────────────────────────────────────────────────────────────────
+     Cabecalho dos dias travado no topo (o "congelar paineis" da planilha).
+
+     ⚠️ O <thead> SEMPRE foi `sticky top-0`, e nunca grudou em lugar nenhum: quem rola e
+     o <main> do layout do dashboard, e nao o `overflow-auto` desta grade. A cadeia de
+     `h-full` morre no `div.p-8` do layout (100% de um pai sem altura = auto), entao o
+     container da tabela nunca precisou rolar e o sticky ficou ancorado num elemento
+     parado. Dar altura maxima ao card e o que transfere a rolagem para ca -- so entao o
+     `sticky` do cabecalho tem de onde grudar.
+
+     ⚠️ Corrigir isso pelo layout do dashboard (por exemplo, mover o scroll do <main> para
+     um filho) foi descartado: a tarja do AvisoVersaoDesatualizada e `sticky top-0` e
+     depende de o <main> ser quem rola (armadilha 68), e o efeito alcancaria as 23 telas.
+     ──────────────────────────────────────────────────────────────────────────────────── */
+  const [cabecalhoFixo, setCabecalhoFixo] = useState<boolean>(CABECALHO_FIXO_PADRAO)
+  const cardGradeRef = useRef<HTMLDivElement>(null)
+  const [alturaGrade, setAlturaGrade] = useState<number | null>(null)
+
+  // A preferencia so pode ser lida depois da montagem: localStorage nao existe no servidor.
+  useEffect(() => { setCabecalhoFixo(lerPreferenciaCabecalhoFixo()) }, [])
+
+  const alternarCabecalhoFixo = useCallback(() => {
+    setCabecalhoFixo(atual => {
+      const proximo = !atual
+      gravarPreferenciaCabecalhoFixo(proximo)
+      return proximo
+    })
+  }, [])
+
+  /* Mede quanto sobra de tela para a grade. E medicao, nao chute em `calc(100vh - Xrem)`:
+     o que fica acima do card varia (titulo da pagina, tarja de escala inativa, tarja de
+     somente leitura, aviso de versao), e altura chutada a MAIS devolve a rolagem para a
+     pagina -- que e exatamente o defeito que esta correcao existe para fechar. */
+  useEffect(() => {
+    if (!cabecalhoFixo) { setAlturaGrade(null); return }
+
+    const medir = () => {
+      const card = cardGradeRef.current
+      if (!card) return
+      const area = card.closest('main')
+      const alturaVisivel = area?.clientHeight ?? window.innerHeight
+      // Distancia ate o topo do CONTEUDO da area que rola: imune a posicao da rolagem.
+      const topoDaArea = area?.getBoundingClientRect().top ?? 0
+      const distancia = card.getBoundingClientRect().top - topoDaArea + (area?.scrollTop ?? 0)
+      setAlturaGrade(alturaDisponivelParaGrade(distancia, alturaVisivel))
+    }
+
+    medir()
+    window.addEventListener('resize', medir)
+    // As tarjas acima do card aparecem depois da montagem (aviso de versao consulta a rede),
+    // e cada uma empurra o card para baixo. Sem observar, a altura ficaria a da 1a medicao.
+    const area = cardGradeRef.current?.closest('main')
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(medir) : null
+    if (observer && area) observer.observe(area)
+    return () => { window.removeEventListener('resize', medir); observer?.disconnect() }
+  }, [cabecalhoFixo, isInactive, isComum])
+
   // Quem pode validar presenca manualmente, celula a celula. RH Geral e RH da Unidade entram
   // aqui (20/08/2026): e o papel que apura a folha e precisa justificar quem esqueceu de bater.
   // O banco nunca os barrou - fn_validar_presenca_manual e SECURITY DEFINER com GRANT a
@@ -5378,9 +5439,37 @@ export function ScaleGrid({
     ].filter(f => f.chave !== 'reconciliar' || podeValidarPresenca)
   }, [escalaMensal, turnos, unidadeId, daysInMonth, maxValidDay, handleClearScale, podeValidarPresenca])
 
+  const botaoCabecalhoFixo = (
+    <button
+      onClick={alternarCabecalhoFixo}
+      aria-pressed={cabecalhoFixo}
+      title={cabecalhoFixo
+        ? 'Cabeçalho dos dias travado no topo: só a grade rola. Clique para voltar ao layout em que a página inteira rola.'
+        : 'A página inteira rola, como antes. Clique para travar o cabeçalho dos dias no topo, como no congelar painéis da planilha.'}
+      className={`inline-flex items-center whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium border transition-colors ${
+        cabecalhoFixo
+          ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900/50'
+          : 'bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-300 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-700/50'
+      }`}
+    >
+      {cabecalhoFixo ? <Pin className="h-4 w-4" /> : <PinOff className="h-4 w-4" />}
+      <span className="ml-2 hidden @min-[880px]:inline">
+        {cabecalhoFixo ? 'Cabeçalho fixo' : 'Cabeçalho solto'}
+      </span>
+    </button>
+  )
+
   return (
     <>
-      <div className="flex flex-col h-full bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-xl overflow-hidden print:hidden">
+      {/* ⚠️ `maxHeight` medido (e nao `h-full`) e o que faz a rolagem acontecer AQUI DENTRO,
+          no `overflow-auto` da tabela, em vez de na pagina -- e so entao o `sticky` do
+          cabecalho tem onde grudar. No modo solto nada e aplicado e o card cresce como
+          sempre cresceu. */}
+      <div
+        ref={cardGradeRef}
+        style={cabecalhoFixo && alturaGrade ? { maxHeight: alturaGrade } : undefined}
+        className="flex flex-col h-full bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-xl overflow-hidden print:hidden"
+      >
       {isInactive && (
         <div className="bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800 px-4 py-2 flex items-center gap-2 text-amber-700 dark:text-amber-500 text-xs font-bold uppercase tracking-tight">
           <Lock className="h-4 w-4" />
@@ -5522,6 +5611,8 @@ export function ScaleGrid({
                   {complianceCount} {complianceCount === 1 ? 'alerta' : 'alertas'} de compliance
                 </div>
               )}
+              {botaoCabecalhoFixo}
+
               <button onClick={() => window.print()} title="Gerar PDF" className="inline-flex items-center whitespace-nowrap rounded-md bg-white dark:bg-zinc-800 px-3 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-700/50">
                 <FileText className="h-4 w-4" />
                 <span className="ml-2 hidden @min-[880px]:inline">Gerar PDF</span>
@@ -5554,6 +5645,14 @@ export function ScaleGrid({
         </div>
       )}
 
+      {/* Quem e 'comum'/'servidor' nao tem a barra de acoes acima, e a preferencia de layout
+          vale para quem so consulta tambem: faixa minima so com o botao. */}
+      {isComum && (
+        <div className="@container flex justify-end border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50 px-4 py-1.5">
+          {botaoCabecalhoFixo}
+        </div>
+      )}
+
       {/* Painel de Solicitações de Troca */}
       {!isComum && (
         <SwapRequestPanel
@@ -5565,9 +5664,13 @@ export function ScaleGrid({
         />
       )}
 
-      <div className="flex-1 overflow-auto no-print">
+      <div className={`flex-1 overflow-auto no-print ${cabecalhoFixo ? 'min-h-0' : ''}`}>
         <table className="w-full border-collapse text-[10px] table-fixed">
-          <thead className="sticky top-0 z-20 bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100">
+          <thead className={`sticky top-0 z-20 bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 ${
+            cabecalhoFixo
+              ? '[&>tr>th]:shadow-[inset_0_-1px_0_rgb(212_212_216)] dark:[&>tr>th]:shadow-[inset_0_-1px_0_rgb(63_63_70)]'
+              : ''
+          }`}>
             <tr>
               <th className="sticky left-0 z-30 bg-zinc-100 dark:bg-zinc-800 p-2 border border-zinc-200 dark:border-zinc-700 text-left w-[180px]">Servidor</th>
               <th className="sticky left-[180px] z-30 bg-zinc-100 dark:bg-zinc-800 p-2 border border-zinc-200 dark:border-zinc-700 w-[100px]">Tipo</th>
@@ -5994,7 +6097,7 @@ export function ScaleGrid({
                         return (
                           <td 
                             key={day} 
-                            className={`p-0 border border-zinc-200 dark:border-zinc-700 text-center relative 
+                            className={`p-0 border border-zinc-200 dark:border-zinc-700 text-center relative ${cabecalhoFixo ? 'z-0' : ''} 
                               ${isCellBlockedByEvent ? '' : (isHoliday ? 'bg-red-50 dark:bg-red-900/10' : isWE ? 'bg-zinc-50 dark:bg-zinc-800/50' : '')} 
                               ${isFailed ? 'bg-red-100 dark:bg-red-900/30' : ''} 
                               ${hasExternalConflict ? 'ring-1 ring-inset ring-red-500' : ''}

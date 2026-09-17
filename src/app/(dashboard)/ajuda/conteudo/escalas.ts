@@ -129,6 +129,27 @@ export const escalas: Capitulo = {
           texto:
             'Hora além da jornada só é contada se for lançada como **Extra** ou **Plantão**. Essas duas linhas não têm limite de jornada — é exatamente para isso que elas existem.',
         },
+        { tipo: 'titulo', texto: 'Travando o cabeçalho dos dias' },
+        {
+          tipo: 'p',
+          texto:
+            'Em setor com muita gente, a grade fica mais alta que a tela e você precisa rolar para chegar nas últimas linhas. O botão **Cabeçalho fixo**, na barra de cima, mantém a faixa com os números dos dias parada no topo enquanto só o miolo da grade rola — é o mesmo efeito do congelar painéis da planilha, e serve para você ter certeza de que está lançando no dia certo.',
+        },
+        {
+          tipo: 'tabela',
+          colunas: ['Botão', 'O que acontece'],
+          linhas: [
+            ['**Cabeçalho fixo** (azul)', 'A faixa dos dias fica parada no topo. Só a grade rola, e a página não se mexe.'],
+            ['**Cabeçalho solto**', 'A página inteira rola, cabeçalho junto. É como o sistema funcionava antes.'],
+          ],
+        },
+        {
+          tipo: 'aviso',
+          tom: 'dica',
+          titulo: 'A escolha é sua e fica guardada',
+          texto:
+            'O sistema já abre com o cabeçalho travado, porque foi o que a maioria pediu. Se você prefere do jeito antigo, clique uma vez e pronto: o sistema lembra da sua escolha nas próximas vezes que você abrir uma escala **neste computador**. Em outro computador, escolha de novo. A preferência é só sua — não muda nada para os colegas, e não altera turno, horário nem hora nenhuma da escala.',
+        },
         { tipo: 'titulo', texto: 'Salvar' },
         {
           tipo: 'p',

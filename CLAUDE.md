@@ -5737,6 +5737,51 @@ Portões: `node scratchpad/sim_conflito_pendencia.js` (46) e `val_sim_conflito_p
 9**, com `md5(prosrc)` das duas funções conferido contra o arquivo — validar texto diferente do que
 vai a produção não valida nada.
 
+### 70. `sticky` declarado não é `sticky` funcionando — quem decide é QUEM ROLA (16/09/2026)
+
+🚨 **O `<thead>` da grade de escala sempre foi `sticky top-0 z-20` e nunca grudou em lugar
+nenhum.** `position: sticky` ancora no **ancestral de rolagem mais próximo** — aqui, o
+`overflow-auto` da própria grade, que nunca rolava, porque a cadeia de `h-full` morre no
+`div.p-8` do layout do dashboard (`100%` de um pai sem altura resolve para `auto`). Quem rolava
+era o `<main>`, por fora, e o cabeçalho subia junto. Diário em
+[`docs/evolucao/2026-09-16-cabecalho-da-grade-travado-no-topo.md`](docs/evolucao/2026-09-16-cabecalho-da-grade-travado-no-topo.md).
+
+⚠️ **Ao escrever cabeçalho fixo, a pergunta não é "tem `sticky top-0`?" — é "qual elemento está
+rolando?".** Nesta tela a resposta estava três níveis acima, em outro arquivo.
+
+🚨 **Corrigir pelo layout do dashboard continua DESCARTADO.** Mover o scroll do `<main>` para um
+filho resolveria a cadeia e **quebraria a tarja do `AvisoVersaoDesatualizada`** (armadilha 68),
+além de alcançar as 23 telas. A correção vive dentro do `ScaleGrid`: altura **medida** no card
+mais `min-h-0` no container da tabela.
+
+⚠️ **`min-h-0` não é enfeite**: em coluna flex o item não encolhe abaixo do próprio conteúdo, e
+sem ele o `maxHeight` do card não produz rolagem nenhuma — o código parece certo e o cabeçalho
+volta a não grudar.
+
+⚠️ **A altura é medida, nunca `calc(100vh - Xrem)`.** O que fica acima do card varia (título,
+tarja de escala inativa, somente leitura, aviso de versão), e chute **a mais** devolve a rolagem
+para a página — o defeito que a correção fecha. A medida é a distância até o topo do **conteúdo**
+da área que rola, nunca o `getBoundingClientRect().top` cru, que muda com a rolagem.
+
+⚠️ **Dois efeitos que só aparecem DEPOIS que o cabeçalho passa a grudar:** os badges das células
+são `z-30` e a `<td>` é `relative` **sem** `z-index` (não confina nada), então passariam por cima
+dele — resolvido com `z-0` na célula, e **não** subindo o cabeçalho para `z-40`, que esconderia o
+menu "Ferramentas" (a barra é `z-30` de propósito) e cortaria o balão dos indicadores de ponto
+(`hover:z-30`, também de propósito). E com `border-collapse` a borda inferior do cabeçalho **não
+acompanha o sticky** no Chrome: o corpo aparece colado nele, corrigido com `box-shadow` inset.
+
+⚠️ **A preferência é do usuário e mora no `localStorage`** (`src/utils/escala/preferenciaGrade.ts`),
+nunca em `configuracoes_globais`: é gosto de quem opera, não muda número nenhum da escala e não
+pode valer para os colegas da mesma unidade. Todo acesso em **try/catch** — janela anônima e site
+data bloqueado fazem `localStorage` **lançar**. Padrão travado; no modo solto **nada** é aplicado,
+e a grade fica idêntica à de antes. O botão alcança também `comum`/`servidor`, que não têm a barra
+de ações. **O rodapé de totais não é travado** (decisão do usuário): em monitor de resolução menor,
+travar as duas pontas espreme a área útil.
+
+Portões: `node scratchpad/sim_cabecalho_fixo.js` (26) e `val_sim_cabecalho_fixo.js` (**7 regressões
+injetadas, 7 reprovadas**). Transpile antes com
+`npx tsc src/utils/escala/preferenciaGrade.ts --outDir scratchpad/_sim --module commonjs --target es2020`.
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.
