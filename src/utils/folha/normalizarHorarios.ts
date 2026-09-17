@@ -89,8 +89,13 @@ export function normalizarRegistrosFolha(
   }
 
   // Passo 2: Reorganizar cada dia em ordem cronológica e tratar jornadas diretas
+  //
+  // ⚠️ FERIADO NAO SAI DAQUI. Quem esta ESCALADO no feriado trabalha (hospital nao fecha no dia
+  // 7 de setembro), bate ponto e tem horario a organizar como em qualquer outro dia. Feriado sem
+  // escala ja cai fora pelo `!r.turno_codigo` — era o `r.feriado` que derrubava tambem o dia
+  // escalado, deixando a batida do plantonista sem tratamento nenhum.
   for (const r of result) {
-    if (!r.turno_codigo || r.afastamento || r.feriado) continue
+    if (!r.turno_codigo || r.afastamento) continue
 
     const jornadaNome = r.jornada_nome || jornadaPadrao?.nome || ''
     const match = normalizarNomeJornada(jornadaNome).match(/(\d{1,2})(?:[hH:](\d{2})?)?\s*(?:às|as|to|-|a)\s*(\d{1,2})(?:[hH:](\d{2})?)?/i)

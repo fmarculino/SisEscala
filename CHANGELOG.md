@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.71.0] - 2026-09-17
+
+Sem migration de banco de dados. Documentação em `docs/evolucao/2026-09-17-feriado-com-escala-e-dia-de-trabalho.md`.
+
+### Fixed
+
+- **Feriado com escala não contava carga horária nenhuma na folha de ponto.** Um técnico de radiologia do RAIO-X/HMI escalado no plantão noturno de 07/09 (Independência do Brasil) tinha a linha do dia **em branco** — sem entrada, sem saída, sem hora extra —, embora tivesse trabalhado as 12h e batido ponto. Nas quatro cópias da geração, o ramo `else if (registro.feriado)` vinha antes do ramo de dia de trabalho e **não olhava se havia turno escalado**: todo feriado saía por ali, e o código que resolve as batidas, pré-assinala o intervalo e calcula a hora extra nunca rodava. A batida real do relógio era descartada em silêncio. Agora o ramo é `feriado && !turno escalado` — feriado **sem** escala segue como dia não útil; feriado **com** escala é dia de expediente e só herda a observação `FERIADO: …`.
+- **A mesma folha tinha dois totais de carga, conforme tivesse sido salva ou não.** A geração somava `total_horas_normais` **dentro** dos ramos do `if`, e os ramos de feriado e afastamento não somavam nada; todo o resto do sistema conta por `turno_codigo` — o rodapé da própria folha (`totaisFolha`), as quatro cópias do recálculo, `calculateTotals` da grade e `fn_carga_mensal_servidor` no banco. A grade previa **124h** e o rodapé daquela folha mostrava as mesmas 124h, mas a coluna gravada pela geração ficava abaixo disso — e bastava alguém abrir e salvar para o número pular de volta. A soma passou a ser **uma só, antes do `if`**, pela mesma regra de todos os outros sítios. O total agregado na competência não foi medido no banco.
+- **O horário do feriado ficava escondido mesmo quando existia.** O editor da folha e a impressão em lote exigiam `!r.feriado` em cada um dos quatro passos e desenhavam `-`. Mesma poda no Auto-Corrigir (`normalizarHorarios.ts`, que pulava o dia inteiro), na conferência de horários pendentes no passado (duas cópias — o feriado trabalhado sem batida não era cobrado de ninguém) e na validação cronológica do save, que agora confere o feriado como confere qualquer outro dia.
+- **A apuração por período (21→20, v2.67.0) herda o acerto sem mudança.** `apuracaoPeriodo.ts` chama `totaisFolha`, que já contava por `turno_codigo`; era a geração que divergia dela. Nenhuma cópia nova de regra foi criada.
+
+### Unchanged (de propósito)
+
+- **A regra de pagamento continua a mesma.** O plantão do feriado é carga **regular** — a escala 12x36 gira sobre o calendário e o feriado cai no rodízio —, e os 100% valem para o que **excede** a saída prevista. O laço minuto a minuto já classificava feriado como 100%; ele é que nunca era alcançado.
+
 ## [2.70.2] - 2026-09-17
 
 Sem migration. Uma tela, um arquivo. Diario em

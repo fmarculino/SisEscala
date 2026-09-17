@@ -5828,6 +5828,54 @@ Transpile antes com
 função cita a expressão de propósito, e `window.location.pathname` na sincronização da URL é
 legítimo.
 
+### 72. Feriado com escala é DIA DE TRABALHO, e a folha tratava todo feriado como folga (17/09/2026)
+
+🚨 **Um técnico de radiologia do RAIO-X/HMI escalado no plantão noturno de 07/09 (Independência)
+tinha a linha do dia em branco na folha de ponto.** Sem entrada, sem saída, sem hora extra — só
+`FERIADO: INDEPENDÊNCIA DO BRASIL` na observação. Hospital não fecha em feriado: ele trabalhou as
+12h. Diário em
+[`docs/evolucao/2026-09-17-feriado-com-escala-e-dia-de-trabalho.md`](docs/evolucao/2026-09-17-feriado-com-escala-e-dia-de-trabalho.md).
+
+⚠️ **A causa era a ORDEM do if.** Nas quatro cópias da geração, `else if (registro.feriado)` vinha
+ANTES do ramo de dia de trabalho e **sem olhar se havia turno escalado**. Todo feriado saía por ali,
+e o ramo de trabalho — que é quem resolve as batidas (`resolverMarcacaoDoDia`), aplica a
+pré-assinalação do intervalo e calcula a hora extra — **nunca rodava**. A batida real do relógio
+existia em `escala_diaria` e era descartada em silêncio. Hoje o ramo é
+`registro.feriado && !shift`: feriado **sem** escala é dia não útil; feriado **com** escala cai no
+ramo de trabalho e só herda a observação `FERIADO: …`, que é o que mantém a falta automática longe
+do dia e faz o verso listar "Trabalho em Feriado" (`ocorrencias.ts`).
+
+🚨 **O MESMO DOCUMENTO TINHA DOIS VALORES DE CARGA, conforme tivesse sido salvo ou não.** A
+geração somava `totalHorasNormais` **dentro dos ramos do if**, e os ramos de feriado e de
+afastamento não somavam nada. Todo o resto do sistema conta por `turno_codigo`: `totaisFolha`
+(rodapé da folha e impressão em lote), as quatro cópias do recálculo, `calculateTotals` da grade e
+`fn_carga_mensal_servidor` no banco. Então a grade previa 124h, o **rodapé da mesma folha**
+mostrava as 124h, e a coluna `total_horas_normais` gravada pela geração ficava abaixo disso — e
+bastava alguém abrir e salvar para ela pular de volta. ⚠️ **O tamanho do buraco não foi medido no
+banco** (a sessão não tem acesso ao Postgres de produção): é a carga de cada dia de feriado
+escalado, por servidor, e quem quiser o número agregado precisa consultar. A soma agora é **uma só, antes do if**, pela mesma regra de
+todo mundo: tem turno escalado, conta.
+
+⚠️ **A camada de exibição escondia o horário mesmo quando ele existia.** `FolhaPontoEditor.tsx` e a
+impressão em lote (`folha-ponto/page.tsx`) pediam `isWorkDay && !r.afastamento && !r.feriado` em
+cada um dos quatro passos: corrigir só a geração deixaria o dado no banco e o `-` na tela. O termo
+`!r.feriado` era **redundante** para feriado sem escala (que não tem `turno_codigo`) e **errado**
+para feriado com escala. Mesma poda em `normalizarHorarios.ts` (Auto-Corrigir pulava o dia),
+`checkIfFolhaHasPendingPastTimes` (as duas cópias — o dia passado sem horário não era cobrado) e na
+validação cronológica do save.
+
+ℹ️ **Nada mudou na regra de pagamento, e isso é de propósito.** O plantão do feriado continua sendo
+carga **regular** (a escala 12x36 gira sobre o calendário; o feriado cai no rodízio), e 100% é o que
+**excede** a saída prevista — o laço minuto a minuto já classificava `isHoliday` como 100%, ele é
+que nunca era alcançado. Inventar "todo feriado é 100%" seria criar verba que nenhuma das três
+fontes legais citadas em `cargaDiaria.ts` autoriza.
+
+⚠️ **Sobrou uma divergência conhecida, menor e à parte:** `totaisFolha` usa a jornada do MÊS para
+todo dia (`opcoes.horasNormaisPorDia`), enquanto as quatro cópias do recálculo usam
+`horasNormaisDoDia` — a jornada **do dia**, que respeita `servidores_jornadas_temporarias`. Para
+quem tem vigência no meio do mês, rodapé e coluna do banco divergem. Não foi tocado aqui porque
+exige levar o mapa de jornadas até o editor.
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.

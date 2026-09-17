@@ -569,17 +569,19 @@ function FolhaPontoPageConteudo() {
 
         const tableRowsHTML = parsedRegs.map((r: any) => {
           const isWorkDay = !!r.turno_codigo
-          const isOffDay = r.feriado || r.afastamento || !isWorkDay
+          // Mesma leitura do FolhaPontoEditor: feriado COM escala é dia de expediente; feriado
+          // sem escala não tem `turno_codigo` e já cai aqui pelo `!isWorkDay`.
+          const isOffDay = r.afastamento || !isWorkDay
           const isWeekend = r.dia_semana === 'Sáb' || r.dia_semana === 'Dom'
           
           return h`
             <tr class="${isOffDay ? 'bg-zinc-50/50' : ''} ${isWeekend && !isOffDay ? 'bg-zinc-50/30' : ''}">
               <td class="px-3 py-1.5 border-r border-zinc-300 text-center font-black text-zinc-950">${String(r.dia).padStart(2, '0')}</td>
               <td class="px-2 py-1.5 border-r border-zinc-300 text-center font-bold text-zinc-500">${r.dia_semana || ''}</td>
-              <td class="px-3 py-1.5 border-r border-zinc-300 text-center font-mono font-bold">${isWorkDay && !r.afastamento && !r.feriado ? (r.entrada || '') : '-'}</td>
-              <td class="px-3 py-1.5 border-r border-zinc-300 text-center font-mono font-bold">${isWorkDay && r.saida_intervalo && !r.afastamento && !r.feriado ? (r.saida_intervalo || '') : '-'}</td>
-              <td class="px-3 py-1.5 border-r border-zinc-300 text-center font-mono font-bold">${isWorkDay && r.retorno_intervalo && !r.afastamento && !r.feriado ? (r.retorno_intervalo || '') : '-'}</td>
-              <td class="px-3 py-1.5 border-r border-zinc-300 text-center font-mono font-bold">${isWorkDay && !r.afastamento && !r.feriado ? (r.saida || '') : '-'}</td>
+              <td class="px-3 py-1.5 border-r border-zinc-300 text-center font-mono font-bold">${isWorkDay && !r.afastamento ? (r.entrada || '') : '-'}</td>
+              <td class="px-3 py-1.5 border-r border-zinc-300 text-center font-mono font-bold">${isWorkDay && r.saida_intervalo && !r.afastamento ? (r.saida_intervalo || '') : '-'}</td>
+              <td class="px-3 py-1.5 border-r border-zinc-300 text-center font-mono font-bold">${isWorkDay && r.retorno_intervalo && !r.afastamento ? (r.retorno_intervalo || '') : '-'}</td>
+              <td class="px-3 py-1.5 border-r border-zinc-300 text-center font-mono font-bold">${isWorkDay && !r.afastamento ? (r.saida || '') : '-'}</td>
               <td class="px-3 py-1.5 border-r border-zinc-300 text-center font-mono font-bold text-blue-600">${isWorkDay && r.hora_extra_minutos && r.hora_extra_minutos > 0 ? formatarMinutosHHMM(r.hora_extra_minutos) : '-'}</td>
               <td class="px-4 py-1.5 font-medium">${r.observacao || ''}</td>
             </tr>

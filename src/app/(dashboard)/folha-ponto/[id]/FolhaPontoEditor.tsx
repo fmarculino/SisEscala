@@ -565,8 +565,9 @@ export function FolhaPontoEditor({
   // Save edits
   const handleSave = async (newStatus?: string, confirmarFaltasPendentes?: boolean, confirmarCompensacaoPendente?: boolean, confirmarAutorizacaoExtraPendente?: boolean) => {
     // 1. Validação de consistência cronológica
+    // ⚠️ Feriado com turno escalado é dia de trabalho e passa pela MESMA validação do servidor.
     for (const r of registros) {
-      if (!r.turno_codigo || r.afastamento || r.feriado) continue
+      if (!r.turno_codigo || r.afastamento) continue
 
       // Mesma leitura cronológica da tela e do servidor. Sem ela, plantão que cruza a
       // meia-noite (18:11 -> 06:00) era barrado aqui como "invertido" e a folha não salvava.
@@ -1256,9 +1257,16 @@ export function FolhaPontoEditor({
             </thead>
             <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
               {registros.map(r => {
+                // ⚠️ `isWorkDay` é a ÚNICA porta dos campos de horário, e ela é `turno_codigo`.
+                // Os guards abaixo também exigiam `!r.feriado`, e com isso um plantonista escalado
+                // no feriado tinha a linha zerada na tela mesmo com batida real no banco — o
+                // horário existia e a folha desenhava "-". Feriado SEM escala não tem
+                // `turno_codigo` e continua fechado por aqui, sem precisar do termo extra.
                 const isWorkDay = !!r.turno_codigo
                 const isWeekend = r.dia_semana === 'Sáb' || r.dia_semana === 'Dom'
-                const isOffDay = r.feriado || r.afastamento || !isWorkDay
+                // Feriado COM escala é dia de expediente e se pinta como tal; sem escala ele já
+                // cai aqui pelo `!isWorkDay`.
+                const isOffDay = r.afastamento || !isWorkDay
 
                 const recordJornadaNome = r.jornada_nome || jornada?.nome || ''
                 const recordHasInterval = (() => {
@@ -1307,10 +1315,10 @@ export function FolhaPontoEditor({
                 // arrasta quem tem origem 'real' e valor preenchido; só solta em passo vazio do
                 // MESMO dia — mover entre dias é fora de escopo.
                 const CAMPOS_PASSO: Record<string, { origem: string; valido: boolean }> = {
-                  entrada: { origem: r.origem_entrada, valido: isWorkDay && !r.afastamento && !r.feriado },
-                  saida_intervalo: { origem: r.origem_saida_intervalo, valido: isWorkDay && recordHasInterval && !r.afastamento && !r.feriado },
-                  retorno_intervalo: { origem: r.origem_retorno_intervalo, valido: isWorkDay && recordHasInterval && !r.afastamento && !r.feriado },
-                  saida: { origem: r.origem_saida, valido: isWorkDay && !r.afastamento && !r.feriado },
+                  entrada: { origem: r.origem_entrada, valido: isWorkDay && !r.afastamento },
+                  saida_intervalo: { origem: r.origem_saida_intervalo, valido: isWorkDay && recordHasInterval && !r.afastamento },
+                  retorno_intervalo: { origem: r.origem_retorno_intervalo, valido: isWorkDay && recordHasInterval && !r.afastamento },
+                  saida: { origem: r.origem_saida, valido: isWorkDay && !r.afastamento },
                 }
                 const isArrastavel = (campo: string) =>
                   podeReclassificar && CAMPOS_PASSO[campo]?.valido && CAMPOS_PASSO[campo]?.origem === 'real' && !!r[campo]
@@ -1358,7 +1366,7 @@ export function FolhaPontoEditor({
                       onDrop={(e) => { e.preventDefault(); handleDrop(r.dia, 'entrada') }}
                       title={isEntradaInvertida ? `Inconsistência: Entrada (${r.entrada}) >= Saída Intervalo (${r.saida_intervalo})` : (isArrastavel('entrada') ? 'Arraste para outro passo do dia para corrigir a classificação' : undefined)}
                     >
-                      {isWorkDay && !r.afastamento && !r.feriado ? (
+                      {isWorkDay && !r.afastamento ? (
                         <input
                           type="time"
                           value={r.entrada || ''}
@@ -1381,7 +1389,7 @@ export function FolhaPontoEditor({
                       onDrop={(e) => { e.preventDefault(); handleDrop(r.dia, 'saida_intervalo') }}
                       title={isIntervaloInvertido ? `Inconsistência: Saída Intervalo (${r.saida_intervalo}) >= Retorno (${r.retorno_intervalo})` : (isArrastavel('saida_intervalo') ? 'Arraste para outro passo do dia para corrigir a classificação' : undefined)}
                     >
-                      {isWorkDay && recordHasInterval && !r.afastamento && !r.feriado ? (
+                      {isWorkDay && recordHasInterval && !r.afastamento ? (
                         <div className="relative inline-flex items-center justify-center w-full">
                           <input
                             type="time"
@@ -1407,7 +1415,7 @@ export function FolhaPontoEditor({
                       onDrop={(e) => { e.preventDefault(); handleDrop(r.dia, 'retorno_intervalo') }}
                       title={isIntervaloInvertido ? `Inconsistência: Retorno (${r.retorno_intervalo}) <= Saída Intervalo (${r.saida_intervalo})` : (isArrastavel('retorno_intervalo') ? 'Arraste para outro passo do dia para corrigir a classificação' : undefined)}
                     >
-                      {isWorkDay && recordHasInterval && !r.afastamento && !r.feriado ? (
+                      {isWorkDay && recordHasInterval && !r.afastamento ? (
                         <div className="relative inline-flex items-center justify-center w-full">
                           <input
                             type="time"
@@ -1433,7 +1441,7 @@ export function FolhaPontoEditor({
                       onDrop={(e) => { e.preventDefault(); handleDrop(r.dia, 'saida') }}
                       title={isSaidaInvertida ? `Inconsistência: Retorno (${r.retorno_intervalo || r.entrada}) >= Saída Final (${r.saida})` : (isSaidaDiaSeguinte ? 'Saída realizada no dia seguinte (plantão noturno)' : (isArrastavel('saida') ? 'Arraste para outro passo do dia para corrigir a classificação' : undefined))}
                     >
-                      {isWorkDay && !r.afastamento && !r.feriado ? (
+                      {isWorkDay && !r.afastamento ? (
                         <div className="relative inline-flex items-center justify-center w-full">
                           <input
                             type="time"
@@ -1572,7 +1580,7 @@ export function FolhaPontoEditor({
                         />
                         {/* Só em dia de trabalho JÁ OCORRIDO com célula vazia — o caso de
                             esquecimento de batida. Dia futuro não tem o que justificar. */}
-                        {isPortal && onSolicitarAjuste && isWorkDay && !r.afastamento && !r.feriado
+                        {isPortal && onSolicitarAjuste && isWorkDay && !r.afastamento
                           && r.dia <= ultimoDiaOcorrido
                           && (!r.entrada || !r.saida) && (
                           <button

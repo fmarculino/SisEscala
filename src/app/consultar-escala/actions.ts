@@ -656,7 +656,10 @@ export async function checkIfFolhaHasPendingPastTimes(folha: any, escala: any, t
   const hasInterval = (escala?.jornadas?.intervalo_minutos ?? 60) > 0
 
   for (const r of folha.registros) {
-    if (r.turno_codigo && !r.feriado && !r.afastamento) {
+    // ⚠️ Feriado COM turno escalado entra na conferência: quem trabalha no feriado precisa bater
+    // ponto, e o dia passado sem horário é exatamente a pendência que esta função existe para
+    // achar. Feriado sem escala não tem `turno_codigo` e continua de fora sozinho.
+    if (r.turno_codigo && !r.afastamento) {
       const isFullDayPF = r.ponto_facultativo && 
         !(r.observacao || '').includes('PARTIR') && 
         !(r.observacao || '').includes('ATÉ')
@@ -1238,9 +1241,17 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
         afastamento_slots: veredictoAfastamento.slotsParciais.length > 0 ? veredictoAfastamento.slotsParciais : null
       }
 
+      // CARGA PREVISTA DO DIA — mesma regra única de executeGerarFolhaPonto (folha-ponto/
+      // actions.ts): conta quem tem turno escalado, qualquer que seja o tipo do dia.
+      if (registro.turno_codigo) {
+        totalHorasNormais += horasNormaisDiarias
+      }
+
       if (registro.afastamento) {
         registro.observacao = registro.afastamento.toUpperCase()
-      } else if (registro.feriado) {
+      } else if (registro.feriado && !currentShift) {
+        // Feriado SEM escala: dia não útil. Feriado COM escala é dia de trabalho e cai no ramo
+        // de baixo — ver executeGerarFolhaPonto.
         registro.observacao = `FERIADO: ${feriadoInfo?.descricao}`.toUpperCase()
         if (afastamentosDia.length > 0) {
           registro.observacao = `AFASTAMENTO PARCIAL: ${descreverAfastamentos(afastamentosDia)} | ${registro.observacao}`.toUpperCase()
@@ -1248,9 +1259,6 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
       } else if (registro.ponto_facultativo && pfInfo && !pfInfo.inicio_liberacao_em && !pfInfo.fim_liberacao_em) {
         // Full day Ponto Facultativo
         registro.observacao = `PONTO FACULTATIVO: ${pfInfo.descricao}`.toUpperCase()
-        if (currentShift) {
-          totalHorasNormais += horasNormaisDiarias
-        }
         if (afastamentosDia.length > 0) {
           registro.observacao = `AFASTAMENTO PARCIAL: ${descreverAfastamentos(afastamentosDia)} | ${registro.observacao}`.toUpperCase()
         }
@@ -1266,13 +1274,16 @@ export async function sincronizarFolhaPontoServidor(folhaId: string) {
           registro.observacao = `AFASTAMENTO PARCIAL: ${descreverAfastamentos(afastamentosDia)} | ${registro.observacao}`.toUpperCase()
         }
       } else {
-        totalHorasNormais += horasNormaisDiarias
+        // Dia de trabalho (inclui FERIADO com turno escalado)
         if (pfInfo) {
           if (pfInfo.inicio_liberacao_em) {
             registro.observacao = `PONTO FACULTATIVO A PARTIR DAS ${pfInfo.inicio_liberacao_em.substring(0, 5)}: ${pfInfo.descricao}`.toUpperCase()
           } else if (pfInfo.fim_liberacao_em) {
             registro.observacao = `PONTO FACULTATIVO ATÉ AS ${pfInfo.fim_liberacao_em.substring(0, 5)}: ${pfInfo.descricao}`.toUpperCase()
           }
+        }
+        if (feriadoInfo) {
+          registro.observacao = `FERIADO: ${feriadoInfo.descricao}${registro.observacao ? ' | ' + registro.observacao : ''}`.toUpperCase()
         }
         if (afastamentosDia.length > 0) {
           registro.observacao = `AFASTAMENTO PARCIAL: ${descreverAfastamentos(afastamentosDia)}${registro.observacao ? ' | ' + registro.observacao : ''}`.toUpperCase()
@@ -1881,9 +1892,17 @@ export async function gerarFolhaPontoServidor(mes: number, ano: number, forcarRa
         afastamento_slots: veredictoAfastamento.slotsParciais.length > 0 ? veredictoAfastamento.slotsParciais : null
       }
 
+      // CARGA PREVISTA DO DIA — mesma regra única de executeGerarFolhaPonto (folha-ponto/
+      // actions.ts): conta quem tem turno escalado, qualquer que seja o tipo do dia.
+      if (registro.turno_codigo) {
+        totalHorasNormais += horasNormaisDiarias
+      }
+
       if (registro.afastamento) {
         registro.observacao = registro.afastamento.toUpperCase()
-      } else if (registro.feriado) {
+      } else if (registro.feriado && !shift) {
+        // Feriado SEM escala: dia não útil. Feriado COM escala é dia de trabalho e cai no ramo
+        // de baixo — ver executeGerarFolhaPonto.
         registro.observacao = `FERIADO: ${feriadoInfo?.descricao}`.toUpperCase()
         if (afastamentosDia.length > 0) {
           registro.observacao = `AFASTAMENTO PARCIAL: ${descreverAfastamentos(afastamentosDia)} | ${registro.observacao}`.toUpperCase()
@@ -1891,9 +1910,6 @@ export async function gerarFolhaPontoServidor(mes: number, ano: number, forcarRa
       } else if (registro.ponto_facultativo && pfInfo && !pfInfo.inicio_liberacao_em && !pfInfo.fim_liberacao_em) {
         // Full day Ponto Facultativo
         registro.observacao = `PONTO FACULTATIVO: ${pfInfo.descricao}`.toUpperCase()
-        if (shift) {
-          totalHorasNormais += horasNormaisDiarias
-        }
         if (afastamentosDia.length > 0) {
           registro.observacao = `AFASTAMENTO PARCIAL: ${descreverAfastamentos(afastamentosDia)} | ${registro.observacao}`.toUpperCase()
         }
@@ -1909,13 +1925,16 @@ export async function gerarFolhaPontoServidor(mes: number, ano: number, forcarRa
           registro.observacao = `AFASTAMENTO PARCIAL: ${descreverAfastamentos(afastamentosDia)} | ${registro.observacao}`.toUpperCase()
         }
       } else {
-        totalHorasNormais += horasNormaisDiarias
+        // Dia de trabalho (inclui FERIADO com turno escalado)
         if (pfInfo) {
           if (pfInfo.inicio_liberacao_em) {
             registro.observacao = `PONTO FACULTATIVO A PARTIR DAS ${pfInfo.inicio_liberacao_em.substring(0, 5)}: ${pfInfo.descricao}`.toUpperCase()
           } else if (pfInfo.fim_liberacao_em) {
             registro.observacao = `PONTO FACULTATIVO ATÉ AS ${pfInfo.fim_liberacao_em.substring(0, 5)}: ${pfInfo.descricao}`.toUpperCase()
           }
+        }
+        if (feriadoInfo) {
+          registro.observacao = `FERIADO: ${feriadoInfo.descricao}${registro.observacao ? ' | ' + registro.observacao : ''}`.toUpperCase()
         }
         if (afastamentosDia.length > 0) {
           registro.observacao = `AFASTAMENTO PARCIAL: ${descreverAfastamentos(afastamentosDia)}${registro.observacao ? ' | ' + registro.observacao : ''}`.toUpperCase()

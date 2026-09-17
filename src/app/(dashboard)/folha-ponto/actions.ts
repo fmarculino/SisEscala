@@ -757,9 +757,33 @@ export async function executeGerarFolhaPonto(
         jornada_temporaria: !!tempJourney,
       }
 
+      // CARGA PREVISTA DO DIA — uma soma só, antes de classificar o tipo de dia.
+      //
+      // 🚨 A REGRA É "TEM TURNO ESCALADO?", E É A MESMA EM TODO LUGAR: `totaisFolha`
+      //   (rodapé da folha e impressão em lote), o recálculo de `salvarFolhaPonto` e
+      //   `autoCorrigirFolhaPonto`, `calculateTotals` da grade de escala e
+      //   `fn_carga_mensal_servidor` no banco sempre contaram assim — todos por `turno_codigo`.
+      //   Só a GERAÇÃO não contava, porque somava DENTRO dos ramos do if, e os ramos de FERIADO
+      //   e de AFASTAMENTO não somavam nada.
+      //
+      //   Relatado no RAIO-X/HMI (09/2026, grade previa 124h): o dia 07 (Independência) caiu num
+      //   plantão noturno escalado e a folha deixava a carga dele de fora. ⚠️ O tamanho do buraco
+      //   NÃO foi medido no banco — é a carga de cada dia de feriado escalado, por servidor. E
+      //   bastava alguém ABRIR e SALVAR a folha para o total pular de volta, porque o recálculo
+      //   usa a regra certa: o mesmo documento tinha dois valores conforme tivesse sido salvo.
+      if (registro.turno_codigo) {
+        totalHorasNormais += horasNormaisDiarias
+      }
+
       if (registro.afastamento) {
         registro.observacao = registro.afastamento.toUpperCase()
-      } else if (registro.feriado) {
+      } else if (registro.feriado && !shift) {
+        // Feriado SEM escala: dia não útil, não há o que apurar.
+        //
+        // 🚨 FERIADO **COM** ESCALA CAI NO RAMO DE TRABALHO, LÁ EMBAIXO. Hospital não fecha no
+        //   dia 7 de setembro: quem está escalado trabalha, bate ponto, e a hora extra dele é a
+        //   100%. Enquanto este ramo engolia o feriado inteiro, a linha do dia saía em branco, a
+        //   batida real do relógio era descartada sem aviso e a carga do dia sumia da folha.
         registro.observacao = `FERIADO: ${feriadoInfo?.descricao}`.toUpperCase()
         if (afastamentosDia.length > 0) {
           registro.observacao = `AFASTAMENTO PARCIAL: ${descreverAfastamentos(afastamentosDia)} | ${registro.observacao}`.toUpperCase()
@@ -767,9 +791,6 @@ export async function executeGerarFolhaPonto(
       } else if (registro.ponto_facultativo && pfInfo && !pfInfo.inicio_liberacao_em && !pfInfo.fim_liberacao_em) {
         // Full day Ponto Facultativo
         registro.observacao = `PONTO FACULTATIVO: ${pfInfo.descricao}`.toUpperCase()
-        if (shift) {
-          totalHorasNormais += horasNormaisDiarias
-        }
         if (afastamentosDia.length > 0) {
           registro.observacao = `AFASTAMENTO PARCIAL: ${descreverAfastamentos(afastamentosDia)} | ${registro.observacao}`.toUpperCase()
         }
@@ -786,14 +807,20 @@ export async function executeGerarFolhaPonto(
           registro.observacao = `AFASTAMENTO PARCIAL: ${descreverAfastamentos(afastamentosDia)} | ${registro.observacao}`.toUpperCase()
         }
       } else {
-        // Work day!
-        totalHorasNormais += horasNormaisDiarias
+        // Work day! (inclui FERIADO com turno escalado — ver o ramo do feriado acima)
         if (pfInfo) {
           if (pfInfo.inicio_liberacao_em) {
             registro.observacao = `PONTO FACULTATIVO A PARTIR DAS ${pfInfo.inicio_liberacao_em.substring(0, 5)}: ${pfInfo.descricao}`.toUpperCase()
           } else if (pfInfo.fim_liberacao_em) {
             registro.observacao = `PONTO FACULTATIVO ATÉ AS ${pfInfo.fim_liberacao_em.substring(0, 5)}: ${pfInfo.descricao}`.toUpperCase()
           }
+        }
+        // O dia continua sendo feriado — a extra dele é 100% e o verso lista a ocorrência
+        // "Trabalho em Feriado" (ocorrencias.ts) —, mas com escala ele é dia de expediente.
+        // A observação preenchida também é o que impede a falta automática de acusar quem não
+        // compareceu no feriado.
+        if (feriadoInfo) {
+          registro.observacao = `FERIADO: ${feriadoInfo.descricao}${registro.observacao ? ' | ' + registro.observacao : ''}`.toUpperCase()
         }
         if (afastamentosDia.length > 0) {
           registro.observacao = `AFASTAMENTO PARCIAL: ${descreverAfastamentos(afastamentosDia)}${registro.observacao ? ' | ' + registro.observacao : ''}`.toUpperCase()
@@ -1552,9 +1579,17 @@ export async function sincronizarFolhaPonto(folhaId: string) {
         jornada_temporaria: !!tempJourney,
       }
 
+      // CARGA PREVISTA DO DIA — mesma regra única de executeGerarFolhaPonto: conta quem tem
+      // turno escalado, qualquer que seja o tipo do dia. Ver o comentário completo lá.
+      if (registro.turno_codigo) {
+        totalHorasNormais += horasNormaisDiarias
+      }
+
       if (registro.afastamento) {
         registro.observacao = registro.afastamento.toUpperCase()
-      } else if (registro.feriado) {
+      } else if (registro.feriado && !currentShift) {
+        // Feriado SEM escala: dia não útil. Feriado COM escala é dia de trabalho e cai no ramo
+        // de baixo — ver executeGerarFolhaPonto.
         registro.observacao = `FERIADO: ${feriadoInfo?.descricao}`.toUpperCase()
         if (afastamentosDia.length > 0) {
           registro.observacao = `AFASTAMENTO PARCIAL: ${descreverAfastamentos(afastamentosDia)} | ${registro.observacao}`.toUpperCase()
@@ -1562,9 +1597,6 @@ export async function sincronizarFolhaPonto(folhaId: string) {
       } else if (registro.ponto_facultativo && pfInfo && !pfInfo.inicio_liberacao_em && !pfInfo.fim_liberacao_em) {
         // Full day Ponto Facultativo
         registro.observacao = `PONTO FACULTATIVO: ${pfInfo.descricao}`.toUpperCase()
-        if (currentShift) {
-          totalHorasNormais += horasNormaisDiarias
-        }
         if (afastamentosDia.length > 0) {
           registro.observacao = `AFASTAMENTO PARCIAL: ${descreverAfastamentos(afastamentosDia)} | ${registro.observacao}`.toUpperCase()
         }
@@ -1580,13 +1612,16 @@ export async function sincronizarFolhaPonto(folhaId: string) {
           registro.observacao = `AFASTAMENTO PARCIAL: ${descreverAfastamentos(afastamentosDia)} | ${registro.observacao}`.toUpperCase()
         }
       } else {
-        totalHorasNormais += horasNormaisDiarias
+        // Dia de trabalho (inclui FERIADO com turno escalado)
         if (pfInfo) {
           if (pfInfo.inicio_liberacao_em) {
             registro.observacao = `PONTO FACULTATIVO A PARTIR DAS ${pfInfo.inicio_liberacao_em.substring(0, 5)}: ${pfInfo.descricao}`.toUpperCase()
           } else if (pfInfo.fim_liberacao_em) {
             registro.observacao = `PONTO FACULTATIVO ATÉ AS ${pfInfo.fim_liberacao_em.substring(0, 5)}: ${pfInfo.descricao}`.toUpperCase()
           }
+        }
+        if (feriadoInfo) {
+          registro.observacao = `FERIADO: ${feriadoInfo.descricao}${registro.observacao ? ' | ' + registro.observacao : ''}`.toUpperCase()
         }
         if (afastamentosDia.length > 0) {
           registro.observacao = `AFASTAMENTO PARCIAL: ${descreverAfastamentos(afastamentosDia)}${registro.observacao ? ' | ' + registro.observacao : ''}`.toUpperCase()
@@ -2612,8 +2647,12 @@ export async function salvarFolhaPonto(folhaId: string, registros: any[], status
     const feriadosSet = new Set(feriados?.map(f => f.data) || [])
 
     // Validação de consistência cronológica e limpeza de falta em dias preenchidos
+    //
+    // ⚠️ Feriado com turno escalado é dia de trabalho e passa pela MESMA validação: desde que a
+    // folha aceita horário em feriado, deixá-lo fora daqui era deixar entrar sequência invertida
+    // sem ninguém conferir.
     for (const r of registros) {
-      if (!r.turno_codigo || r.afastamento || r.feriado) continue
+      if (!r.turno_codigo || r.afastamento) continue
 
       // Leitura cronologica do dia (fonte unica, compartilhada com o editor e o Auto-Corrigir).
       // A deteccao anterior de virada de dia era /18|19|20|21|22/ sobre o nome da jornada, que
@@ -3056,7 +3095,10 @@ export async function checkIfFolhaHasPendingPastTimes(folha: any, escala: any, t
   const hasInterval = (escala?.jornadas?.intervalo_minutos ?? 60) > 0
 
   for (const r of folha.registros) {
-    if (r.turno_codigo && !r.feriado && !r.afastamento) {
+    // ⚠️ Feriado COM turno escalado entra na conferência: quem trabalha no feriado precisa bater
+    // ponto, e o dia passado sem horário é exatamente a pendência que esta função existe para
+    // achar. Feriado sem escala não tem `turno_codigo` e continua de fora sozinho.
+    if (r.turno_codigo && !r.afastamento) {
       const isFullDayPF = r.ponto_facultativo && 
         !(r.observacao || '').includes('PARTIR') && 
         !(r.observacao || '').includes('ATÉ')
