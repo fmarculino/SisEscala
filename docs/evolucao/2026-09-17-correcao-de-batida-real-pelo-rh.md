@@ -240,11 +240,59 @@ a fila voltando a não oferecer falta em `registrado`, e a confirmação contra 
 
 ---
 
-## 9. Pendente
+## 9. Fase 4 — e por que ela não era o que o plano imaginava
 
-- **Fase 4:** o mutirão dos 46 casos de 09/2026, por lista fechada com ensaio campo a campo.
-  08/2026 fica de fora (competência fechada).
-- **Aplicação em produção** das quatro migrations.
+As quatro migrations foram aplicadas em produção e conferidas por
+`scratchpad/ver_correcao_batida_producao.mjs` (**22 asserções**, incluindo `anon` recusado nas
+três funções novas e a prova de que nada mudou retroativamente).
+
+🚨 **Os "46 casos" NÃO eram 46 erros — e esse é o achado da fase.** Ao classificar um a um
+(`scratchpad/an_fase4_classifica.mjs` → `an_fase4_ensaio.mjs`):
+
+| grupo | quantos |
+|---|---|
+| já tinham tratamento | **15** |
+| **reconciliar é acréscimo puro** (seguro) | **4** |
+| reconciliar traria **troca ou perda** → decisão humana | **6** |
+| já em dia — projeção e `escala_diaria` concordam | **21** |
+
+O padrão que a Fase 4 usava para recortar ("uma linha só com saída + outra completa no mesmo
+dia") captura principalmente **bloco fundido** — comportamento correto e documentado (armadilha
+6: a projeção grava o mesmo par em todas as linhas do bloco) — e **gente que esqueceu de bater a
+entrada**, que é dado real, não defeito.
+
+🚨 **E o dado NÃO distingue "faltou ao turno" de "esqueceu de bater a entrada".** No caso
+EUZILENE, `distância até a saída do plantão` e `distância até a entrada do noturno` são **iguais
+(39 min cada)** — porque o `MT` acaba 19:00 e o `N` começa 19:00. O que resolveu o caso foi o
+**usuário dizer que ela faltou**. Nenhum script sabe isso, e inventar um critério seria declarar
+falta por heurística sobre a conduta de servidor público — exatamente o que este trabalho inteiro
+existe para não fazer.
+
+**Aplicado:** os **4** pares de acréscimo puro (CLEOTILDE, mat. 448, dias 3/4/8/9 — entrada do
+`Extra 2`), por lista fechada, com pré-condição que aborta se o estado tiver mudado desde o
+ensaio e conferência depois de cada escrita. `scratchpad/fix_fase4_so_acrescenta.mjs` roda em
+modo ensaio por padrão; só escreve com `--aplicar`.
+
+**Não aplicado, de propósito:** os **6 com troca/perda**. Quatro deles são **perda pura** — a
+reconciliação TIRARIA presença já gravada (ex.: `Regular N entrada 17:59 → —`), que é
+literalmente o risco da armadilha 46.
+
+ℹ️ **Um caso merece atenção do RH:** MARIA LUIZA (mat. 7617, 14/09) tem a saída do `Plantão N`
+gravada às **19:00**, que é o horário de **entrada** dele — 720 min de distância do fim previsto.
+A projeção já sabe o certo (`entrada 19:00 → saída 06:51` do dia 15) e o evento está `validado`,
+contando **12h**. Como corrigir envolve uma troca, é decisão de pessoa: é o primeiro caso para a
+tela nova.
+
+---
+
+## 10. Pendente
+
+- **Os 6 pares com troca/perda**, e os demais casos onde o juízo é humano — agora têm ferramenta:
+  a tela de correção da v2.72.0.
 - ⚠️ `fn_alocar_marcacoes_dia` mantém o predicado de `desconsiderar` **inline**, por desempenho,
   enquanto o trigger usa `fn_marcacao_desconsiderada`. São espelhos: ao mudar a regra, mude os
   dois.
+- ℹ️ `scratchpad/sim_desfecho_evento.js` reprova desde antes deste trabalho: ele compara
+  contagens de plantões de 08/2026 cravadas em 24/08/2026, e 96 daqueles eventos foram validados
+  desde então. É um portão de **medição**, não de regra — vale reescrevê-lo para conferir
+  invariantes em vez de números que envelhecem.

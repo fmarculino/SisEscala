@@ -1,8 +1,10 @@
 # Correção de batida real pelo RH, e falta em plantão que tem registro
 
 **Data:** 17/09/2026
-**Status:** ✅ **Fases 0, 1, 2 e 3 implementadas (v2.72.0)** e validadas em homologação.
-**Fase 4 (mutirão dos 46 casos) e a aplicação em produção continuam pendentes.**
+**Status:** ✅ **Concluído (v2.72.0).** Fases 0 a 3 implementadas, as quatro migrations aplicadas
+e conferidas em produção (22 asserções), e a **Fase 4 executada** — com um resultado diferente do
+previsto: dos 46 casos, **15 já tinham tratamento, 21 já estavam em dia, 4 eram acréscimo puro
+(aplicados) e 6 exigem decisão humana** (não aplicados, de propósito). Ver §9 do diário.
 Diário em [`docs/evolucao/2026-09-17-correcao-de-batida-real-pelo-rh.md`](../evolucao/2026-09-17-correcao-de-batida-real-pelo-rh.md).
 **Motivado por:** dois relatos do usuário, os dois medidos em produção nesta data
 
