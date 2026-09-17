@@ -239,12 +239,18 @@ export function MarcacoesClient({ podeGerir, podeAutorizar, escopoLimitado, opco
         </p>
       )}
 
-      <div className="flex gap-2 border-b border-zinc-200 dark:border-zinc-800">
+      {/* ⚠️ `flex-wrap`: sao 10 abas, e sem quebra elas eram RECORTADAS pela largura da
+          pagina — sem barra de rolagem e sem nada dizendo que existiam. "Higiene do
+          Relogio", "Importar por Pendrive" e "Autorizacoes do RH" ficavam inalcancaveis, e
+          a pagina inteira ganhava rolagem horizontal. Quebrar em duas linhas mostra tudo;
+          esconder nao era opcao, porque a aba escondida nao tem como ser descoberta. */}
+      <div className="flex flex-wrap gap-x-1 gap-y-0 border-b border-zinc-200 dark:border-zinc-800">
         {abas.filter((a) => a.visivel).map((a) => (
           <button
             key={a.id}
             onClick={() => setAba(a.id)}
-            className={`flex items-center gap-2 px-4 py-3 text-sm font-bold border-b-2 -mb-px transition-colors ${
+            title={a.label}
+            className={`flex items-center gap-2 px-3 py-3 text-sm font-bold border-b-2 -mb-px whitespace-nowrap transition-colors ${
               aba === a.id
                 ? 'border-blue-600 text-blue-600'
                 : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
@@ -279,8 +285,8 @@ export function MarcacoesClient({ podeGerir, podeAutorizar, escopoLimitado, opco
           ) : (
             <div className="space-y-2">
               {terminais.map((t) => (
-                <div key={t.id} className="flex items-center justify-between p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
-                  <div>
+                <div key={t.id} className="flex items-center justify-between gap-4 p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+                  <div className="min-w-0 flex-1">
                     <p className="text-sm font-bold text-zinc-900 dark:text-white flex items-center gap-2">
                       {t.nome}
                       {!t.ativo && <span className="text-[10px] font-bold text-red-600 bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full">DESATIVADO</span>}
@@ -296,7 +302,7 @@ export function MarcacoesClient({ podeGerir, podeAutorizar, escopoLimitado, opco
                       <IdCopyBadge id={t.id} />
                     </div>
                   </div>
-                  <div className="flex items-center gap-1">
+                  <div className="flex shrink-0 items-center gap-1">
                     <button
                       onClick={() => setModalTerminal({ aberto: true, terminal: t })}
                       className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500"
@@ -347,8 +353,8 @@ export function MarcacoesClient({ podeGerir, podeAutorizar, escopoLimitado, opco
           ) : (
             <div className="space-y-2">
               {dispositivos.map((d) => (
-                <div key={d.id} className="flex items-center justify-between p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
-                  <div>
+                <div key={d.id} className="flex items-center justify-between gap-4 p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+                  <div className="min-w-0 flex-1">
                     <p className="text-sm font-bold text-zinc-900 dark:text-white flex items-center gap-2 flex-wrap">
                       {d.nome}
                       {!d.ativo && <span className="text-[10px] font-bold text-red-600 bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full">DESATIVADO</span>}
@@ -390,7 +396,7 @@ export function MarcacoesClient({ podeGerir, podeAutorizar, escopoLimitado, opco
                       <IdCopyBadge id={d.id} />
                     </div>
                   </div>
-                  <div className="flex items-center gap-1">
+                  <div className="flex shrink-0 items-center gap-1">
                     <button
                       onClick={() => setModalDispositivo({ aberto: true, dispositivo: d })}
                       className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500"

@@ -43,7 +43,12 @@ export default async function MarcacoesPage() {
     : { unidades: [], setores: [], coordenadores: [] }
 
   return (
-    <div className="p-6 md:p-8 space-y-6 max-w-5xl mx-auto">
+    // ⚠️ Sem `p-*` aqui: o layout do dashboard ja envolve a pagina num `p-8`, e o padding
+    // duplo comia 64px de cada lado. E `max-w-[1600px]` no lugar de `max-w-5xl` (1024px):
+    // esta tela tem 10 abas e tabelas largas (Cobertura de Ponto), e o limite antigo
+    // espremia as abas ate elas serem recortadas numa tela em que sobravam 600px vazios.
+    // O teto continua existindo para a linha nao ficar absurda em monitor ultrawide.
+    <div className="space-y-6 max-w-[1600px] mx-auto">
       <div className="flex items-center gap-3">
         <div className="p-3 bg-blue-100 dark:bg-blue-900/30 text-blue-600 rounded-2xl">
           <Radio className="h-6 w-6" />
