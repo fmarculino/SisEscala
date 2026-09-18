@@ -23,7 +23,7 @@ import {
   CheckCircle, Trash2, Globe, X, Copy, Check, Clock, Navigation2, Send, CheckSquare,
   Shield, ShieldCheck, ShieldAlert, AlertTriangle, LayoutTemplate,
   ChevronLeft, ChevronRight, ChevronDown, Sparkles, ExternalLink, ArrowRightLeft, Wrench,
-  Wand2, Pin, PinOff
+  Wand2, Pin, PinOff, RotateCcw
 } from 'lucide-react'
 import { gerarFolhaPonto } from '@/app/(dashboard)/folha-ponto/actions'
 import { ScalePrintView } from '@/components/ScalePrintView'
@@ -68,9 +68,10 @@ import { buildSectorPathMap, formatSectorsHierarchy } from '@/utils/sectors'
 import { decomporPlantao } from '@/utils/plantaoUnidades'
 import { SeletorSetorArvore } from '@/components/setores/SeletorSetorArvore'
 import { moverEscalasParaSetor } from './escalaMovimentoActions'
-import { previewReconciliacaoPendente, aplicarReconciliacaoPendente } from './reconciliacaoActions'
+import { previewReconciliacaoPendente, aplicarReconciliacaoPendente, restaurarBatidasDias } from './reconciliacaoActions'
 import {
   agruparPorDia, resumirPrevia, diasParaAplicar, descreverResultado, rotuloImpedimento,
+  diasParaRestaurar, fraseBatidaRetida,
   type DiaPendente,
 } from '@/utils/reconciliacaoPendente'
 import { opcoesParaEscolha, rotularInativo } from '@/utils/opcoesAtivas'
@@ -771,6 +772,63 @@ export function ScaleGrid({
     erro: string | null
   }>({ isOpen: false, carregando: false, aplicando: false, dias: [], erro: null })
 
+  /**
+   * Restaurar as batidas que uma REVERSÃO tirou de circulação (17/09/2026).
+   *
+   * Vive ao lado do "Preencher pelas Batidas" porque é ali que o sintoma aparece: enquanto
+   * houver batida real fora de circulação, a projeção trabalha com menos batidas do que houve —
+   * e a tela respondia "Nada a preencher neste dia" com a batida gravada no banco.
+   *
+   * ⚠️ São DOIS atos, em dois cliques. Restaurar devolve a batida à disputa; quem a põe no passo
+   * continua sendo a reconciliação, com a prévia na frente. Um clique só faria a correção entrar
+   * sem ninguém ver o que entrou.
+   */
+  const [restaurarJustificativa, setRestaurarJustificativa] = useState('')
+  const [restaurando, setRestaurando] = useState(false)
+
+  const restaurarBatidas = async () => {
+    const alvos = diasParaRestaurar(reconciliarModal.dias)
+    if (alvos.length === 0) return
+    setRestaurando(true)
+    const res = await restaurarBatidasDias({ dias: alvos, justificativa: restaurarJustificativa, unidadeId })
+    setRestaurando(false)
+
+    if (res.error) {
+      setReconciliarModal(p => ({ ...p, erro: res.error! }))
+      return
+    }
+
+    // A prévia é refeita ANTES de relatar: a lista de batidas retidas e a de dias elegíveis
+    // mudaram as duas, e mostrar o resultado sobre a tela antiga é o defeito da v2.49.0 noutra
+    // forma — a pessoa lê "3 batidas restauradas" e continua vendo o aviso de 3 batidas retidas.
+    const previa = await previewReconciliacaoPendente(escalaMensal.map(em => em.id))
+    setReconciliarModal(p => ({
+      ...p,
+      dias: previa.error ? p.dias : agruparPorDia(previa.linhas),
+      erro: previa.error || null,
+    }))
+    setRestaurarJustificativa('')
+
+    // Relata o que MUDOU e nomeia o que ficou de fora (armadilha 22).
+    const n = res.restauradas || 0
+    const linhas = [
+      n > 0
+        ? `${n} ${n === 1 ? 'batida devolvida' : 'batidas devolvidas'} à circulação em ${res.dias} ${res.dias === 1 ? 'dia' : 'dias'}.`
+        : 'Nenhuma batida foi restaurada.',
+    ]
+    if (n > 0) linhas.push('', 'Agora use "Preencher" para aplicá-las aos passos.')
+    if (res.recusados && res.recusados.length > 0) {
+      linhas.push('', 'Ficaram de fora:')
+      linhas.push(...res.recusados.map(r => `• ${r.rotulo}: ${r.motivo}`))
+    }
+    setAlertModal({
+      isOpen: true,
+      title: n > 0 ? 'Batidas restauradas' : 'Nada foi restaurado',
+      message: linhas.join('\n'),
+      type: n > 0 ? 'success' : 'warning',
+    })
+  }
+
   // Nasce com o que o servidor ja mandou; o fetch do cliente so a REVALIDA (jornada criada ou
   // editada noutra aba). Nunca volta a comecar vazia -- ver `jornadasIniciais`.
   const [jornadas, setJornadas] = useState<any[]>(jornadasIniciais)
@@ -869,6 +927,11 @@ export function ScaleGrid({
     tipo: 'entrada' | 'intervalo_saida' | 'intervalo_retorno' | 'saida' | 'completo' | 'periodo_1' | 'periodo_2';
     escalaMensalId: string;
     isReverting: boolean;
+    // POR QUE está revertendo. Só vale quando isReverting. `false` (o padrão) tira a batida de
+    // circulação, como sempre; `true` a mantém disponível para quem vai corrigir a ESCALA e
+    // relançar o dia. Sem esta pergunta o banco não tem como distinguir as duas intenções, e
+    // quem revertia para relançar perdia a batida real junto — 47 batidas só em 17/09/2026.
+    manterBatidas?: boolean;
     justificativa?: string;
     // Horários informados pelo servidor, em HH:MM. NÃO vêm pré-preenchidos de propósito:
     // herdar o horário da jornada é a "marcação automática por horário contratual" vedada pela
@@ -3942,7 +4005,10 @@ export function ScaleGrid({
           p_dia: manualPresenceModal.dia,
           p_categoria: manualPresenceModal.categoria,
           p_tipo: manualPresenceModal.tipo,
-          p_validador_id: user.id
+          p_validador_id: user.id,
+          // A intenção declarada por quem reverte. O banco não tem como adivinhá-la: o trigger
+          // de sincronização só vê um UPDATE que zerou um passo.
+          p_manter_batidas: manualPresenceModal.manterBatidas === true
         })
         if (error) throw error
       } else {
@@ -3990,7 +4056,13 @@ export function ScaleGrid({
       setAlertModal({
         isOpen: true,
         title: manualPresenceModal.isReverting ? 'Presença Revertida' : 'Presença Validada',
-        message: manualPresenceModal.isReverting ? 'Validação manual revertida com sucesso.' : 'Presença validada manualmente com sucesso.',
+        // A mensagem diz o que MUDOU, incluindo o destino das batidas: sem isso, as duas
+        // intenções produzem a mesma frase e quem escolheu não tem como conferir a escolha.
+        message: manualPresenceModal.isReverting
+          ? (manualPresenceModal.manterBatidas === true
+              ? 'Validação manual revertida. As batidas reais deste dia continuam disponíveis — use "Preencher pelas Batidas" depois de corrigir a escala.'
+              : 'Validação manual revertida. As batidas reais deste dia saíram de circulação; se precisar delas de volta, use "Restaurar Batidas" em Ferramentas.')
+          : 'Presença validada manualmente com sucesso.',
         type: manualPresenceModal.isReverting ? 'warning' : 'success'
       })
     } catch (err: any) {
@@ -7759,6 +7831,54 @@ export function ScaleGrid({
                   </div>
                 )}
 
+                {/* BATIDA RETIDA. Vem ANTES da lista de elegíveis de propósito: enquanto houver
+                    batida real fora de circulação, a projeção está trabalhando com menos batidas
+                    do que houve, e aplicar sem saber disso preenche o dia pela metade.
+                    Este bloco é a resposta ao defeito medido em 17/09/2026 — a tela dizia
+                    "Nada a preencher neste dia" com a batida gravada no banco. */}
+                {!reconciliarModal.carregando && !reconciliarModal.erro && resumo.diasComBatidaRetida > 0 && (
+                  <div className="rounded-lg border border-amber-300 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-950/20 p-3 space-y-2">
+                    <p className="text-sm font-bold text-amber-900 dark:text-amber-300">
+                      {fraseBatidaRetida(resumo.batidasRetidas)}
+                    </p>
+                    <p className="text-[11px] text-amber-800 dark:text-amber-400">
+                      {resumo.diasComBatidaRetida === 1 ? 'Em 1 dia' : `Em ${resumo.diasComBatidaRetida} dias`} desta grade.
+                      Isso acontece quando a presença é revertida para corrigir a escala: a batida
+                      sai de circulação junto. Restaurar devolve <strong>só as batidas reais</strong>
+                      {' '}que a reversão tirou — batida retirada por decisão (teste, pessoa errada)
+                      continua fora e só volta pela correção de batida real.
+                    </p>
+                    <div className="space-y-1 max-h-32 overflow-y-auto pr-1">
+                      {reconciliarModal.dias.filter(d => d.batidasRetidas > 0).map(d => (
+                        <div key={`ret-${d.chave}`} className="flex items-baseline justify-between gap-2 text-[11px]">
+                          <span className="text-amber-900 dark:text-amber-300 truncate">{d.servidorNome}</span>
+                          <span className="text-amber-700 dark:text-amber-400 shrink-0">
+                            dia {d.dia} · {d.batidasRetidas} {d.batidasRetidas === 1 ? 'batida' : 'batidas'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="space-y-1.5">
+                      <input
+                        type="text"
+                        value={restaurarJustificativa}
+                        onChange={e => setRestaurarJustificativa(e.target.value)}
+                        placeholder="Motivo da restauração (ex.: escala estava no setor errado)"
+                        className="w-full text-xs rounded-md border border-amber-300 dark:border-amber-900/40 bg-white dark:bg-zinc-900 px-2 py-1.5"
+                      />
+                      <button
+                        type="button"
+                        disabled={restaurando || restaurarJustificativa.trim().length < 5}
+                        onClick={restaurarBatidas}
+                        className="w-full text-xs font-semibold rounded-md bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white px-3 py-1.5 flex items-center justify-center gap-2"
+                      >
+                        {restaurando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                        Restaurar Batidas
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {!reconciliarModal.carregando && elegiveis.length > 0 && (
                   <div>
                     <div className="rounded-lg border border-sky-200 dark:border-sky-900/40 bg-sky-50 dark:bg-sky-950/20 p-3 mb-3">
@@ -9742,6 +9862,58 @@ export function ScaleGrid({
                   <>Validando presença do dia <strong>{manualPresenceModal.dia}</strong> para <strong>{manualPresenceModal.servidorNome}</strong>.</>
                 )}
               </p>
+
+              {/* POR QUE está revertendo. As duas intenções são opostas e o banco não consegue
+                  distingui-las sozinho: o trigger de sincronização só enxerga um UPDATE que
+                  zerou um passo. Sem esta pergunta, quem reverte para corrigir a ESCALA perde a
+                  batida real junto, e o "Preencher pelas Batidas" deixa de enxergá-la.
+                  O padrão é a opção conservadora (tirar de circulação), que é o comportamento
+                  de sempre — trocar o default mudaria o efeito de todo clique já conhecido. */}
+              {manualPresenceModal.isReverting && (
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider block">
+                    Por que está revertendo?
+                  </label>
+                  <label className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                    manualPresenceModal.manterBatidas !== true
+                      ? 'border-red-400 bg-red-50 dark:bg-red-900/20'
+                      : 'border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800'
+                  }`}>
+                    <input
+                      type="radio"
+                      className="mt-1"
+                      checked={manualPresenceModal.manterBatidas !== true}
+                      onChange={() => setManualPresenceModal(m => m && ({ ...m, manterBatidas: false }))}
+                    />
+                    <span className="text-sm">
+                      <strong className="block text-zinc-800 dark:text-zinc-100">O horário está errado</strong>
+                      <span className="text-zinc-600 dark:text-zinc-400">
+                        Batida indevida, de teste ou da pessoa errada. Ela sai de circulação e
+                        não volta sozinha.
+                      </span>
+                    </span>
+                  </label>
+                  <label className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                    manualPresenceModal.manterBatidas === true
+                      ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20'
+                      : 'border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800'
+                  }`}>
+                    <input
+                      type="radio"
+                      className="mt-1"
+                      checked={manualPresenceModal.manterBatidas === true}
+                      onChange={() => setManualPresenceModal(m => m && ({ ...m, manterBatidas: true }))}
+                    />
+                    <span className="text-sm">
+                      <strong className="block text-zinc-800 dark:text-zinc-100">A escala está errada e vou relançar o dia</strong>
+                      <span className="text-zinc-600 dark:text-zinc-400">
+                        As batidas reais continuam disponíveis para o turno certo. Depois de
+                        corrigir a escala, use <strong>Preencher pelas Batidas</strong>.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              )}
 
               {!manualPresenceModal.isReverting && (
                 <div className="space-y-2">

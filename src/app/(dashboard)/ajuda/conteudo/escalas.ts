@@ -452,7 +452,75 @@ export const escalas: Capitulo = {
             'Sobreaviso não entra: ele não marca presença.',
           ],
         },
+        { tipo: 'veja', secaoId: 'batidas-fora-de-circulacao', texto: 'Se ele disser que não há nada para preencher e você souber que houve batida' },
         { tipo: 'veja', secaoId: 'validar-presenca', texto: 'Como validar dia a dia' },
+      ],
+    },
+
+    {
+      id: 'batidas-fora-de-circulacao',
+      titulo: 'A batida existe e o sistema não a enxerga',
+      resumo: 'Quando reverter a presença tira a batida real de circulação — e como devolvê-la.',
+      papeis: ['Coordenador', 'Ass. Administrativo', 'RH da Unidade', 'RH Geral', 'Diretor'],
+      blocos: [
+        {
+          tipo: 'p',
+          texto:
+            'Você lançou a pessoa no turno errado, percebeu, **reverteu a presença** e relançou o dia certo. Aí abre **Preencher pelas Batidas** e ele responde que não há nada a preencher — mesmo você sabendo que a pessoa bateu o ponto naquele dia.',
+        },
+        {
+          tipo: 'p',
+          texto:
+            'Não é defeito do relógio nem da batida: ela continua gravada. O que aconteceu é que **reverter a presença tira a batida de circulação**. Isso existe por um bom motivo — quando você reverte porque o horário estava errado, a batida não pode voltar sozinha na próxima conferência. O problema é quando você reverteu por outro motivo: a escala é que estava errada.',
+        },
+        { tipo: 'titulo', texto: 'Agora o sistema pergunta por quê' },
+        {
+          tipo: 'p',
+          texto:
+            'Ao reverter, escolha uma das duas opções. Elas fazem coisas opostas, e o sistema não tem como adivinhar qual é a sua:',
+        },
+        {
+          tipo: 'tabela',
+          colunas: ['Você escolhe', 'O que acontece com a batida'],
+          linhas: [
+            ['**O horário está errado**', 'Sai de circulação. É o certo para batida de teste, batida da pessoa errada ou indevida.'],
+            ['**A escala está errada e vou relançar o dia**', 'Continua disponível. Depois de corrigir a escala, use **Preencher pelas Batidas** e ela entra no turno certo.'],
+          ],
+        },
+        { tipo: 'titulo', texto: 'E se já aconteceu antes' },
+        {
+          tipo: 'p',
+          texto:
+            'Para os dias em que a batida já saiu de circulação, abra **Ferramentas → Preencher pelas Batidas**. Se houver batida nessa situação, aparece um aviso em amarelo, com a lista dos dias e um botão **Restaurar Batidas**. Escreva o motivo, clique, e elas voltam a valer.',
+        },
+        {
+          tipo: 'passos',
+          itens: [
+            {
+              titulo: 'Restaurar devolve a batida',
+              texto: 'Ela volta a ser considerada — mas **não entra na grade sozinha**.',
+            },
+            {
+              titulo: 'Depois clique em Preencher',
+              texto: 'Aí sim os horários entram nos passos, com a conferência na frente, como sempre.',
+            },
+          ],
+        },
+        {
+          tipo: 'aviso',
+          tom: 'atencao',
+          titulo: 'Nem toda batida volta por esse botão',
+          texto:
+            'Ele devolve apenas as batidas que **a reversão** tirou. Uma batida que alguém tirou de propósito — porque era teste ou era de outra pessoa — continua fora, e só volta pela **correção de batida real**, que é do RH. Isso é proposital: um botão de coordenador não pode desfazer uma decisão que alguém tomou olhando para o caso.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'dica',
+          titulo: 'Como saber se é isso',
+          texto:
+            'O sinal é a combinação: você mexeu na escala daquele dia, a pessoa bateu o ponto, e a célula continua vazia com o botão dizendo que não há nada a fazer. Se o aviso amarelo aparecer, é exatamente este caso.',
+        },
+        { tipo: 'veja', secaoId: 'validar-presenca', texto: 'Como reverter e validar dia a dia' },
       ],
     },
 

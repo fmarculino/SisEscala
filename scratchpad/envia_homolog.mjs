@@ -31,7 +31,16 @@ const sql = fs.readFileSync(arquivo, 'utf8')
 // ⚠️ `$fnsync$;` e `$conf2$;` entraram em 17/09/2026, pelo mesmo motivo de sempre: sem eles a
 // migration do trigger de sincronizacao e a segunda conferencia da alocacao viravam parte do
 // statement anterior, e o erro de sintaxe sairia apontando para o lugar errado.
-const FIMS = ['$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;', '$fnbloco$;', '$fnaloc$;', '$fn$;', '$conf$;', '$backfill$;', '$fnsync$;', '$conf2$;']
+// ⚠️ `$$;` entrou em 17/09/2026 (20260917140000). Funcao `LANGUAGE sql` escrita com o
+// dollar-quoting ANONIMO termina em `$$;` puro, e sem ele o DROP, o CREATE da previa, o
+// COMMENT e os GRANTs viravam UM statement com a funcao seguinte — e `EXECUTE` do plpgsql
+// roda UM comando, entao a falha sai como erro de sintaxe no lugar errado.
+// Ele fica DEPOIS do `$$ LANGUAGE plpgsql ...` na lista por clareza; a escolha e sempre pelo
+// menor indice encontrado, nunca pela ordem daqui.
+// ⚠️ `$fnm$;` entrou em 17/09/2026 (20260917170000): sem ele, fn_reconciliar_apos_marcacao e a
+// conferencia viravam UM statement. Rodou por acaso -- SPI aceita varios comandos numa string --
+// mas o erro sairia apontando o lugar errado, que e o motivo de todos os outros estarem aqui.
+const FIMS = ['$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;', '$fnbloco$;', '$fnaloc$;', '$fn$;', '$conf$;', '$backfill$;', '$fnsync$;', '$conf2$;', '$fnm$;', '$$;']
 const statements = []
 let pos = 0
 while (pos < sql.length) {

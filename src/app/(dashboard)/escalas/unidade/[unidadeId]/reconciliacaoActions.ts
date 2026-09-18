@@ -120,3 +120,82 @@ export async function aplicarReconciliacaoPendente(params: {
   revalidatePath(`/escalas/unidade/${unidadeId}`)
   return { resultados }
 }
+
+/**
+ * Devolver a circulacao as batidas que uma REVERSAO tirou.
+ *
+ * POR QUE ISTO EXISTE (17/09/2026)
+ *   O trigger de sincronizacao grava `desconsiderar` sempre que um UPDATE zera um passo de
+ *   presenca, e nao sabe POR QUE. Quem reverteu para corrigir a ESCALA perdia a batida real
+ *   junto, e `fn_alocar_marcacoes_dia` passa a filtra-la: o "Preencher pelas Batidas" respondia
+ *   "Nada a preencher neste dia" com a batida gravada no banco.
+ *
+ *   Medido em producao: 173 batidas fisicas fora de circulacao, 16 dias com a tela muda, e 47
+ *   batidas `rep` retiradas so em 17/09. A 20260917150000 faz a reversao PERGUNTAR a intencao e
+ *   resolve daqui para a frente; esta action e o que desfaz o que ja existe.
+ *
+ * ⚠️ **Nao decide nada.** Papel, escopo, competencia encerrada, escala Fechada e — o principal —
+ * QUAIS batidas podem voltar sao decisao de `fn_restaurar_batidas_dia`. So volta a batida
+ * FISICA cujo ultimo `desconsiderar` veio da reversao automatica: batida tirada por DECISAO
+ * (teste, pessoa errada) continua fora, e so a correcao de batida real a traz de volta.
+ *
+ * ⚠️ **Restaurar nao preenche nada.** A batida volta a ser candidata; quem a poe no passo
+ * continua sendo o "Preencher pelas Batidas", com a previa na frente. Juntar as duas coisas num
+ * clique faria a correcao entrar sem ninguem ver o que entrou.
+ */
+export async function restaurarBatidasDias(params: {
+  dias: { servidorId: string; data: string }[]
+  justificativa: string
+  unidadeId: string
+}): Promise<{ error?: string; restauradas?: number; dias?: number; recusados?: { rotulo: string; motivo: string }[] }> {
+  const { dias, justificativa, unidadeId } = params
+
+  if (!Array.isArray(dias) || dias.length === 0) return { error: 'Nenhum dia selecionado.' }
+  if (dias.length > MAX_DIAS_POR_APLICACAO) {
+    return { error: `São ${dias.length} dias de uma vez. Aplique por partes (limite de ${MAX_DIAS_POR_APLICACAO}).` }
+  }
+  // A regra dura e do banco (>= 5 caracteres). Aqui e so para nao gastar uma ida ao servidor
+  // por dia com um texto que sera recusado em todos.
+  if (!justificativa || justificativa.trim().length < 5) {
+    return { error: 'Escreva o motivo da restauração (ao menos 5 caracteres).' }
+  }
+
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Não autenticado.' }
+
+  const ids = [...new Set(dias.map(d => d.servidorId))]
+  const nomePorServidor = new Map<string, string>()
+  for (let i = 0; i < ids.length; i += 100) {
+    const { data: servs } = await supabase
+      .from('servidores')
+      .select('id, nome')
+      .in('id', ids.slice(i, i + 100))
+    for (const s of servs || []) nomePorServidor.set(s.id as string, (s.nome as string) || 'Servidor')
+  }
+
+  let restauradas = 0
+  let diasComEfeito = 0
+  const recusados: { rotulo: string; motivo: string }[] = []
+
+  for (const d of dias) {
+    const rotulo = `${nomePorServidor.get(d.servidorId) || 'Servidor'} — ${d.data}`
+    const { data, error } = await supabase.rpc('fn_restaurar_batidas_dia', {
+      p_servidor_id: d.servidorId,
+      p_data: d.data,
+      p_justificativa: justificativa.trim(),
+    })
+
+    if (error) { recusados.push({ rotulo, motivo: error.message }); continue }
+
+    const r = (data || {}) as { status?: string; restauradas?: number; motivo?: string }
+    const n = Number(r.restauradas || 0)
+    // Conta o que MUDOU, nunca o que foi encontrado (armadilha 22). Dia que voltou zero entra
+    // na lista de recusados com o motivo, em vez de sumir na diferenca.
+    if (n > 0) { restauradas += n; diasComEfeito += 1 }
+    else recusados.push({ rotulo, motivo: r.motivo || 'Nada a restaurar neste dia.' })
+  }
+
+  revalidatePath(`/escalas/unidade/${unidadeId}`)
+  return { restauradas, dias: diasComEfeito, recusados }
+}

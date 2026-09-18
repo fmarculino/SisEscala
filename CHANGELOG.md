@@ -2,6 +2,42 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.73.0] - 2026-09-17
+
+Quatro migrations: `20260917140000`, `20260917150000`, `20260917160000` e `20260917170000`.
+Plano em `docs/planos/2026-09-17-batida-que-nao-alcanca-a-escala-certa.md`,
+diário em `docs/evolucao/2026-09-17-a-batida-que-o-sistema-nao-enxerga.md`.
+
+Dois defeitos independentes com o mesmo sintoma: **a batida existe, está gravada, está correta —
+e a célula fica vazia, sem ninguém reclamar.**
+
+### Fixed
+
+- 🚨 **Reverter a presença tirava a batida REAL de circulação, e a tela dizia que não havia nada a fazer.** O trigger de sincronização grava `desconsiderar` sempre que um UPDATE zera um passo — e não sabe **por que** o passo está sendo zerado. Quem reverte porque o horário está errado quer isso; quem reverte para corrigir a ESCALA e relançar o dia perde a batida junto, e `fn_alocar_marcacoes_dia` passa a filtrá-la: o *Preencher pelas Batidas* respondia **"Nada a preencher neste dia"** com a batida gravada no banco. Medido em produção em 17/09/2026: **1.166** tratamentos `desconsiderar` vigentes, 1.092 deles da reversão automática, **173 são batida física**, 20 dias com escala e passo vazio e **16 com a tela muda**. Caso real flagrado ao vivo — THAYNA (mat 69051), 03/09/2026: quatro batidas do turno Regular `MT` (07:08, 14:51, 15:51, 19:00) desconsideradas entre 15:46 e 15:47, a linha do MT vazia e `reconciliado_em` **nunca**. Agora **o modal de reversão pergunta o motivo**, e as duas respostas fazem coisas opostas: *"o horário está errado"* tira de circulação (o comportamento de sempre, e o padrão) e *"a escala está errada e vou relançar o dia"* mantém a batida disponível.
+- **Ficou 100% a partir de hoje, e por causa de uma correção certa.** A `20260917110000` (v2.72.0) removeu a condição `confirmado_por_id IS NOT NULL` do tratamento — está certa para o defeito que foi corrigir (reverter não durava em 39,8% das batidas `rep`), mas o efeito colateral é que aquelas mesmas 39,8% escapavam **por acidente** do desconsiderar ao limpar a célula. Era isso que fazia o fluxo "reverti, corrigi a escala, preenchi pelas batidas" funcionar parte do tempo. Só em 17/09 foram **47 batidas `rep`** retiradas, em 14 servidores.
+- 🚨 **A batida caía no cadastro de uma matrícula e o turno estava na outra — e ninguém escrevia nela.** `fn_alocar_marcacoes_dia` **sabe** do cadastro irmão desde 09/09/2026 (os passos dele entram como sombra, para exatamente um dos dois ficar com a batida), mas é `STABLE`: quem escreve é `fn_reconciliar_marcacoes_dia`, chamada por (servidor, dia). A leitura enxergava os dois lados, a escrita enxergava um só. Caso real — RAIDANES, mesmo CPF em duas matrículas: o vínculo vigente no `REP-iDClass-CCE-01` aponta para a **mat 53729** (com biometria), a batida das 17:18 nasceu nela, e a 53729 estava **de folga** naquele dia; a escala era da **mat 68152**, cuja linha ficou com a saída vazia. `fn_reconciliar_pessoa_dia` passa a alcançar o irmão nos **três chamadores de máquina** (ingestão do AFD, reparse e o gatilho da Fase 5).
+
+### Added
+
+- **"Restaurar Batidas", dentro do *Preencher pelas Batidas*.** Quando há batida fora de circulação na grade, aparece um aviso em âmbar com a lista dos dias, um campo de motivo e o botão. `fn_restaurar_batidas_dia` devolve as batidas à disputa — e **não preenche nada**: quem põe a batida no passo continua sendo o *Preencher*, com a prévia na frente.
+- **A prévia e a aplicação passaram a contar e a dizer as batidas retidas.** `fn_reconciliacao_pendente_escala` ganhou a coluna `batidas_retidas` e emite uma **linha de diagnóstico própria** para o dia que só tem isso — antes ele nem aparecia na lista, porque a RPC filtra `projetado IS DISTINCT FROM atual`. `fn_reconciliar_dia_pendente` devolve o status `batida_retida` em vez de `sem_mudanca`.
+
+### Unchanged (de propósito)
+
+- 🚨 **Reconciliar o irmão inteiro seria pior que o defeito, e isso foi MEDIDO.** `fn_reconciliar_marcacoes_dia` escreve `presenca_* = projeção` **sem `COALESCE`**. Classificando os **425 pares (irmão, dia)** candidatos de 09/2026 por `fn_conferir_reconciliacao`: **10 são só acréscimo** (14 horários), **13 são troca**, **4 são perda** e 398 não mudam nada. As trocas não são ruído — há deslocamento de **285 e 301 minutos** em passos de intervalo. Por isso o irmão só recebe **acréscimo puro**, o mesmo critério do *Preencher pelas Batidas*.
+- **O servidor da batida continua reconciliado exatamente como hoje**, sem critério novo: estreitar também o dono mudaria o comportamento de toda ingestão para resolver um caso de 76 CPFs.
+- **`fn_reconciliar_dia_pendente` (o botão da grade) NÃO passa a alcançar irmão.** Ela é por **escala**, e o coordenador abre a grade de cada matrícula — misturar as duas faria um clique numa grade escrever noutra, sem prévia.
+- **A resolução de identidade não foi tocada.** A batida é da **pessoa** (decisão de 09/09/2026); que ela nasça no cadastro do vínculo está certo, e quem decide **onde aplicar** é a escala.
+- **Restaurar não alcança batida tirada por DECISÃO.** Só volta o que a reversão **automática** tirou; batida de teste ou da pessoa errada continua fora e só retorna pela correção de batida real, que é de RH/admin. Um botão de coordenador não pode desfazer uma decisão que alguém tomou olhando para o caso.
+- **Nenhum dos 173 casos já criados foi restaurado em massa.** O botão os alcança um a um, pela grade.
+
+### Notas
+
+- Portões: `node scratchpad/sim_batida_retida.js` (53 asserções) e `val_sim_batida_retida.js` (**8 regressões injetadas, 8 reprovadas**). Manual do usuário: seção nova *"A batida existe e o sistema não a enxerga"* (997 asserções, 56 seções).
+- Geradores de cópia mecânica: `gen_batida_retida.js`, `gen_reversao_mantem_batidas.js` (**duas** fontes) e `gen_reconciliar_pessoa_dia.js` (**três** fontes).
+- Validadas em homologação com ensaio revertido — **9/9**, **3/3**, **4/4** e **8/8** — e conferidas em produção depois de aplicadas por `scratchpad/ver_batida_retida_producao.mjs`: **18 de 18**, incluindo o dia da THAYNA, que deixou de responder "sem_mudança" mudo.
+- ⚠️ **Ordem de aplicação obrigatória**: a `150000`, a `160000` e a `170000` usam `fn_batida_fisica`, criada na `140000`. Fora de ordem, a falha é em **runtime**, não no `CREATE`.
+
 ## [2.72.0] - 2026-09-17
 
 Quatro migrations: `20260917100000`, `20260917110000`, `20260917120000` e `20260917130000`.

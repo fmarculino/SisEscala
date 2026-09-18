@@ -34,8 +34,21 @@
  */
 
 export type CampoPresenca = 'entrada' | 'intervalo_saida' | 'intervalo_retorno' | 'saida'
-export type TipoMudanca = 'ganho' | 'troca' | 'perda'
-export type Impedimento = 'competencia_encerrada' | 'escala_fechada' | null
+
+/**
+ * `batida_retida` NAO e uma mudanca: e DIAGNOSTICO.
+ *
+ * O dia cuja projecao iguala o atual nao produz linha nenhuma na previa (a RPC filtra
+ * `projetado IS DISTINCT FROM atual`) — e esse e exatamente o caso em que uma reversao levou
+ * TODAS as candidatas: a tela respondia "Nada a preencher neste dia" com batida real retida no
+ * banco. Desde 20260917140000 a RPC emite uma linha propria para esse dia, com este tipo,
+ * `campo` fora do conjunto de passos e `dia_elegivel = false`.
+ *
+ * ⚠️ Ela nunca vira `ganhos` nem `conflitos`: nao ha horario a aplicar nem a resolver, ha uma
+ * batida a restaurar. Empurra-la para `conflitos` a faria aparecer como campo com rotulo vazio.
+ */
+export type TipoMudanca = 'ganho' | 'troca' | 'perda' | 'batida_retida'
+export type Impedimento = 'competencia_encerrada' | 'escala_fechada' | 'batida_retida' | null
 
 /** Uma linha crua de `fn_reconciliacao_pendente_escala`. */
 export interface LinhaPrevia {
@@ -47,13 +60,22 @@ export interface LinhaPrevia {
   escala_diaria_id: string
   categoria: string
   turno_codigo: string | null
-  campo: CampoPresenca
+  campo: CampoPresenca | 'batida_retida'
   valor_atual: string | null
   valor_projetado: string | null
   origem_projetada: string | null
   tipo: TipoMudanca
   dia_elegivel: boolean
   impedimento: Impedimento
+  /**
+   * Quantas batidas FISICAS deste dia estao fora de circulacao agora (o ultimo tratamento
+   * delas e um `desconsiderar`). Coluna acrescentada em 20260917140000; vem `0` quando nao ha.
+   *
+   * ⚠️ Ler com `?? 0`: enquanto a migration nao estiver aplicada, o bundle novo conversa com a
+   * RPC antiga e o campo chega `undefined`. Tratar `undefined` como "ha batida retida" acusaria
+   * o parque inteiro de um problema que ele nao tem.
+   */
+  batidas_retidas?: number | null
 }
 
 export interface MudancaCampo {
@@ -78,6 +100,12 @@ export interface DiaPendente {
   impedimento: Impedimento
   ganhos: MudancaCampo[]
   conflitos: MudancaCampo[]
+  /**
+   * Batidas fisicas deste dia que uma reversao tirou de circulacao. Maior que zero significa
+   * que a projecao esta trabalhando com MENOS batidas do que houve — entao nem "nada a
+   * preencher" nem "conflito" contam a historia toda.
+   */
+  batidasRetidas: number
 }
 
 const ROTULO: Record<CampoPresenca, string> = {
@@ -97,7 +125,22 @@ export function rotuloCampo(campo: CampoPresenca): string {
 export function rotuloImpedimento(imp: Impedimento): string | null {
   if (imp === 'competencia_encerrada') return 'Competência encerrada — reabra em Configurações'
   if (imp === 'escala_fechada') return 'Escala Fechada — reabra a escala antes'
+  if (imp === 'batida_retida') return 'Batida real fora de circulação — restaure antes de preencher'
   return null
+}
+
+/**
+ * A frase do aviso de batida retida. Fonte unica: ela aparece na previa, no resultado e no
+ * modal de restauracao, e tres redacoes para o mesmo fato ensinam a ignorar as tres.
+ *
+ * ⚠️ Diz o QUE FAZER, nao so o que aconteceu. Aviso sem saida e o que leva o coordenador a
+ * concluir que o sistema esta quebrado (armadilha 44).
+ */
+export function fraseBatidaRetida(n: number): string {
+  if (n <= 0) return ''
+  return `${n} ${n === 1 ? 'batida real foi tirada' : 'batidas reais foram tiradas'} de circulação`
+    + ` por uma reversão de presença. ${n === 1 ? 'Ela continua gravada' : 'Elas continuam gravadas'};`
+    + ` use "Restaurar Batidas" para ${n === 1 ? 'devolvê-la' : 'devolvê-las'} e então preencher.`
 }
 
 /**
@@ -126,14 +169,29 @@ export function agruparPorDia(linhas: LinhaPrevia[] | null | undefined): DiaPend
         impedimento: l.impedimento ?? null,
         ganhos: [],
         conflitos: [],
+        batidasRetidas: 0,
       }
       mapa.set(chave, d)
     }
     if (l.impedimento && !d.impedimento) d.impedimento = l.impedimento
 
+    // `?? 0`: RPC anterior a 20260917140000 nao manda a coluna. O maior de todas as linhas do
+    // dia, nao a soma — a RPC repete a mesma contagem em cada linha daquele dia.
+    const retidas = Number(l.batidas_retidas ?? 0)
+    if (Number.isFinite(retidas) && retidas > d.batidasRetidas) d.batidasRetidas = retidas
+
+    // DIAGNOSTICO, nao mudanca: nao ha horario a aplicar nem a resolver. Sai antes de virar
+    // MudancaCampo para nao aparecer como um passo de rotulo vazio na tela.
+    if (l.tipo === 'batida_retida') {
+      d.elegivel = false
+      continue
+    }
+
     const m: MudancaCampo = {
-      campo: l.campo,
-      rotulo: rotuloCampo(l.campo),
+      // O `continue` acima já tirou a linha de diagnóstico, então aqui `campo` é sempre um
+      // passo de verdade — mas o compilador não sabe disso e o cast é o que o diz.
+      campo: l.campo as CampoPresenca,
+      rotulo: rotuloCampo(l.campo as CampoPresenca),
       categoria: l.categoria,
       turnoCodigo: l.turno_codigo ?? null,
       tipo: l.tipo,
@@ -155,6 +213,10 @@ export function agruparPorDia(linhas: LinhaPrevia[] | null | undefined): DiaPend
     if (d.conflitos.length > 0) d.elegivel = false
     if (d.impedimento) d.elegivel = false
     if (d.ganhos.length === 0) d.elegivel = false
+    // 🚨 Batida retida NAO torna o dia inelegivel por si so, e isso e deliberado: o que a
+    // projecao conseguiu resolver com as batidas que sobraram continua sendo ganho legitimo, e
+    // recusa-lo deixaria a celula vazia por precaucao. O que a contagem faz e APARECER ao lado,
+    // para quem aplicar saber que ainda ha batida real fora de circulacao naquele dia.
     d.ganhos.sort(ordenarCampo)
     d.conflitos.sort(ordenarCampo)
   }
@@ -174,17 +236,34 @@ export interface ResumoPrevia {
   servidores: number
   diasComConflito: number
   diasBloqueados: number
+  /** Dias em que ha batida fisica fora de circulacao — elegiveis ou nao. */
+  diasComBatidaRetida: number
+  /** Total de batidas fisicas retidas na grade inteira. */
+  batidasRetidas: number
 }
 
 export function resumirPrevia(dias: DiaPendente[]): ResumoPrevia {
   const elegiveis = dias.filter(d => d.elegivel)
+  const comRetida = dias.filter(d => d.batidasRetidas > 0)
   return {
     diasElegiveis: elegiveis.length,
     horarios: elegiveis.reduce((s, d) => s + d.ganhos.length, 0),
     servidores: new Set(elegiveis.map(d => d.servidorId)).size,
     diasComConflito: dias.filter(d => !d.elegivel && !d.impedimento && d.conflitos.length > 0).length,
-    diasBloqueados: dias.filter(d => !!d.impedimento).length,
+    // `impedimento` pode ser 'batida_retida' na linha de diagnostico: um dia que so tem batida
+    // retida nao e "bloqueado por competencia", e conta-lo ali esconderia o motivo real.
+    diasBloqueados: dias.filter(d => !!d.impedimento && d.impedimento !== 'batida_retida').length,
+    diasComBatidaRetida: comRetida.length,
+    batidasRetidas: comRetida.reduce((s, d) => s + d.batidasRetidas, 0),
   }
+}
+
+/**
+ * Os dias com batida retida, para o botao de restaurar. Nunca os elegiveis: restaurar e ato
+ * proprio, e misturar com o preenchimento faria um clique so fazer duas coisas diferentes.
+ */
+export function diasParaRestaurar(dias: DiaPendente[]): { servidorId: string; data: string }[] {
+  return dias.filter(d => d.batidasRetidas > 0).map(d => ({ servidorId: d.servidorId, data: d.data }))
 }
 
 /** O que vai para a action: nunca a lista de campos, so o par (servidor, dia). */
@@ -244,6 +323,7 @@ export function descreverResultado(res: ResultadoDia[]): {
 function motivoPadrao(status: string): string {
   switch (status) {
     case 'conflito': return 'O dia deixou de ser só acréscimo — resolva pela validação manual.'
+    case 'batida_retida': return 'Há batida real fora de circulação neste dia — restaure antes de preencher.'
     case 'sem_mudanca': return 'Nada a preencher: outra pessoa já resolveu este dia.'
     case 'escala_fechada': return 'A escala está Fechada.'
     case 'competencia_encerrada': return 'A competência está encerrada.'

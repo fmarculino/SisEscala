@@ -5993,6 +5993,135 @@ Portões: `node scratchpad/sim_correcao_batida_real.js` (64) e
 **Validado em homologação com ensaio revertido**, incluindo o caso EUZILENE com sessão de RH
 simulada e a prova de que a correção **sobrevive a duas reconciliações**.
 
+### 74. Reverter presença tira a BATIDA REAL de circulação, e a tela dizia que não havia nada a fazer (17/09/2026)
+
+🚨 **`fn_sincronizar_marcacoes_escala_diaria` grava um tratamento `desconsiderar` sempre que um
+UPDATE zera um passo de presença — e não sabe POR QUE o passo está sendo zerado.** São duas
+intenções opostas:
+
+| o coordenador fez | efeito | desejado? |
+|---|---|---|
+| reverteu porque o **horário** está errado (teste, pessoa errada, indevida) | a batida sai de circulação | ✅ é para isso que existe |
+| reverteu porque a **escala** está errada e vai relançar o dia | a batida **real** sai junto, e o *Preencher pelas Batidas* não a traz de volta | ❌ |
+
+Depois disso `fn_alocar_marcacoes_dia` filtra a marcação, e a tela responde **"Nada a preencher
+neste dia"** — ou recusa por `conflito` sem dizer que a causa é reversível. **As duas mensagens
+afirmam o contrário do que está no banco.** Plano em
+[`docs/planos/2026-09-17-batida-que-nao-alcanca-a-escala-certa.md`](docs/planos/2026-09-17-batida-que-nao-alcanca-a-escala-certa.md).
+
+Medido em 17/09/2026: **1.166** `desconsiderar` vigentes, **1.092** com a justificativa automática
+da reversão, **173 são batida física**; 118 pares (servidor, dia), **20 com escala e passo vazio**,
+**16 com a tela muda**.
+
+🚨 **E passou a valer em 100% dos casos naquele dia, por causa de uma correção CERTA.** A
+`20260917110000` tirou a condição `confirmado_por_id IS NOT NULL` do tratamento — correta para o
+defeito que foi corrigir (reverter não durava em 39,8% das batidas `rep`) —, e eram justamente
+essas 39,8% que escapavam **por acidente** do desconsiderar ao limpar a célula. Era isso que fazia
+o fluxo "reverti, corrigi a escala, preenchi pelas batidas" funcionar parte do tempo. Só em 17/09
+foram **47 batidas `rep`** retiradas, em 14 servidores (THAYNA 12, GISELE 10).
+
+⚠️ **"O trigger nunca desconsidera batida física" era a correção de uma linha, e está ERRADA.** Ela
+quebra a reversão intencional: batida de teste e batida da pessoa errada voltariam sozinhas na
+próxima reconciliação — o defeito que a `20260917110000` acabara de fechar. **A intenção precisa
+ser DECLARADA por quem reverte**; o banco não tem como adivinhá-la.
+
+| peça | o quê |
+|---|---|
+| `fn_batida_fisica` (`20260917140000`) | fonte única: `rep` sempre; `terminal` **só** não-sintética. Sintética é o horário **fabricado** por `fn_salvar_saida_bloco` |
+| `fn_batidas_retidas_dia` | as batidas físicas do dia fora de circulação, janela **D−1..D+2** (turno que cruza a meia-noite tem batida nos dois dias civis) |
+| `fn_reverter_presenca_manual` + `p_manter_batidas` (`150000`) | a intenção viaja por GUC `sisescala.reversao_mantem_batidas` até o trigger |
+| `fn_restaurar_batidas_dia` (`160000`) | devolve à circulação **só o que a reversão automática tirou** |
+| modal de reversão · aviso âmbar + **Restaurar Batidas** · `src/utils/reconciliacaoPendente.ts` | as três superfícies |
+
+⚠️ **`set_config(..., true)` é local à TRANSAÇÃO, não à função.** A RPC **desliga** o GUC antes de
+cada retorno — sem isso, o próximo UPDATE em `escala_diaria` da mesma transação (o upsert em lote
+do "Salvar Previsão") herdaria a exceção em silêncio. Mesma folga de `fn_excluir_vigencia_jornada`.
+
+⚠️ **Só a batida FÍSICA é poupada.** Horário declarado (`ajuste_coordenador`/`ajuste_servidor`) e
+fabricado (`terminal` sintética) saem de circulação nos **dois** modos: quem reverteu uma
+declaração está desfazendo a própria declaração, e manter o fabricado faria a reconciliação repô-lo
+como se fosse fato.
+
+⚠️ **Restaurar não alcança batida tirada por DECISÃO.** O critério é a justificativa **exata** que o
+trigger grava; qualquer outra exige a correção de batida real (armadilha 73), que é de RH/admin. Um
+botão de coordenador não pode desfazer uma decisão que alguém tomou olhando para o caso. Se aquele
+texto mudar no trigger, este critério para de casar e **nada é restaurado** — falha fechada, que é
+o lado seguro.
+
+⚠️ **Batida retida NÃO torna o dia inelegível sozinha**: o que a projeção resolveu com as batidas
+que sobraram continua sendo ganho legítimo, e recusá-lo deixaria a célula vazia por precaução. A
+contagem **aparece ao lado**, para quem aplicar saber que ainda há batida fora de circulação.
+
+⚠️ **Restaurar e preencher são DOIS cliques, de propósito.** Restaurar devolve a batida à disputa;
+quem a põe no passo continua sendo a reconciliação, com a prévia na frente.
+
+### 75. A batida cai num cadastro e o turno está no IRMÃO — a leitura vê os dois lados, a escrita vê um (17/09/2026)
+
+⚠️ **`fn_alocar_marcacoes_dia` sabe do cadastro irmão desde `20260909130000`** (os passos dele
+entram como **sombra**, para exatamente um dos dois ficar com a batida) — **mas ela é `STABLE`.**
+Quem escreve é `fn_reconciliar_marcacoes_dia`, chamada por **(servidor, dia)**. Resultado: a batida
+cai no cadastro do vínculo, a escala está na outra matrícula, e **ninguém escreve nela**. É a mesma
+forma de "a alocação roda por dia e um dia não sabe do outro", agora **entre vínculos**.
+
+Caso real (RAIDANES, mesmo CPF em duas matrículas): o vínculo vigente no `REP-iDClass-CCE-01`
+aponta para a **mat 53729** com biometria, a batida das 17:18 nasceu nela — e a 53729 estava **de
+folga**. A escala era da **mat 68152**, que ficou com a saída vazia.
+
+🚨 **Os 5 chamadores da reconciliação tinham o mesmo laço, e corrigir só a ingestão deixaria o
+buraco no pior deles**: `trg_reconciliar_apos_marcacao` é **inerte hoje** e vira o caminho
+principal quando a Fase 5 ligar. `fn_reconciliar_pessoa_dia` (`20260917170000`) substitui os
+**três de máquina** — ingestão, reparse e o gatilho da Fase 5.
+
+🚨 **Reconciliar o irmão INTEIRO seria pior que o defeito, e isso foi medido.**
+`fn_reconciliar_marcacoes_dia` escreve `presenca_* = projeção` **sem `COALESCE`**. Classificando os
+**425 pares (irmão, dia)** de 09/2026 por `fn_conferir_reconciliacao`:
+
+| resultado | pares |
+|---|---|
+| **só acréscimo** | **10** — 14 horários |
+| **troca** de horário já gravado | **13** |
+| **perda** | **4** |
+| sem mudança | 398 |
+
+As trocas não são ruído: **285 e 301 minutos** de deslocamento em passos de intervalo. Por isso o
+irmão só recebe **acréscimo puro**, o mesmo critério de `fn_reconciliar_dia_pendente`.
+
+⚠️ **O servidor da batida continua reconciliado como hoje**, sem critério novo — estreitar o dono
+mudaria o comportamento de toda ingestão para resolver um caso de **76 CPFs**.
+
+⚠️ **`fn_reconciliar_dia_pendente` (o botão da grade) NÃO alcança irmão**: ela é por **escala**, e o
+coordenador abre a grade de cada matrícula. Misturar faria um clique numa grade escrever noutra,
+sem prévia. A conferência da migration **aborta** se isso mudar.
+
+⚠️ **Não mexa na resolução de identidade.** A batida é da **pessoa**; que ela nasça no cadastro do
+vínculo está certo — `marcacoes_ponto.servidor_id` é imutável e quem decide **onde aplicar** é a
+escala. E a dupla contagem está protegida por construção: o desempate por `servidor_id` da
+`20260909130000` faz os dois lados decidirem o oposto, em qualquer ordem.
+
+⚠️ **`fn_reconciliar_pessoa_dia` é caminho de MÁQUINA** (`GRANT` só a `service_role`): não confere
+papel, escopo nem escala Fechada. A conferência aborta se `authenticated` ganhar acesso.
+
+🚨 **O ensaio da Fase 3 PASSOU PELO MOTIVO ERRADO na primeira versão**: usava origem `terminal`, e
+**só batida de RELÓGIO disputa entre irmãos** (decisão 1 da `20260909130000` — em `terminal`,
+`marcacoes_ponto.unidade_id` é a **lotação**, não o lugar da batida). Ensaio que "passa" sem
+exercitar o caminho real é pior que ensaio nenhum.
+
+ℹ️ **O que os ensaios pegaram e que leitura de código não pegaria**, nas quatro migrations:
+`information_schema.parameters` **não** expõe coluna de `RETURNS TABLE` de forma confiável (a
+conferência reprovou a função **já correta**; passou a ler `pg_get_function_result`);
+`RAISE EXCEPTION 'a ' || 'b'` dá `42601` só na execução do `CREATE`; o `DROP` + `CREATE` devolveu a
+prévia a `PUBLIC`, porque **o recorte da cópia mecânica vai até o delimitador e o `REVOKE` da fonte
+fica fora dele**; e `chk_marcacao_rep_completa` / `chk_marcacao_ajuste_justificado` só aparecem na
+execução.
+
+Portões: `node scratchpad/sim_batida_retida.js` (53) e `val_sim_batida_retida.js` (**8 regressões
+injetadas, 8 reprovadas**). Transpile antes com
+`npx tsc src/utils/reconciliacaoPendente.ts --outDir scratchpad/_sim --module commonjs --target es2020`.
+Geradores: `gen_batida_retida.js`, `gen_reversao_mantem_batidas.js` (**duas** fontes) e
+`gen_reconciliar_pessoa_dia.js` (**três** fontes). ✅ **Validadas em homologação com ensaio
+revertido (9/9, 3/3, 4/4 e 8/8) e conferidas em produção em 17/09/2026 por
+`scratchpad/ver_batida_retida_producao.mjs`: 18 de 18**, incluindo o dia da THAYNA.
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.
