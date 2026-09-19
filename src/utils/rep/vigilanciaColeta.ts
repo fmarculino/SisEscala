@@ -36,11 +36,30 @@ export type ResultadoVigilancia = {
   comPontoParado: number
   /** Relógios cuja máquina não coleta há tempo demais — severidade 1. */
   semColeta: number
+  /** Destes, quantos entraram no e-mail. Ver `HORAS_PARA_AVISAR_SEM_COLETA`. */
+  semColetaNoAviso: number
   /** Unidades no aviso. O e-mail agrupa por unidade, não por relógio. */
   unidadesAfetadas: number
   avisoEnviado: boolean
   error?: string
 }
+
+/**
+ * 🚨 Máquina parada há algumas horas NÃO entra no e-mail, e o número saiu de medição.
+ *
+ * Medido em produção no sábado 19/09/2026, antes do primeiro envio: **18 dos 35 relógios** teriam
+ * entrado por "sem coletar há ≥6h", em 16 unidades — e **15 deles estavam na faixa de 12 a 24h**,
+ * ou seja, máquinas de USF desligadas desde a noite de sexta. Isso é o funcionamento normal de
+ * uma unidade que fecha no fim de semana.
+ *
+ * Um primeiro aviso com 16 unidades por algo normal ensina a ignorar o aviso — e aí o dia em que
+ * ele trouxer o caso do HMI ninguém abre. O e-mail leva o que EXIGE AÇÃO; a tela continua
+ * mostrando tudo, que é onde o detalhe pertence.
+ *
+ * ⚠️ 24h é "não ligou no dia seguinte", não "está fora agora". Com o critério novo, o mesmo
+ * sábado produziria 2 relógios em vez de 18.
+ */
+const HORAS_PARA_AVISAR_SEM_COLETA = 24
 
 /**
  * ⚠️ Agrupar por UNIDADE, não por relógio, é regra e não estética: o HMI tem 3 equipamentos na
@@ -81,8 +100,8 @@ function montarHtml(porUnidade: Map<string, LinhaVigilancia[]>, comPontoParado: 
             não entram, a grade desses servidores fica sem presença.
           </p>`
         : h`<p style="background:#fffbeb;border-left:3px solid #d97706;padding:10px 12px;color:#92400e;font-size:13px;margin:0 0 8px">
-            Nenhum ponto parado detectado, mas há máquinas sem coletar há horas — enquanto estiverem
-            fora, não há como saber se há batida esperando.
+            Nenhum ponto parado detectado, mas há máquinas que não coletam <strong>há mais de um
+            dia</strong> — enquanto estiverem fora, não há como saber se há batida esperando.
           </p>`}
       ${secoes}
       <p style="color:#71717a;font-size:12px;margin-top:18px">
@@ -100,7 +119,7 @@ function montarHtml(porUnidade: Map<string, LinhaVigilancia[]>, comPontoParado: 
  */
 export async function vigiarColetaDoParque(): Promise<ResultadoVigilancia> {
   const base: ResultadoVigilancia = {
-    success: false, avaliados: 0, comPontoParado: 0, semColeta: 0,
+    success: false, avaliados: 0, comPontoParado: 0, semColeta: 0, semColetaNoAviso: 0,
     unidadesAfetadas: 0, avisoEnviado: false,
   }
 
@@ -109,19 +128,27 @@ export async function vigiarColetaDoParque(): Promise<ResultadoVigilancia> {
   if (error) return { ...base, error: error.message }
 
   const linhas = (data || []) as LinhaVigilancia[]
-  const problemas = linhas.filter((l) => Number(l.severidade) > 0)
-  const comPontoParado = problemas.filter((l) => Number(l.severidade) === 2).length
+  const pontoParado = linhas.filter((l) => Number(l.severidade) === 2)
+  const semColeta = linhas.filter((l) => Number(l.severidade) === 1)
+
+  // O que vai no e-mail: tudo que tem ponto registrado esperando, mais as máquinas que não ligam
+  // há mais de um dia. O resto fica na tela. Ver HORAS_PARA_AVISAR_SEM_COLETA.
+  const semColetaNoAviso = semColeta.filter((l) => Number(l.horas_sem_contato) >= HORAS_PARA_AVISAR_SEM_COLETA)
+  const noAviso = [...pontoParado, ...semColetaNoAviso]
 
   const resultado: ResultadoVigilancia = {
     ...base,
     success: true,
     avaliados: linhas.length,
-    comPontoParado,
-    semColeta: problemas.length - comPontoParado,
-    unidadesAfetadas: agruparPorUnidade(problemas).size,
+    comPontoParado: pontoParado.length,
+    // ⚠️ `semColeta` é o MEDIDO e `semColetaNoAviso` é o AVISADO — os dois separados de propósito.
+    // Reportar só um dos dois esconderia metade do que aconteceu (armadilha 22).
+    semColeta: semColeta.length,
+    semColetaNoAviso: semColetaNoAviso.length,
+    unidadesAfetadas: agruparPorUnidade(noAviso).size,
   }
 
-  if (problemas.length === 0) return resultado
+  if (noAviso.length === 0) return resultado
 
   // ⚠️ Destinatários vêm de `configuracoes_globais`. Sem a chave configurada a verificação roda e
   // NÃO envia — o resultado ainda sai na resposta do cron, que é onde a falha fica visível. Um
@@ -137,14 +164,14 @@ export async function vigiarColetaDoParque(): Promise<ResultadoVigilancia> {
   const destinatarios = String(bruto).split(/[;,\s]+/).map((e) => e.trim()).filter((e) => e.includes('@'))
   if (destinatarios.length === 0) return resultado
 
-  const assunto = comPontoParado > 0
-    ? `[SisEscala] ${comPontoParado} relógio(s) com ponto que não chegou`
-    : `[SisEscala] ${problemas.length} relógio(s) sem coletar`
+  const assunto = pontoParado.length > 0
+    ? `[SisEscala] ${pontoParado.length} relógio(s) com ponto que não chegou`
+    : `[SisEscala] ${semColetaNoAviso.length} relógio(s) sem coletar há mais de um dia`
 
   const envio = await enviarEmailInterno({
     to: destinatarios.join(','),
     subject: assunto,
-    html: montarHtml(agruparPorUnidade(problemas), comPontoParado),
+    html: montarHtml(agruparPorUnidade(noAviso), pontoParado.length),
   })
 
   // Falha de envio não derruba a verificação: o número medido continua valendo e sai no retorno.

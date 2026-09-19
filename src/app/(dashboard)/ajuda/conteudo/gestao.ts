@@ -248,6 +248,13 @@ export const gestao: Capitulo = {
           texto:
             'É daqui que se **reabre uma competência encerrada**. É o caminho certo quando algo precisa ser corrigido num mês já fechado — e fica registrado.',
         },
+        {
+          tipo: 'aviso',
+          tom: 'dica',
+          titulo: 'Destinatários da Vigilância de Ponto',
+          texto:
+            'Neste campo vão os e-mails que recebem o aviso automático quando um relógio tem batidas registradas que não chegaram ao sistema. **Sem nenhum e-mail aqui, a verificação continua acontecendo e ninguém é avisado** — vale conferir se está preenchido. Separe vários por vírgula.',
+        },
         { tipo: 'titulo', texto: 'Usuários' },
         {
           tipo: 'p',

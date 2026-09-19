@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.75.1] - 2026-09-19
+
+Sem migration. Ajuste feito **antes do primeiro envio** do aviso diário, medindo o que ele diria.
+
+### Added
+
+- **Campo "Destinatários da Vigilância de Ponto" em Configurações.** Era a pendência da v2.75.0: a chave `vigilancia_ponto_emails` existia e não tinha onde ser preenchida. Documentado no manual, com o aviso de que **sem e-mail nenhum a verificação roda e ninguém é avisado**.
+
+### Fixed
+
+- 🚨 **O primeiro e-mail teria listado 18 dos 35 relógios, em 16 unidades — num sábado.** Medido antes de enviar: **15 deles estavam na faixa de 12 a 24h sem coletar**, ou seja, máquinas de USF desligadas desde a noite de sexta. Isso é o funcionamento normal de uma unidade que fecha no fim de semana. Um aviso que lista 16 unidades por algo normal **ensina a ignorar o aviso** — e aí o dia em que ele trouxer um caso como o do HMI, ninguém abre.
+- **O e-mail passou a levar o que exige ação:** todo relógio com ponto registrado que não chegou (severidade 2), e máquina sem coletar apenas **acima de 24h** — "não ligou no dia seguinte", não "está fora agora". No mesmo sábado, isso produz **2 relógios em vez de 18**. A tela continua mostrando tudo, que é onde o detalhe pertence.
+- ⚠️ **`semColeta` (medido) e `semColetaNoAviso` (avisado) são campos separados** no retorno do cron. Reportar só um dos dois esconderia metade do que aconteceu.
+
+### Notas
+
+- ✅ **A cadeia do `last_nsr` já funciona em produção:** o coletor v0.19.0 chegou a 2 dos 35 relógios pela auto-atualização, e um deles **já reportou 1 batida presa** no equipamento — exatamente o sinal para o qual a lacuna de NSR é cega.
+
 ## [2.75.0] - 2026-09-19
 
 Duas migrations: `20260919110000` e `20260919120000`. Coletor **v0.19.0**.
