@@ -794,6 +794,78 @@ export const ponto: Capitulo = {
     },
 
     {
+      id: 'investigar-ponto',
+      titulo: '"Bati o ponto e estou com traço vermelho"',
+      resumo: 'A aba que mostra, dia a dia, o que houve com as batidas de uma pessoa.',
+      papeis: ['Administrador Geral', 'Diretor', 'RH Geral', 'RH da Unidade'],
+      blocos: [
+        { tipo: 'caminho', itens: ['OPERAÇÃO', 'Marcações', 'Investigar Ponto'], href: '/marcacoes' },
+        {
+          tipo: 'p',
+          texto:
+            'É a contestação mais comum que chega ao RH. A pessoa garante que encostou o dedo no relógio e a escala dela mostra o dia em branco. Antes, responder isso dependia de alguém da equipe de sistemas consultar o banco de dados; agora a resposta está na tela.',
+        },
+        {
+          tipo: 'p',
+          texto:
+            'Busque por **nome, matrícula ou CPF**, escolha o período e a tela monta a trilha de cada dia: o turno que estava escalado, o que aparece hoje na grade, as batidas que existem (com o relógio em que foram feitas) e — o que importa — **um diagnóstico do que houve**.',
+        },
+        {
+          tipo: 'tabela',
+          colunas: ['O diagnóstico diz', 'Significa', 'Onde se resolve'],
+          linhas: [
+            ['Registrado', 'A presença está na grade. Nada a fazer.', '—'],
+            [
+              'Batida fora de circulação',
+              'A batida existe, mas alguém reverteu a presença daquele dia e ela saiu junto.',
+              'Na grade: **Ferramentas → Restaurar Batidas**.',
+            ],
+            [
+              'Batida não aplicada',
+              'A batida chegou e o dia nunca foi processado — costuma acontecer quando a escala foi lançada depois.',
+              'Na grade: **Ferramentas → Preencher pelas Batidas**.',
+            ],
+            [
+              'Batida sem dono',
+              'O relógio gravou o registro, mas o CPF ou o PIS não bateu com o cadastro.',
+              'Corrigir o documento na ficha do servidor.',
+            ],
+            [
+              'Está na outra matrícula',
+              'A pessoa tem dois vínculos e a batida ficou no outro cadastro.',
+              'O acerto é **na escala**, nunca na batida.',
+            ],
+            [
+              'Bateu sem turno lançado',
+              'Há batida e o dia está como folga ou sem turno.',
+              'Lançar o turno na grade.',
+            ],
+            [
+              'Nenhuma batida chegou',
+              'Não há registro daquele dia no sistema.',
+              'Ver o aviso no topo — pode ser ponto ainda não coletado.',
+            ],
+          ],
+        },
+        {
+          tipo: 'aviso',
+          tom: 'cuidado',
+          titulo: 'Antes de tratar como falta, leia o aviso vermelho do topo',
+          texto:
+            'Quando o relógio da unidade tem batidas que ainda não chegaram, a tela avisa em destaque. **Enquanto esse aviso existir, dia sem batida não significa falta** — significa que o ponto ainda está dentro do equipamento. Digitar horário à mão nesse momento é substituir uma batida real por uma declaração.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'dica',
+          titulo: 'A tela não altera nada',
+          texto:
+            'Ela só mostra e explica. Toda correção continua acontecendo onde sempre aconteceu — na grade da escala ou na folha —, com a conferência e o registro de quem fez. Isso é de propósito: um caminho a mais para mexer em ponto seria um caminho a mais para errar.',
+        },
+        { tipo: 'veja', secaoId: 'batidas-nao-coletadas', texto: 'Quando o problema é o relógio, e não a pessoa' },
+      ],
+    },
+
+    {
       id: 'setor-sem-relogio',
       titulo: 'Setor que nenhum relógio atende',
       resumo: 'Setor novo pode nascer fora do relógio, em silêncio — e a tela que mostra isso.',

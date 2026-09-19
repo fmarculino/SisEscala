@@ -24,7 +24,7 @@ import (
 	"github.com/sms-maraba/sisescala-coletor-rep/sisescala"
 )
 
-const Versao = "0.18.0"
+const Versao = "0.19.0"
 
 // LimiteCadastrosPorCiclo e' o teto do ciclo AUTOMATICO. O clique manual no menu passa 0 (sem
 // teto, envia todos).
@@ -319,6 +319,54 @@ type ResultadoHeartbeat struct {
 	Deriva time.Duration
 	// RelogioAjustado diz se este ciclo acertou a hora do equipamento.
 	RelogioAjustado bool
+
+	// UltimoNsrDevice e o maior NSR que o EQUIPAMENTO declara ter (get_system_information.
+	// last_nsr). Nil = nao foi possivel ler; NAO e zero, e a diferenca importa: o servidor
+	// precisa distinguir "nao sei" de "esta em dia", senao um relogio sem leitura nenhuma
+	// aparece como perfeito. Ver 20260919110000.
+	UltimoNsrDevice *int64
+}
+
+// lerUltimoNsrDevice le o last_nsr do equipamento. Nunca derruba o heartbeat: nao saber o NSR do
+// device e' pior que saber, mas e' MUITO melhor que perder tambem a versao, o host e a deriva.
+//
+// 🚨 Esta leitura ja existia e estava ORFA: rep.InformacoesSistema() nao tinha um unico chamador
+// no coletor. Era ela que faltava para o SisEscala saber, sem nenhuma rota ate a rede da unidade,
+// quanto ponto esta registrado no relogio e ainda nao chegou -- o sinal que teria detectado o
+// REP-iDClass-HMI-01 no primeiro ciclo em vez de em 38 horas (18/09/2026).
+func lerUltimoNsrDevice(rc *rep.Client) *int64 {
+	info, err := rc.InformacoesSistema()
+	if err != nil {
+		log.Printf("aviso: nao foi possivel ler o last_nsr do equipamento: %v", err)
+		return nil
+	}
+	return extrairUltimoNsr(info)
+}
+
+// extrairUltimoNsr e a parte PURA, separada so para ter portao: e aqui que mora a regra de que
+// ausencia nunca vira zero, e ela nao pode ser testada atraves de um *rep.Client.
+func extrairUltimoNsr(info map[string]interface{}) *int64 {
+	bruto, ok := info["last_nsr"]
+	if !ok {
+		return nil
+	}
+	// O device devolve numero JSON, que o encoding/json entrega como float64. Firmware que
+	// mandasse string tambem entra: o que nao pode e' virar 0 em silencio.
+	switch v := bruto.(type) {
+	case float64:
+		n := int64(v)
+		if n <= 0 {
+			return nil
+		}
+		return &n
+	case string:
+		n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+		if err != nil || n <= 0 {
+			return nil
+		}
+		return &n
+	}
+	return nil
 }
 
 // Heartbeat mantem a assinatura antiga (usada pela CLI) e delega.
@@ -344,7 +392,11 @@ func HeartbeatComEstado(cfg *config.Config, d *config.DispositivoRepConfig) (Res
 	if err != nil {
 		log.Printf("aviso: nao foi possivel ler o relogio do REP (%v); heartbeat sem deriva", err)
 		estado.ErroRelogio = err
-		return estado, sc.Heartbeat(nil, Versao, Hostname(), IPLocal(d.Endereco))
+		// Sem hora nao quer dizer sem NSR: sao chamadas diferentes, e o relogio pode responder
+		// uma e nao a outra. Tentar aqui tambem e' o que mantem o sinal vivo num equipamento
+		// cujo get_system_date_time falha.
+		estado.UltimoNsrDevice = lerUltimoNsrDevice(rc)
+		return estado, sc.Heartbeat(nil, Versao, Hostname(), IPLocal(d.Endereco), estado.UltimoNsrDevice)
 	}
 	estado.RelogioOK = true
 	estado.RelogioDevice = relogioDevice
@@ -352,7 +404,12 @@ func HeartbeatComEstado(cfg *config.Config, d *config.DispositivoRepConfig) (Res
 
 	sincronizarRelogioDispositivo(rc, d, &estado)
 
-	return estado, sc.Heartbeat(&relogioDevice, Versao, Hostname(), IPLocal(d.Endereco))
+	// Depois do ajuste de hora, e no MESMO rep.Client: o handshake TLS custa ~1,1s de CPU do
+	// equipamento e ele serializa os handshakes, entao reusar a conexao ja aberta e' ~50x mais
+	// barato que abrir outra so para esta leitura.
+	estado.UltimoNsrDevice = lerUltimoNsrDevice(rc)
+
+	return estado, sc.Heartbeat(&relogioDevice, Versao, Hostname(), IPLocal(d.Endereco), estado.UltimoNsrDevice)
 }
 
 // horaConfiavel e' a hora local CORRIGIDA pelo desvio aprendido do SisEscala (header Date das

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { conferirSegredoCron } from '@/utils/segredoCron'
 import { autoCloseExpiredScalesAndTimesheets, autoGenerateMissingTimesheets } from '@/utils/autoClose'
 import { enfileirarCadastrosDoParque } from '@/utils/rep/enfileirarCadastrosParque'
+import { vigiarColetaDoParque } from '@/utils/rep/vigilanciaColeta'
 
 export async function GET(request: Request) {
   try {
@@ -39,6 +40,12 @@ export async function GET(request: Request) {
     //    equipamento sozinho. Só popula a fila; quem grava no relógio é o coletor da unidade.
     const repRes = await enfileirarCadastrosDoParque()
 
+    // 4. Vigilância da coleta: quanto ponto está registrado no relógio e não chegou até aqui.
+    //    🚨 É a etapa que existe porque o caso de 18/09/2026 foi descoberto por SERVIDORES
+    //    RECLAMANDO — 38 horas e 509 batidas depois. Detecta por ESTADO (ver 20260919110000),
+    //    que é o que funciona quando a falha é capaz de reverter o próprio registro dela.
+    const vigiaRes = await vigiarColetaDoParque()
+
     // ⚠️ `success` reflete as PARTES, não o fato de a rota ter chegado ao fim. Até 05/09/2026 ele
     // era `true` fixo: o cron devolvia 200 e "success": true com o autoClose reprovado dentro, e
     // agendado diariamente isso esconderia a falha para sempre. Relatar o que aconteceu, não o
@@ -47,12 +54,16 @@ export async function GET(request: Request) {
     if (!closeRes?.success) falhas.push(`autoClose: ${closeRes?.error || 'falhou'}`)
     if (!genRes?.success) falhas.push(`autoGenerateMissingDrafts: ${(genRes as { error?: string })?.error || 'falhou'}`)
     if (repRes.erros.length > 0) falhas.push(`enfileirarCadastrosRep: ${repRes.erros.join('; ')}`)
+    // ⚠️ A vigilancia entra em `falhas` quando NAO CONSEGUE medir. Encontrar relogio parado nao e
+    // falha desta rotina — e o trabalho dela; quem reporta isso e o corpo da resposta.
+    if (!vigiaRes.success) falhas.push(`vigilanciaColeta: ${vigiaRes.error || 'falhou'}`)
 
     return NextResponse.json({
       success: falhas.length === 0,
       falhas: falhas.length > 0 ? falhas : undefined,
       timestamp: new Date().toISOString(),
       autoClose: closeRes,
+      vigilanciaColeta: vigiaRes,
       autoGenerateMissingDrafts: {
         mes: prevMes,
         ano: prevAno,

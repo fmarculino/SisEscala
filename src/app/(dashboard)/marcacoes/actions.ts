@@ -312,18 +312,19 @@ export async function listarDispositivosRep() {
     if (!ultimaColetaPendrive.has(s.dispositivo_id)) ultimaColetaPendrive.set(s.dispositivo_id, s.concluida_em)
   }
 
-  // Lacuna de NSR: batida que o equipamento JA entregou e o SisEscala nao ingeriu de forma
-  // continua. Vem junto da lista de proposito, colada ao dispositivo — uma chamada separada
-  // seria uma que a tela pode esquecer de fazer, e este e' justamente o sinal que faltava
-  // quando o REP-iDClass-HMI-01 ficou 38h travado sem nada em tela nenhuma (19/09/2026).
+  // Vigilância da coleta: os três sinais que dizem se o ponto registrado no relógio chegou até
+  // aqui — lacuna de NSR (a ingestão falha), batidas presas no equipamento (a coleta parou) e
+  // horas sem contato (a máquina está fora). Vem junto da lista de propósito, colado ao
+  // dispositivo: uma chamada separada é uma que a tela pode esquecer de fazer, e era justamente
+  // este sinal que faltava quando o REP-iDClass-HMI-01 ficou 38h travado (19/09/2026).
   //
-  // ⚠️ `fn_lacunas_afd_parque` filtra por `fn_escopo_gestao_alcanca`, que PASSA com service_role
-  // (auth.uid() IS NULL). Quem recorta aqui e' o `filtrarPorUnidade` abaixo, como no resto desta
-  // action — a RPC devolve o parque inteiro para este cliente.
-  const { data: lacunas, error: erroLacunas } = await supabase.rpc('fn_lacunas_afd_parque')
-  if (erroLacunas) console.error('Falha ao consultar lacunas de AFD:', erroLacunas.message)
+  // ⚠️ `fn_vigilancia_coleta_parque` filtra por `fn_escopo_gestao_alcanca`, que PASSA com
+  // service_role (auth.uid() IS NULL). Quem recorta aqui é o `filtrarPorUnidade` abaixo, como no
+  // resto desta action — a RPC devolve o parque inteiro para este cliente.
+  const { data: vigilancia, error: erroVigilancia } = await supabase.rpc('fn_vigilancia_coleta_parque')
+  if (erroVigilancia) console.error('Falha ao consultar vigilância de coleta:', erroVigilancia.message)
   const porDispositivo = new Map<string, any>()
-  for (const l of lacunas || []) porDispositivo.set(l.dispositivo_id, l)
+  for (const l of vigilancia || []) porDispositivo.set(l.dispositivo_id, l)
 
   // ⚠️ Filtro AQUI: a consulta usa `createAdminClient` (service_role, BYPASSRLS), entao a
   // policy "Leitura de dispositivos por escopo" nao roda. Sem isto o RH da Unidade veria os
@@ -331,7 +332,7 @@ export async function listarDispositivosRep() {
   return filtrarPorUnidade(escopo, data || [], (d: any) => d.unidade_id).map((d: any) => ({
     ...d,
     ultima_coleta_pendrive: ultimaColetaPendrive.get(d.id) || null,
-    lacuna_afd: porDispositivo.get(d.id) || null,
+    vigilancia_coleta: porDispositivo.get(d.id) || null,
   }))
 }
 

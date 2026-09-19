@@ -2,6 +2,49 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.75.0] - 2026-09-19
+
+Duas migrations: `20260919110000` e `20260919120000`. Coletor **v0.19.0**.
+Plano (reescrito) em `docs/planos/2026-09-19-ferramenta-investigacao-e-auditoria-de-ponto.md`.
+
+A v2.74.0 corrigiu o caso do HMI e tornou a lacuna visível. **O que faltava era ninguém precisar
+olhar** — as 38 horas só acabaram porque servidores da CME reclamaram.
+
+### Added
+
+- 🚨 **O coletor passa a reportar o `last_nsr` do EQUIPAMENTO, e a peça já existia órfã.** `rep.InformacoesSistema()` lê `get_system_information.fcgi`, cuja resposta traz o maior NSR que o relógio tem — e **nenhum caminho do coletor a chamava**. Com um campo a mais no heartbeat, o servidor calcula `batidas_presas = nsr_device − ultimo_nsr` **sem nenhuma rota até a rede da unidade**. Isso teria detectado o REP-iDClass-HMI-01 no **primeiro ciclo**, e não em 38 horas.
+- 🚨 **É o sinal que a lacuna de NSR é CEGA para ver.** Com a máquina da unidade desligada não se forma buraco nenhum: `ultimo_nsr` só para de subir e o cursor continua em `ultimo_nsr + 1` — estado perfeitamente consistente, com o ponto do dia inteiro parado dentro do relógio. Medido em 19/09/2026 indo aos equipamentos um a um: **19 dos 35 relógios com a máquina sem contato há mais de 2h, 15 há mais de 14h, e 113 batidas presas** nos 15 que responderam. **Nenhuma aparecia como lacuna.**
+- **`fn_vigilancia_coleta_parque`** (`20260919110000`) é a fonte única dos **três sinais que não se cobrem**: lacuna de NSR (a ingestão falha) · batidas presas (a coleta parou) · horas sem contato (a máquina está fora). `fn_lacunas_afd_parque` virou **envelope** dela — uma regra só, para tela e rotina diária não divergirem.
+- **Verificação diária que AVISA**, como etapa 4 de `/api/cron`: e-mail agrupado **por unidade** (o HMI tem 3 relógios na mesma máquina e avisaria 3 vezes pelo mesmo problema) com os relógios que têm ponto parado.
+- **Aba "Investigar Ponto"** em Marcações (`fn_auditoria_ponto_servidor`, `20260919120000`): busca por nome, matrícula ou CPF e monta a trilha diária — turno escalado, presença na grade, batidas (próprias, do cadastro irmão, fora de circulação e órfãs no AFD) e **um diagnóstico escrito** por dia, com o lugar onde cada caso se resolve. É a pergunta que hoje obrigava a acionar a TI.
+- **O selo do relógio passou a cobrir os dois casos**: além de "N registros não coletados" (lacuna), agora mostra "N batidas ainda no relógio" quando o equipamento declara ter mais do que foi ingerido.
+
+### Unchanged (de propósito)
+
+- 🚨 **A aba de investigação é SOMENTE LEITURA, e nenhuma action dela escreve.** Ela diagnostica e diz *para onde ir*; as correções continuam nos caminhos que já existem (Preencher pelas Batidas, Restaurar Batidas, correção de batida real, lançamento de escala), cada um com a prévia e o guard dele. Um segundo caminho de escrita sobre ponto é o padrão que este projeto já pagou caro três vezes.
+- 🚨 **Campo ausente NÃO é zero.** Coletor anterior à v0.19.0 não manda o `last_nsr`, e `nsr_device` fica **NULL** em vez de virar "0 batidas esperando" — que é exatamente a aparência de um relógio perfeito. O guard é `> 0`, não `!= null`: firmware que mandasse 0 também significa "não sei". `nsr_device_em` anda junto, para separar leitura recente de número congelado.
+- **Encontrar relógio parado não é falha do cron.** A vigilância só entra em `falhas` quando **não consegue medir** — achar problema é o trabalho dela, e quem reporta isso é o corpo da resposta.
+
+### Removed (do plano original, não do código)
+
+O plano proposto foi reescrito depois do diagnóstico completo. Saíram cinco itens:
+
+- **"Rebobinar cursor"** — inútil *e* perigosa. O cursor **não é armazenado**: `fn_cursor_afd_dispositivo` o deriva a cada chamada, e no caso do HMI ele apontava para o início exato do buraco o tempo todo. Torná-lo editável seria criar a única forma conhecida de **perder** batida.
+- **"Criar marcação a partir do AFD órfão"** — contorna `ponto_valido_desde`, a defesa contra o histórico de relógio reaproveitado virar ponto daqui (9.626 marcações de 2019–2025 já entraram por essa porta uma vez).
+- **"Alocar na matrícula atual"** — reintroduziria, pela mão do usuário, a dupla contagem que o desempate por `servidor_id` existe para impedir.
+- **Visão por setor** — é o *Preencher pelas Batidas*, que já existe com prévia e critério de acréscimo puro.
+- **Gráfico de volume com "queda abrupta"** — heurística onde já existe sinal exato; volume cai legitimamente em fim de semana e feriado, e alarme falso mata o alerta bom.
+
+### Notas
+
+- 🚨 **`marcacoes_ponto` não tinha índice em `afd_registro_id`, e isso custou cinco rodadas de produção.** O `NOT EXISTS` que pergunta "este registro de AFD já virou marcação?" virava **Hash Anti Join** sobre as **3.491.055** linhas da tabela — 3.718 ms de seq scan e 4.869 ms montando o hash, com 14.742 blocos de arquivo temporário — para comparar com **74** linhas de AFD. `idx_marcacao_afd_registro` (parcial, só quem tem AFD) derruba a função de **5.243 ms para 256 ms em 8 dias, e 105 ms em 62**. O índice serve a qualquer busca de marcação por registro de AFD, não só a esta tela.
+- ⚠️ **A sonda de diagnóstico omitia o `NOT EXISTS` e devolvia 1 ms** para a CTE que custava 5.369 ms — "inocentando" o culpado certo e mandando a investigação para outro lugar por duas tentativas. Sonda que não reproduz a consulta inteira dá confiança falsa. O que fechou o caso foi `EXPLAIN (ANALYZE, BUFFERS)` — `scratchpad/medir_auditoria_producao.sql`, um bloco que não cria nada e devolve o plano como tabela.
+- ✅ **Conferido em produção depois de aplicado** (`scratchpad/ver_auditoria_producao.mjs`, 11 asserções): 8 dias em **256 ms**, 30 em 228 ms, 62 em **105 ms**; teto de período recusando; `anon` com 401; a trilha da THAYNA em 03/09 devolvendo `retida` com as **4 batidas fora de circulação**; e o dia 18/09 do HMI mostrando as batidas recuperadas.
+- ⚠️ **O aviso diário exige a chave `vigilancia_ponto_emails` em Configurações.** Sem ela a verificação roda, mede e **não envia** — o número sai na resposta do cron, mas ninguém é avisado. Por isso `avisoEnviado` é campo separado de `success`.
+- Portões: `go test ./ciclo/` ganhou `nsr_device_test.go` (11 casos, todos sobre "ausência nunca vira zero"); `sim_manual.js` em **1033 asserções, 58 seções**, com `val_sim_manual.js` reprovando 5 defeitos injetados.
+- Migrations validadas em homologação com ensaio revertido: **9 de 9** para os três sinais (incluindo a prova de que ponto preso vence "sem contato" na severidade, e de que `nsr_device` NULL não vira 0).
+- ⚠️ **Ordem de aplicação obrigatória:** a `20260919120000` não depende da `110000`, mas a tela de Dispositivos REP passa a chamar `fn_vigilancia_coleta_parque` — sem a `110000` aplicada, o selo simplesmente não aparece (o erro é tratado e a listagem continua).
+
 ## [2.74.0] - 2026-09-19
 
 Uma migration: `20260919100000`. Coletor **v0.18.0**.

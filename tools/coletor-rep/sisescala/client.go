@@ -449,8 +449,14 @@ func (c *Client) ConfirmarRemocao(filaID string, sucesso bool, mensagemErro stri
 // vale para atualizar ultimo_contato_em, só não atualiza deriva_segundos.
 // A versão vai por aqui (e não só no lote de AFD) porque o sync é incremental desde a v0.5.0:
 // relógio sem batida nova não manda lote nenhum, e ficaria com a versão congelada na tela.
-func (c *Client) Heartbeat(relogioDevice *time.Time, coletorVersao, coletorHost, coletorIP string) error {
+func (c *Client) Heartbeat(relogioDevice *time.Time, coletorVersao, coletorHost, coletorIP string, ultimoNsrDevice *int64) error {
 	payload := map[string]interface{}{}
+	// ⚠️ Ausente e' diferente de zero, e o servidor conta com isso: campo nao enviado deixa
+	// dispositivos_rep.nsr_device como esta (NULL num coletor que nunca reportou), em vez de
+	// afirmar que o equipamento nao tem batida nenhuma. Ver 20260919110000.
+	if ultimoNsrDevice != nil && *ultimoNsrDevice > 0 {
+		payload["ultimo_nsr_device"] = *ultimoNsrDevice
+	}
 	if relogioDevice != nil {
 		payload["relogio_device"] = relogioDevice.Format(time.RFC3339)
 	}

@@ -6208,6 +6208,118 @@ Portão: `go test ./ciclo/` (`fatiamento_test.go`), validado por
 foi o ensaio que pegou `rep_afd_registros.hash_encadeado` ser `NOT NULL` (armadilha 1) e o `DELETE`
 na tabela ser recusado pelo trigger de imutabilidade, que é o comportamento correto.
 
+#### A lacuna é CEGA para o caso mais comum: a máquina desligada (19/09/2026, v2.75.0)
+
+🚨 **Lacuna de NSR e "coleta parada" são sinais DIFERENTES, e nenhum pega o outro.** Com a máquina
+da unidade desligada **não se forma buraco nenhum**: o coletor nem pede o AFD, `ultimo_nsr` só para
+de subir e o cursor continua em `ultimo_nsr + 1` — estado perfeitamente consistente, com o ponto do
+dia inteiro parado dentro do relógio. Medido em 19/09/2026 indo aos equipamentos um a um:
+**19 dos 35 relógios com a máquina sem contato há mais de 2h, 15 há mais de 14h, 113 batidas
+presas** — e **zero** apareciam como lacuna.
+
+✅ **A peça que resolvia isso já existia e estava ÓRFÃ:** `rep.InformacoesSistema()`
+(`rep/client.go`) lê `get_system_information.fcgi`, cuja resposta traz **`last_nsr`** — e nenhum
+caminho do coletor a chamava. Desde a **v0.19.0** o heartbeat a envia, e o servidor calcula
+`batidas_presas = nsr_device − ultimo_nsr` **sem nenhuma rota até a rede da unidade**. Mesmo padrão
+da cópia de biometria: a detecção estava pronta, faltava o transporte.
+
+| sinal | o que significa | cego para |
+|---|---|---|
+| `nsr_faltando` (lacuna) | entregou e **não guardamos** | máquina desligada |
+| `batidas_presas` | registrou e **não entregou** | ingestão falhando com o coletor ativo |
+| `horas_sem_contato` | a máquina não fala conosco | tudo que aconteça **com** a máquina ligada |
+
+Fonte única: **`fn_vigilancia_coleta_parque`** (`20260919110000`); `fn_lacunas_afd_parque` virou
+envelope dela. `vigiarColetaDoParque` (etapa 4 de `/api/cron`) avisa por e-mail, **agrupado por
+unidade** — o HMI tem 3 relógios na mesma máquina e avisaria 3 vezes pelo mesmo problema.
+
+🚨 **CAMPO AUSENTE NÃO É ZERO, e aqui isso é a diferença entre detectar e mentir.** Coletor
+anterior à v0.19.0 não manda `last_nsr`; se o servidor lesse isso como 0, o relógio apareceria
+**perfeito** justamente quando ninguém o está lendo. `nsr_device` fica **NULL**, o guard é `> 0` e
+não `!= null` (firmware que mandasse 0 também é "não sei"), e `nsr_device_em` anda junto para
+separar leitura recente de número congelado. Mesma convenção de `usuarios_lidos_em`.
+
+⚠️ **Encontrar relógio parado NÃO é falha do cron** — é o trabalho dele. A vigilância só entra em
+`falhas` quando **não consegue medir**; o que ela achou sai no corpo da resposta. E
+`avisoEnviado` é campo separado de `success`: sem a chave `vigilancia_ponto_emails` em
+`configuracoes_globais` ela mede e **não envia**, que é o silêncio de antes com mais código.
+
+#### Investigar o ponto de uma pessoa (aba "Investigar Ponto")
+
+`fn_auditoria_ponto_servidor` (`20260919120000`) monta a trilha diária — turno, presença na grade,
+batidas próprias, do **cadastro irmão**, **retidas** e **órfãs no AFD** — e devolve um
+**diagnóstico escrito** por dia. Responde *"bati o ponto e estou com traço vermelho"* sem acionar
+a TI.
+
+🚨 **É SOMENTE LEITURA, e nenhuma action dela escreve.** Diagnostica e diz *para onde ir*; quem
+corrige são os caminhos que já existem, cada um com a prévia e o guard dele. Ao pedirem "um botão
+para arrumar aqui mesmo", a resposta é não: segundo caminho de escrita sobre ponto é o padrão que
+este projeto já pagou caro três vezes (armadilhas 14, 23 e 28).
+
+⚠️ **A ORDEM dos diagnósticos é da causa mais específica para a mais genérica, e não pode ser
+reordenada sem pensar.** `retida` vem antes de `nao_reconciliado`: batida fora de circulação
+**explica** o passo vazio, e invertido a tela mandaria a pessoa ao *Preencher pelas Batidas*, que
+responderia "nada a preencher" — exatamente o beco sem saída da armadilha 74.
+
+⚠️ **O período é limitado a 62 dias DENTRO da função.** `rep_afd_registros` tem 3,17M de linhas e a
+Cobertura de Ponto já viveu a 1,4s do `statement_timeout` (armadilha 54); sem teto, o primeiro
+"quero o ano todo" derruba a consulta com um erro sem explicação na tela.
+
+⚠️ **O escopo é lotação ∪ escala do período**, não só lotação — filtrar por lotação esconderia o
+**Servidor Externo**, escalado numa unidade e lotado em outra.
+
+#### 🚨 `NOT EXISTS` sem índice vira hash da tabela INTEIRA (19/09/2026)
+
+Esta função levou **cinco rodadas de produção** para entrar, e a causa foi sempre a mesma linha:
+
+```
+NOT EXISTS (SELECT 1 FROM marcacoes_ponto m WHERE m.afd_registro_id = a.id)
+```
+
+`EXPLAIN (ANALYZE)` em produção: o Postgres transforma isso em **Hash Anti Join** e constrói um
+hash das **3.491.055** linhas de `marcacoes_ponto` — 3.718 ms de seq scan, 4.869 ms montando o
+hash, 14.742 blocos de arquivo temporário — para responder *"estas **74** linhas de AFD já
+viraram marcação?"*. A CTE sozinha: **5.369 ms**; a função inteira, 5.540 ms.
+
+**`marcacoes_ponto` não tinha índice em `afd_registro_id`** (nasceu em `20260808000000` com
+índices por servidor, por órfã e por origem). `idx_marcacao_afd_registro` — parcial,
+`WHERE afd_registro_id IS NOT NULL` — derruba para **256 ms em 8 dias e 105 ms em 62**.
+
+⚠️ **Ao escrever `NOT EXISTS` / `NOT IN` contra tabela grande, confira o índice da coluna do
+lado de dentro.** O custo não aparece com pouco dado e não é proporcional ao período: é o degrau
+de um plano que muda.
+
+#### ⚠️ Sonda que não reproduz a consulta INTEIRA não mede nada — ela dá confiança falsa
+
+A sonda de diagnóstico desta migration **omitia o `NOT EXISTS`** e devolvia **1 ms** para a CTE
+que custava 5.369 ms. Isso "inocentou" o culpado na 3ª rodada e mandou a investigação para outro
+lugar por duas tentativas. Ao instrumentar, **copie o predicado inteiro**, não os filtros que
+parecem os relevantes.
+
+#### ✅ Como obter o plano quando a função nem chega a existir
+
+Conferência que aborta **reverte a transação inteira**, então a função não fica em produção para
+ser medida de fora — e o `statement_timeout` do Studio (`postgres`) é outro, o que esconde
+problema de desempenho. O caminho é um bloco que **não cria nada**:
+
+```sql
+CREATE TEMP TABLE _plano (linha_n serial, plano text);
+DO $$ ... FOR r IN EXECUTE 'EXPLAIN (ANALYZE, BUFFERS) ' || v_sql LOOP
+        INSERT INTO _plano(plano) VALUES (r."QUERY PLAN"); END LOOP; ... $$;
+SELECT * FROM _plano ORDER BY linha_n;
+```
+
+Modelo em `scratchpad/medir_auditoria_producao.sql`. Devolver **tabela** em vez de `RAISE`
+também evita o erro de renderização do SQL Editor (`invalid_type: expected string, received
+undefined`), que aparece quando a execução só produz `NOTICE`.
+
+⚠️ **Medir via PostgREST engana**: lá cada consulta é planejada isoladamente, e foi isso que me
+fez descartar o suspeito certo. Dentro da função o planner vê tudo junto e escolhe outra coisa.
+
+ℹ️ **A conferência de toda migration nova MEDE TEMPO**, não só correção, e a mensagem de reprovação
+traz 1 dia / 8 dias / 30 dias mais cada etapa — crescimento proporcional aponta trabalho por dia;
+degrau aponta troca de plano. Foi o que estreitou o problema a cada rodada.
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.

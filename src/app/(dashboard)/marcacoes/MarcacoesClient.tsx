@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { formatarDataHoraComSegundos } from '@/utils/horario'
-import { Monitor, Fingerprint, ListChecks, Plus, Pencil, Trash2, ShieldCheck, UploadCloud, HeartPulse, FileCheck2, CalendarClock, MapPin } from 'lucide-react'
+import { Monitor, Fingerprint, ListChecks, Plus, Pencil, Trash2, ShieldCheck, UploadCloud, HeartPulse, FileCheck2, CalendarClock, MapPin, Search } from 'lucide-react'
 import { listarTerminaisLocais, listarDispositivosRep, excluirTerminalLocal, excluirDispositivoRep, listarCoberturaResumo, listarCoberturaEscalaResumo } from './actions'
 import { TerminalLocalModal } from './TerminalLocalModal'
 import { DispositivoRepModal } from './DispositivoRepModal'
@@ -14,9 +14,10 @@ import { CoberturaTab, mesAtual, type ResumoPrecarregado } from './CoberturaTab'
 import { CoberturaEscalaTab } from './CoberturaEscalaTab'
 import { SetoresSemRelogioTab } from './SetoresSemRelogioTab'
 import { AutorizacoesPontoTab } from './AutorizacoesPontoTab'
+import { InvestigacaoTab } from './InvestigacaoTab'
 import { IdCopyBadge } from './IdCopyBadge'
 
-type Aba = 'terminais' | 'dispositivos' | 'cobertura' | 'cobertura_escala' | 'setores_sem_relogio' | 'pendencias' | 'biometria' | 'higiene' | 'pendrive' | 'autorizacoes'
+type Aba = 'investigacao' | 'terminais' | 'dispositivos' | 'cobertura' | 'cobertura_escala' | 'setores_sem_relogio' | 'pendencias' | 'biometria' | 'higiene' | 'pendrive' | 'autorizacoes'
 
 interface Opcoes {
   unidades: { id: string; nome: string }[]
@@ -128,12 +129,33 @@ function statusColetaDispositivo(d: any): { texto: string; classe: string } {
 // equipamento e entra assim que a coleta destravar. O texto precisa dizer isso — "perdidas"
 // mandaria alguém digitar horário à mão em cima de batida que existe.
 function statusLacunaDispositivo(d: any): { texto: string; classe: string; titulo: string } | null {
-  const l = d.lacuna_afd
-  if (!l || !l.nsr_faltando || Number(l.nsr_faltando) <= 0) return null
+  const l = d.vigilancia_coleta
+  if (!l) return null
+
+  // Ponto que o equipamento REGISTROU e ainda não coletamos. É o sinal que a lacuna é cega para
+  // ver: com a máquina da unidade desligada não se forma buraco nenhum — `ultimo_nsr` só para de
+  // subir, e o cursor continua em `ultimo_nsr + 1`. Estado perfeitamente consistente, com o ponto
+  // do dia inteiro parado dentro do relógio. Medido em 19/09/2026: 113 batidas assim, em 15
+  // relógios, nenhuma visível como lacuna.
+  const presas = Number(l.batidas_presas) || 0
+  if (!l.nsr_faltando && presas > 0) {
+    const lido = l.nsr_device_em ? ` (lido há ${formatarDuracao(l.nsr_device_em).texto})` : ''
+    return {
+      texto: `${presas} batida(s) ainda no relógio`,
+      classe: CLASSES_STATUS_COLETA.ambar,
+      titulo:
+        `O equipamento declara ter até o NSR ${l.nsr_device}${lido} e o SisEscala ingeriu até o `
+        + `${l.ultimo_nsr}. As batidas estão gravadas no relógio e entram assim que a máquina `
+        + `${l.coletor_host || 'da unidade'} voltar a coletar — não há ponto perdido.`,
+    }
+  }
+
+  if (!l.nsr_faltando || Number(l.nsr_faltando) <= 0) return null
   const horas = Number(l.horas_travado) || 0
   const quanto = l.lacuna_desde ? ` há ${formatarDuracao(l.lacuna_desde).texto}` : ''
+  const tambemPresas = presas > 0 ? ` e ${presas} ainda no relógio` : ''
   return {
-    texto: `${l.nsr_faltando} registro(s) não coletados${quanto}`,
+    texto: `${l.nsr_faltando} registro(s) não coletados${quanto}${tambemPresas}`,
     // Abaixo de 6h ainda pode ser um ciclo ruim se resolvendo sozinho; acima disso já é dia de
     // ponto sem chegar. Nunca verde: lacuna nenhuma é situação normal.
     classe: horas >= 6 ? CLASSES_STATUS_COLETA.vermelho : CLASSES_STATUS_COLETA.ambar,
@@ -241,6 +263,10 @@ export function MarcacoesClient({ podeGerir, podeAutorizar, escopoLimitado, opco
   const abas: { id: Aba; label: string; icon: any; visivel: boolean; alerta?: number | null }[] = [
     { id: 'terminais', label: 'Terminais Locais', icon: Monitor, visivel: podeGerir },
     { id: 'dispositivos', label: 'Dispositivos REP', icon: Fingerprint, visivel: podeGerir },
+    // Investigação de uma PESSOA. Fica ao lado de Dispositivos REP de propósito: é o caminho
+    // natural depois de olhar o equipamento — "o relógio está bem, e o ponto do fulano?".
+    // Somente leitura; as correções continuam nos lugares de sempre.
+    { id: 'investigacao', label: 'Investigar Ponto', icon: Search, visivel: podeGerir },
     { id: 'cobertura', label: 'Cobertura de Ponto', icon: HeartPulse, visivel: true, alerta: alertaCobertura },
     { id: 'cobertura_escala', label: 'Cobertura da Escala', icon: CalendarClock, visivel: true, alerta: alertaEscala },
     // Setor que nenhum relogio atende. So para quem gere infraestrutura: a acao dela e
@@ -362,6 +388,8 @@ export function MarcacoesClient({ podeGerir, podeAutorizar, escopoLimitado, opco
         </div>
       )}
 
+      {aba === 'investigacao' && podeGerir && <InvestigacaoTab />}
+
       {aba === 'dispositivos' && podeGerir && (
         <div className="space-y-4">
           {/* Aviso no TOPO, não só o selo na linha: um parque de 35 relógios não é percorrido
@@ -373,13 +401,14 @@ export function MarcacoesClient({ podeGerir, podeAutorizar, escopoLimitado, opco
               <div className="rounded-2xl border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-4">
                 <p className="text-sm font-bold text-red-800 dark:text-red-300">
                   {travados.length === 1
-                    ? '1 relógio tem batidas coletadas que não chegaram ao SisEscala'
-                    : `${travados.length} relógios têm batidas coletadas que não chegaram ao SisEscala`}
+                    ? '1 relógio tem ponto registrado que não chegou ao SisEscala'
+                    : `${travados.length} relógios têm ponto registrado que não chegou ao SisEscala`}
                 </p>
                 <p className="text-xs text-red-700 dark:text-red-400 mt-1">
                   As batidas continuam gravadas no equipamento e entram sozinhas quando a coleta
                   destravar — <strong>não há ponto perdido</strong>. Enquanto não entram, a grade
-                  desses servidores fica sem presença nos dias afetados.
+                  desses servidores fica sem presença nos dias afetados; não digite horário à mão
+                  por causa disso.
                 </p>
                 <ul className="mt-2 space-y-0.5">
                   {travados.map((d) => {

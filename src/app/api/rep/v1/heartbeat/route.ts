@@ -36,6 +36,20 @@ export async function POST(request: Request) {
     }
   }
 
+  // Maior NSR que o EQUIPAMENTO declara ter. É o que permite ao servidor saber quanto ponto está
+  // registrado no relógio e ainda não chegou, sem nenhuma rota até a rede da unidade — o sinal
+  // que teria detectado o REP-iDClass-HMI-01 no primeiro ciclo em vez de em 38 horas.
+  //
+  // 🚨 Campo AUSENTE não é zero, e a rota depende disso: coletor anterior à v0.19.0 não manda
+  // nada, e `nsr_device` precisa continuar NULL em vez de virar "0 batidas esperando" — que é
+  // exatamente a aparência de um relógio perfeito. Por isso o guard é `> 0` e não `!= null`:
+  // um firmware que mandasse 0 também significa "não sei". Ver 20260919110000.
+  const nsrDevice = Number(body?.ultimo_nsr_device)
+  if (Number.isSafeInteger(nsrDevice) && nsrDevice > 0) {
+    atualizacao.nsr_device = nsrDevice
+    atualizacao.nsr_device_em = new Date().toISOString()
+  }
+
   const coletorVersao: string | undefined = body?.coletor_versao
   if (typeof coletorVersao === 'string' && coletorVersao.trim()) {
     atualizacao.coletor_versao = coletorVersao.trim().slice(0, 32)
@@ -54,14 +68,31 @@ export async function POST(request: Request) {
     }
   }
 
+  const supabase = await createAdminClient()
+
   if (Object.keys(atualizacao).length > 0) {
-    const supabase = await createAdminClient()
     const { error } = await supabase
       .from('dispositivos_rep')
       .update(atualizacao)
       .eq('id', auth.dispositivoId)
     if (error) console.error('Falha ao gravar estado do coletor:', error.message)
   }
+
+  // Recalcula o cache de contiguidade do AFD deste relógio.
+  //
+  // 🚨 É AQUI, e não na ingestão. `fn_cursor_afd_dispositivo` faz uma window function sobre todos
+  // os NSRs do dispositivo — 185ms a 470ms por relógio, medido em produção, com o HMM-03 em
+  // 426 mil linhas. Calcular isso para os 35 a cada carregamento de tela dava ~9,8s e estourava o
+  // statement_timeout; somá-lo ao caminho do lote de AFD seria repetir o defeito que travou o
+  // REP-iDClass-HMI-01 por 38 horas. O heartbeat é frequente (5 min), barato, já escreve nesta
+  // tabela e nunca tem lote em voo. Ver 20260919130000.
+  //
+  // ⚠️ Falha em silêncio de propósito: cache desatualizado atrasa um alerta, mas heartbeat que
+  // falha derruba a versão, o host e a deriva do relógio — que é muito pior.
+  const { error: erroContiguidade } = await supabase.rpc('fn_atualizar_contiguidade_dispositivo', {
+    p_dispositivo_id: auth.dispositivoId,
+  })
+  if (erroContiguidade) console.error('Falha ao atualizar contiguidade do AFD:', erroContiguidade.message)
 
   return NextResponse.json({ success: true, deriva_segundos: derivaSegundos })
 }
