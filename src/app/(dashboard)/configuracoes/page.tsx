@@ -714,6 +714,22 @@ export default function ConfigPage() {
                 />
               </div>
             </div>
+
+            <div className="space-y-2 pt-4 border-t border-zinc-100 dark:border-zinc-800">
+              <label className="text-xs font-black text-zinc-400 uppercase tracking-widest block">
+                Destinatários da Vigilância de Ponto (Alertas de Falha / Batidas Presas)
+              </label>
+              <input 
+                type="text"
+                placeholder="ti@sms.maraba.pa.gov.br, rh@sms.maraba.pa.gov.br"
+                className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold"
+                value={getConfig('vigilancia_ponto_emails')?.valor || ''}
+                onChange={(e) => updateConfig('vigilancia_ponto_emails', e.target.value)}
+              />
+              <p className="text-xs text-zinc-500">
+                E-mails que recebem o aviso diário automático do cron quando houver relógios com batidas presas, lacunas de NSR ou máquinas sem coletar há horas. Separe múltiplos e-mails por vírgula.
+              </p>
+            </div>
           </div>
         </div>
         </>
