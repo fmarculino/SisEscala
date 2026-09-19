@@ -738,6 +738,62 @@ export const ponto: Capitulo = {
     },
 
     {
+      id: 'batidas-nao-coletadas',
+      titulo: 'O relógio está online e as batidas não chegam',
+      resumo: 'O aviso de registros não coletados, e por que "online" não quer dizer que está tudo bem.',
+      papeis: ['Administrador Geral', 'Diretor', 'RH Geral', 'RH da Unidade'],
+      blocos: [
+        { tipo: 'caminho', itens: ['OPERAÇÃO', 'Marcações', 'Dispositivos REP'], href: '/marcacoes' },
+        {
+          tipo: 'p',
+          texto:
+            'O relógio registra as batidas na memória dele e o computador da unidade vai buscá-las de tempos em tempos. Quase sempre isso acontece em minutos. Quando **não** acontece, a tela avisa: o relógio aparece com um selo dizendo quantos registros ainda não foram coletados e há quanto tempo, e a lista completa fica em destaque no topo da aba.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'dica',
+          titulo: 'Nenhuma batida se perde',
+          texto:
+            'A memória do relógio é lacrada e guarda tudo. Enquanto o aviso estiver na tela, as batidas **existem** e entram sozinhas assim que a coleta destravar — não digite horário à mão por causa dele. O que o aviso diz é que a grade daqueles servidores vai ficar sem presença nos dias afetados **até lá**.',
+        },
+        {
+          tipo: 'aviso',
+          tom: 'cuidado',
+          titulo: 'Este aviso existe porque os outros dois enganam',
+          texto:
+            'Um relógio pode aparecer como **Online**, com o último contato de dois minutos atrás e um número de registros alto, e mesmo assim estar sem entregar batida desde a véspera. O contato recente diz que o computador da unidade está conversando com o sistema; o número alto é o maior que já chegou um dia, e ele **não diminui** quando fica um buraco para trás. Só este selo responde à pergunta que importa: *o que o relógio registrou chegou até aqui?*',
+        },
+        {
+          tipo: 'tabela',
+          colunas: ['O selo mostra', 'Costuma significar', 'O que fazer'],
+          linhas: [
+            [
+              'Poucas horas (âmbar)',
+              'A unidade ficou sem rede, ou o computador esteve desligado.',
+              'Aguardar um ciclo. Some sozinho quando a máquina voltar.',
+            ],
+            [
+              'Mais de 6 horas (vermelho)',
+              'Já é um turno inteiro de ponto sem chegar.',
+              'Conferir se o computador da unidade está ligado e com o coletor aberto.',
+            ],
+            [
+              'Não sai, mesmo com tudo ligado',
+              'Alguma coisa impede a entrada daquele bloco de batidas.',
+              'Avisar quem administra o sistema, informando o nome do relógio e a máquina que aparece no aviso.',
+            ],
+          ],
+        },
+        {
+          tipo: 'p',
+          texto:
+            'O aviso some sozinho no momento em que as batidas entram. Não há botão para "forçar": quem busca é o aplicativo coletor instalado na máquina da unidade, e ele tenta de novo a cada poucos minutos.',
+        },
+        { tipo: 'veja', secaoId: 'cobertura-ponto', texto: 'Para ver quem consegue bater em cada relógio' },
+      ],
+    },
+
+    {
       id: 'setor-sem-relogio',
       titulo: 'Setor que nenhum relógio atende',
       resumo: 'Setor novo pode nascer fora do relógio, em silêncio — e a tela que mostra isso.',

@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/utils/supabase/server'
 import { autenticarDispositivoRep } from '@/utils/repDeviceAuth'
-import { reconciliarSincronizacaoAfd } from '@/utils/reconciliacaoHelper'
 
 /**
  * Recebe um lote de linhas de AFD do coletor-rep e delega para `fn_ingerir_afd`, que já faz
@@ -61,10 +60,19 @@ export async function POST(request: Request) {
     if (erroVersao) console.error('Falha ao gravar versão do coletor:', erroVersao.message)
   }
 
-  // Reconciliação em tempo real de escala_diaria para os servidores que bateram ponto no lote
-  if (data?.sincronizacao_id && (data?.marcacoes || 0) > 0) {
-    await reconciliarSincronizacaoAfd(data.sincronizacao_id)
-  }
+  // NADA de reconciliar aqui. `fn_ingerir_afd` ja reconcilia, na MESMA transacao (passo 3.6,
+  // desde 20260818080000) e com `fn_reconciliar_pessoa_dia`, que e a versao completa - este
+  // laco refazia o mesmo conjunto de pares (servidor, dia) por HTTP, um RPC de cada vez.
+  //
+  // 🚨 Nao era so desperdicio: era METADE do tempo de resposta, e foi o que travou o
+  // REP-iDClass-HMI-01 em 18/09/2026. Um lote de 500 linhas gera ~390 pares; a funcao leva ~30s
+  // e este laco levava outro tanto. Passando dos 60s de timeout do coletor o cliente aborta, a
+  // conexao cai, o Postgres REVERTE a transacao inteira - inclusive a propria linha de
+  // `rep_sincronizacoes` - e o coletor remonta o MESMO lote no ciclo seguinte, para sempre.
+  // 509 batidas de um hospital sumiram por 38h, sem rastro em tela nenhuma.
+  //
+  // ⚠️ No caminho de reenvio (`reenvio: true`) era pior: o lote ja tinha sido ingerido e
+  // reconciliado, e reconciliava-se tudo de novo a cada ciclo, de graca.
 
   return NextResponse.json(data)
 }

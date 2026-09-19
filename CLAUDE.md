@@ -6122,6 +6122,92 @@ Geradores: `gen_batida_retida.js`, `gen_reversao_mantem_batidas.js` (**duas** fo
 revertido (9/9, 3/3, 4/4 e 8/8) e conferidas em produção em 17/09/2026 por
 `scratchpad/ver_batida_retida_producao.mjs`: 18 de 18**, incluindo o dia da THAYNA.
 
+### 76. Falha que REVERTE o próprio registro dela não pode ser detectada por evento (19/09/2026)
+
+🚨 **O REP-iDClass-HMI-01 ficou 38h sem ingerir uma batida — 509 marcações presas no equipamento,
+267 delas do dia 18 inteiro — e não havia UMA linha de erro em lugar nenhum.** A tela mostrava
+`NSR: 131199` e `Último contato: há 2 minutos`: os dois indicadores que existiam apontavam para
+"está tudo bem". Diário em
+[`docs/evolucao/2026-09-19-o-lote-que-nao-cabia-no-proprio-timeout.md`](docs/evolucao/2026-09-19-o-lote-que-nao-cabia-no-proprio-timeout.md).
+
+⚠️ **A causa foi trabalho DUPLICADO, não erro de lógica.** `fn_ingerir_afd` reconcilia na própria
+transação (passo 3.6, desde `20260818080000`), e a rota `/api/rep/v1/marcacoes` chamava
+`reconciliarSincronizacaoAfd` **depois**, refazendo o mesmo conjunto de pares por HTTP, um RPC de
+cada vez. Redundante desde 18/08/2026 — e era **metade do tempo de resposta**.
+
+| medida | valor |
+|---|---|
+| ingestão de 50 linhas | **~3s** (medido na recuperação) |
+| lote de 500 → pares (servidor, dia) | **~390** |
+| timeout do cliente Go (`sisescala/client.go`) | **60s para toda chamada** |
+
+🚨 **O modo de falha é o que importa: o cliente aborta, a conexão cai, e o Postgres reverte a
+transação INTEIRA — inclusive a linha de `rep_sincronizacoes` que registraria a tentativa.** E como
+`fn_cursor_afd_dispositivo` continua correto (fim do trecho **contíguo** + 1), o ciclo seguinte
+remonta **exatamente o mesmo lote de 500** e bate no mesmo timeout. **Laço eterno e silencioso: nada
+avança, nada reclama, nada fica gravado.**
+
+⚠️ **A assinatura no banco, para diagnosticar o próximo:** `coletor_versao_em` recente (a rota só o
+grava depois de `fn_ingerir_afd` retornar OK) com `dispositivos_rep.updated_at` velho e **nenhuma**
+`rep_sincronizacoes` nova. Isso é o **atalho de reenvio idempotente** — o lote pequeno passando e o
+grande morrendo. Zero sincronizações com status de falha **não** prova que o coletor está parado.
+
+⚠️ **E lote de 500 já tinha passado antes no MESMO relógio** (07 e 14/09, com 500 marcações com
+dono). O que mudou foi a `20260917170000`, de **17/09**, que trocou `fn_reconciliar_marcacoes_dia`
+por `fn_reconciliar_pessoa_dia` (reconcilia o irmão também, é mais cara) — e a lacuna começa em
+**17/09 às 18:44**. A correção de 17/09 está certa; o que ela revelou é que **o custo da ingestão
+não tinha teto nenhum**.
+
+🚨 **A defesa que vale para a PRÓXIMA causa é detecção por ESTADO.** `fn_lacunas_afd_parque`
+(`20260919100000`) compara `dispositivos_rep.ultimo_nsr` com o cursor — dois números que **já
+existiam** e que ninguém comparava. Estado inconsistente não depende de nada ter conseguido ser
+gravado no momento da falha; log de evento, sim.
+
+⚠️ **`ultimo_nsr` é o maior já recebido e NÃO cai quando surge um buraco atrás dele.** Ao diagnosticar
+"o ponto da unidade não aparece", **compare o cursor com o `ultimo_nsr` antes de suspeitar de rede,
+de credencial ou do servidor**. `scratchpad/an_lacunas_parque.mjs` varre os 35 relógios.
+
+⚠️ **Lacuna NÃO é batida perdida, e o texto da tela tem que dizer isso.** O AFD é memória inviolável
+do REP-C: o dado está no equipamento e entra sozinho quando a coleta destravar. Escrever "batidas
+perdidas" mandaria alguém digitar horário à mão em cima de batida que existe.
+
+**Coletor v0.18.0** — lote padrão **500 → 150**, fatiamento **adaptativo** ao falhar (divide ao meio
+até o piso de 25) e `break` no primeiro trecho que não entra:
+
+⚠️ **Só refatia em falha de TRANSPORTE.** Recusa que o servidor **respondeu** (401, 403, 400) não
+muda de resultado por ser menor — refatiar ali multiplica as tentativas de uma falha sistemática e
+prende o ciclo, que divide uma goroutine com o menu da bandeja. Reusa `ehFalhaDeTransporte`, a mesma
+distinção da armadilha 58.
+
+⚠️ **O `break` não é otimização.** Os lotes são contíguos em NSR: mandar o posterior enquanto o
+anterior falha é **exatamente** o que cria a lacuna, e o cursor fica preso atrás dela de qualquer
+forma. O `continue` antigo é o motivo de `ultimo_nsr` (131199) ter ficado 500 à frente do que
+realmente entrou.
+
+⚠️ **O reenvio da fila offline passa pelo mesmo fatiamento** — sem isso os lotes de 500 já gravados
+em campo por versões anteriores nunca sairiam de lá.
+
+ℹ️ **Ao recuperar um lote travado**, a rede `10.110.x.x` é roteada entre unidades: dá para falar com
+o relógio de qualquer unidade a partir da SMS (`curl.exe -sk`, ping de 2 ms ao HMI). `login.fcgi` +
+`get_afd.fcgi` com `{"mode":671,"initial_nsr":<cursor>}` devolve o trecho; ingerir em lotes de 50 por
+`fn_ingerir_afd` (service_role) com `lote_id` determinístico resolve. `scratchpad/fix_hmi01_ingestao.mjs`
+é o modelo, com ensaio antes de aplicar.
+
+ℹ️ **A reconciliação da grade vem de graça** — `fn_ingerir_afd` a faz sozinha. Na recuperação de
+19/09/2026 os dias de escala sem presença caíram de **106 para 8** no dia 18 sem nenhuma chamada
+extra, o que **prova em produção** que o passo 3.6 está vivo e que o helper da rota era redundante.
+
+⚠️ **`fn_pode_reconciliar_presenca` devolve NULL para `service_role`**, então
+`fn_reconciliacao_pendente_escala` responde **lista vazia** por esse caminho. Não é bug (o filtro
+fecha), mas **invalida a prévia como ferramenta de medição por script** — use
+`fn_projecao_marcacoes_dia`, que é STABLE e não tem guard.
+
+Portão: `go test ./ciclo/` (`fatiamento_test.go`), validado por
+`scratchpad/val_gen_lote_adaptativo.mjs` (**4 regressões injetadas, 4 reprovadas**). Gerador:
+`gen_lote_adaptativo.mjs`. ✅ **Migration validada em homologação com ensaio revertido, 5 de 5** — e
+foi o ensaio que pegou `rep_afd_registros.hash_encadeado` ser `NOT NULL` (armadilha 1) e o `DELETE`
+na tabela ser recusado pelo trigger de imutabilidade, que é o comportamento correto.
+
 ## Convenções
 
 - **Idioma:** identificadores de domínio, comentários e mensagens de usuário em português.

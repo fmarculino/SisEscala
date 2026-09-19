@@ -24,7 +24,7 @@ import (
 	"github.com/sms-maraba/sisescala-coletor-rep/sisescala"
 )
 
-const Versao = "0.17.0"
+const Versao = "0.18.0"
 
 // LimiteCadastrosPorCiclo e' o teto do ciclo AUTOMATICO. O clique manual no menu passa 0 (sem
 // teto, envia todos).
@@ -83,6 +83,57 @@ func IPLocal(alvoRelogio string) string {
 		return rede.IP.String()
 	}
 	return ""
+}
+
+// Tamanho do lote de AFD. Era 500 fixo ate a v0.18.0, e 500 e grande demais: `fn_ingerir_afd`
+// RECONCILIA dentro da propria transacao (um fn_reconciliar_pessoa_dia por par servidor/dia), e
+// um lote de 500 batidas de hospital gera ~390 pares.
+//
+// 🚨 Medido em producao em 19/09/2026: ~3s por 50 linhas, ou seja ~30s de ingestao num lote de
+// 500 — mais o que a rota gastava refazendo a MESMA reconciliacao por HTTP. Passando dos 60s de
+// timeout deste cliente, a conexao cai e o Postgres REVERTE a transacao INTEIRA, inclusive a
+// linha de rep_sincronizacoes: falha que nao deixa rastro em lugar nenhum. E como o cursor
+// continua apontando para o inicio do trecho, o ciclo seguinte remonta EXATAMENTE o mesmo lote
+// de 500 e bate no mesmo timeout — para sempre. Foi assim que o REP-iDClass-HMI-01 ficou 38h
+// com 509 batidas so na memoria do equipamento, enquanto a tela dizia "ultimo contato: ha 2 min".
+const (
+	tamanhoLotePadrao = 150
+	// Abaixo disto nao vale dividir: se 25 linhas nao entram, o problema nao e tamanho.
+	tamanhoLoteMinimo = 25
+)
+
+// enviarComFatiamento envia um trecho de AFD e, se o envio falhar por TRANSPORTE (timeout, queda
+// de conexao), divide o trecho ao meio e tenta cada metade — recursivamente, ate tamanhoLoteMinimo.
+//
+// ⚠️ So refatia em falha de TRANSPORTE. Erro que o servidor RESPONDEU (401 de token, 403 de dono
+// da fila, 400 de payload) nao muda de resultado por ser menor: refatiar ali so multiplicaria as
+// tentativas de uma falha sistematica e prenderia o ciclo, que divide uma goroutine com o menu
+// da bandeja. E a mesma distincao que ehFalhaDeTransporte ja faz para a fila de cadastros.
+//
+// Devolve os trechos que falharam mesmo assim, na ordem, para o chamador gravar na fila.
+func enviarComFatiamento(sc *sisescala.Client, dispositivoID string, trecho []string, arquivoSHA256 string) [][]string {
+	if len(trecho) == 0 {
+		return nil
+	}
+	loteID := loteIDDeterministico(dispositivoID, trecho)
+	resultado, err := sc.EnviarLote(loteID, trecho, arquivoSHA256, Versao, Hostname())
+	if err == nil {
+		log.Printf("lote %s (%d linhas): novas=%d duplicadas=%d marcacoes=%d orfas=%d nsr_max_aceito=%d",
+			loteID, len(trecho), resultado.Novas, resultado.Duplicadas, resultado.Marcacoes,
+			resultado.Orfas, resultado.NsrMaxAceito)
+		return nil
+	}
+	if !ehFalhaDeTransporte(err) || len(trecho) <= tamanhoLoteMinimo {
+		log.Printf("lote %s (%d linhas) falhou: %v", loteID, len(trecho), err)
+		return [][]string{trecho}
+	}
+	meio := len(trecho) / 2
+	log.Printf("lote %s (%d linhas) falhou por transporte (%v); dividindo em %d + %d e tentando de novo",
+		loteID, len(trecho), err, meio, len(trecho)-meio)
+	var falhados [][]string
+	falhados = append(falhados, enviarComFatiamento(sc, dispositivoID, trecho[:meio], arquivoSHA256)...)
+	falhados = append(falhados, enviarComFatiamento(sc, dispositivoID, trecho[meio:], arquivoSHA256)...)
+	return falhados
 }
 
 // loteIDDeterministico gera um identificador em formato UUID (8-4-4-4-12 hex) a partir do
@@ -157,9 +208,11 @@ func Sync(cfg *config.Config, d *config.DispositivoRepConfig) error {
 	var falhasSeguidas int
 
 	for i, lote := range pendentes {
-		resultado, err := sc.EnviarLote(lote.LoteID, lote.Linhas, lote.ArquivoSHA256, Versao, Hostname())
-		if err != nil {
-			log.Printf("lote %s continua na fila: %v", lote.LoteID, err)
+		// Passa pelo fatiamento adaptativo tambem no REENVIO: a fila de campo tem lotes de 500
+		// gravados por versoes anteriores, e sem dividir eles nunca sairiam de la.
+		falhados := enviarComFatiamento(sc, d.ID, lote.Linhas, lote.ArquivoSHA256)
+		if len(falhados) > 0 {
+			log.Printf("lote %s continua na fila (%d trecho(s) nao entraram)", lote.LoteID, len(falhados))
 			falhasSeguidas++
 			if falhasSeguidas >= falhasSeguidasParaDesistir {
 				log.Printf("desistindo do reenvio da fila neste ciclo apos %d falhas seguidas: "+
@@ -169,8 +222,9 @@ func Sync(cfg *config.Config, d *config.DispositivoRepConfig) error {
 			continue
 		}
 		falhasSeguidas = 0
-		log.Printf("lote %s da fila reenviado: novas=%d duplicadas=%d marcacoes=%d orfas=%d",
-			lote.LoteID, resultado.Novas, resultado.Duplicadas, resultado.Marcacoes, resultado.Orfas)
+		// O lote saiu inteiro — possivelmente fatiado em varios lote_id novos, que e inofensivo:
+		// fn_ingerir_afd e idempotente por (dispositivo_id, geracao, nsr), entao o mesmo NSR
+		// chegando sob outro lote_id entra como DUPLICADO, nunca como batida nova.
 		if err := fila.Remover(cfg.Fila.Diretorio, d.ID, lote.LoteID); err != nil {
 			log.Printf("aviso: nao foi possivel remover lote %s da fila apos ACK: %v", lote.LoteID, err)
 		}
@@ -215,29 +269,32 @@ func Sync(cfg *config.Config, d *config.DispositivoRepConfig) error {
 	// integridade do dado em si nao depende disso; ela vive na cadeia de hash por NSR de
 	// rep_afd_registros, que e' continua entre sincronizacoes.
 	arquivoSHA256 := rep.SHA256Hex(bruto)
-	const tamanhoLote = 500
-	for inicio := 0; inicio < len(linhas); inicio += tamanhoLote {
-		fim := inicio + tamanhoLote
+	for inicio := 0; inicio < len(linhas); inicio += tamanhoLotePadrao {
+		fim := inicio + tamanhoLotePadrao
 		if fim > len(linhas) {
 			fim = len(linhas)
 		}
-		trecho := linhas[inicio:fim]
-		loteID := loteIDDeterministico(d.ID, trecho)
-
-		resultado, err := sc.EnviarLote(loteID, trecho, arquivoSHA256, Versao, Hostname())
-		if err != nil {
-			log.Printf("falha ao enviar lote %s, gravando na fila offline: %v", loteID, err)
-			erroFila := fila.Gravar(cfg.Fila.Diretorio, d.ID, fila.Lote{
-				LoteID: loteID, Linhas: trecho, ArquivoSHA256: arquivoSHA256,
-				ColetorVersao: Versao, ColetorHost: Hostname(),
-			})
-			if erroFila != nil {
-				log.Printf("erro: falha tambem ao gravar na fila: %v", erroFila)
-			}
+		falhados := enviarComFatiamento(sc, d.ID, linhas[inicio:fim], arquivoSHA256)
+		if len(falhados) == 0 {
 			continue
 		}
-		log.Printf("lote %s: novas=%d duplicadas=%d marcacoes=%d orfas=%d nsr_max_aceito=%d",
-			loteID, resultado.Novas, resultado.Duplicadas, resultado.Marcacoes, resultado.Orfas, resultado.NsrMaxAceito)
+		for _, t := range falhados {
+			loteID := loteIDDeterministico(d.ID, t)
+			log.Printf("gravando lote %s (%d linhas) na fila offline", loteID, len(t))
+			if erroFila := fila.Gravar(cfg.Fila.Diretorio, d.ID, fila.Lote{
+				LoteID: loteID, Linhas: t, ArquivoSHA256: arquivoSHA256,
+				ColetorVersao: Versao, ColetorHost: Hostname(),
+			}); erroFila != nil {
+				log.Printf("erro: falha tambem ao gravar na fila: %v", erroFila)
+			}
+		}
+		// PARA no primeiro trecho que nao entrou, em vez de seguir para o proximo. Os lotes sao
+		// CONTIGUOS em NSR: mandar o posterior enquanto o anterior falha e exatamente o que cria a
+		// lacuna, e o cursor (fim do trecho contiguo + 1) fica preso atras dela de qualquer forma —
+		// nao ha nada a ganhar avancando. O resto vem no proximo ciclo.
+		log.Printf("interrompendo o envio deste AFD: o trecho a partir da linha %d nao entrou, "+
+			"e mandar os seguintes so criaria lacuna de NSR", inicio+1)
+		break
 	}
 	return nil
 }

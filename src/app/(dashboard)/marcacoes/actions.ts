@@ -5,7 +5,6 @@ import { definirTimezone } from '@/utils/horario'
 import { revalidatePath } from 'next/cache'
 import { randomUUID, createHash } from 'crypto'
 import { formatSectorsHierarchy } from '@/utils/sectors'
-import { reconciliarSincronizacaoAfd } from '@/utils/reconciliacaoHelper'
 import { buscarTodasPaginas } from '@/utils/paginacao'
 import {
   montarEscopoGestao, podeGerirMarcacoes, unidadeNoEscopo, filtrarPorUnidade, gerenciaSemEscopo,
@@ -313,12 +312,26 @@ export async function listarDispositivosRep() {
     if (!ultimaColetaPendrive.has(s.dispositivo_id)) ultimaColetaPendrive.set(s.dispositivo_id, s.concluida_em)
   }
 
+  // Lacuna de NSR: batida que o equipamento JA entregou e o SisEscala nao ingeriu de forma
+  // continua. Vem junto da lista de proposito, colada ao dispositivo — uma chamada separada
+  // seria uma que a tela pode esquecer de fazer, e este e' justamente o sinal que faltava
+  // quando o REP-iDClass-HMI-01 ficou 38h travado sem nada em tela nenhuma (19/09/2026).
+  //
+  // ⚠️ `fn_lacunas_afd_parque` filtra por `fn_escopo_gestao_alcanca`, que PASSA com service_role
+  // (auth.uid() IS NULL). Quem recorta aqui e' o `filtrarPorUnidade` abaixo, como no resto desta
+  // action — a RPC devolve o parque inteiro para este cliente.
+  const { data: lacunas, error: erroLacunas } = await supabase.rpc('fn_lacunas_afd_parque')
+  if (erroLacunas) console.error('Falha ao consultar lacunas de AFD:', erroLacunas.message)
+  const porDispositivo = new Map<string, any>()
+  for (const l of lacunas || []) porDispositivo.set(l.dispositivo_id, l)
+
   // ⚠️ Filtro AQUI: a consulta usa `createAdminClient` (service_role, BYPASSRLS), entao a
   // policy "Leitura de dispositivos por escopo" nao roda. Sem isto o RH da Unidade veria os
   // 32 relogios do parque.
   return filtrarPorUnidade(escopo, data || [], (d: any) => d.unidade_id).map((d: any) => ({
     ...d,
     ultima_coleta_pendrive: ultimaColetaPendrive.get(d.id) || null,
+    lacuna_afd: porDispositivo.get(d.id) || null,
   }))
 }
 
@@ -1161,9 +1174,19 @@ export async function importarPendriveAfd(dispositivoId: string, formData: FormD
     marcacoes += data?.marcacoes || 0
     orfas += data?.orfas || 0
 
-    if (data?.sincronizacao_id && (data?.marcacoes || 0) > 0) {
-      await reconciliarSincronizacaoAfd(data.sincronizacao_id)
-    }
+    // NADA de reconciliar aqui. `fn_ingerir_afd` ja reconcilia, na MESMA transacao (passo 3.6,
+    // desde 20260818080000) e com `fn_reconciliar_pessoa_dia`, que e a versao completa - este
+    // laco refazia o mesmo conjunto de pares (servidor, dia) por HTTP, um RPC de cada vez.
+    //
+    // 🚨 Nao era so desperdicio: era METADE do tempo de resposta, e foi o que travou o
+    // REP-iDClass-HMI-01 em 18/09/2026. Um lote de 500 linhas gera ~390 pares; a funcao leva ~30s
+    // e este laco levava outro tanto. Passando dos 60s de timeout do coletor o cliente aborta, a
+    // conexao cai, o Postgres REVERTE a transacao inteira - inclusive a propria linha de
+    // `rep_sincronizacoes` - e o coletor remonta o MESMO lote no ciclo seguinte, para sempre.
+    // 509 batidas de um hospital sumiram por 38h, sem rastro em tela nenhuma.
+    //
+    // ⚠️ No caminho de reenvio (`reenvio: true`) era pior: o lote ja tinha sido ingerido e
+    // reconciliado, e reconciliava-se tudo de novo a cada ciclo, de graca.
   }
 
   revalidatePath('/marcacoes')

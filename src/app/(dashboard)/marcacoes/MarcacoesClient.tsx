@@ -118,6 +118,33 @@ function statusColetaDispositivo(d: any): { texto: string; classe: string } {
   return { texto: `Offline há ${texto}`, classe: CLASSES_STATUS_COLETA.vermelho }
 }
 
+// 🚨 "Online" e um NSR alto NÃO significam que as batidas estão chegando — foi exatamente esse
+// par de indicadores tranquilizadores que o REP-iDClass-HMI-01 exibiu durante as 38h em que ficou
+// travado, em 18/09/2026, com 509 batidas presas no equipamento. `ultimo_nsr` é o maior já
+// recebido; ele não cai quando surge um buraco atrás dele. Este selo é o terceiro sinal, e é o
+// único que responde "o que o relógio entregou chegou até aqui?".
+//
+// ⚠️ Lacuna NÃO é batida perdida. O AFD é memória inviolável do REP-C: o dado está no
+// equipamento e entra assim que a coleta destravar. O texto precisa dizer isso — "perdidas"
+// mandaria alguém digitar horário à mão em cima de batida que existe.
+function statusLacunaDispositivo(d: any): { texto: string; classe: string; titulo: string } | null {
+  const l = d.lacuna_afd
+  if (!l || !l.nsr_faltando || Number(l.nsr_faltando) <= 0) return null
+  const horas = Number(l.horas_travado) || 0
+  const quanto = l.lacuna_desde ? ` há ${formatarDuracao(l.lacuna_desde).texto}` : ''
+  return {
+    texto: `${l.nsr_faltando} registro(s) não coletados${quanto}`,
+    // Abaixo de 6h ainda pode ser um ciclo ruim se resolvendo sozinho; acima disso já é dia de
+    // ponto sem chegar. Nunca verde: lacuna nenhuma é situação normal.
+    classe: horas >= 6 ? CLASSES_STATUS_COLETA.vermelho : CLASSES_STATUS_COLETA.ambar,
+    titulo:
+      `O equipamento já entregou até o NSR ${l.ultimo_nsr}, mas o SisEscala só ingeriu de forma `
+      + `contínua até o ${Number(l.proximo_nsr) - 1}. As batidas continuam gravadas no relógio `
+      + `(memória inviolável) e entram sozinhas quando a coleta destravar — não há ponto perdido. `
+      + `Se não destravar, veja o log do coletor na máquina ${l.coletor_host || 'da unidade'}.`,
+  }
+}
+
 export function MarcacoesClient({ podeGerir, podeAutorizar, escopoLimitado, opcoes }: {
   /** Ve as abas de infraestrutura: Terminais, Dispositivos REP, Higiene, Pendrive. */
   podeGerir: boolean
@@ -337,6 +364,39 @@ export function MarcacoesClient({ podeGerir, podeAutorizar, escopoLimitado, opco
 
       {aba === 'dispositivos' && podeGerir && (
         <div className="space-y-4">
+          {/* Aviso no TOPO, não só o selo na linha: um parque de 35 relógios não é percorrido
+              item a item, e o selo sozinho depende de alguém rolar até ele. */}
+          {(() => {
+            const travados = dispositivos.filter((d) => d.ativo && statusLacunaDispositivo(d))
+            if (travados.length === 0) return null
+            return (
+              <div className="rounded-2xl border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-4">
+                <p className="text-sm font-bold text-red-800 dark:text-red-300">
+                  {travados.length === 1
+                    ? '1 relógio tem batidas coletadas que não chegaram ao SisEscala'
+                    : `${travados.length} relógios têm batidas coletadas que não chegaram ao SisEscala`}
+                </p>
+                <p className="text-xs text-red-700 dark:text-red-400 mt-1">
+                  As batidas continuam gravadas no equipamento e entram sozinhas quando a coleta
+                  destravar — <strong>não há ponto perdido</strong>. Enquanto não entram, a grade
+                  desses servidores fica sem presença nos dias afetados.
+                </p>
+                <ul className="mt-2 space-y-0.5">
+                  {travados.map((d) => {
+                    const l = statusLacunaDispositivo(d)!
+                    return (
+                      <li key={d.id} className="text-xs text-red-700 dark:text-red-400">
+                        <strong>{d.nome}</strong>
+                        {d.unidades?.nome ? ` (${d.unidades.nome})` : ''} — {l.texto}
+                        {d.coletor_host ? ` · máquina ${d.coletor_host}` : ''}
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            )
+          })()}
+
           <div className="flex justify-end">
             <button
               onClick={() => setModalDispositivo({ aberto: true, dispositivo: null })}
@@ -368,6 +428,15 @@ export function MarcacoesClient({ podeGerir, podeAutorizar, escopoLimitado, opco
                         return (
                           <span title={c.titulo} className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${c.classe}`}>
                             {c.texto}
+                          </span>
+                        )
+                      })()}
+                      {d.ativo && (() => {
+                        const l = statusLacunaDispositivo(d)
+                        if (!l) return null
+                        return (
+                          <span title={l.titulo} className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${l.classe}`}>
+                            {l.texto}
                           </span>
                         )
                       })()}

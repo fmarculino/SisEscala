@@ -2,6 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.74.0] - 2026-09-19
+
+Uma migration: `20260919100000`. Coletor **v0.18.0**.
+Diário em `docs/evolucao/2026-09-19-o-lote-que-nao-cabia-no-proprio-timeout.md`.
+
+O REP-iDClass-HMI-01 ficou **38 horas** sem ingerir uma batida — 509 marcações presas no
+equipamento, 267 delas do dia 18 inteiro — enquanto a tela mostrava *Online* e um NSR alto.
+**A falha se apagava a si mesma a cada 5 minutos.**
+
+### Fixed
+
+- 🚨 **A rota de ingestão do coletor refazia, por HTTP, a reconciliação que `fn_ingerir_afd` já fazia na mesma transação.** Trabalho 100% duplicado desde 18/08/2026, quando a função ganhou o passo 3.6 e ninguém removeu o helper anterior — e não era só desperdício: era **metade do tempo de resposta**. Um lote de 500 linhas gera ~390 pares (servidor, dia); medido, a função sozinha leva ~30s, e o laço da rota levava outro tanto. Passando dos **60s de timeout do coletor**, o cliente aborta, a conexão cai e o Postgres **reverte a transação inteira — inclusive a linha de `rep_sincronizacoes` que registraria a tentativa**. Como o cursor continua correto, o ciclo seguinte remonta o mesmo lote de 500 e bate no mesmo timeout: **laço eterno, sem rastro em lugar nenhum**. `src/utils/reconciliacaoHelper.ts` foi removido, com os dois chamadores.
+- **Por que só agora, se o mesmo relógio já tinha ingerido lotes de 500 em 07 e 14/09:** a `20260917170000` (v2.73.0) trocou `fn_reconciliar_marcacoes_dia` por `fn_reconciliar_pessoa_dia` dentro de `fn_ingerir_afd`, que reconcilia também os cadastros irmãos e é mais cara. A lacuna começa em **17/09 às 18:44**. A correção de 17/09 está certa e não foi desfeita — o que ela revelou é que o custo da ingestão não tinha teto.
+- **Coletor v0.18.0: lote de AFD adaptativo.** Tamanho padrão de **500 → 150**; ao falhar **por transporte**, o trecho é dividido ao meio e cada metade é tentada, até um piso de 25 linhas. O laço **para no primeiro trecho que não entra** em vez de seguir para o próximo — os lotes são contíguos em NSR, e mandar o posterior enquanto o anterior falha é exatamente o que cria a lacuna. O reenvio da fila offline passa pelo mesmo fatiamento, que é o que destrava os lotes de 500 já gravados em campo.
+- ⚠️ **Recusa que o SERVIDOR respondeu (401, 403, 400) não é refatiada.** Dividir não muda o resultado e só multiplicaria as tentativas de uma falha sistemática, prendendo o ciclo — que divide uma goroutine com o menu da bandeja. Mesma distinção que `ehFalhaDeTransporte` já fazia para a fila de cadastros.
+
+### Added
+
+- 🚨 **Lacuna de NSR visível, detectada por ESTADO e não por evento** (`fn_lacunas_afd_parque`). A aba Dispositivos REP ganhou um selo por relógio e um aviso no topo com a lista. **É esta a defesa que vale para a próxima causa, qualquer que seja ela**: detecção por evento não funciona quando a falha é capaz de reverter o próprio registro dela, e um estado inconsistente não depende de nada ter sido gravado no momento em que tudo deu errado. Os dois números já existiam — `ultimo_nsr` e `fn_cursor_afd_dispositivo` —, ninguém os comparava.
+- ⚠️ **O texto diz que NÃO há ponto perdido**, e isso é parte da correção: o AFD é memória inviolável do REP-C, e as batidas entram sozinhas quando a coleta destrava. Escrever "batidas perdidas" mandaria alguém digitar horário à mão em cima de batida que existe.
+
+### Dados corrigidos (produção, 19/09/2026)
+
+- As **510 linhas** foram baixadas do equipamento e ingeridas em lotes de 50: `novas=510 marcacoes=509 orfas=0 falhas=0`, **244 de 244 identificadores resolvidos**. Lacuna de NSR: 500 → **zero**. Batidas do dia 18 no HMI-01: **0 → 267**.
+- A grade se reconciliou sozinha, de dentro da própria `fn_ingerir_afd` — o que **prova em produção** que o passo 3.6 está vivo e que o helper da rota era redundante. Dias de escala sem presença: **dia 18 de 106 → 8**, dia 17 de 50 → 9, dia 19 (em curso) de 105 → 51.
+- **Nenhum ganho restou**: projetando os 294 pares (servidor, dia) dos dias 17 e 18, saíram **0 acréscimos puros**. Os 5 casos de troca vão para a validação manual do coordenador, pela regra de nunca reconciliar em massa. Os demais são Sobreaviso (que não marca presença, por construção) e ausências reais.
+- Varredura do parque: dos **35 relógios ativos**, só o HMI-01 estava travado.
+
+### Notas
+
+- Portão: `go test ./ciclo/` (`fatiamento_test.go`), validado por `scratchpad/val_gen_lote_adaptativo.mjs` com **4 regressões injetadas, 4 reprovadas**. Gerador de cópia mecânica: `gen_lote_adaptativo.mjs`.
+- Migration validada em homologação com ensaio revertido: **5 de 5**. O ensaio pegou dois defeitos que leitura de código não pegaria — `rep_afd_registros.hash_encadeado` é `NOT NULL` e o `DELETE` na tabela é recusado pelo trigger de imutabilidade (o que está certo, Portaria 671/2021).
+- ℹ️ `fn_pode_reconciliar_presenca` devolve **NULL** para `service_role`, então `fn_reconciliacao_pendente_escala` responde lista vazia por esse caminho. Não é bug (o filtro fecha), mas invalida a função como ferramenta de medição por script.
+
 ## [2.73.0] - 2026-09-17
 
 Quatro migrations: `20260917140000`, `20260917150000`, `20260917160000` e `20260917170000`.
